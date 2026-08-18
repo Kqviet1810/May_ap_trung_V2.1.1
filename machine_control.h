@@ -358,7 +358,8 @@ enum class FaultCode : uint16_t {
   EmergencyTemperature = 112,
   HumidityLow = 120,
   HeaterSwitchOffDuringBatch = 130,
-  ManualFanOffDuringBatch = 131,
+  // 131 (quat tuan hoan tat giua me) da bo: quat tuan hoan la bat buoc va duoc
+  // ep bat cung nao me con chay, khong con phu thuoc cong tac tay nua.
   ResumeRequiresAuto = 132,
   AutoModeOffDuringBatch = 133,
   AutoTurningDisabledDuringBatch = 134,
@@ -410,7 +411,6 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     {FaultCode::HumidityLow, FaultSeverity::Warning, 40U, AlarmHumidityLow, false, false, false, false, false, false, "HUM LOW"},
     // Mat mot chuc nang thiet yeu trong luc me dang chay phai bao ngay.
     {FaultCode::HeaterSwitchOffDuringBatch, FaultSeverity::Stop, 222U, AlarmSystem, false, true, true, false, false, false, "HEATER SWITCH OFF"},
-    {FaultCode::ManualFanOffDuringBatch, FaultSeverity::Stop, 221U, AlarmSystem, false, true, true, false, false, false, "MANUAL FAN OFF"},
     {FaultCode::ResumeRequiresAuto, FaultSeverity::Warning, 180U, AlarmSystem, false, false, false, false, false, false, "RESUME NEEDS AUTO"},
     // AUTO bi tat giua me: van giu dieu khien nhiet, nhung khoa moi lenh dao.
     {FaultCode::AutoModeOffDuringBatch, FaultSeverity::Stop, 220U, AlarmAutoMode, false, false, false, true, false, false, "AUTO OFF DURING BATCH"},
@@ -2912,7 +2912,11 @@ class MachineController {
       }
     } else if (hasBatchRecord && batch.wasRunning) {
       resumePending_ = true;
-      resumeConfirmationRequired_ = resetReasonIsPowerInterruption(resetReason_);
+      // "Ap lai" BAT: bo qua man hinh hoi CO/HUY ke ca sau mat dien that su,
+      // tu dong ap tiep ngay khi cac dieu kien an toan khac (AUTO, cong tac
+      // nhiet, cam bien, RTC...) duoc dap ung trong processResume().
+      resumeConfirmationRequired_ = resetReasonIsPowerInterruption(resetReason_) &&
+                                    !config_.autoResumeOnPowerLoss;
       automaticResetRecovery_ = resetReasonIsAutomaticRecovery(resetReason_);
       elapsedBeforeStartSec_ = batch.elapsedSec;
       savedElapsedAtCheckpoint_ = batch.elapsedSec;
@@ -2981,6 +2985,7 @@ class MachineController {
     adjustResumeElapsedFromRtc(now);
     processInputModeTransition(now);
     processHmiTransactions(now);
+    updateTestMode(now);
     processResume(now);
     updateAlarms(now);
     updateAutoTune(now);
@@ -3396,20 +3401,32 @@ class MachineController {
                   : "DA XAC NHAN";
           break;
         }
-        case HmiCommandType::TurnLeft:
-          ok = requestHmiManualTurn(now, TurnDirection::Left,
-                                    command.actuatorLeaseMs, message); break;
-        case HmiCommandType::TurnRight:
-          ok = requestHmiManualTurn(now, TurnDirection::Right,
-                                    command.actuatorLeaseMs, message); break;
-        case HmiCommandType::TurnStop:
-          if (batchRunning_ || resumePending_) {
-            ok = false; message = "DANG CO ME - KHOA DAO TAY";
-          } else {
-            hmiManualTurnUntil_ = 0;
-            stopTurn(false);
-            ok = true; message = "DA DUNG DAO";
-          }
+        case HmiCommandType::TestModeEnter:
+          ok = enterTestMode(now, message); break;
+        case HmiCommandType::TestModeExit:
+          exitTestMode(now);
+          ok = true; message = "DA THOAT THU NGHIEM";
+          break;
+        case HmiCommandType::TestOutputPulse:
+          ok = testOutputPulse(now,
+              static_cast<TestOutputId>(command.alarmMask & 0xFFU), message);
+          break;
+        case HmiCommandType::TestLimitStart:
+          ok = testLimitStart(now,
+              static_cast<TestLimitId>(command.alarmMask & 0xFFU), message);
+          break;
+        case HmiCommandType::TestLimitCancel:
+          testLimitCancel(now);
+          ok = true; message = "DA HUY KIEM TRA";
+          break;
+        case HmiCommandType::WifiPortalStart:
+          testModeLastActivityAt_ = now;
+          ok = mayapRequestWifiPortal();
+          message = ok ? "DANG MO CONG DOI WIFI" : "CHI DUNG DUOC KHI ONLINE";
+          break;
+        case HmiCommandType::WifiPortalCancel:
+          mayapCancelWifiPortal();
+          ok = true; message = "DA DONG CONG WIFI";
           break;
         case HmiCommandType::AutoTuneStart:
           ok = startAutoTune(now, message); break;
@@ -3470,6 +3487,7 @@ class MachineController {
 
   bool startBatch(uint32_t now, const char *&message) {
     const InputState &in = inputs_.state();
+    if (testModeActive_) { message = "HAY THOAT THU NGHIEM TRUOC"; return false; }
     if (batchRunning_) { message = "ME DANG CHAY"; return false; }
     if (batchClearPending_) { message = "DANG XOA DU LIEU ME CU"; return false; }
     if (safetyJournalFaultLatched_) { message = "LOI NHAT KY AN TOAN"; return false; }
@@ -3589,6 +3607,7 @@ class MachineController {
 
   bool startAutoTune(uint32_t now, const char *&message) {
     const InputState &in = inputs_.state();
+    if (testModeActive_) { message = "HAY THOAT THU NGHIEM TRUOC"; return false; }
     if (batchRunning_ || resumePending_) { message = "DUNG ME TRUOC"; return false; }
     if (batchClearPending_) { message = "DANG XOA DU LIEU ME CU"; return false; }
     if (safetyJournalFaultLatched_) { message = "LOI NHAT KY AN TOAN"; return false; }
@@ -3614,18 +3633,8 @@ class MachineController {
     return true;
   }
 
-  bool requestHmiManualTurn(uint32_t now, TurnDirection direction,
-                            uint16_t leaseMs, const char *&message) {
-    if (batchRunning_ || resumePending_) {
-      message = "DANG CO ME - KHOA DAO TAY"; return false;
-    }
-    if (inputs_.state().autoMode) { message = "CHI DAO TAY O MANUAL"; return false; }
-    if (turnFaultLatched_) { message = "DANG CO LOI DAO"; return false; }
-    hmiManualDirection_ = direction;
-    hmiManualTurnUntil_ = now + std::max<uint16_t>(leaseMs, 200U);
-    message = direction == TurnDirection::Left ? "DANG DAO TRAI" : "DANG DAO PHAI";
-    return true;
-  }
+  // Dao tay chi di qua cong tac cung (PIN_IN_TURN_LEFT/RIGHT); HMI khong co
+  // menu dao tay nen khong can duong lenh rieng cho no.
 
   // Cong bu phan thoi gian mat dien bang moc RTC da ghi cung checkpoint.
   // Chi chay mot lan khi DS3231 hop le; neu RTC loi thi dung elapsedSec da luu.
@@ -3896,7 +3905,6 @@ class MachineController {
 
     faults_.set(FaultCode::HeaterSwitchOffDuringBatch,
                 heaterSwitchFaultActive_, now);
-    faults_.set(FaultCode::ManualFanOffDuringBatch, false, now);
     faults_.set(FaultCode::AutoModeOffDuringBatch,
                 autoModeFaultActive_, now);
     faults_.set(FaultCode::AutoTurningDisabledDuringBatch,
@@ -3966,7 +3974,6 @@ class MachineController {
     if (autoMode == previousAutoMode_) return;
     previousAutoMode_ = autoMode;
     stopTurn(false);
-    hmiManualTurnUntil_ = 0;
     manualTurnRearmRequired_ = true;
     if (!autoMode && !inputs_.state().circulationFan &&
         (outputs_.state().heatMaster || outputs_.state().heaterSsr)) {
@@ -4002,6 +4009,7 @@ class MachineController {
   void setTurnScheduleAnchor(uint32_t now) {
     lastTurnAt_ = now;
     lastTurnEpoch_ = rtc_.valid() ? rtc_.epoch() : 0U;
+    turnAnchorWaitSince_ = 0U;
     scheduleNextTurnFromAnchor(now);
   }
 
@@ -4027,6 +4035,19 @@ class MachineController {
     if (lastTurnAt_ != 0U) {
       nextTurnAt_ = lastTurnAt_ + intervalMs;
       if (timeReached(now, nextTurnAt_)) nextTurnAt_ = now;
+    } else if (lastTurnEpoch_ != 0U && !rtc_.valid()) {
+      // Phuc hoi me sau reset: da co moc RTC cua lan dao truoc (lastTurnEpoch_)
+      // nhung RTC dang khong hop le dung luc can lap lich, nen chua the quy
+      // doi ra thoi gian con lai. Cho RTC song lai thay vi cap nguyen mot chu
+      // ky moi (se xoa mat toan bo thoi gian da troi qua truoc do). Chi cho
+      // toi da mot chu ky; qua thoi han do uu tien dao ngay hon la bo lo han.
+      if (turnAnchorWaitSince_ == 0U) turnAnchorWaitSince_ = now;
+      if (elapsedMs(now, turnAnchorWaitSince_) >= intervalMs) {
+        lastTurnAt_ = now;
+        nextTurnAt_ = now;
+      } else {
+        nextTurnAt_ = 0U;  // giu 0 de ham nay duoc goi lai o chu ky ke tiep
+      }
     } else {
       lastTurnAt_ = now;
       nextTurnAt_ = now + intervalMs;
@@ -4034,6 +4055,10 @@ class MachineController {
   }
 
   void updateTurning(uint32_t now) {
+    // Che do thu nghiem tu dieu khien dao trai/phai qua xung rieng
+    // (updateTestModeOutputs); may trang thai dao binh thuong tam dung hoan
+    // toan de khong phat sinh loi dao "ao" trong luc thao tac thu nghiem.
+    if (testModeActive_) { stopTurn(false); return; }
     const InputState &in = inputs_.state();
     if (in.limitLeft && in.limitRight) {
       latchTurnFault(FaultCode::TurnLimitConflict, "HAI HANH TRINH CUNG ON");
@@ -4082,7 +4107,6 @@ class MachineController {
     // khong roi xuong MANUAL turning. Motor dao dung va cho AUTO phuc hoi.
     if ((batchRunning_ || resumePending_) && !in.autoMode) {
       stopTurn(false);
-      hmiManualTurnUntil_ = 0U;
       manualTurnRearmRequired_ = true;
       return;
     }
@@ -4131,17 +4155,11 @@ class MachineController {
     bool right = in.turnRight;
     if (manualTurnRearmRequired_) {
       if (left || right) {
-        hmiManualTurnUntil_ = 0;
         stopTurn(false);
         return;
       }
       manualTurnRearmRequired_ = false;
     }
-    if (!left && !right && hmiManualTurnUntil_ && !timeReached(now, hmiManualTurnUntil_)) {
-      left = hmiManualDirection_ == TurnDirection::Left;
-      right = hmiManualDirection_ == TurnDirection::Right;
-    }
-    if (hmiManualTurnUntil_ && timeReached(now, hmiManualTurnUntil_)) hmiManualTurnUntil_ = 0;
 
     if (left && right) {
       if (manualConflictSince_ == 0U) manualConflictSince_ = now;
@@ -4271,6 +4289,7 @@ class MachineController {
 
   // ----------------------------- Heating/Output -------------------------------
   void updateHeatingAndOutputs(uint32_t now) {
+    if (testModeActive_) { updateTestModeOutputs(now); return; }
     const InputState &in = inputs_.state();
     OutputRequest req{};
     req.light = in.light; // doc lap AUTO va me
@@ -4399,6 +4418,135 @@ class MachineController {
     if (onMs < SSR_MIN_ON_MS) onMs = 0;
     else if (windowMs - onMs < SSR_MIN_OFF_MS) onMs = windowMs;
     return elapsedMs(now, ssrWindowStartedAt_) < onMs;
+  }
+
+  // ----------------------------- Che do thu nghiem ----------------------------
+  // Trang rieng tren HMI de nguoi lap dat bat/tat tung ngo ra va kiem tra cong
+  // tac hanh trinh doc lap, khong dinh gi den logic AUTO/PID. Bi khoa hoan
+  // toan khi dang co me/resume/auto-tune de khong the vo tinh dieu khien
+  // thiet bi that trong luc dang ap trung.
+  bool enterTestMode(uint32_t now, const char *&message) {
+    if (batchRunning_ || resumePending_) {
+      message = "DANG CO ME - KHONG THU NGHIEM DUOC"; return false;
+    }
+    if (autotune_.running()) { message = "AUTO TUNE DANG CHAY"; return false; }
+    if (batchClearPending_) { message = "DANG XOA DU LIEU ME CU"; return false; }
+    if (emergencyActive_) { message = "DANG QUA NHIET KHAN CAP"; return false; }
+    testModeActive_ = true;
+    testOutputMaskActive_ = 0U;
+    for (uint32_t &t : testOutputPulseUntil_) t = 0U;
+    testLimitPhase_ = TestLimitPhase::Idle;
+    testLimitDeadline_ = 0U;
+    testLimitBuzzUntil_ = 0U;
+    testModeLastActivityAt_ = now;
+    pid_.reset();
+    message = "DA VAO CHE DO THU NGHIEM";
+    mayapSerialPrintf(false, "[TEST] ENTER\n");
+    return true;
+  }
+
+  void exitTestMode(uint32_t now) {
+    if (!testModeActive_) return;
+    testModeActive_ = false;
+    testOutputMaskActive_ = 0U;
+    for (uint32_t &t : testOutputPulseUntil_) t = 0U;
+    testLimitPhase_ = TestLimitPhase::Idle;
+    testLimitDeadline_ = 0U;
+    testLimitBuzzUntil_ = 0U;
+    outputs_.forceSafe(now);
+    mayapSerialPrintf(false, "[TEST] EXIT\n");
+  }
+
+  bool testOutputPulse(uint32_t now, TestOutputId id, const char *&message) {
+    if (!testModeActive_) { message = "CHUA VAO CHE DO THU NGHIEM"; return false; }
+    const uint8_t idx = static_cast<uint8_t>(id);
+    if (idx >= static_cast<uint8_t>(TestOutputId::Count)) {
+      message = "THIET BI KHONG HOP LE"; return false;
+    }
+    // Dao trai/phai loai tru nhau nhu khi van hanh that; OutputArbiter cung
+    // tu chan xung dot nhung huy truoc de UI phan hoi dung ngay.
+    if (id == TestOutputId::TurnLeft) {
+      testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::TurnRight)] = 0U;
+    } else if (id == TestOutputId::TurnRight) {
+      testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::TurnLeft)] = 0U;
+    }
+    testOutputPulseUntil_[idx] = now + TEST_OUTPUT_PULSE_MS;
+    testModeLastActivityAt_ = now;
+    message = "DANG XUNG THIET BI";
+    return true;
+  }
+
+  bool testLimitStart(uint32_t now, TestLimitId target, const char *&message) {
+    if (!testModeActive_) { message = "CHUA VAO CHE DO THU NGHIEM"; return false; }
+    testLimitTarget_ = target;
+    testLimitPhase_ = TestLimitPhase::Waiting;
+    testLimitDeadline_ = now + TEST_LIMIT_TIMEOUT_MS;
+    testLimitBuzzUntil_ = 0U;
+    testModeLastActivityAt_ = now;
+    message = "HAY TAC DONG CONG TAC HANH TRINH";
+    return true;
+  }
+
+  void testLimitCancel(uint32_t now) {
+    testLimitPhase_ = TestLimitPhase::Idle;
+    testLimitDeadline_ = 0U;
+    testLimitBuzzUntil_ = 0U;
+    testModeLastActivityAt_ = now;
+  }
+
+  void updateTestMode(uint32_t now) {
+    if (!testModeActive_) return;
+    const InputState &in = inputs_.state();
+    if (testLimitPhase_ == TestLimitPhase::Waiting) {
+      const bool hit = testLimitTarget_ == TestLimitId::Left ? in.limitLeft : in.limitRight;
+      if (hit) {
+        testLimitPhase_ = TestLimitPhase::Success;
+        testLimitBuzzUntil_ = now + TEST_LIMIT_CONFIRM_BUZZ_MS;
+        testModeLastActivityAt_ = now;
+      } else if (timeReached(now, testLimitDeadline_)) {
+        testLimitPhase_ = TestLimitPhase::Timeout;
+      }
+    } else if (testLimitPhase_ == TestLimitPhase::Success &&
+               timeReached(now, testLimitBuzzUntil_)) {
+      testLimitPhase_ = TestLimitPhase::Idle;
+    }
+    // Quen thoat trang thu nghiem: tu dong ve trang thai an toan sau mot thoi
+    // gian khong thao tac, tranh de may "mo cua" cho lenh tay vo thoi han.
+    if (elapsedMs(now, testModeLastActivityAt_) >= TEST_MODE_IDLE_EXIT_MS) {
+      exitTestMode(now);
+    }
+  }
+
+  void updateTestModeOutputs(uint32_t now) {
+    const auto pulseOn = [&](TestOutputId id) {
+      const uint32_t deadline = testOutputPulseUntil_[static_cast<uint8_t>(id)];
+      return deadline != 0U && !timeReached(now, deadline);
+    };
+    // Nhiet van phai ton trong cac lien dong an toan that: khong cam bien/
+    // dang qua nhiet/dang bi cam SSR thi khong duoc xung thu SSR hay contactor.
+    const bool heaterTestSafe = sensorUsable_ && !faults_.masterDropRequired() &&
+        !faults_.ssrInhibited() && !emergencyActive_ && !highTemperatureActive_;
+
+    OutputRequest req{};
+    req.heaterSsr = pulseOn(TestOutputId::HeaterSsr) && heaterTestSafe;
+    req.heatMaster = (req.heaterSsr || pulseOn(TestOutputId::HeatMaster)) && heaterTestSafe;
+    req.circulationFan = pulseOn(TestOutputId::CirculationFan);
+    req.ventFan = pulseOn(TestOutputId::VentFan);
+    req.light = pulseOn(TestOutputId::Light);
+    const bool limitBuzzActive = testLimitPhase_ == TestLimitPhase::Success &&
+                                 !timeReached(now, testLimitBuzzUntil_);
+    req.siren = pulseOn(TestOutputId::Siren) || limitBuzzActive;
+    req.turnLeft = pulseOn(TestOutputId::TurnLeft);
+    req.turnRight = pulseOn(TestOutputId::TurnRight);
+
+    outputs_.update(now, req);
+    runtime_.heaterPower = req.heaterSsr ? 100.0f : 0.0f;
+
+    uint8_t mask = 0U;
+    for (uint8_t i = 0; i < static_cast<uint8_t>(TestOutputId::Count); ++i) {
+      if (pulseOn(static_cast<TestOutputId>(i))) mask |= static_cast<uint8_t>(1U << i);
+    }
+    testOutputMaskActive_ = mask;
   }
 
   // ----------------------------- Batch ---------------------------------------
@@ -4610,6 +4758,14 @@ class MachineController {
     runtime_.networkConfigured = network.credentialsConfigured;
     runtime_.networkConnected = network.connected;
     runtime_.networkRssiDbm = network.rssiDbm;
+    runtime_.testModeActive = testModeActive_;
+    runtime_.testOutputMaskActive = testOutputMaskActive_;
+    runtime_.testLimitTarget = testLimitTarget_;
+    runtime_.testLimitPhase = testLimitPhase_;
+    const WifiPortalStatus portal = mayapGetWifiPortalStatus();
+    runtime_.wifiPortalState = portal.state;
+    snprintf(runtime_.wifiPortalApName, sizeof(runtime_.wifiPortalApName), "%s",
+             portal.apName);
     if (runtime_.timeValid) {
       snprintf(runtime_.dateText, sizeof(runtime_.dateText), "%s",
                rtc_.dateText());
@@ -4664,6 +4820,8 @@ class MachineController {
     MachineStateCode stateCode = MachineStateCode::Boot;
     if (emergencyActive_) {
       state = "QUA NHIET CAP 3"; stateCode = MachineStateCode::Emergency;
+    } else if (testModeActive_) {
+      state = "CHE DO THU NGHIEM"; stateCode = MachineStateCode::ReadyManual;
     } else if (storageFaultLatched_ || abnormalResetLatched_ ||
                faults_.active(FaultCode::OutputConflict)) {
       state = storageFaultLatched_ ? "LOI BO NHO" :
@@ -4923,8 +5081,6 @@ class MachineController {
     if (abnormalResetLatched_) return "RESET_NOT_ACK";
     if (faults_.active(FaultCode::HeaterSwitchOffDuringBatch))
       return "E130_HEATER_SWITCH_OFF";
-    if (faults_.active(FaultCode::ManualFanOffDuringBatch))
-      return "E131_MANUAL_FAN_OFF";
     if (faults_.masterDropRequired()) return "MASTER_SAFETY_DROP";
     if (!in.heaterEnable) return "HEATER_SWITCH_OFF";
     if (!(config_.allowHeatWithoutBatch || batchRunning_)) return "BATCH_NOT_RUNNING";
@@ -5077,6 +5233,7 @@ class MachineController {
   uint32_t batchStartEpoch_ = 0U;
   uint32_t lastTurnEpoch_ = 0U;
   uint32_t lastTurnAt_ = 0U;
+  uint32_t turnAnchorWaitSince_ = 0U;
   uint32_t batchLogSampleSequence_ = 0U;
   bool batchLogFaultActive_ = false;
 
@@ -5092,10 +5249,17 @@ class MachineController {
   uint32_t deadtimeUntil_ = 0;
   uint32_t nextTurnAt_ = 0;
   uint32_t manualConflictSince_ = 0;
-  uint32_t hmiManualTurnUntil_ = 0;
-  TurnDirection hmiManualDirection_ = TurnDirection::Left;
   bool previousAutoMode_ = false;
   bool manualTurnRearmRequired_ = true;
+
+  bool testModeActive_ = false;
+  uint8_t testOutputMaskActive_ = 0U;
+  uint32_t testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::Count)]{};
+  TestLimitId testLimitTarget_ = TestLimitId::Left;
+  TestLimitPhase testLimitPhase_ = TestLimitPhase::Idle;
+  uint32_t testLimitDeadline_ = 0U;
+  uint32_t testLimitBuzzUntil_ = 0U;
+  uint32_t testModeLastActivityAt_ = 0U;
 
   ConditionTimer heaterRestoreTimer_{};
   ConditionTimer autoLostTimer_{};

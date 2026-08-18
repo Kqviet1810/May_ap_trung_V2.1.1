@@ -282,6 +282,22 @@ constexpr uint32_t SUPERVISOR_RESTART_FALLBACK_MS = 7000UL; // TWDT 5 s duoc uu 
 // Wi-Fi chi chay o task rieng core 0; khong duoc goi tu task dieu khien.
 constexpr uint32_t NETWORK_CONNECT_TIMEOUT_MS = 20000UL;
 constexpr uint32_t NETWORK_RETRY_INTERVAL_MS = 30000UL;
+// Cong 1 doi Wi-Fi: mo AP toi da 5 phut cho nguoi dung nhap SSID/mat khau moi,
+// sau do tu dong dong portal va quay lai ket noi binh thuong.
+constexpr uint32_t WIFI_PORTAL_MAX_OPEN_MS = 300000UL;
+constexpr uint32_t WIFI_PORTAL_TEST_TIMEOUT_MS = 15000UL;
+constexpr uint16_t WIFI_PORTAL_SSID_MAX = 32U;
+constexpr uint16_t WIFI_PORTAL_PASSWORD_MAX = 64U;
+
+// ----------------------- CHE DO THU NGHIEM ----------------------------------
+// Xung ngo ra khi test: du de nguoi lap dat nghe/nhin thay tiep diem dong,
+// khong du dai de gay nong SSR/contactor khi thao tac lap.
+constexpr uint32_t TEST_OUTPUT_PULSE_MS = 3000UL;
+constexpr uint32_t TEST_LIMIT_TIMEOUT_MS = 20000UL;
+constexpr uint32_t TEST_LIMIT_CONFIRM_BUZZ_MS = 2000UL;
+// Roi trang Che do thu nghiem qua lau ma khong thao tac: tu dong thoat de
+// khong bo quen may o trang thai cho lenh tay.
+constexpr uint32_t TEST_MODE_IDLE_EXIT_MS = 120000UL;
 
 // ----------------------- KERNEL / EVENT -------------------------------------
 constexpr uint8_t INPUT_EVENT_QUEUE_SIZE = 16U;
@@ -465,6 +481,10 @@ struct MachineConfig {
   bool allowHeatWithoutBatch = false;
   uint16_t powerRestoreDelaySec = 30;
 
+  // "Ap lai": BAT = sau mat dien tu dong ap tiep me cu ngay khi co dien lai,
+  // khong hoi xac nhan. TAT (mac dinh) = luon hoi CO/HUY tren HMI nhu cu.
+  bool autoResumeOnPowerLoss = false;
+
   float tempOffset = 0.0f;
   float humidityOffset = 0.0f;
   uint16_t sensorTimeoutSec = 10;
@@ -479,6 +499,25 @@ struct NetworkStatus {
   bool connected = false;
   int8_t rssiDbm = -127;
 };
+
+// Trang thai cong 1 "Doi Wi-Fi" tren HMI: mo AP cau hinh giong nhu giu nut
+// BOOT, nhung phat/dieu khien tu menu Ket noi thay vi phai mo nap tu dien.
+enum class WifiPortalState : uint8_t {
+  Idle = 0, Starting = 1, ApActive = 2, Testing = 3, Success = 4, Failed = 5
+};
+struct WifiPortalStatus {
+  WifiPortalState state = WifiPortalState::Idle;
+  char apName[20] = "";
+};
+
+// Danh sach nga ra co the bat/tat doc lap trong Che do thu nghiem. Gia tri
+// trung voi thu tu hien thi tren HMI; dung chung giua hmi.h va machine_control.h.
+enum class TestOutputId : uint8_t {
+  HeaterSsr = 0, HeatMaster, CirculationFan, VentFan, Light, Siren,
+  TurnLeft, TurnRight, Count
+};
+enum class TestLimitId : uint8_t { Left = 0, Right = 1 };
+enum class TestLimitPhase : uint8_t { Idle = 0, Waiting = 1, Success = 2, Timeout = 3 };
 
 struct HmiFaultItem {
   uint16_t code = 0;
@@ -545,11 +584,24 @@ struct MachineRuntime {
   int8_t networkRssiDbm = -127;
   char dateText[11] = "--/--/----";
   char machineState[20] = "KHOI DONG";
+
+  // Che do thu nghiem: bitmask theo TestOutputId dang duoc xung ON, va
+  // trang thai kiem tra cong tac hanh trinh dang chon.
+  bool testModeActive = false;
+  uint8_t testOutputMaskActive = 0;
+  TestLimitId testLimitTarget = TestLimitId::Left;
+  TestLimitPhase testLimitPhase = TestLimitPhase::Idle;
+
+  // Trang thai cong 1 "Doi Wi-Fi" phat tu HMI, doc lap voi NetworkStatus binh thuong.
+  WifiPortalState wifiPortalState = WifiPortalState::Idle;
+  char wifiPortalApName[20] = "";
 };
 
 enum class HmiCommandType : uint8_t {
-  None, BatchStart, BatchStop, TurnLeft, TurnStop, TurnRight,
-  AlarmAck, AutoTuneStart, ResumeYes, ResumeNo
+  None, BatchStart, BatchStop,
+  AlarmAck, AutoTuneStart, ResumeYes, ResumeNo,
+  TestModeEnter, TestModeExit, TestOutputPulse, TestLimitStart, TestLimitCancel,
+  WifiPortalStart, WifiPortalCancel
 };
 struct HmiCommand {
   uint32_t id = 0;
@@ -557,6 +609,8 @@ struct HmiCommand {
   uint32_t createdAt = 0;
   uint16_t validForMs = 0;
   uint16_t actuatorLeaseMs = 0;
+  // Dung chung cho: mat na alarm (AlarmAck) HOAC gia tri TestOutputId/TestLimitId
+  // (TestOutputPulse/TestLimitStart) tuy theo command.type.
   uint32_t alarmMask = AlarmNone;
 };
 enum class BuzzerCue : uint8_t { None, Key, Save, Ok, Error };
@@ -579,6 +633,12 @@ void mayapNetworkBegin();
 void mayapNetworkUpdate(uint32_t now);
 void mayapSetConnectivityMode(ConnectivityMode mode);
 NetworkStatus mayapGetNetworkStatus();
+// Cong 1 "Doi Wi-Fi": chi co tac dung khi dang o che do ONLINE. Mo AP cau hinh
+// (giong giu nut BOOT) va tu ket noi thu SSID/mat khau moi nguoi dung luu qua
+// web phu; ket qua doc qua mayapGetWifiPortalStatus().
+bool mayapRequestWifiPortal();
+void mayapCancelWifiPortal();
+WifiPortalStatus mayapGetWifiPortalStatus();
 
 void hmiBegin();
 void hmiUpdate(uint32_t now);

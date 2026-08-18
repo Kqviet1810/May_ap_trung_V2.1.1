@@ -1,8 +1,18 @@
 /*
-  MAYAP - CHI PHAN KET NOI WIFI BANG WEB PHU
+  MAYAP - CHI PHAN KET NOI WIFI BANG WEB PHU (SKETCH THAM KHAO / DOC LAP)
   ESP32 / Arduino core
 
-  Chuc nang:
+  QUAN TRONG: tu ban co menu "Doi Wi-Fi" tren HMI (v3.5.0+), logic AP +
+  captive portal trong file nay da duoc chuyen thang vao network_service.h
+  (ham mayapRequestWifiPortal/mayapCancelWifiPortal, servicePortal trong
+  namespace MayapNetworkInternal) va chay non-blocking ben trong networkTask
+  cua firmware tong. File .ino nay KHONG duoc bien dich cung
+  MAYAP_INDUSTRIAL_v3_4_0.ino (Arduino chi cho phep mot cap setup()/loop()
+  moi sketch) - giu lai o day chi de lam tai lieu tham khao logic goc va de
+  nap rieng nhu mot firmware cau hinh Wi-Fi doc lap khi can (vi du nap tam
+  cho mot board moi truoc khi flash firmware tong).
+
+  Chuc nang cua BAN THAM KHAO nay (khong doi):
   - Doc SSID/password da luu trong Preferences.
   - Thu ket noi Wi-Fi da luu.
   - Neu chua ket noi: mo AP MAYAP-XXXX.

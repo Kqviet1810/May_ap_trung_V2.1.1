@@ -3,23 +3,31 @@
 #include "config.h"
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WebServer.h>
+#include <DNSServer.h>
+#include <Preferences.h>
 #include <stdint.h>
 
 // Wi-Fi duoc cach ly khoi task dieu khien. File nay chi duoc goi boi
-// networkTask (tru mayapSetConnectivityMode/mayapGetNetworkStatus dung atomic).
+// networkTask (tru mayapSetConnectivityMode/mayapGetNetworkStatus/
+// mayapRequestWifiPortal/mayapCancelWifiPortal/mayapGetWifiPortalStatus,
+// nhung tat ca deu dung atomic/co doc snapshot nen goi tu task nao cung an toan).
+//
+// Nguon goc cong 1 "Doi Wi-Fi": gop logic tu MAYAP_WIFI_WEB_PHU_ONLY.ino (web
+// phu cau hinh SSID/mat khau qua AP MAYAP-XXXX) vao thang trong networkTask,
+// chuyen tu kieu blocking (delay() trong connectSavedWifi) sang non-blocking
+// de khong bao gio lam cham task dieu khien/HMI. File .ino kia gio chi con la
+// tai lieu tham khao dung lam sketch nap rieng khi can, KHONG bien dich chung
+// voi firmware tong (ca hai deu co setup()/loop() rieng).
 namespace MayapNetworkInternal {
 
-constexpr size_t SSID_LENGTH = sizeof(NETWORK_WIFI_SSID) - 1U;
-constexpr size_t PASSWORD_LENGTH = sizeof(NETWORK_WIFI_PASSWORD) - 1U;
-constexpr bool CREDENTIALS_CONFIGURED =
-    SSID_LENGTH > 0U &&
-    (PASSWORD_LENGTH == 0U || PASSWORD_LENGTH >= 8U);
+constexpr uint16_t DNS_PORT = 53;
 
 static volatile uint8_t requestedMode =
     static_cast<uint8_t>(ConnectivityMode::Offline);
 static volatile uint8_t publishedState =
     static_cast<uint8_t>(NetworkStateCode::Offline);
-static volatile bool publishedConfigured = CREDENTIALS_CONFIGURED;
+static volatile bool publishedConfigured = false;
 static volatile bool publishedConnected = false;
 static volatile int8_t publishedRssiDbm = -127;
 
@@ -29,9 +37,51 @@ static uint32_t lastRetryAt = 0U;
 static uint32_t lastStartAttemptAt = 0U;
 static bool startAttempted = false;
 
+// ------------------------- Thong tin dang nhap Wi-Fi ------------------------
+// Doc/ghi tu networkTask. SSID/mat khau nap tu NVS (Preferences); neu chua
+// tung luu, dung macro bien dich MAYAP_WIFI_SSID/PASSWORD lam gia tri mac dinh
+// mot lan duy nhat de tuong thich firmware cu.
+static Preferences wifiPrefs;
+static char activeSsid[WIFI_PORTAL_SSID_MAX + 1U] = "";
+static char activePassword[WIFI_PORTAL_PASSWORD_MAX + 1U] = "";
+static bool credentialsLoaded = false;
+
+inline bool credentialsConfigured() { return activeSsid[0] != '\0'; }
+
+inline void loadCredentialsOnce() {
+  if (credentialsLoaded) return;
+  credentialsLoaded = true;
+  wifiPrefs.begin("mayapwifi", false);
+  String ssid = wifiPrefs.getString("ssid", "");
+  String pass = wifiPrefs.getString("pass", "");
+  if (ssid.isEmpty() && sizeof(NETWORK_WIFI_SSID) > 1U) {
+    // Chua tung cau hinh qua HMI/portal: mo phong gia tri build-time mot lan,
+    // luu lai de cac lan sau doc thang tu NVS.
+    ssid = NETWORK_WIFI_SSID;
+    pass = NETWORK_WIFI_PASSWORD;
+    wifiPrefs.putString("ssid", ssid);
+    wifiPrefs.putString("pass", pass);
+  }
+  snprintf(activeSsid, sizeof(activeSsid), "%s", ssid.c_str());
+  snprintf(activePassword, sizeof(activePassword), "%s", pass.c_str());
+}
+
+inline bool saveCredentials(const char *ssid, const char *password) {
+  if (!ssid || !ssid[0]) return false;
+  if (strlen(ssid) > WIFI_PORTAL_SSID_MAX ||
+      strlen(password ? password : "") > WIFI_PORTAL_PASSWORD_MAX) {
+    return false;
+  }
+  wifiPrefs.putString("ssid", ssid);
+  wifiPrefs.putString("pass", password ? password : "");
+  snprintf(activeSsid, sizeof(activeSsid), "%s", ssid);
+  snprintf(activePassword, sizeof(activePassword), "%s", password ? password : "");
+  return true;
+}
+
 inline void publish(NetworkStateCode state, bool connected,
                     int8_t rssiDbm = -127) {
-  __atomic_store_n(&publishedConfigured, CREDENTIALS_CONFIGURED,
+  __atomic_store_n(&publishedConfigured, credentialsConfigured(),
                    __ATOMIC_RELEASE);
   __atomic_store_n(&publishedConnected, connected, __ATOMIC_RELEASE);
   __atomic_store_n(&publishedRssiDbm, rssiDbm, __ATOMIC_RELEASE);
@@ -61,9 +111,8 @@ inline bool startStation(uint32_t now) {
     return false;
   }
   (void)WiFi.setAutoReconnect(true);
-  const char *password = PASSWORD_LENGTH == 0U ? nullptr
-                                               : NETWORK_WIFI_PASSWORD;
-  (void)WiFi.begin(NETWORK_WIFI_SSID, password);
+  const char *password = activePassword[0] == '\0' ? nullptr : activePassword;
+  (void)WiFi.begin(activeSsid, password);
   radioActive = true;
   connectionStartedAt = now;
   lastRetryAt = now - NETWORK_RETRY_INTERVAL_MS;
@@ -71,10 +120,244 @@ inline bool startStation(uint32_t now) {
   return true;
 }
 
+// ------------------------------ Cong 1 doi Wi-Fi -----------------------------
+// Portal chi duoc yeu cau/huy tu HMI qua cac ham public ben duoi; toan bo xu ly
+// thuc te nam trong networkTask (mayapNetworkUpdate) de khong dung chung stack
+// TCP/DNS voi bat ky task nao khac.
+static volatile uint8_t portalRequestFlag = 0U;   // 1 = HMI vua bam "Doi Wi-Fi"
+static volatile uint8_t portalCancelFlag = 0U;    // 1 = HMI bam Thoat/Huy
+static volatile uint8_t publishedPortalState =
+    static_cast<uint8_t>(WifiPortalState::Idle);
+static char publishedPortalApName[20] = "";
+static portMUX_TYPE portalNameMux = portMUX_INITIALIZER_UNLOCKED;
+
+enum class PortalPhase : uint8_t { Idle, Starting, ApActive, Testing, Success, Failed };
+static PortalPhase portalPhase = PortalPhase::Idle;
+static uint32_t portalOpenedAt = 0U;
+static uint32_t portalTestStartedAt = 0U;
+static uint32_t portalResultUntil_ = 0U;
+static char portalApName[20] = "";
+static char pendingSsid[WIFI_PORTAL_SSID_MAX + 1U] = "";
+static char pendingPassword[WIFI_PORTAL_PASSWORD_MAX + 1U] = "";
+static bool pendingCredentialsReady = false;
+
+static WebServer portalServer(80);
+static DNSServer portalDns;
+
+inline void publishPortalState(WifiPortalState state, const char *apName) {
+  __atomic_store_n(&publishedPortalState, static_cast<uint8_t>(state),
+                   __ATOMIC_RELEASE);
+  portENTER_CRITICAL(&portalNameMux);
+  snprintf(publishedPortalApName, sizeof(publishedPortalApName), "%s",
+           apName ? apName : "");
+  portEXIT_CRITICAL(&portalNameMux);
+}
+
+inline String htmlEscape(const String &s) {
+  String out;
+  out.reserve(s.length() + 16);
+  for (size_t i = 0; i < s.length(); ++i) {
+    switch (s[i]) {
+      case '&': out += F("&amp;"); break;
+      case '<': out += F("&lt;"); break;
+      case '>': out += F("&gt;"); break;
+      case '"': out += F("&quot;"); break;
+      case '\'': out += F("&#39;"); break;
+      default: out += s[i]; break;
+    }
+  }
+  return out;
+}
+
+inline String buildWifiOptions() {
+  String options;
+  const int count = WiFi.scanComplete() >= 0 ? WiFi.scanComplete()
+                                             : WiFi.scanNetworks(false, true);
+  if (count <= 0) return F("<option value=''>Khong tim thay Wi-Fi</option>");
+  for (int i = 0; i < count; ++i) {
+    const String ssid = WiFi.SSID(i);
+    if (ssid.isEmpty()) continue;
+    options += F("<option value=\"");
+    options += htmlEscape(ssid);
+    options += F("\">");
+    options += htmlEscape(ssid);
+    options += F("  (");
+    options += String(WiFi.RSSI(i));
+    options += F(" dBm)</option>");
+  }
+  return options;
+}
+
+inline void handlePortalRoot() {
+  const String options = buildWifiOptions();
+  String html;
+  html.reserve(4096);
+  html += F(
+    "<!doctype html><html lang=vi><head><meta charset=utf-8>"
+    "<meta name=viewport content='width=device-width,initial-scale=1'>"
+    "<title>MAYAP Wi-Fi</title><style>"
+    "body{font-family:sans-serif;background:#0b1220;color:#eef4ff;"
+    "margin:0;padding:24px 16px}.card{max-width:420px;margin:auto;"
+    "background:#111a2e;border:1px solid #263553;border-radius:16px;"
+    "padding:22px}h1{font-size:20px;margin:0 0 14px}"
+    "label{display:block;font-size:13px;margin:14px 0 6px;color:#9eabc2}"
+    "select,input{width:100%;height:44px;border-radius:10px;border:1px "
+    "solid #263553;background:#16213a;color:#eef4ff;padding:0 12px;"
+    "font-size:15px;box-sizing:border-box}"
+    "button{width:100%;height:46px;margin-top:18px;border:0;"
+    "border-radius:10px;background:#4f8cff;color:#fff;font-weight:700;"
+    "font-size:15px}"
+    "p{color:#9eabc2;font-size:12px;line-height:1.5}</style></head><body>"
+    "<div class=card><h1>MAYAP - Doi Wi-Fi</h1>"
+    "<form method=POST action=/save>"
+    "<label>Mang Wi-Fi</label><select name=ssid required>");
+  html += options;
+  html += F(
+    "</select><label>Mat khau</label>"
+    "<input name=password type=password maxlength=64 autocomplete=off>"
+    "<button type=submit>Luu &amp; ket noi</button></form>"
+    "<p>Thiet bi se tu thu ket noi mang moi. Kiem tra man hinh may ap de "
+    "biet ket qua. Trang nay tu dong dong sau vai phut.</p></div></body></html>");
+  portalServer.send(200, "text/html; charset=utf-8", html);
+}
+
+inline void handlePortalSave() {
+  if (!portalServer.hasArg("ssid") || portalServer.arg("ssid").isEmpty()) {
+    portalServer.send(400, "text/plain; charset=utf-8", "Thieu SSID");
+    return;
+  }
+  const String ssid = portalServer.arg("ssid");
+  const String pass = portalServer.arg("password");
+  if (ssid.length() > WIFI_PORTAL_SSID_MAX ||
+      pass.length() > WIFI_PORTAL_PASSWORD_MAX) {
+    portalServer.send(400, "text/plain; charset=utf-8", "SSID/mat khau qua dai");
+    return;
+  }
+  snprintf(pendingSsid, sizeof(pendingSsid), "%s", ssid.c_str());
+  snprintf(pendingPassword, sizeof(pendingPassword), "%s", pass.c_str());
+  pendingCredentialsReady = true;
+  portalServer.send(200, "text/html; charset=utf-8",
+      "<html><meta charset=utf-8><body style='font-family:sans-serif'>"
+      "Da nhan Wi-Fi moi. May ap dang thu ket noi, vui long xem man hinh "
+      "thiet bi.</body></html>");
+}
+
+inline void handlePortalNotFound() {
+  // Captive portal: moi URL la khong xac dinh deu quay ve trang cau hinh.
+  portalServer.sendHeader("Location", "http://192.168.4.1/", true);
+  portalServer.send(302, "text/plain", "");
+}
+
+inline void portalStop() {
+  portalServer.stop();
+  portalDns.stop();
+  if (portalPhase != PortalPhase::Idle) {
+    // Neu dang o STA co ket noi that thi giu nguyen; chi tat AP.
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
+  }
+  portalPhase = PortalPhase::Idle;
+  pendingCredentialsReady = false;
+  publishPortalState(WifiPortalState::Idle, "");
+}
+
+inline void portalStart(uint32_t now) {
+  const uint64_t chip = ESP.getEfuseMac();
+  snprintf(portalApName, sizeof(portalApName), "MAYAP-%04X",
+           static_cast<unsigned>((chip >> 32U) & 0xFFFFU));
+
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
+                    IPAddress(255, 255, 255, 0));
+  WiFi.softAP(portalApName);
+  portalDns.start(DNS_PORT, "*", IPAddress(192, 168, 4, 1));
+  portalServer.on("/", HTTP_GET, handlePortalRoot);
+  portalServer.on("/save", HTTP_POST, handlePortalSave);
+  portalServer.onNotFound(handlePortalNotFound);
+  portalServer.begin();
+
+  portalPhase = PortalPhase::ApActive;
+  portalOpenedAt = now;
+  pendingCredentialsReady = false;
+  publishPortalState(WifiPortalState::ApActive, portalApName);
+}
+
+inline void servicePortal(uint32_t now) {
+  const bool requested = __atomic_load_n(&portalRequestFlag, __ATOMIC_ACQUIRE) != 0U;
+  const bool cancel = __atomic_load_n(&portalCancelFlag, __ATOMIC_ACQUIRE) != 0U;
+  if (cancel) {
+    __atomic_store_n(&portalCancelFlag, 0U, __ATOMIC_RELEASE);
+    __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);
+    if (portalPhase != PortalPhase::Idle) portalStop();
+    return;
+  }
+
+  if (portalPhase == PortalPhase::Idle) {
+    if (!requested) return;
+    portalStart(now);
+    return;
+  }
+
+  // Da het han mo cong: dong lai va quay ve ket noi binh thuong.
+  if (elapsedMs(now, portalOpenedAt) >= WIFI_PORTAL_MAX_OPEN_MS &&
+      portalPhase != PortalPhase::Testing) {
+    portalStop();
+    return;
+  }
+
+  portalDns.processNextRequest();
+  portalServer.handleClient();
+
+  if (portalPhase == PortalPhase::ApActive) {
+    if (pendingCredentialsReady) {
+      pendingCredentialsReady = false;
+      (void)saveCredentials(pendingSsid, pendingPassword);
+      WiFi.begin(activeSsid, activePassword[0] ? activePassword : nullptr);
+      portalTestStartedAt = now;
+      portalPhase = PortalPhase::Testing;
+      publishPortalState(WifiPortalState::Testing, portalApName);
+    }
+    return;
+  }
+
+  if (portalPhase == PortalPhase::Testing) {
+    if (WiFi.status() == WL_CONNECTED) {
+      portalPhase = PortalPhase::Success;
+      portalResultUntil_ = now + 8000UL;
+      publishPortalState(WifiPortalState::Success, portalApName);
+      // Da co mang moi hoat dong: dong AP ngay, khong can nguoi dung thao tac them.
+      WiFi.softAPdisconnect(true);
+      portalServer.stop();
+      portalDns.stop();
+      return;
+    }
+    if (elapsedMs(now, portalTestStartedAt) >= WIFI_PORTAL_TEST_TIMEOUT_MS) {
+      portalPhase = PortalPhase::Failed;
+      portalResultUntil_ = now + 8000UL;
+      publishPortalState(WifiPortalState::Failed, portalApName);
+    }
+    return;
+  }
+
+  if (portalPhase == PortalPhase::Success || portalPhase == PortalPhase::Failed) {
+    if (portalPhase == PortalPhase::Failed) {
+      // Cho phep nguoi dung mo trang lai thu SSID/mat khau khac trong cung phien AP.
+      portalPhase = PortalPhase::ApActive;
+      publishPortalState(WifiPortalState::ApActive, portalApName);
+      return;
+    }
+    if (timeReached(now, portalResultUntil_)) {
+      portalStop();
+      __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);
+    }
+  }
+}
+
 }  // namespace MayapNetworkInternal
 
 inline void mayapNetworkBegin() {
   using namespace MayapNetworkInternal;
+  loadCredentialsOnce();
   __atomic_store_n(&requestedMode,
                    static_cast<uint8_t>(ConnectivityMode::Offline),
                    __ATOMIC_RELEASE);
@@ -89,6 +372,12 @@ inline void mayapSetConnectivityMode(ConnectivityMode mode) {
   }
   __atomic_store_n(&MayapNetworkInternal::requestedMode,
                    static_cast<uint8_t>(mode), __ATOMIC_RELEASE);
+  // Chuyen ve OFFLINE phai dong luon cong doi Wi-Fi neu dang mo, tranh AP
+  // "mo cua" sau khi nguoi dung da chon rut mang.
+  if (mode != ConnectivityMode::Online) {
+    __atomic_store_n(&MayapNetworkInternal::portalCancelFlag, 1U,
+                     __ATOMIC_RELEASE);
+  }
 }
 
 inline NetworkStatus mayapGetNetworkStatus() {
@@ -111,21 +400,68 @@ inline NetworkStatus mayapGetNetworkStatus() {
   return status;
 }
 
+inline bool mayapRequestWifiPortal() {
+  using namespace MayapNetworkInternal;
+  const uint8_t mode = __atomic_load_n(&requestedMode, __ATOMIC_ACQUIRE);
+  if (mode != static_cast<uint8_t>(ConnectivityMode::Online)) return false;
+  __atomic_store_n(&portalCancelFlag, 0U, __ATOMIC_RELEASE);
+  __atomic_store_n(&portalRequestFlag, 1U, __ATOMIC_RELEASE);
+  return true;
+}
+
+inline void mayapCancelWifiPortal() {
+  __atomic_store_n(&MayapNetworkInternal::portalCancelFlag, 1U, __ATOMIC_RELEASE);
+}
+
+inline WifiPortalStatus mayapGetWifiPortalStatus() {
+  using namespace MayapNetworkInternal;
+  WifiPortalStatus status{};
+  uint8_t state = __atomic_load_n(&publishedPortalState, __ATOMIC_ACQUIRE);
+  if (state > static_cast<uint8_t>(WifiPortalState::Failed)) {
+    state = static_cast<uint8_t>(WifiPortalState::Idle);
+  }
+  status.state = static_cast<WifiPortalState>(state);
+  portENTER_CRITICAL(&portalNameMux);
+  snprintf(status.apName, sizeof(status.apName), "%s", publishedPortalApName);
+  portEXIT_CRITICAL(&portalNameMux);
+  return status;
+}
+
 inline void mayapNetworkUpdate(uint32_t now) {
   using namespace MayapNetworkInternal;
+  servicePortal(now);
+
   const uint8_t requested = __atomic_load_n(&requestedMode, __ATOMIC_ACQUIRE);
   const bool onlineRequested =
       requested == static_cast<uint8_t>(ConnectivityMode::Online);
+  const bool portalOwnsRadio = portalPhase != PortalPhase::Idle;
 
   if (!onlineRequested) {
     if (radioActive) stopRadio();
-    publish(NetworkStateCode::Offline, false);
+    if (!portalOwnsRadio) publish(NetworkStateCode::Offline, false);
     return;
   }
 
-  if (!CREDENTIALS_CONFIGURED) {
+  if (!credentialsConfigured()) {
     if (radioActive) stopRadio();
-    publish(NetworkStateCode::NotConfigured, false);
+    if (!portalOwnsRadio) publish(NetworkStateCode::NotConfigured, false);
+    return;
+  }
+
+  // Trong luc cong dang mo (AP/Testing), STA thuong thuong duoc portal tu
+  // dieu khien (WiFi.begin khi test SSID moi); khong de vong lap STA binh
+  // thuong danh nhau voi no.
+  if (portalOwnsRadio) {
+    if (WiFi.isConnected()) {
+      int32_t rssi = WiFi.RSSI();
+      if (rssi < -127) rssi = -127;
+      if (rssi > 0) rssi = 0;
+      publish(NetworkStateCode::Connected, true, static_cast<int8_t>(rssi));
+    } else {
+      publish(NetworkStateCode::Connecting, false);
+    }
+    radioActive = false;  // ep STA-only loop ben duoi khoi dong lai sau khi portal dong
+    startAttempted = false;
     return;
   }
 
@@ -162,8 +498,7 @@ inline void mayapNetworkUpdate(uint32_t now) {
   lastRetryAt = now;
   connectionStartedAt = now;
   if (!WiFi.reconnect()) {
-    const char *password = PASSWORD_LENGTH == 0U ? nullptr
-                                                 : NETWORK_WIFI_PASSWORD;
-    (void)WiFi.begin(NETWORK_WIFI_SSID, password);
+    const char *password = activePassword[0] == '\0' ? nullptr : activePassword;
+    (void)WiFi.begin(activeSsid, password);
   }
 }

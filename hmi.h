@@ -224,6 +224,7 @@ void formatSettingValue(const SettingItem &item, float value, char *out, size_t 
 
 const char *const OPT_OFF_ON[] = {"TAT", "BAT"};
 const char *const OPT_OFFLINE_ONLINE[] = {"OFFLINE", "ONLINE"};
+const char *const OPT_ON_OFF_HOI[] = {"HOI XN", "TU DONG"};
 #define ITEM_FLOAT(lbl, member, mn, mx, st, dec, unitText) \
   {lbl, SettingType::Float, offsetof(MachineConfig, member), mn, mx, st, dec, unitText, nullptr, 0}
 #define ITEM_U8(lbl, member, mn, mx, st, unitText) \
@@ -235,31 +236,40 @@ const char *const OPT_OFFLINE_ONLINE[] = {"OFFLINE", "ONLINE"};
 #define ITEM_BOOL_OPTIONS(lbl, member, opts) \
   {lbl, SettingType::Bool, offsetof(MachineConfig, member), 0, 1, 1, 0, "", opts, 2}
 #define ITEM_BOOL(lbl, member) ITEM_BOOL_OPTIONS(lbl, member, OPT_OFF_ON)
+// v3.5.0: "CAI DAT ME" chi giu 4 thong so thao tac hang ngay; moi thu con lai
+// don sang cac thu muc trong "CAI DAT CHUNG" (xem GROUPS/ChungMenu ben duoi).
 const SettingItem SETTINGS[] = {
-  // Chuoi nhiet tren LCD duoc rang buoc dong bo:
-  // Bao thap < SV <= Hut tat < Hut bat <= Bao cao < Bao khan cap.
+  // ---- CAI DAT ME (4 muc) ----
   ITEM_FLOAT("Nhiet do ap", targetTemp, TARGET_TEMP_MIN_C,
              TARGET_TEMP_MAX_C, 0.1f, 1, "C"),                                  // 0
+  ITEM_FLOAT("Canh bao am", lowHumidityAlarm, 10.0f, 90.0f, 1.0f, 0, "%"),      // 1 (bao het nuoc)
+  ITEM_BOOL_OPTIONS("Ap lai", autoResumeOnPowerLoss, OPT_ON_OFF_HOI),           // 2
+  ITEM_U8("So ngay ap", totalIncubationDays, 1, 40, 1, "ng"),                   // 3
+
+  // ---- CAI DAT CHUNG > NHIET DO (3 muc) ----
+  // Chuoi nhiet tren LCD duoc rang buoc dong bo:
+  // Bao thap < SV <= Hut tat < Hut bat <= Bao cao < Bao khan cap.
   ITEM_FLOAT("Bao thap", lowTempAlarm, 25.0f,
-             TARGET_TEMP_MAX_C - LOW_ALARM_GAP_C, 0.1f, 1, "C"),               // 1
-  ITEM_FLOAT("Hut tat", ventOffTemp, TARGET_TEMP_MIN_C,
-             HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 2
-  ITEM_FLOAT("Hut bat", ventOnTemp, TARGET_TEMP_MIN_C + VENT_ON_ABOVE_SV_C,
-             HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 3
+             TARGET_TEMP_MAX_C - LOW_ALARM_GAP_C, 0.1f, 1, "C"),               // 4
   ITEM_FLOAT("Bao cao", highTempAlarm,
              TARGET_TEMP_MIN_C + HIGH_ALARM_GAP_C,
-             HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 4
+             HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 5
   ITEM_FLOAT("Bao khan cap", emergencyTemp,
              TARGET_TEMP_MIN_C + HIGH_ALARM_GAP_C + EMERGENCY_ABOVE_HIGH_C,
-             EMERGENCY_MAX_C, 0.1f, 1, "C"),                                   // 5
-  ITEM_U8("So ngay ap", totalIncubationDays, 1, 40, 1, "ng"),                   // 6
-  ITEM_FLOAT("Bao het nuoc", lowHumidityAlarm, 10.0f, 90.0f, 1.0f, 0, "%"),    // 7
-  ITEM_BOOL("Nhiet ngoai me", allowHeatWithoutBatch),                           // 8
+             EMERGENCY_MAX_C, 0.1f, 1, "C"),                                   // 6
 
+  // ---- CAI DAT CHUNG > QUAT HUT (2 muc) ----
+  ITEM_FLOAT("Quat hut bat", ventOnTemp, TARGET_TEMP_MIN_C + VENT_ON_ABOVE_SV_C,
+             HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 7
+  ITEM_FLOAT("Quat hut tat", ventOffTemp, TARGET_TEMP_MIN_C,
+             HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 8
+
+  // ---- CAI DAT CHUNG > DAO TRUNG (3 muc, + "So lan dao" la dong phu) ----
   ITEM_BOOL("Tu dong dao", turningEnabled),                                    // 9
   ITEM_U16("Chu ky dao", turnIntervalMin, 1, 720, 1, "ph"),                   // 10
   ITEM_U16("Tre loi dao", turnMaxRunSec, 5, 600, 5, "s"),                    // 11
 
+  // ---- CAI DAT CHUNG > KET NOI (1 muc, + "Doi wifi" la dong phu) ----
   ITEM_U8_OPTIONS("Che do ket noi", connectivityMode,
                   OPT_OFFLINE_ONLINE, 2)                                      // 12
 };
@@ -268,21 +278,35 @@ constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
 static_assert(SETTING_COUNT == 13, "Bang SETTINGS phai co 13 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
-  0,1,2,3,4,5,6,7,8,                 // Cai dat me
-  9,10,11,                            // Dao trung
-  12                                  // Ket noi
+  0,1,2,3,                             // Cai dat me
+  4,5,6,                               // Nhiet do
+  7,8,                                 // Quat hut
+  9,10,11,                             // Dao trung
+  12                                    // Ket noi
 };
 
 struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
+// Chi so 0 = Cai dat me (goc tu MainMenu); 1..4 = 4 thu muc con cua
+// "CAI DAT CHUNG" (goc tu ChungMenu). Dung chung mot co che SettingList.
 const SettingGroup GROUPS[] = {
-  {"CAI DAT ME", 0, 9},
+  {"CAI DAT ME", 0, 4},
+  {"NHIET DO", 4, 3},
+  {"QUAT HUT", 7, 2},
   {"DAO TRUNG", 9, 3},
   {"KET NOI", 12, 1}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
-static_assert(GROUP_COUNT == 3, "Bang GROUPS phai co 3 nhom");
+static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");
 static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == SETTING_COUNT,
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
+
+// Dong phu (khong phai setting gia tri) duoc gan them vao cuoi mot so nhom.
+enum class GroupExtra : uint8_t { None, TurnStats, WifiChange };
+GroupExtra groupExtra(uint8_t group) {
+  if (group == 3) return GroupExtra::TurnStats;   // DAO TRUNG -> "So lan dao"
+  if (group == 4) return GroupExtra::WifiChange;   // KET NOI -> "Doi wifi"
+  return GroupExtra::None;
+}
 
 float readSetting(const MachineConfig &cfg, const SettingItem &item) {
   const uint8_t *base = reinterpret_cast<const uint8_t *>(&cfg) + item.offset;
@@ -427,8 +451,8 @@ void formatSettingValue(const SettingItem &item, float value, char *out, size_t 
 // 5. TRANG, MENU, HANG DOI LENH
 // ============================================================
 enum class View : uint8_t {
-  Home, MainMenu, SettingList, EditSetting, TurnStats, AutoTune,
-  EventLog, Alarm
+  Home, MainMenu, ChungMenu, SettingList, EditSetting, TurnStats, AutoTune,
+  EventLog, Alarm, TestMode, WifiChange
 };
 
 enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch };
@@ -461,9 +485,20 @@ uint32_t nextConfigTransactionId = 1;
 View view = View::Home;
 uint8_t homePage = 0;
 uint8_t mainIndex = 0;
+uint8_t chungIndex = 0;
+uint8_t chungTop = 0;
 uint8_t listIndex = 0;
 uint8_t listTop = 0;
 uint8_t selectedGroup = 0;
+uint32_t wifiPortalLastCommandAt = 0;
+uint32_t testModeLastCommandAt = 0;
+TestLimitId testLimitSelected = TestLimitId::Left;
+uint8_t autoTuneRow = 0;
+
+constexpr uint8_t TEST_MODE_OUTPUT_ROWS = static_cast<uint8_t>(TestOutputId::Count);
+constexpr uint8_t TEST_MODE_LIMIT_ROWS = 2U;
+constexpr uint8_t TEST_MODE_ITEM_COUNT = static_cast<uint8_t>(
+    TEST_MODE_OUTPUT_ROWS + TEST_MODE_LIMIT_ROWS + 1U);  // + Thoat
 float editValue = 0;
 uint8_t editSettingIndex = 0;
 ConfirmAction confirmAction = ConfirmAction::None;
@@ -552,34 +587,61 @@ void processConfigAck(const ConfigAckInbox &ack);
 HmiI2cLockFn i2cLockCallback = nullptr;
 HmiI2cUnlockFn i2cUnlockCallback = nullptr;
 
-// 3 nhom cai dat + Auto Tune + Nhat ky me + Thoat.
-constexpr uint8_t MAIN_COUNT = GROUP_COUNT + 3;
-
+// Menu chinh: CAI DAT ME, CAI DAT CHUNG, CHE DO THU NGHIEM, NHAT KY ME, THOAT.
+constexpr uint8_t MAIN_COUNT = 5;
+enum MainMenuIndex : uint8_t {
+  MAIN_CAI_DAT_ME = 0, MAIN_CAI_DAT_CHUNG = 1, MAIN_THU_NGHIEM = 2,
+  MAIN_NHAT_KY = 3, MAIN_THOAT = 4
+};
 const char *mainItemLabel(uint8_t index) {
-  if (index < GROUP_COUNT) return GROUPS[index].label;
-  if (index == GROUP_COUNT) return "TU CHINH PID";
-  if (index == GROUP_COUNT + 1U) return "NHAT KY ME";
+  switch (index) {
+    case MAIN_CAI_DAT_ME: return "CAI DAT ME";
+    case MAIN_CAI_DAT_CHUNG: return "CAI DAT CHUNG";
+    case MAIN_THU_NGHIEM: return "CHE DO THU NGHIEM";
+    case MAIN_NHAT_KY: return "NHAT KY ME";
+    default: return "THOAT";
+  }
+}
+
+// Menu con "CAI DAT CHUNG": 4 thu muc setting (chi so nhom 1..4 trong GROUPS[])
+// + TU CHINH PID (mo thang View::AutoTune) + THOAT.
+constexpr uint8_t CHUNG_COUNT = (GROUP_COUNT - 1U) + 2U;
+const char *chungItemLabel(uint8_t index) {
+  if (index < GROUP_COUNT - 1U) return GROUPS[index + 1U].label;
+  if (index == GROUP_COUNT - 1U) return "TU CHINH PID";
   return "THOAT";
 }
 
-bool groupHasTurnStats(uint8_t group) {
-  return group == 0;
+bool groupHasExtraRow(uint8_t group) {
+  const GroupExtra extra = groupExtra(group);
+  if (extra == GroupExtra::None) return false;
+  if (extra == GroupExtra::WifiChange) {
+    return currentConfig.connectivityMode == ConnectivityMode::Online;
+  }
+  return true;
+}
+const char *groupExtraLabel(uint8_t group) {
+  switch (groupExtra(group)) {
+    case GroupExtra::TurnStats: return "So lan dao";
+    case GroupExtra::WifiChange: return "Doi wifi";
+    default: return "";
+  }
 }
 bool settingLockedDuringBatch(uint8_t settingIndex) {
   if (!currentRuntime.batchRunning) return false;
   // Khoa cac tham so lam thay doi lich/chuyen dong dao khi me da bat dau.
-  return settingIndex == 6U || settingIndex == 9U ||
+  return settingIndex == 3U || settingIndex == 9U ||
          settingIndex == 10U || settingIndex == 11U;
 }
 
 uint8_t settingListItemCount(uint8_t group) {
   return static_cast<uint8_t>(
-      GROUPS[group].count + (groupHasTurnStats(group) ? 1U : 0U) + 1U);
+      GROUPS[group].count + (groupHasExtraRow(group) ? 1U : 0U) + 1U);
 }
 
 uint8_t settingListExitIndex(uint8_t group) {
   return static_cast<uint8_t>(
-      GROUPS[group].count + (groupHasTurnStats(group) ? 1U : 0U));
+      GROUPS[group].count + (groupHasExtraRow(group) ? 1U : 0U));
 }
 
 bool timeReached(uint32_t now, uint32_t deadline) {
@@ -648,9 +710,14 @@ bool commandTypesConflict(HmiCommandType a, HmiCommandType b) {
   const bool aResume = a == HmiCommandType::ResumeYes || a == HmiCommandType::ResumeNo;
   const bool bResume = b == HmiCommandType::ResumeYes || b == HmiCommandType::ResumeNo;
   if (aResume && bResume) return true;
-  const bool aDirection = a == HmiCommandType::TurnLeft || a == HmiCommandType::TurnRight;
-  const bool bDirection = b == HmiCommandType::TurnLeft || b == HmiCommandType::TurnRight;
-  return aDirection && bDirection;
+  const bool aTest = a == HmiCommandType::TestModeEnter || a == HmiCommandType::TestModeExit ||
+                     a == HmiCommandType::TestOutputPulse || a == HmiCommandType::TestLimitStart ||
+                     a == HmiCommandType::TestLimitCancel;
+  const bool bTest = b == HmiCommandType::TestModeEnter || b == HmiCommandType::TestModeExit ||
+                     b == HmiCommandType::TestOutputPulse || b == HmiCommandType::TestLimitStart ||
+                     b == HmiCommandType::TestLimitCancel;
+  // Thu nghiem thiet bi khong duoc dan xen voi bat dau me/auto tune.
+  return (aTest && (bBatch || bTune)) || (bTest && (aBatch || aTune));
 }
 
 bool commandConflictLocked(HmiCommandType type) {
@@ -709,33 +776,59 @@ void setListSelection(int value, uint8_t count) {
 void alignMainMenuWindow() {
   listTop = mainIndex >= 3 ? static_cast<uint8_t>(mainIndex - 3) : 0;
 }
+void alignChungMenuWindow() {
+  chungTop = chungIndex >= 3 ? static_cast<uint8_t>(chungIndex - 3) : 0;
+}
 
 void goBack() {
   switch (view) {
     case View::Home: break;
     case View::MainMenu: view = View::Home; break;
-    case View::SettingList:
+    case View::ChungMenu:
       view = View::MainMenu;
-      mainIndex = selectedGroup;
+      mainIndex = MAIN_CAI_DAT_CHUNG;
       alignMainMenuWindow();
+      break;
+    case View::SettingList:
+      if (selectedGroup == 0U) {
+        view = View::MainMenu;
+        mainIndex = MAIN_CAI_DAT_ME;
+        alignMainMenuWindow();
+      } else {
+        view = View::ChungMenu;
+        chungIndex = static_cast<uint8_t>(selectedGroup - 1U);
+        alignChungMenuWindow();
+      }
       break;
     case View::EditSetting:
       view = View::SettingList;
       break;
     case View::TurnStats:
       view = View::SettingList;
-      selectedGroup = 0;
-      setListSelection(GROUPS[0].count, settingListItemCount(0));
+      selectedGroup = 3U;  // DAO TRUNG
+      setListSelection(GROUPS[3U].count, settingListItemCount(3U));
       break;
     case View::AutoTune:
-      view = View::MainMenu;
-      mainIndex = GROUP_COUNT;
-      alignMainMenuWindow();
+      view = View::ChungMenu;
+      chungIndex = GROUP_COUNT - 1U;  // "TU CHINH PID"
+      alignChungMenuWindow();
       break;
     case View::EventLog:
       view = View::MainMenu;
-      mainIndex = GROUP_COUNT + 1U;
+      mainIndex = MAIN_NHAT_KY;
       alignMainMenuWindow();
+      break;
+    case View::TestMode:
+      queueCommand(HmiCommandType::TestModeExit);
+      view = View::MainMenu;
+      mainIndex = MAIN_THU_NGHIEM;
+      alignMainMenuWindow();
+      break;
+    case View::WifiChange:
+      queueCommand(HmiCommandType::WifiPortalCancel);
+      view = View::SettingList;
+      selectedGroup = 4U;  // KET NOI
+      setListSelection(GROUPS[4U].count, settingListItemCount(4U));
       break;
     case View::Alarm: view = alarmReturnView; break;
   }
@@ -755,6 +848,64 @@ void openGroup(uint8_t group) {
   listIndex = listTop = 0;
   view = View::SettingList;
   dirty = true;
+}
+
+void openChungMenu() {
+  if (currentRuntime.autoTuneState == AutoTuneState::Running) {
+    showToast("AUTO TUNE DANG CHAY", true);
+    return;
+  }
+  chungIndex = chungTop = 0;
+  view = View::ChungMenu;
+  dirty = true;
+}
+
+void selectChungItem() {
+  if (chungIndex < GROUP_COUNT - 1U) {
+    openGroup(static_cast<uint8_t>(chungIndex + 1U));
+  } else if (chungIndex == GROUP_COUNT - 1U) {
+    if (currentRuntime.batchRunning) {
+      showToast("HAY DUNG ME TRUOC AUTO TUNE", true);
+      return;
+    }
+    view = View::AutoTune;
+    autoTuneRow = 0;
+    dirty = true;
+  } else {
+    view = View::MainMenu;
+    mainIndex = MAIN_CAI_DAT_CHUNG;
+    alignMainMenuWindow();
+    dirty = true;
+  }
+}
+
+void openTestMode() {
+  if (currentRuntime.batchRunning) {
+    showToast("DANG CO ME - KHONG THU NGHIEM DUOC", true);
+    return;
+  }
+  if (currentRuntime.autoTuneState == AutoTuneState::Running) {
+    showToast("AUTO TUNE DANG CHAY", true);
+    return;
+  }
+  if (queueCommand(HmiCommandType::TestModeEnter)) {
+    testModeLastCommandAt = millis();
+    view = View::TestMode;
+    listIndex = listTop = 0;
+    dirty = true;
+  }
+}
+
+void openWifiChange() {
+  if (currentConfig.connectivityMode != ConnectivityMode::Online) {
+    showToast("CHI DUNG DUOC KHI ONLINE", true);
+    return;
+  }
+  if (queueCommand(HmiCommandType::WifiPortalStart)) {
+    wifiPortalLastCommandAt = millis();
+    view = View::WifiChange;
+    dirty = true;
+  }
 }
 
 void openSetting() {
@@ -1153,9 +1304,15 @@ void commitSetting() {
 }
 
 void exitSettingGroup() {
-  view = View::MainMenu;
-  mainIndex = selectedGroup;
-  alignMainMenuWindow();
+  if (selectedGroup == 0U) {
+    view = View::MainMenu;
+    mainIndex = MAIN_CAI_DAT_ME;
+    alignMainMenuWindow();
+  } else {
+    view = View::ChungMenu;
+    chungIndex = static_cast<uint8_t>(selectedGroup - 1U);
+    alignChungMenuWindow();
+  }
   dirty = true;
 }
 
@@ -1174,16 +1331,18 @@ bool requestAlarmAcknowledge() {
 }
 
 void selectMainItem() {
-  if (mainIndex < GROUP_COUNT) {
-    openGroup(mainIndex);
-  } else if (mainIndex == GROUP_COUNT) {
-    view = View::AutoTune;
-  } else if (mainIndex == GROUP_COUNT + 1U) {
-    eventLogIndex = 0U;
-    view = View::EventLog;
-  } else {
-    view = View::Home;
-    homePage = 0;
+  switch (mainIndex) {
+    case MAIN_CAI_DAT_ME: openGroup(0U); break;
+    case MAIN_CAI_DAT_CHUNG: openChungMenu(); break;
+    case MAIN_THU_NGHIEM: openTestMode(); break;
+    case MAIN_NHAT_KY:
+      eventLogIndex = 0U;
+      view = View::EventLog;
+      break;
+    default:
+      view = View::Home;
+      homePage = 0;
+      break;
   }
   dirty = true;
 }
@@ -1342,16 +1501,31 @@ void handleInput() {
         const SettingGroup &group = GROUPS[selectedGroup];
         if (listIndex < group.count) {
           openSetting();
-        } else if (groupHasTurnStats(selectedGroup) &&
-                   listIndex == group.count) {
-          view = View::TurnStats;
-          dirty = true;
+        } else if (groupHasExtraRow(selectedGroup) && listIndex == group.count) {
+          const GroupExtra extra = groupExtra(selectedGroup);
+          if (extra == GroupExtra::TurnStats) {
+            view = View::TurnStats;
+            dirty = true;
+          } else if (extra == GroupExtra::WifiChange) {
+            openWifiChange();
+          }
         } else {
           exitSettingGroup();
         }
       }
       break;
     }
+
+    case View::ChungMenu:
+      if (rotary.step) {
+        chungIndex = static_cast<uint8_t>(constrain(
+            static_cast<int>(chungIndex) + rotary.step, 0, CHUNG_COUNT - 1));
+        if (chungIndex < chungTop) chungTop = chungIndex;
+        if (chungIndex >= chungTop + 4) chungTop = chungIndex - 3;
+        dirty = true;
+      }
+      if (rotary.button == ButtonEvent::ShortPress) selectChungItem();
+      break;
 
     case View::EditSetting: {
       const SettingItem &item = SETTINGS[editSettingIndex];
@@ -1370,7 +1544,44 @@ void handleInput() {
       break;
 
     case View::AutoTune:
-      if (rotary.button == ButtonEvent::ShortPress) openAutoTuneConfirm();
+      // Cuon xuong chon "THOAT" (hang 1) de thoat an toan; hang 0 la thao tac
+      // bat dau tu chinh, khong bi bam nham khi chi luot qua man hinh.
+      if (rotary.step) {
+        autoTuneRow = static_cast<uint8_t>(constrain(
+            static_cast<int>(autoTuneRow) + rotary.step, 0, 1));
+        dirty = true;
+      }
+      if (rotary.button == ButtonEvent::ShortPress) {
+        if (autoTuneRow == 0U) openAutoTuneConfirm();
+        else goBack();
+      }
+      break;
+
+    case View::TestMode: {
+      if (rotary.step) {
+        setListSelection(static_cast<int>(listIndex) + rotary.step,
+                         TEST_MODE_ITEM_COUNT);
+      }
+      if (rotary.button == ButtonEvent::ShortPress) {
+        if (listIndex < TEST_MODE_OUTPUT_ROWS) {
+          queueCommand(HmiCommandType::TestOutputPulse, COMMAND_DEFAULT_VALID_MS,
+                      0, static_cast<uint32_t>(listIndex));
+          testModeLastCommandAt = millis();
+        } else if (listIndex < TEST_MODE_OUTPUT_ROWS + TEST_MODE_LIMIT_ROWS) {
+          testLimitSelected = (listIndex == TEST_MODE_OUTPUT_ROWS)
+              ? TestLimitId::Left : TestLimitId::Right;
+          queueCommand(HmiCommandType::TestLimitStart, COMMAND_DEFAULT_VALID_MS,
+                      0, static_cast<uint32_t>(testLimitSelected));
+          testModeLastCommandAt = millis();
+        } else {
+          goBack();
+        }
+      }
+      break;
+    }
+
+    case View::WifiChange:
+      if (rotary.button == ButtonEvent::ShortPress) goBack();
       break;
 
     case View::EventLog: {
@@ -1557,7 +1768,9 @@ void drawHomeMain() {
   // vung PV ben trai (~70 px) va 3 dong thong tin phu ben phai.
   // Khong dung khung/duong ke de tiet kiem diem anh va giu giao dien thoang.
   constexpr int16_t TEMP_ZONE_WIDTH = 70;
-  constexpr int16_t RIGHT_X = 74;
+  // Dich cot SV/AM/DAO ra gan mep phai hon de khong bi dinh sat vung nhiet do,
+  // giup hai ben man hinh can doi hon.
+  constexpr int16_t RIGHT_X = 80;
 
   snprintf(text, sizeof(text), currentRuntime.sensorOnline ? "%.1f" : "--.-",
            currentRuntime.temperature);
@@ -1629,41 +1842,38 @@ void drawStatusPair(int16_t y, const char *left, const char *right) {
 void drawHomeOutputs() {
   char left[24];
   char right[24];
+  char turnLine[28];
   drawHeader("TRANG THAI");
-  lcd.setFont(u8g2_font_5x8_tf);
 
-  // Trang nay la Level-2 status: 5 hang x 2 cot, cung baseline 11 px.
-  // DAO TIEP da co tren man chinh nen khong lap lai o day.
+  // Rut gon con 2 hang thiet bi (SSR/OUT, QUAT/HUT) + 1 dong DAO TRUNG lam
+  // trong tam duoi day, trinh bay nhu mot chi bao trang thai giong man chinh.
+  lcd.setFont(u8g2_font_6x12_tf);
   snprintf(left, sizeof(left), "SSR %3.0f%%", currentRuntime.heaterPower);
   snprintf(right, sizeof(right), "OUT %s", currentRuntime.heaterOn ? "ON" : "OFF");
-  drawStatusPair(19, left, right);
+  drawStatusPair(24, left, right);
 
   snprintf(left, sizeof(left), "QUAT %s", currentRuntime.circulationFanOn ? "ON" : "OFF");
   snprintf(right, sizeof(right), "HUT %s", currentRuntime.ventFanOn ? "ON" : "OFF");
-  drawStatusPair(30, left, right);
+  drawStatusPair(38, left, right);
 
-  snprintf(left, sizeof(left), "DAO %s",
-           currentRuntime.turningLockdown ? "KHOA" : turnStateShort(currentRuntime.turnState));
-  snprintf(right, sizeof(right), "MODE %s", currentRuntime.autoMode ? "AUTO" : "MAN");
-  drawStatusPair(41, left, right);
+  lcd.drawHLine(0, 44, 128);
 
-  snprintf(left, sizeof(left), "HN %u", currentRuntime.turnCountToday);
-  snprintf(right, sizeof(right), "TONG %lu",
-           static_cast<unsigned long>(currentRuntime.turnCountBatch));
-  drawStatusPair(52, left, right);
-
-  snprintf(left, sizeof(left), "ME %s",
-           currentRuntime.batchRunning ? "DANG AP" : "SAN SANG");
-  if (currentRuntime.connectivityMode == ConnectivityMode::Offline) {
-    snprintf(right, sizeof(right), "NET OFF");
-  } else if (!currentRuntime.networkConfigured) {
-    snprintf(right, sizeof(right), "NET CFG?");
-  } else if (currentRuntime.networkConnected) {
-    snprintf(right, sizeof(right), "NET ON");
+  if (currentRuntime.turningLockdown) {
+    snprintf(turnLine, sizeof(turnLine), "DAO TRUNG: KHOA");
+  } else if (currentRuntime.turnState == TurnState::Left ||
+            currentRuntime.turnState == TurnState::Right) {
+    snprintf(turnLine, sizeof(turnLine), "DAO TRUNG: %s",
+             turnStateShort(currentRuntime.turnState));
+  } else if (currentRuntime.turnState == TurnState::Fault) {
+    snprintf(turnLine, sizeof(turnLine), "DAO TRUNG: LOI");
+  } else if (currentRuntime.nextTurnScheduled) {
+    snprintf(turnLine, sizeof(turnLine), "DAO TRUNG: %u PHUT",
+             currentRuntime.nextTurnMinutes);
   } else {
-    snprintf(right, sizeof(right), "NET CHO");
+    snprintf(turnLine, sizeof(turnLine), "DAO TRUNG: --");
   }
-  drawStatusPair(63, left, right);
+  lcd.setFont(u8g2_font_6x12_tf);
+  drawCenteredText(58, turnLine);
 }
 
 void drawHome() {
@@ -1685,6 +1895,24 @@ void drawMainMenu() {
       lcd.setDrawColor(1);
     } else {
       lcd.drawStr(12, y, mainItemLabel(index));
+    }
+  }
+}
+
+void drawChungMenu() {
+  drawHeader("CAI DAT CHUNG");
+  lcd.setFont(u8g2_font_6x12_tf);
+  for (uint8_t row = 0; row < 4 && chungTop + row < CHUNG_COUNT; ++row) {
+    const uint8_t index = chungTop + row;
+    const int16_t y = 22 + row * 12;
+    if (index == chungIndex) {
+      lcd.drawBox(0, y - 9, 128, 11);
+      lcd.setDrawColor(0);
+      lcd.drawStr(2, y, ">");
+      lcd.drawStr(12, y, chungItemLabel(index));
+      lcd.setDrawColor(1);
+    } else {
+      lcd.drawStr(12, y, chungItemLabel(index));
     }
   }
 }
@@ -1713,11 +1941,11 @@ void drawSettingList() {
       lcd.drawStr(2, y, item.label);
       const int16_t x = max(86, 126 - static_cast<int16_t>(lcd.getStrWidth(value)));
       lcd.drawStr(x, y, value);
-    } else if (groupHasTurnStats(selectedGroup) && local == group.count) {
-      // Dong muc phu can trai va viet thuong dong bo voi cac muc cai dat.
-      lcd.drawStr(2, y, "So lan dao");
+    } else if (groupHasExtraRow(selectedGroup) && local == group.count) {
+      // Dong muc phu (thong ke dao/doi wifi) can trai dong bo voi cac muc cai dat.
+      lcd.drawStr(2, y, groupExtraLabel(selectedGroup));
     } else if (local == exitIndex) {
-      // Nut thoat cua ca hai menu con can trai nhu cac dong con lai.
+      // Nut thoat cuon xuong cuoi danh sach, can trai nhu cac dong con lai.
       lcd.drawStr(2, y, "Thoat");
     }
 
@@ -1742,6 +1970,8 @@ void drawTurnStats() {
   else snprintf(text, sizeof(text), "DAO TIEP: --");
   lcd.setFont(u8g2_font_5x8_tf);
   lcd.drawStr(6, 58, text);
+  lcd.drawStr(max(1, 128 - static_cast<int16_t>(lcd.getStrWidth("NHAN=THOAT"))),
+             58, "NHAN=THOAT");
 }
 
 void drawEditSetting() {
@@ -1789,6 +2019,106 @@ void drawAutoTune() {
   const int16_t textX = max(
       0, (128 - static_cast<int16_t>(lcd.getStrWidth(text))) / 2);
   lcd.drawStr(textX, 46, text);
+
+  // Hang thoat rieng, chon bang cuon xuong - tranh bam nham vao khoi dong
+  // tu chinh (co dieu khien nhiet That) khi chi dinh luot qua trang.
+  lcd.setFont(u8g2_font_5x8_tf);
+  const char *exitLabel = "> THOAT <";
+  if (autoTuneRow == 1U) {
+    const int16_t w = static_cast<int16_t>(lcd.getStrWidth(exitLabel));
+    lcd.drawBox(max(0, (128 - w) / 2) - 2, 55, w + 4, 9);
+    lcd.setDrawColor(0);
+    lcd.drawStr(max(0, (128 - w) / 2), 62, exitLabel);
+    lcd.setDrawColor(1);
+  } else {
+    drawCenteredText(62, "cuon xuong de thoat");
+  }
+}
+
+const char *testOutputLabel(uint8_t index) {
+  switch (static_cast<TestOutputId>(index)) {
+    case TestOutputId::HeaterSsr: return "SSR NHIET";
+    case TestOutputId::HeatMaster: return "CONTACTOR TONG";
+    case TestOutputId::CirculationFan: return "QUAT TUAN HOAN";
+    case TestOutputId::VentFan: return "QUAT HUT";
+    case TestOutputId::Light: return "DEN";
+    case TestOutputId::Siren: return "COI";
+    case TestOutputId::TurnLeft: return "DAO TRAI";
+    case TestOutputId::TurnRight: return "DAO PHAI";
+    default: return "?";
+  }
+}
+
+const char *testLimitPhaseText(TestLimitPhase phase) {
+  switch (phase) {
+    case TestLimitPhase::Waiting: return "DANG CHO TAC DONG";
+    case TestLimitPhase::Success: return "DA PHAT HIEN - OK";
+    case TestLimitPhase::Timeout: return "KHONG PHAT HIEN";
+    default: return "";
+  }
+}
+
+void drawTestMode() {
+  drawHeader("THU NGHIEM");
+  lcd.setFont(u8g2_font_6x12_tf);
+  char line[24];
+  for (uint8_t row = 0; row < 4 && listTop + row < TEST_MODE_ITEM_COUNT; ++row) {
+    const uint8_t local = listTop + row;
+    const int16_t y = 22 + row * 12;
+    const bool selected = local == listIndex;
+    if (selected) {
+      lcd.drawBox(0, y - 9, 128, 11);
+      lcd.setDrawColor(0);
+    }
+    if (local < TEST_MODE_OUTPUT_ROWS) {
+      const bool on = (currentRuntime.testOutputMaskActive & (1U << local)) != 0U;
+      lcd.drawStr(2, y, testOutputLabel(local));
+      lcd.drawStr(max(90, 126 - static_cast<int16_t>(lcd.getStrWidth(on ? "BAT" : "..."))),
+                 y, on ? "BAT" : "...");
+    } else if (local < TEST_MODE_OUTPUT_ROWS + TEST_MODE_LIMIT_ROWS) {
+      const TestLimitId id = local == TEST_MODE_OUTPUT_ROWS
+          ? TestLimitId::Left : TestLimitId::Right;
+      snprintf(line, sizeof(line), "CTHT %s", id == TestLimitId::Left ? "TRAI" : "PHAI");
+      lcd.drawStr(2, y, line);
+      if (currentRuntime.testLimitTarget == id &&
+          currentRuntime.testLimitPhase != TestLimitPhase::Idle) {
+        const char *tag = currentRuntime.testLimitPhase == TestLimitPhase::Success ? "OK"
+                         : currentRuntime.testLimitPhase == TestLimitPhase::Timeout ? "!!"
+                         : "...";
+        lcd.drawStr(max(100, 126 - static_cast<int16_t>(lcd.getStrWidth(tag))), y, tag);
+      }
+    } else {
+      lcd.drawStr(2, y, "Thoat");
+    }
+    if (selected) lcd.setDrawColor(1);
+  }
+}
+
+void drawWifiChange() {
+  drawHeader("DOI WIFI");
+  lcd.setFont(u8g2_font_6x12_tf);
+  const WifiPortalState state = currentRuntime.wifiPortalState;
+  const char *title = "DANG MO CONG...";
+  if (state == WifiPortalState::ApActive) title = "HAY KET NOI VA DOI WIFI";
+  else if (state == WifiPortalState::Testing) title = "DANG THU KET NOI...";
+  else if (state == WifiPortalState::Success) title = "DA KET NOI!";
+  else if (state == WifiPortalState::Failed) title = "KHONG THE KET NOI";
+  const int16_t titleX = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(title))) / 2);
+  lcd.drawStr(titleX, 24, title);
+
+  lcd.setFont(u8g2_font_5x8_tf);
+  char line[32];
+  if (state == WifiPortalState::ApActive || state == WifiPortalState::Testing) {
+    snprintf(line, sizeof(line), "Ket noi dien thoai toi:");
+    lcd.drawStr(6, 38, line);
+    snprintf(line, sizeof(line), "%s (192.168.4.1)", currentRuntime.wifiPortalApName);
+    lcd.drawStr(6, 50, line);
+  } else if (state == WifiPortalState::Failed) {
+    lcd.drawStr(6, 40, "Hay thu lai voi mang/mat khau khac");
+  } else if (state == WifiPortalState::Success) {
+    lcd.drawStr(6, 40, "May da chuyen sang Wi-Fi moi");
+  }
+  drawCenteredText(62, "NHAN=THOAT");
 }
 
 void formatEventAge(uint32_t ageSec, char *out, size_t size) {
@@ -2042,10 +2372,13 @@ void render(uint32_t now) {
   switch (view) {
     case View::Home: drawHome(); break;
     case View::MainMenu: drawMainMenu(); break;
+    case View::ChungMenu: drawChungMenu(); break;
     case View::SettingList: drawSettingList(); break;
     case View::EditSetting: drawEditSetting(); break;
     case View::TurnStats: drawTurnStats(); break;
     case View::AutoTune: drawAutoTune(); break;
+    case View::TestMode: drawTestMode(); break;
+    case View::WifiChange: drawWifiChange(); break;
     case View::EventLog: drawEventLog(); break;
     case View::Alarm: drawAlarm(); break;
   }
@@ -2284,15 +2617,8 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
              before.ventFanOn != after.ventFanOn ||
              before.turnState != after.turnState ||
              before.turningLockdown != after.turningLockdown ||
-             before.autoMode != after.autoMode ||
-             before.batchRunning != after.batchRunning ||
-             before.batchLogAvailable != after.batchLogAvailable ||
-             before.turnCountToday != after.turnCountToday ||
-             before.turnCountBatch != after.turnCountBatch ||
-             before.connectivityMode != after.connectivityMode ||
-             before.networkConfigured != after.networkConfigured ||
-             before.networkConnected != after.networkConnected ||
-             before.networkState != after.networkState;
+             before.nextTurnMinutes != after.nextTurnMinutes ||
+             before.nextTurnScheduled != after.nextTurnScheduled;
 
     case View::TurnStats:
       return before.turnCountToday != after.turnCountToday ||
@@ -2318,7 +2644,19 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
              before.activeFaultDisplayCount != after.activeFaultDisplayCount ||
              before.faultNotificationSequence != after.faultNotificationSequence;
 
+    case View::TestMode:
+      return before.testModeActive != after.testModeActive ||
+             before.testOutputMaskActive != after.testOutputMaskActive ||
+             before.testLimitTarget != after.testLimitTarget ||
+             before.testLimitPhase != after.testLimitPhase;
+
+    case View::WifiChange:
+      return before.wifiPortalState != after.wifiPortalState ||
+             fixedTextChanged(before.wifiPortalApName, after.wifiPortalApName,
+                              sizeof(before.wifiPortalApName));
+
     case View::MainMenu:
+    case View::ChungMenu:
     case View::SettingList:
     case View::EditSetting:
       return false;
@@ -2456,6 +2794,20 @@ void processCommandAcks() {
     }
     showToast(ack.message[0] ? ack.message :
               (ack.ok ? "LENH DA THUC HIEN" : "LENH BI TU CHOI"), !ack.ok);
+
+    // Neu yeu cau mo cong Wi-Fi/vao thu nghiem bi tu choi ngay tai firmware
+    // tong, dua nguoi dung tro lai man hinh truoc do thay vi ket ket qua cho.
+    if (!ack.ok && command.type == HmiCommandType::WifiPortalStart &&
+        view == View::WifiChange) {
+      goBack();
+    }
+    if (!ack.ok && command.type == HmiCommandType::TestModeEnter &&
+        view == View::TestMode) {
+      view = View::MainMenu;
+      mainIndex = MAIN_THU_NGHIEM;
+      alignMainMenuWindow();
+      dirty = true;
+    }
   }
 }
 
@@ -2624,6 +2976,10 @@ void hmiUpdate(uint32_t now) {
 
   if (!confirmationActive() && view != View::Home && view != View::Alarm &&
       now - lastInteractionAt >= MENU_IDLE_TIMEOUT_MS) {
+    // Roi Che do thu nghiem/Doi Wi-Fi do khong thao tac phai dong hang han
+    // ngay tren firmware tong, khong chi tam roi man hinh.
+    if (view == View::TestMode) queueCommand(HmiCommandType::TestModeExit);
+    else if (view == View::WifiChange) queueCommand(HmiCommandType::WifiPortalCancel);
     view = View::Home;
     homePage = 0;
     showToast("TU DONG VE MAN HINH CHINH");
