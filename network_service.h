@@ -21,6 +21,17 @@
 // 4 file .h (config/network_service/hmi/machine_control) + 1 file .ino.
 namespace MayapNetworkInternal {
 
+// Ban rieng cua file nay: machine_control.h co elapsedMs/timeReached trong
+// namespace Mayap, hmi.h co ban global rieng, nhung network_service.h duoc
+// include TRUOC ca hai trong .ino nen khong the dua vao chung - moi file
+// tu chua ham nho nay de doc lap thu tu include.
+inline uint32_t elapsedMs(uint32_t now, uint32_t then) {
+  return static_cast<uint32_t>(now - then);
+}
+inline bool timeReached(uint32_t now, uint32_t target) {
+  return static_cast<int32_t>(now - target) >= 0;
+}
+
 constexpr uint16_t DNS_PORT = 53;
 
 static volatile uint8_t requestedMode =
