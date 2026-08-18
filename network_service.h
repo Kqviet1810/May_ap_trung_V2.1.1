@@ -13,12 +13,12 @@
 // mayapRequestWifiPortal/mayapCancelWifiPortal/mayapGetWifiPortalStatus,
 // nhung tat ca deu dung atomic/co doc snapshot nen goi tu task nao cung an toan).
 //
-// Nguon goc cong 1 "Doi Wi-Fi": gop logic tu MAYAP_WIFI_WEB_PHU_ONLY.ino (web
-// phu cau hinh SSID/mat khau qua AP MAYAP-XXXX) vao thang trong networkTask,
-// chuyen tu kieu blocking (delay() trong connectSavedWifi) sang non-blocking
-// de khong bao gio lam cham task dieu khien/HMI. File .ino kia gio chi con la
-// tai lieu tham khao dung lam sketch nap rieng khi can, KHONG bien dich chung
-// voi firmware tong (ca hai deu co setup()/loop() rieng).
+// Nguon goc cong 1 "Doi Wi-Fi": da gop toan bo logic tu sketch tham khao rieng
+// MAYAP_WIFI_WEB_PHU_ONLY (AP MAYAP-XXXX + web cau hinh SSID/mat khau) thang
+// vao day va chuyen tu kieu blocking (delay() trong vong doi ket noi) sang
+// non-blocking de khong bao gio lam cham task dieu khien/HMI. Sketch tham
+// khao rieng khong con ton tai trong repo; toan bo firmware gio chi gom
+// 4 file .h (config/network_service/hmi/machine_control) + 1 file .ino.
 namespace MayapNetworkInternal {
 
 constexpr uint16_t DNS_PORT = 53;
