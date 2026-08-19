@@ -1,0 +1,159 @@
+
+    :root{
+      --ink:#0c2f2a;--muted:#718783;--line:#cededb;--surface:#fff;--wash:#eef5f3;
+      --primary:#0d8275;--primary2:#095f56;--primarySoft:#dff3ef;
+      --danger:#be4147;--dangerSoft:#fff0f1;--shadow:0 12px 32px rgba(10,55,48,.08);
+      --radius:20px;--navH:86px
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;width:100%;max-width:100%;overflow-x:clip}
+    body{width:100%;max-width:100%;overflow-x:clip}
+    body{margin:0;color:var(--ink);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:linear-gradient(180deg,#f2f7f5,#eaf2f0);min-height:100vh}
+    /* Khóa chiều ngang: mọi khối co theo viewport, không sinh thanh cuộn ngang. */
+    .appShell,.main,.topbar,.page,.panel,.batchPanel,.batchGrid,.batchGrid>*,
+    .compactTile,.compactTile input,.batchActions,.batchActions>*{min-width:0;max-width:100%}
+    .appShell{width:100%;overflow-x:clip}
+    @supports not (overflow:clip){html,body,.appShell{overflow-x:hidden}}
+    button,input,select{font:inherit}
+    button{-webkit-tap-highlight-color:transparent}
+    .appShell{min-height:100vh;display:grid;grid-template-columns:230px minmax(0,1fr)}
+    .sidebar{position:fixed;inset:0 auto 0 0;width:230px;padding:22px 18px;background:#103a33;color:#fff;display:flex;flex-direction:column;z-index:40}
+    .brand{display:flex;align-items:center;gap:12px}.brandMark{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:#49cfbc;color:#073b34;font-weight:950;font-size:21px}.brand strong,.brand small{display:block}.brand small{margin-top:3px;color:#a9c8c2;font-size:11px}
+    .nav{display:grid;gap:8px;margin-top:34px}.nav button{border:0;border-radius:14px;background:transparent;color:#bfd4d0;min-height:52px;padding:8px 12px;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left}.nav button span{width:24px;font-size:20px}.nav button b{font-size:13px}.nav button.active{background:#205b51;color:#fff}
+    .sideState{margin-top:auto;display:flex;align-items:center;gap:10px;padding:12px;border:1px solid #315c55;border-radius:14px}.sideState i{width:10px;height:10px;border-radius:50%;background:#53d7a4;box-shadow:0 0 0 5px #53d7a422}.sideState strong,.sideState small{display:block}.sideState strong{font-size:11px}.sideState small{font-size:9px;color:#a8c5c0;margin-top:2px}
+    .main{grid-column:2;padding:0 24px 40px;max-width:1250px;width:100%;min-width:0;margin:0 auto}
+    .topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:minmax(240px,1fr) repeat(3,126px);gap:10px;align-items:center;padding:18px 0 14px;background:#f1f6f4ee;backdrop-filter:blur(12px)}
+    .title h1{margin:0;font-size:32px;letter-spacing:-1px}.title p{margin:6px 0 0;color:var(--muted);font-size:13px}.live{padding:12px 13px;background:#fff;border:1px solid var(--line);border-radius:15px;box-shadow:var(--shadow);min-width:0}.live span,.live strong{display:block}.live span{color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.7px}.live strong{font-size:16px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .page{display:none;min-width:0;width:100%}.page.active{display:grid;gap:14px;min-width:0;width:100%}.page#page-batch.active{display:block}.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
+    .panelHead,.deviceTop,.dialogHead{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.panel h2,.dialogHead h2{margin:2px 0 0;font-size:20px;letter-spacing:-.35px}.eyebrow{margin:0;color:#087166;font-size:10px;letter-spacing:1px;font-weight:900}
+    .pill{display:inline-flex;align-items:center;justify-content:center;padding:7px 11px;border-radius:999px;font-size:10px;font-weight:900}.pill.online{background:#e5f6ec;color:#187746}.pill.offline{background:#f1f3f2;color:#697875}.pill.soft{background:#eef4f2;color:#596c68}
+    .deviceCompact{padding:18px}.deviceIdentity h2{font-size:23px}.deviceIdentity small{display:block;margin-top:4px;color:var(--muted);font-size:11px}.statusBlock{text-align:right;min-width:88px}.statusBlock small{display:block;margin-top:5px;color:var(--muted);font-size:9px;white-space:nowrap}
+    .devicePickerRow{display:flex;align-items:end;gap:9px;margin-top:16px}.grow{flex:1}.addDevice{flex:0 0 54px;height:54px;border:0;border-radius:15px;background:var(--primary);color:#fff;font-size:28px;line-height:1;cursor:pointer;box-shadow:0 9px 20px #0d827526;display:grid;place-items:center}.addDevice:active{transform:translateY(1px)}
+    .field{display:grid;gap:7px}.field>span{font-size:11px;font-weight:800}
+    input,select{width:100%;min-height:52px;border:1px solid #c5d8d4;border-radius:14px;background:#fff;color:var(--ink);padding:0 13px;outline:0}
+    select{appearance:none;-webkit-appearance:none;padding-right:48px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%232c5d56' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center;background-size:16px}
+    input:focus,select:focus{border-color:#42aa9c;box-shadow:0 0 0 3px #42aa9c18}
+    .quickGrid,.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:15px}.quickField{border:1px solid var(--line);border-radius:15px;background:#f8fbfa;padding:13px}.quickField>span{font-size:11px;font-weight:850}.quickField>div,.unit{display:flex;align-items:center}.quickField input,.unit input{border:0;border-radius:0;background:transparent;padding:0;box-shadow:none;min-height:42px;font-weight:850;font-size:21px}.quickField b,.unit b{font-size:10px;color:#637973;white-space:nowrap;margin-right:4px}
+    .outputStrip{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.outputStrip>div{padding:11px 12px;border:1px solid var(--line);border-radius:13px;background:#f8fbfa}.outputStrip span,.outputStrip strong{display:block}.outputStrip span{color:var(--muted);font-size:9px;text-transform:uppercase}.outputStrip strong{font-size:12px;margin-top:5px}.outputStrip strong.on{color:#087b51}
+    .primary,.ghost{min-height:48px;border-radius:14px;padding:0 16px;font-weight:850;font-size:12px;cursor:pointer}.primary{border:0;background:var(--primary);color:#fff}.primary.dark{background:#103a33}.ghost{border:1px solid #bed1cd;background:#fff;color:#375f58}.full{width:100%}.primary:disabled,.ghost:disabled{opacity:.55;cursor:not-allowed}
+    .switchRow{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:16px;padding:13px;border:1px solid var(--line);border-radius:14px;background:#f8fbfa}.switchRow strong,.switchRow small{display:block}.switchRow strong{font-size:12px}.switchRow small{margin-top:4px;color:var(--muted);font-size:10px;line-height:1.45}.switchRow input,.toggle input{position:absolute;opacity:0;pointer-events:none}.switchRow i,.toggle i{display:block;width:48px;height:28px;border-radius:999px;background:#cbd8d5;position:relative;cursor:pointer;transition:.2s}.switchRow i:after,.toggle i:after{content:"";position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 2px 6px #0002;transition:.2s}.switchRow input:checked+i,.toggle input:checked+i{background:var(--primary)}.switchRow input:checked+i:after,.toggle input:checked+i:after{transform:translateX(20px)}
+    .actions{display:flex;justify-content:flex-end;gap:9px;margin-top:16px}
+
+    /* Lưới nhập nhanh tối ưu cho màn hình điện thoại */
+    .batchPanel{padding:16px}.batchPanel .panelHead{align-items:center}.batchPanel .panelHead h2{font-size:19px}
+    .batchGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:14px}
+    .tempGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+    .compactTile{min-width:0;border:1px solid var(--line);border-radius:14px;background:#f8fbfa;padding:10px 11px;display:grid;align-content:start;gap:5px;min-height:78px}
+    .compactTile>span,.compactTile .tileLabel{display:block;color:#496963;font-size:9px;font-weight:850;line-height:1.2}
+    .compactTile input{min-width:0;max-width:100%;min-height:34px;height:34px;border:0;border-radius:0;background:transparent;padding:0;color:var(--ink);font-size:17px;font-weight:900;box-shadow:none}
+    .compactTile input[type=date]{font-size:13px;font-weight:750;width:100%;min-width:0;max-width:100%;padding-right:2px}
+    .compactTile .unit{min-height:34px}.compactTile .unit input{min-width:0}.compactTile .unit b{margin-left:auto;margin-right:0;font-size:8px}
+    .compactToggle{display:flex;align-items:center;justify-content:space-between;gap:8px}.compactToggle .toggle i{width:42px;height:24px}.compactToggle .toggle i:after{width:18px;height:18px}.compactToggle .toggle input:checked+i:after{transform:translateX(18px)}
+    .compactToggle small{display:block;color:var(--muted);font-size:8px;line-height:1.25;margin-top:2px}
+    .batchActions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:11px}.batchActions button{min-height:43px;padding:0 7px;font-size:10px}
+    .temperatureFormCompact{padding:12px}.temperatureFormCompact .primary{min-height:44px}
+
+    /* Cài đặt theo progressive disclosure */
+    .settingsStack{display:grid;gap:10px}.settingCard{background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);overflow:hidden}.settingCard summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:42px minmax(0,1fr) 34px;gap:12px;align-items:center;min-height:78px;padding:14px 14px 14px 15px}.settingCard summary::-webkit-details-marker{display:none}.settingCard summary:focus-visible{outline:3px solid #42aa9c33;outline-offset:-3px}.settingIcon{width:42px;height:42px;border-radius:13px;background:#e5f5f1;color:#087166;display:grid;place-items:center;font-size:20px;font-weight:900}.settingSummary{min-width:0}.settingSummary strong,.settingSummary small{display:block}.settingSummary strong{font-size:14px}.settingSummary small{margin-top:5px;color:var(--muted);font-size:10px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.disclosure{width:32px;height:32px;border-radius:10px;background:#edf5f3;position:relative;justify-self:end}.disclosure:before,.disclosure:after{content:"";position:absolute;left:9px;right:9px;top:15px;height:2px;border-radius:2px;background:#137d71;transition:.18s}.disclosure:after{transform:rotate(90deg)}.settingCard[open] .disclosure:after{transform:rotate(0)}.settingCard[open] summary{border-bottom:1px solid #e2ecea}.settingBody{padding:16px;display:grid;gap:14px}.settingBody .grid2{margin-top:0}.settingFootnote{margin:0;color:var(--muted);font-size:10px;line-height:1.5}
+    .notificationLine{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:2px 0}.notificationLine strong,.notificationLine small{display:block}.notificationLine strong{font-size:12px}.notificationLine small{font-size:10px;color:var(--muted);margin-top:4px}
+    .tuneState{display:grid;gap:7px}.tuneState span{font-size:11px;font-weight:800;color:#43655f}.tuneState>div{height:8px;border-radius:999px;background:#e2eeeb;overflow:hidden}.tuneState i{display:block;width:0;height:100%;background:linear-gradient(90deg,#0d8275,#55d5c1);transition:width .25s}
+
+    /* Wi-Fi */
+    .wifiInputRow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.wifiInputRow button{min-width:92px}.wifiResults{display:none;gap:7px}.wifiResults.show{display:grid}.wifiNetwork{width:100%;border:1px solid #d5e4e1;background:#f8fbfa;border-radius:13px;padding:11px 12px;text-align:left;color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px}.wifiNetwork strong,.wifiNetwork small{display:block}.wifiNetwork strong{font-size:11px}.wifiNetwork small{margin-top:3px;color:var(--muted);font-size:9px}.wifiNetwork span{font-size:9px;color:#187746;font-weight:850}.passwordWrap{position:relative}.passwordWrap input{padding-right:64px}.passwordToggle{position:absolute;right:7px;top:7px;height:38px;border:0;border-radius:10px;background:#edf5f3;color:#285f57;padding:0 11px;font-size:10px;font-weight:850;cursor:pointer}
+
+
+    
+/* Một nút duy nhất cho Bắt đầu/Kết thúc mẻ. */
+.batchActions .dangerButton{width:100%;min-height:48px;border-radius:14px;padding:0 16px;font-size:12px}
+.batchActions button:disabled{cursor:not-allowed;opacity:.62}
+
+    /* Trạng thái lưu, lỗi tại chỗ và nhật ký mẻ ấp */
+    .formState{display:none!important}
+    @keyframes pulse{50%{opacity:.35}}
+    .formError{display:none;margin-top:8px;padding:8px 10px;border-radius:10px;background:var(--dangerSoft);color:var(--danger);font-size:9.5px;font-weight:750;line-height:1.4}.formError.show{display:block}
+    input.invalid,select.invalid,.compactTile.invalid{border-color:#d95d62!important;background:#fff8f8!important;box-shadow:0 0 0 2px #d95d6218!important}
+    .primary.attention{box-shadow:0 0 0 3px #e29b1d2b;background:#a66d0d}
+
+    .batchLogPanel{margin-top:12px;padding:14px 16px}.batchLogPanel .panelHead{align-items:center}.batchLogPanel h2{font-size:17px}.logHint{color:var(--muted);font-size:9px;white-space:nowrap}
+    .currentActivity{display:grid;grid-template-columns:12px minmax(0,1fr);gap:10px;align-items:center;margin-top:12px;padding:11px 12px;border-radius:13px;background:#eaf6f3;border:1px solid #cfe5e0;min-width:0}
+    .activityPulse{width:10px;height:10px;border-radius:50%;background:#2da36c;box-shadow:0 0 0 5px #2da36c1b}.activityPulse.idle{background:#94a6a2;box-shadow:none}.activityPulse.warning{background:#e29b1d;box-shadow:0 0 0 5px #e29b1d1b}
+    .currentActivity strong,.currentActivity small{display:block;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.currentActivity strong{font-size:11px}.currentActivity small{margin-top:3px;color:var(--muted);font-size:8.5px}
+    .batchLogList{display:grid;margin-top:8px}.batchLogRow{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:8px;align-items:center;min-height:33px;border-top:1px solid #e5eeec;min-width:0}.batchLogRow:first-child{border-top:0}.batchLogRow time{font-size:8.5px;color:#78908b;font-variant-numeric:tabular-nums}.batchLogRow .logMessage{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9.5px;font-weight:750}.batchLogRow .logDuration{font-size:8px;color:#607a74;white-space:nowrap}.batchLogEmpty{padding:14px 4px;color:var(--muted);font-size:9.5px;text-align:center}
+
+    .confirmBody{padding:20px;display:grid;gap:13px}.confirmBody h2{margin:0;font-size:19px}.confirmBody p{margin:0;color:var(--muted);font-size:11px;line-height:1.55}.confirmActions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dangerButton{border:0;background:var(--danger);color:#fff;min-height:46px;border-radius:13px;font-size:11px;font-weight:850;cursor:pointer}
+
+    .toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,16px);z-index:100;width:min(calc(100% - 28px),460px);padding:13px 15px;border-radius:14px;background:#103a33;color:#fff;font-size:12px;box-shadow:0 14px 36px #071e1a55;opacity:0;pointer-events:none;transition:.2s}.toast.show{opacity:1;transform:translate(-50%,0)}
+    dialog{width:min(calc(100% - 24px),500px);border:0;border-radius:22px;padding:0;box-shadow:0 30px 80px #071e1a66}dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}.dialogBody{padding:20px;display:grid;gap:14px}.iconButton{width:38px;height:38px;border:0;border-radius:11px;background:#edf4f2;color:#315e57;font-size:24px;cursor:pointer}.dialogNote{margin:0;padding:11px 12px;border-radius:12px;background:#eef6f4;color:#58716c;font-size:10px;line-height:1.5}.deviceList{display:grid;gap:7px}.deviceList:empty{display:none}.deviceListItem{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;padding:10px 11px;border:1px solid var(--line);border-radius:12px}.deviceListItem strong,.deviceListItem small{display:block}.deviceListItem strong{font-size:11px}.deviceListItem small{font-size:9px;color:var(--muted);margin-top:3px}.deviceListItem button{border:0;background:var(--dangerSoft);color:var(--danger);border-radius:9px;padding:7px 9px;font-size:9px;font-weight:850;cursor:pointer}
+
+    @media(max-width:800px){
+      :root{--navH:88px}.appShell{display:block}.sidebar{inset:auto 0 0 0;width:auto;height:calc(var(--navH) + env(safe-area-inset-bottom));padding:0 9px calc(8px + env(safe-area-inset-bottom));background:transparent;display:block;pointer-events:none}.brand,.sideState{display:none}.nav{pointer-events:auto;width:min(100%,390px);height:72px;margin:0 auto;padding:6px;border:1px solid #315149;border-radius:25px;background:#102d28;box-shadow:0 15px 36px #0a201c66;display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.nav button{min-height:60px;padding:4px 3px;border-radius:19px;display:grid;place-items:center;align-content:center;gap:1px;text-align:center}.nav button span{width:auto;font-size:20px;line-height:1}.nav button b{font-size:10px}.main{width:100%;max-width:100%;min-height:100dvh;padding:0 8px calc(var(--navH) + env(safe-area-inset-bottom) + 10px);overflow-x:clip}.topbar{grid-template-columns:minmax(82px,1fr) repeat(3,minmax(58px,72px));gap:5px;padding:8px 0;min-height:82px}.title h1{font-size:22px;white-space:nowrap}.title p{font-size:9px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.live{padding:7px;border-radius:11px}.live span{font-size:7.5px}.live strong{font-size:12px}.panel{padding:16px;border-radius:16px}.deviceIdentity h2{font-size:19px}.devicePickerRow{margin-top:13px}.addDevice{height:52px;flex-basis:52px}.quickGrid,.grid2{grid-template-columns:1fr}.batchGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.tempGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.compactTile{padding:9px;min-height:74px}.compactTile input{font-size:16px}.batchActions{grid-template-columns:repeat(2,minmax(0,1fr))}.outputStrip{grid-template-columns:1fr 1fr}.actions{display:grid;grid-template-columns:1fr 1fr}.actions .dark{grid-column:1/-1}.settingCard summary{min-height:72px;padding:12px}.settingIcon{width:38px;height:38px;border-radius:12px;font-size:18px}.settingSummary strong{font-size:13px}.settingSummary small{font-size:9.5px}.settingBody{padding:14px}.batchLogPanel{padding:12px 14px}.batchLogRow{grid-template-columns:38px minmax(0,1fr) auto}.batchLogRow .logDuration{max-width:72px;overflow:hidden;text-overflow:ellipsis}.wifiInputRow{grid-template-columns:1fr}.wifiInputRow button{width:100%}
+    }
+    @media(max-width:360px){.tempGrid{gap:5px}.compactTile{padding:8px 7px}.compactTile>span,.compactTile .tileLabel{font-size:8px}.compactTile input{font-size:15px}.batchActions button{font-size:9px}.topbar{grid-template-columns:minmax(78px,1fr) repeat(3,58px)}.title h1{font-size:20px}.live strong{font-size:10px}.deviceTop{gap:8px}.statusBlock{min-width:76px}.devicePickerRow{gap:7px}.addDevice{flex-basis:50px;width:50px}.panel{padding:14px}.actions{grid-template-columns:1fr}.actions .dark{grid-column:auto}}
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition-duration:.01ms!important}}
+  
+/* MAYAP GitHub v9 additions */
+.wifiGuide{margin:12px 0;padding:13px 14px;border:1px solid #d9e6e3;border-radius:14px;background:#f6faf9;display:grid;gap:6px}
+.wifiGuide strong{font-size:12px}.wifiGuide small{font-size:10px;line-height:1.65;color:var(--muted)}
+.outputStrip strong:not(.on){color:#758984}
+.pill.soft{white-space:nowrap}
+noscript{display:block;padding:14px;background:#fff1e8;color:#8d4c1f;text-align:center;font:600 13px system-ui}
+
+/* v9.0.2 - Gộp Bắt đầu/Kết thúc thành một nút theo trạng thái mẻ. */
+@media(max-width:800px){
+  body[data-page="batch"]{height:100dvh;min-height:0;overflow:hidden}
+  body[data-page="batch"] .appShell{height:100dvh;min-height:0;overflow:hidden}
+  body[data-page="batch"] .main{
+    height:100dvh;min-height:0;overflow:hidden;
+    display:flex;flex-direction:column;
+  }
+  body[data-page="batch"] .topbar{flex:0 0 auto}
+  body[data-page="batch"] #page-batch.active{
+    flex:1 1 auto;min-height:0;width:100%;
+    display:flex;flex-direction:column;gap:10px;
+  }
+  body[data-page="batch"] .batchPanel{flex:0 0 auto}
+  body[data-page="batch"] .batchLogPanel{
+    flex:1 1 auto;min-height:0;margin-top:0;overflow:hidden;
+    display:flex;flex-direction:column;
+  }
+  body[data-page="batch"] .batchLogList{
+    flex:1 1 auto;min-height:0;overflow:hidden;align-content:start;
+  }
+  body[data-page="batch"] .batchLogEmpty{
+    height:100%;min-height:42px;display:grid;place-items:center;padding:8px 4px;
+  }
+}
+
+@media(max-width:800px) and (max-height:760px){
+  body[data-page="batch"] .topbar{min-height:72px;padding:5px 0}
+  body[data-page="batch"] .batchPanel{padding:12px}
+  body[data-page="batch"] .batchGrid{margin-top:9px;gap:6px}
+  body[data-page="batch"] .compactTile{min-height:64px;padding:7px 8px}
+  body[data-page="batch"] .compactTile input{min-height:30px;height:30px;font-size:15px}
+  body[data-page="batch"] .batchActions{margin-top:8px}
+  body[data-page="batch"] .batchActions button{min-height:38px}
+  body[data-page="batch"] .batchLogPanel{padding:9px 12px}
+  body[data-page="batch"] .batchLogPanel .panelHead{display:none}
+  body[data-page="batch"] .currentActivity{margin-top:0;padding:8px 10px}
+  body[data-page="batch"] .batchLogRow{min-height:27px}
+  body[data-page="batch"] .batchLogRow:nth-child(n+5){display:none}
+}
+
+@media(min-width:801px){
+  body[data-page="batch"] #page-batch.active{
+    display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.65fr);
+    gap:14px;align-items:stretch;
+  }
+  body[data-page="batch"] .batchLogPanel{margin-top:0}
+}
+
+
+/* Checkbox ẩn không được kế thừa width:100% của input thường. */
+.toggle,.switchRow{position:relative}
+.toggle input,.switchRow input{
+  width:1px!important;height:1px!important;min-height:0!important;
+  margin:0!important;padding:0!important;clip-path:inset(50%);overflow:hidden;
+}
+
+.batchLogList.empty{display:flex!important;align-items:center!important;justify-content:center!important}
+.batchLogList.empty .batchLogEmpty{height:auto;max-width:250px;line-height:1.5}

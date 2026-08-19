@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+
+<html lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport"/>
+<meta content="#103a33" name="theme-color"/>
+<title>MAYAP · Giao diện thương mại v9.0.3</title>
+
+<meta content="MAYAP - Điều khiển và theo dõi máy ấp trứng qua MQTT." name="description"/><link href="./manifest.webmanifest" rel="manifest"/><link href="./icons/icon-192.png" rel="icon"/><link href="./styles.css" rel="stylesheet"/></head>
+<body><noscript>Website cần JavaScript để kết nối MQTT và điều khiển máy.</noscript>
+<div class="appShell">
+<aside class="sidebar">
+<div class="brand"><div class="brandMark">M</div><div><strong>MAYAP</strong><small>Điều khiển máy ấp</small></div></div>
+<nav class="nav">
+<button class="active" data-page="device" type="button"><span>▦</span><b>Thiết bị</b></button>
+<button data-page="batch" type="button"><span>◉</span><b>Mẻ ấp</b></button>
+<button data-page="settings" type="button"><span>⚙</span><b>Cài đặt</b></button>
+</nav>
+<div class="sideState"><i></i><div><strong id="sideDevice">Máy ấp trứng 01</strong><small id="sideStatus">Đang trực tuyến</small></div></div>
+</aside>
+<main class="main">
+<header class="topbar">
+<div class="title"><h1 id="pageTitle">Thiết bị</h1><p id="pageSubtitle">Theo dõi máy đang chọn và chỉnh nhanh thông số chính.</p></div>
+<div class="live"><span>Nhiệt độ</span><strong id="liveTemp">37,5°C</strong></div>
+<div class="live"><span>Độ ẩm</span><strong id="liveHumidity">58%</strong></div>
+<div class="live"><span>Trạng thái</span><strong id="liveState">Sẵn sàng</strong></div>
+</header>
+<section class="page active" id="page-device">
+<section class="panel deviceCompact">
+<div class="deviceTop">
+<div class="deviceIdentity"><p class="eyebrow">MÁY ĐANG ĐIỀU KHIỂN</p><h2 id="deviceNameView">Máy ấp trứng 01</h2><small id="deviceIdView">MAP-B85FCC2C01FC</small></div>
+<div class="statusBlock"><span class="pill online" id="onlinePill">ONLINE</span><small id="wifiConnectionText">Wi‑Fi đã kết nối</small></div>
+</div>
+<div class="devicePickerRow">
+<label class="field grow"><span>Thiết bị</span><select aria-label="Chọn thiết bị" id="deviceSelector"></select></label>
+<button aria-label="Thêm thiết bị" class="addDevice" id="addDeviceBtn" type="button">+</button>
+</div>
+</section>
+<form class="panel" id="quickForm">
+<div class="panelHead"><div><p class="eyebrow">ĐIỀU CHỈNH NHANH</p><h2>Thông số vận hành</h2></div><span class="pill soft">Đồng bộ ESP32</span></div>
+<div class="quickGrid">
+<label class="quickField"><span>Nhiệt độ đặt</span><div><input id="quickTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
+<label class="quickField"><span>Chu kỳ đảo</span><div><input id="quickTurn" max="720" min="15" type="number" value="120"/><b>phút</b></div></label>
+</div>
+<div class="outputStrip">
+<div><span>Thanh nhiệt</span><strong class="on" id="outputHeater">ON</strong></div>
+<div><span>Tuần hoàn</span><strong class="on" id="outputCirculation">ON</strong></div>
+<div><span>Thông gió</span><strong id="outputVent">OFF</strong></div>
+<div><span>Đảo trứng</span><strong id="outputTurn">CHỜ</strong></div>
+</div>
+<button class="primary full" type="submit">Lưu thông số nhanh</button>
+</form>
+</section>
+<section class="page" id="page-batch">
+<form class="panel batchPanel" id="batchForm">
+<div class="panelHead"><h2>Cấu hình mẻ ấp</h2><span class="pill soft" id="batchPill">CHƯA BẮT ĐẦU</span></div>
+<div class="batchGrid">
+<label class="compactTile"><span>Tên mẻ ấp</span><input id="batchName" maxlength="32" value="Mẻ ấp 01"/></label>
+<label class="compactTile"><span>Ngày bắt đầu</span><input id="startDate" type="date" value="2026-07-29"/></label>
+<label class="compactTile"><span>Tổng số ngày ấp</span><div class="unit"><input id="totalDays" max="40" min="1" type="number" value="21"/><b>ngày</b></div></label>
+<label class="compactTile"><span>Nhiệt độ đặt</span><div class="unit"><input id="batchTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
+<label class="compactTile"><span>Độ ẩm tham khảo</span><div class="unit"><input id="targetHumidity" max="95" min="20" type="number" value="58"/><b>%RH</b></div></label>
+<div class="compactTile compactToggle"><div><span class="tileLabel">Khôi phục sau mất điện</span><small>Tự tiếp tục mẻ đang chạy.</small></div><label aria-label="Tự tiếp tục mẻ sau mất điện" class="toggle"><input checked="" id="resumeAfterPowerLoss" type="checkbox"/><i></i></label></div>
+</div>
+<div class="formError" id="batchFormError" role="alert"></div>
+<div class="batchActions"><button class="primary" type="submit">Lưu</button><button aria-label="Bắt đầu mẻ ấp" class="primary dark" id="batchAction" type="button">Bắt đầu</button></div>
+</form>
+<section aria-labelledby="batchLogTitle" class="panel batchLogPanel">
+<div class="panelHead"><div><p class="eyebrow">NHẬT KÝ MẺ ẤP</p><h2 id="batchLogTitle">Máy vừa thực hiện</h2></div><span class="logHint">6 mục gần nhất</span></div>
+<div class="currentActivity"><span class="activityPulse idle" id="activityPulse"></span><div><strong id="currentActivityText">Sẵn sàng</strong><small id="currentActivityMeta">Không có tác vụ đang chạy</small></div></div>
+<div aria-live="polite" class="batchLogList" id="batchLogList"></div>
+</section>
+</section>
+<section class="page" id="page-settings">
+<div class="settingsStack">
+<details class="settingCard" id="wifiSetting">
+<summary><span class="settingIcon">⌁</span><span class="settingSummary"><strong>Đổi Wi‑Fi</strong><small id="wifiSettingSummary">Đang kết nối: Phòng 301</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<form class="settingBody" id="wifiForm"><p class="settingFootnote">Đổi Wi‑Fi được thực hiện trực tiếp trên trang cài đặt của ESP32. Mật khẩu Wi‑Fi không đi qua MQTT.</p><div class="wifiGuide"><strong>3 bước ngắn gọn</strong><small>1. Giữ nút BOOT 3 giây trên máy.<br/>2. Kết nối điện thoại vào Wi‑Fi MAYAP-XXXX.<br/>3. Mở trang cài đặt và chọn Wi‑Fi mới.</small></div><button class="primary full" id="openWifiPortal" type="button">Mở trang cài đặt Wi‑Fi</button></form>
+</details>
+<details class="settingCard">
+<summary><span class="settingIcon">♢</span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang tắt</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<div class="settingBody">
+<div class="notificationLine"><div><strong>Cho phép thông báo</strong><small>Cảnh báo nhiệt, cảm biến, đảo trứng và mất kết nối.</small></div><label class="toggle"><input id="notificationsEnabled" type="checkbox"/><i></i></label></div>
+</div>
+</details>
+<details class="settingCard">
+<summary><span class="settingIcon">°</span><span class="settingSummary"><strong>Nhiệt độ và bảo vệ</strong><small id="temperatureSummary">Đặt 37,5°C · ngắt khẩn 39,0°C</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<form class="settingBody temperatureFormCompact" id="temperatureForm">
+<div class="tempGrid">
+<label class="compactTile"><span>Nhiệt độ đặt</span><div class="unit"><input id="targetTemp" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
+<label class="compactTile"><span>Cảnh báo thấp</span><div class="unit"><input id="lowAlarm" max="40" min="20" step="0.1" type="number" value="36.5"/><b>°C</b></div></label>
+<label class="compactTile"><span>Cảnh báo cao</span><div class="unit"><input id="highAlarm" max="50" min="30" step="0.1" type="number" value="38.2"/><b>°C</b></div></label>
+<label class="compactTile"><span>Ngắt khẩn cấp</span><div class="unit"><input id="emergencyTemp" max="60" min="31" step="0.1" type="number" value="39"/><b>°C</b></div></label>
+<label class="compactTile"><span>Bật thông gió</span><div class="unit"><input id="ventOn" max="50" min="30" step="0.1" type="number" value="38"/><b>°C</b></div></label>
+<label class="compactTile"><span>Tắt thông gió</span><div class="unit"><input id="ventOff" max="50" min="30" step="0.1" type="number" value="37.6"/><b>°C</b></div></label>
+</div>
+<button class="primary full" type="submit">Lưu nhiệt độ và bảo vệ</button>
+</form>
+</details>
+<details class="settingCard">
+<summary><span class="settingIcon">∿</span><span class="settingSummary"><strong>PID Auto Tune</strong><small id="pidSummary">ESP32 tự tìm và lưu thông số</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<div class="settingBody">
+<p class="settingFootnote">Không cần nhập Kp, Ki, Kd. Chỉ chạy khi máy không có mẻ đang hoạt động.</p>
+<div class="tuneState"><span id="tuneText">Sẵn sàng</span><div><i id="tuneBar"></i></div></div>
+<button class="primary full" id="startTune" type="button">Bắt đầu Auto Tune PID</button>
+</div>
+</details>
+<details class="settingCard">
+<summary><span class="settingIcon">↻</span><span class="settingSummary"><strong>Đảo trứng</strong><small id="turningSummary">Tự động · mỗi 120 phút</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<form class="settingBody" id="turningForm">
+<div class="notificationLine"><div><strong>Đảo tự động</strong><small>ESP32 thực hiện theo chu kỳ và công tắc hành trình.</small></div><label class="toggle"><input checked="" id="turningEnabled" type="checkbox"/><i></i></label></div>
+<div class="grid2">
+<label class="field"><span>Khoảng thời gian giữa hai lần đảo</span><div class="unit"><input id="turnInterval" max="720" min="15" type="number" value="120"/><b>phút</b></div></label>
+<label class="field"><span>Thời gian chờ hành trình</span><div class="unit"><input id="limitAlarmTime" max="120" min="3" type="number" value="20"/><b>giây</b></div></label>
+<label class="field"><span>Hướng đảo kế tiếp</span><select id="nextDirection"><option value="left">Trái</option><option value="right">Phải</option></select></label>
+</div>
+<button class="primary full" type="submit">Lưu cài đặt đảo</button>
+</form>
+</details>
+<details class="settingCard">
+<summary><span class="settingIcon">◌</span><span class="settingSummary"><strong>Cảm biến</strong><small id="sensorSummary">Bù 0,0°C · timeout 10 giây</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<form class="settingBody" id="sensorForm">
+<div class="grid2">
+<label class="field"><span>Bù nhiệt độ</span><div class="unit"><input id="tempOffset" max="10" min="-10" step="0.1" type="number" value="0"/><b>°C</b></div></label>
+<label class="field"><span>Bù độ ẩm</span><div class="unit"><input id="humidityOffset" max="20" min="-20" step="0.1" type="number" value="0"/><b>%RH</b></div></label>
+<label class="field"><span>Timeout cảm biến</span><div class="unit"><input id="sensorTimeout" max="120" min="2" type="number" value="10"/><b>giây</b></div></label>
+</div>
+<button class="primary full" type="submit">Lưu hiệu chỉnh cảm biến</button>
+</form>
+</details>
+</div>
+</section>
+</main>
+</div>
+<dialog id="deviceDialog">
+<form class="dialogBody" id="addDeviceForm">
+<div class="dialogHead"><div><p class="eyebrow">THÊM THIẾT BỊ</p><h2>Kết nối bằng ID ESP32</h2></div><button aria-label="Đóng" class="iconButton" id="closeDeviceDialog" type="button">×</button></div>
+<label class="field"><span>ID thiết bị</span><input autocomplete="off" id="newDeviceId" maxlength="20" placeholder="MAP-A1B2C3D4E5F6" required=""/></label>
+<label class="field"><span>Tên hiển thị</span><input autocomplete="off" id="newDeviceName" maxlength="32" placeholder="Máy ấp số 2" required=""/></label>
+<p class="dialogNote">Nhập đúng Device ID hiển thị trên ESP32. Website tự đăng ký các topic của máy và chờ dữ liệu thật.</p>
+<button class="primary full" type="submit">Thêm và chọn thiết bị</button>
+<div class="deviceList" id="deviceList"></div>
+</form>
+</dialog>
+<dialog id="confirmDialog">
+<div class="confirmBody">
+<div><p class="eyebrow">XÁC NHẬN THAO TÁC</p><h2 id="confirmTitle">Xác nhận</h2></div>
+<p id="confirmMessage">Bạn có chắc muốn tiếp tục?</p>
+<div class="confirmActions"><button class="ghost" id="confirmCancel" type="button">Quay lại</button><button class="primary dark" id="confirmAccept" type="button">Xác nhận</button></div>
+</div>
+</dialog>
+<div aria-live="polite" class="toast" id="toast" role="status"></div>
+
+<script src="./config.js"></script><script crossorigin="anonymous" referrerpolicy="no-referrer" src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.13.2/mqtt.min.js"></script><script src="./app.js"></script></body>
+</html>
