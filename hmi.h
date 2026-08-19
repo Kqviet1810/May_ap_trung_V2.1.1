@@ -459,7 +459,7 @@ void formatSettingValue(const SettingItem &item, float value, char *out, size_t 
 // ============================================================
 enum class View : uint8_t {
   Home, MainMenu, ChungMenu, SettingList, EditSetting, TurnStats, AutoTune,
-  EventLog, Alarm, TestMode, WifiChange
+  EventLog, Alarm, TestMode, TestSummary, WifiChange
 };
 
 enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch };
@@ -505,7 +505,21 @@ uint8_t autoTuneRow = 0;
 constexpr uint8_t TEST_MODE_OUTPUT_ROWS = static_cast<uint8_t>(TestOutputId::Count);
 constexpr uint8_t TEST_MODE_LIMIT_ROWS = 2U;
 constexpr uint8_t TEST_MODE_ITEM_COUNT = static_cast<uint8_t>(
-    TEST_MODE_OUTPUT_ROWS + TEST_MODE_LIMIT_ROWS + 1U);  // + Thoat
+    TEST_MODE_OUTPUT_ROWS + TEST_MODE_LIMIT_ROWS + 1U);  // + Ket thuc
+constexpr uint8_t TEST_SUMMARY_ITEM_COUNT = static_cast<uint8_t>(
+    TEST_MODE_OUTPUT_ROWS + TEST_MODE_LIMIT_ROWS);
+
+// Ket qua nguoi dung tu xac nhan cho tung thiet bi/cong tac hanh trinh, dung
+// de tong ket lai trong View::TestSummary. Rieng cua HMI, khong can dong bo
+// nguoc ve firmware tong vi day la tu danh gia bang mat/tai cua nguoi lap dat.
+enum class TestResult : uint8_t { Untested, Pass, Fail };
+TestResult testDeviceResult[TEST_MODE_OUTPUT_ROWS] = {};
+TestResult testLimitResult[TEST_MODE_LIMIT_ROWS] = {};
+TestLimitPhase lastObservedTestLimitPhase = TestLimitPhase::Idle;
+bool testDeviceConfirmActive = false;
+uint8_t testDeviceConfirmIndex = 0;
+bool testDeviceConfirmYes = true;
+uint8_t testSummaryIndex = 0;
 float editValue = 0;
 uint8_t editSettingIndex = 0;
 ConfirmAction confirmAction = ConfirmAction::None;
@@ -826,6 +840,7 @@ void goBack() {
       alignMainMenuWindow();
       break;
     case View::TestMode:
+    case View::TestSummary:
       queueCommand(HmiCommandType::TestModeExit);
       view = View::MainMenu;
       mainIndex = MAIN_THU_NGHIEM;
@@ -899,6 +914,10 @@ void openTestMode() {
     testModeLastCommandAt = millis();
     view = View::TestMode;
     listIndex = listTop = 0;
+    testDeviceConfirmActive = false;
+    for (auto &r : testDeviceResult) r = TestResult::Untested;
+    for (auto &r : testLimitResult) r = TestResult::Untested;
+    lastObservedTestLimitPhase = TestLimitPhase::Idle;
     dirty = true;
   }
 }
@@ -1019,10 +1038,10 @@ BuzzerPattern buzzerCuePattern(BuzzerCue cue) {
     // Coi la loai active (tu dao dong, khong chinh duoc cao do/am luong qua
     // PWM), nen cach duy nhat de "diu" tieng la rut ngan thoi gian xung. Key
     // vang o moi lan bam nen phai la tieng "tach" that nhe, khong phai tieng "bip".
-    case BuzzerCue::Key:   return {7, 0, 1};       // Tieng nhan phim cuc ngan, diu
-    case BuzzerCue::Save:  return {16, 0, 1};      // Bip rat ngan, khong gay on
-    case BuzzerCue::Ok:    return {55, 70, 2};     // Hai bip ngan
-    case BuzzerCue::Error: return {110, 100, 3};   // Ba bip de phan biet loi
+    case BuzzerCue::Key:   return {4, 0, 1};       // Tieng nhan phim cuc ngan, gan nhu "cach"
+    case BuzzerCue::Save:  return {10, 0, 1};      // Bip cuc ngan, khong gay on
+    case BuzzerCue::Ok:    return {35, 50, 2};     // Hai bip nhe
+    case BuzzerCue::Error: return {90, 90, 3};     // Van giu 3 bip ro rang de phan biet loi (an toan)
     default:               return {0, 0, 0};
   }
 }
@@ -1358,21 +1377,27 @@ void selectMainItem() {
 }
 
 // Quy tac cho nhan ngan/nhan giu tai ca hai trang Home (MAY AP va TRANG THAI):
-// 1) Dang co loi + nhan ngan: mo trang chi tiet loi (nhu cu).
-// 2) Dang co loi + nhan giu: duong thoat khan cap - mo thang xac nhan
-//    KET THUC ME, ke ca loi chua het han/chua tu xoa duoc. Khong the bam
-//    nham (van phai xac nhan CO/HUY), nhung khong con bi "ket" trong vong
-//    ACK lien tuc khong loi ra duoc.
-// 3) Khong co loi, trang MAY AP: mo xac nhan Bat/Dung me (nhu cu).
-// 4) Khong co loi, trang TRANG THAI: mo Menu chinh (nhu cu).
+// 1) Dang co loi + nhan ngan (ca hai trang): mo trang chi tiet loi (nhu cu).
+// 2) Dang co loi + nhan giu TREN TRANG MAY AP: duong thoat khan cap - mo
+//    thang xac nhan KET THUC ME, ke ca loi chua het han/chua tu xoa duoc.
+// 3) Dang co loi + nhan giu TREN TRANG TRANG THAI: van vao Menu chinh nhu
+//    binh thuong - loi da tat coi (ACK) khong duoc chan duong vao menu,
+//    chi trang MAY AP moi co loi thoat khan cap rieng.
+// 4) Khong co loi, trang MAY AP: mo xac nhan Bat/Dung me (nhu cu).
+// 5) Khong co loi, trang TRANG THAI: mo Menu chinh (nhu cu).
 void activateHomeContext(bool longPress) {
   if (currentRuntime.activeFaultDisplayCount) {
-    if (longPress) {
-      openBatchConfirm(View::Home);
-    } else {
+    if (!longPress) {
       openAlarmView(View::Home);
+      return;
     }
-  } else if (homePage == 0U) {
+    if (homePage == 0U) {
+      openBatchConfirm(View::Home);
+      return;
+    }
+    // homePage == 1 (TRANG THAI) + nhan giu: roi xuong nhanh Menu chinh ben duoi.
+  }
+  if (homePage == 0U) {
     openBatchConfirm(View::Home);
   } else {
     view = View::MainMenu;
@@ -1574,6 +1599,23 @@ void handleInput() {
       break;
 
     case View::TestMode: {
+      // Sau khi xung mot thiet bi, hoi nguoi lap dat CO/KHONG thay no chay -
+      // day la buoc "kiem thu" that su thay vi tu tat sau vai giay ma khong
+      // ai xac nhan gi. Cong tac hanh trinh khong can hoi vi phan cung tu
+      // bao ket qua khach quan (da xu ly rieng qua testLimitPhase).
+      if (testDeviceConfirmActive) {
+        if (rotary.step) {
+          testDeviceConfirmYes = !testDeviceConfirmYes;
+          dirty = true;
+        }
+        if (rotary.button == ButtonEvent::ShortPress) {
+          testDeviceResult[testDeviceConfirmIndex] =
+              testDeviceConfirmYes ? TestResult::Pass : TestResult::Fail;
+          testDeviceConfirmActive = false;
+          dirty = true;
+        }
+        break;
+      }
       if (rotary.step) {
         setListSelection(static_cast<int>(listIndex) + rotary.step,
                          TEST_MODE_ITEM_COUNT);
@@ -1583,6 +1625,9 @@ void handleInput() {
           queueCommand(HmiCommandType::TestOutputPulse, COMMAND_DEFAULT_VALID_MS,
                       0, static_cast<uint32_t>(listIndex));
           testModeLastCommandAt = millis();
+          testDeviceConfirmActive = true;
+          testDeviceConfirmIndex = listIndex;
+          testDeviceConfirmYes = true;
         } else if (listIndex < TEST_MODE_OUTPUT_ROWS + TEST_MODE_LIMIT_ROWS) {
           testLimitSelected = (listIndex == TEST_MODE_OUTPUT_ROWS)
               ? TestLimitId::Left : TestLimitId::Right;
@@ -1590,11 +1635,24 @@ void handleInput() {
                       0, static_cast<uint32_t>(testLimitSelected));
           testModeLastCommandAt = millis();
         } else {
-          goBack();
+          // Dong "Ket thuc": xem tong ket ai chay ai khong truoc khi thoat hAn.
+          testSummaryIndex = 0;
+          view = View::TestSummary;
         }
+        dirty = true;
       }
       break;
     }
+
+    case View::TestSummary:
+      if (rotary.step) {
+        testSummaryIndex = static_cast<uint8_t>(constrain(
+            static_cast<int>(testSummaryIndex) + rotary.step, 0,
+            TEST_SUMMARY_ITEM_COUNT - 1));
+        dirty = true;
+      }
+      if (rotary.button == ButtonEvent::ShortPress) goBack();
+      break;
 
     case View::WifiChange:
       if (rotary.button == ButtonEvent::ShortPress) goBack();
@@ -2084,7 +2142,27 @@ const char *testLimitPhaseText(TestLimitPhase phase) {
   }
 }
 
+const char *testResultTag(TestResult result) {
+  switch (result) {
+    case TestResult::Pass: return "OK";
+    case TestResult::Fail: return "KHONG";
+    default: return "...";
+  }
+}
+
+void drawTestDeviceConfirm() {
+  drawHeader("THU NGHIEM");
+  lcd.setFont(u8g2_font_6x12_tf);
+  drawCenteredText(26, testOutputLabel(testDeviceConfirmIndex));
+  drawCenteredText(40, "THIET BI CO CHAY KHONG?");
+  lcd.setFont(u8g2_font_5x8_tf);
+  char line[24];
+  snprintf(line, sizeof(line), testDeviceConfirmYes ? ">CO< KHONG" : "CO >KHONG<");
+  drawCenteredText(58, line);
+}
+
 void drawTestMode() {
+  if (testDeviceConfirmActive) { drawTestDeviceConfirm(); return; }
   drawHeader("THU NGHIEM");
   lcd.setFont(u8g2_font_6x12_tf);
   char line[24];
@@ -2098,26 +2176,54 @@ void drawTestMode() {
     }
     if (local < TEST_MODE_OUTPUT_ROWS) {
       const bool on = (currentRuntime.testOutputMaskActive & (1U << local)) != 0U;
+      const char *tag = on ? "BAT" : testResultTag(testDeviceResult[local]);
       lcd.drawStr(2, y, testOutputLabel(local));
-      lcd.drawStr(max(90, 126 - static_cast<int16_t>(lcd.getStrWidth(on ? "BAT" : "..."))),
-                 y, on ? "BAT" : "...");
+      lcd.drawStr(max(80, 126 - static_cast<int16_t>(lcd.getStrWidth(tag))), y, tag);
     } else if (local < TEST_MODE_OUTPUT_ROWS + TEST_MODE_LIMIT_ROWS) {
-      const TestLimitId id = local == TEST_MODE_OUTPUT_ROWS
-          ? TestLimitId::Left : TestLimitId::Right;
+      const uint8_t limitIdx = static_cast<uint8_t>(local - TEST_MODE_OUTPUT_ROWS);
+      const TestLimitId id = static_cast<TestLimitId>(limitIdx);
       snprintf(line, sizeof(line), "CTHT %s", id == TestLimitId::Left ? "TRAI" : "PHAI");
       lcd.drawStr(2, y, line);
-      if (currentRuntime.testLimitTarget == id &&
-          currentRuntime.testLimitPhase != TestLimitPhase::Idle) {
-        const char *tag = currentRuntime.testLimitPhase == TestLimitPhase::Success ? "OK"
-                         : currentRuntime.testLimitPhase == TestLimitPhase::Timeout ? "!!"
-                         : "...";
-        lcd.drawStr(max(100, 126 - static_cast<int16_t>(lcd.getStrWidth(tag))), y, tag);
-      }
+      const char *tag = (currentRuntime.testLimitTarget == id &&
+                         currentRuntime.testLimitPhase == TestLimitPhase::Waiting)
+          ? "..." : testResultTag(testLimitResult[limitIdx]);
+      lcd.drawStr(max(80, 126 - static_cast<int16_t>(lcd.getStrWidth(tag))), y, tag);
     } else {
-      lcd.drawStr(2, y, "Thoat");
+      // Doi tu "Thoat" sang "Ket thuc": bam vao day de xem tong ket thiet bi
+      // nao da chay, thiet bi nao chua/khong chay truoc khi roi han.
+      lcd.drawStr(2, y, "Ket thuc");
     }
     if (selected) lcd.setDrawColor(1);
   }
+}
+
+void drawTestSummary() {
+  drawHeader("TONG KET THU NGHIEM");
+  lcd.setFont(u8g2_font_6x12_tf);
+  char line[24];
+  for (uint8_t row = 0; row < 4 && testSummaryIndex / 4 * 4 + row < TEST_SUMMARY_ITEM_COUNT; ++row) {
+    const uint8_t local = static_cast<uint8_t>(testSummaryIndex / 4 * 4 + row);
+    const int16_t y = 22 + row * 12;
+    const bool selected = local == testSummaryIndex;
+    if (selected) {
+      lcd.drawBox(0, y - 9, 128, 11);
+      lcd.setDrawColor(0);
+    }
+    const char *tag;
+    if (local < TEST_MODE_OUTPUT_ROWS) {
+      lcd.drawStr(2, y, testOutputLabel(local));
+      tag = testResultTag(testDeviceResult[local]);
+    } else {
+      const uint8_t limitIdx = static_cast<uint8_t>(local - TEST_MODE_OUTPUT_ROWS);
+      snprintf(line, sizeof(line), "CTHT %s", limitIdx == 0U ? "TRAI" : "PHAI");
+      lcd.drawStr(2, y, line);
+      tag = testResultTag(testLimitResult[limitIdx]);
+    }
+    lcd.drawStr(max(80, 126 - static_cast<int16_t>(lcd.getStrWidth(tag))), y, tag);
+    if (selected) lcd.setDrawColor(1);
+  }
+  lcd.setFont(u8g2_font_5x8_tf);
+  drawCenteredText(63, "NHAN=VE MENU CHINH");
 }
 
 void drawWifiChange() {
@@ -2404,6 +2510,7 @@ void render(uint32_t now) {
     case View::TurnStats: drawTurnStats(); break;
     case View::AutoTune: drawAutoTune(); break;
     case View::TestMode: drawTestMode(); break;
+    case View::TestSummary: drawTestSummary(); break;
     case View::WifiChange: drawWifiChange(); break;
     case View::EventLog: drawEventLog(); break;
     case View::Alarm: drawAlarm(); break;
@@ -2685,6 +2792,7 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
     case View::ChungMenu:
     case View::SettingList:
     case View::EditSetting:
+    case View::TestSummary:
       return false;
   }
   return false;
@@ -2721,6 +2829,21 @@ void applyRuntime(MachineRuntime runtime) {
   }
 
   if (!currentRuntime.resumeConfirmationRequired) resumeDecisionSubmitted = false;
+
+  // Ket qua kiem tra cong tac hanh trinh la khach quan (phan cung tu phat
+  // hien), khac voi thiet bi (nguoi dung tu xac nhan). Ghi lai khi vua co
+  // ket qua moi de hien trong bang tong ket.
+  if (currentRuntime.testLimitPhase != lastObservedTestLimitPhase) {
+    if (currentRuntime.testLimitPhase == TestLimitPhase::Success ||
+        currentRuntime.testLimitPhase == TestLimitPhase::Timeout) {
+      const uint8_t idx = static_cast<uint8_t>(currentRuntime.testLimitTarget);
+      if (idx < TEST_MODE_LIMIT_ROWS) {
+        testLimitResult[idx] = currentRuntime.testLimitPhase == TestLimitPhase::Success
+            ? TestResult::Pass : TestResult::Fail;
+      }
+    }
+    lastObservedTestLimitPhase = currentRuntime.testLimitPhase;
+  }
 
   if (newFaultOccurrence || newAlarmBits) {
     alarmPresentedMask |= newAlarmBits | newFaultAlarmBit;

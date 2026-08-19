@@ -252,8 +252,15 @@ class EventLog {
     return clockEpoch_ + elapsedMs(now, clockSyncedAtMs_) / 1000UL;
   }
 
+  // Nhat ky chi co y nghia trong pham vi mot me. Ngoai me (may ranh, chua
+  // bat dau, da dung han) thi khong ghi gi ca - tranh nhieu su kien khong
+  // lien quan lam loang lich su thao tac cua me that su.
+  void setLoggingEnabled(bool enabled) { loggingEnabled_ = enabled; }
+  bool loggingEnabled() const { return loggingEnabled_; }
+
   void push(uint32_t now, EventType type, uint16_t code,
             int16_t value = 0, uint8_t flags = 0U) {
+    if (!loggingEnabled_) return;
     EventEntry &entry = entries_[head_];
     entry.sequence = ++sequence_;
     entry.atMs = now;
@@ -312,6 +319,7 @@ class EventLog {
   uint32_t clockSyncedAtMs_ = 0U;
   PersistSinkFn persistSink_ = nullptr;
   void *persistContext_ = nullptr;
+  bool loggingEnabled_ = false;
 };
 
 // ============================================================================
@@ -3047,6 +3055,9 @@ class MachineController {
       }
     }
     faults_.set(FaultCode::BatchStateClearPending, batchClearPending_, bootAt_);
+    // Nhat ky chi ghi trong pham vi mot me: dang chay hoac dang cho phuc hoi
+    // (ke ca dang cho xac nhan HMI) deu tinh la "trong me".
+    eventLog_.setLoggingEnabled(batchRunning_ || resumePending_);
 
     heatRestartNotBefore_ = bootAt_ +
         static_cast<uint32_t>(config_.powerRestoreDelaySec) * 1000U;
@@ -3576,6 +3587,7 @@ class MachineController {
             eventLog_.push(now, EventType::Recovery,
                            static_cast<uint16_t>(EventCode::ResumeRejected),
                            cleared ? 0 : 1);
+            eventLog_.setLoggingEnabled(false);
             batchLogger_.stop();
             batchStartEpoch_ = 0U;
             lastTurnEpoch_ = 0U;
@@ -3632,6 +3644,7 @@ class MachineController {
     batchLogFaultActive_ = !batchLogger_.start(batchStartEpoch_, false);
 
     batchRunning_ = true;
+    eventLog_.setLoggingEnabled(true);
     batchPhase_ = BatchPhase::Prestart;
     batchStartedAt_ = now;
     phaseStartedAt_ = now;
@@ -3652,6 +3665,7 @@ class MachineController {
         heatRestartNotBefore_, now + FAN_PRESTART_MS);
     if (!saveBatchRecord()) {
       batchRunning_ = false;
+      eventLog_.setLoggingEnabled(false);
       batchPhase_ = BatchPhase::Stopped;
       batchLogger_.stop();
       batchStartEpoch_ = 0U;
@@ -3707,6 +3721,8 @@ class MachineController {
     eventLog_.push(now, EventType::BatchStop,
                    static_cast<uint16_t>(EventCode::BatchStop),
                    cleared ? 0 : 1);
+    // Ghi xong dong cuoi cung cua me nay roi moi tat: ngoai me khong con ghi gi nua.
+    eventLog_.setLoggingEnabled(false);
     batchLogger_.stop();
     batchStartEpoch_ = 0U;
     lastTurnEpoch_ = 0U;
