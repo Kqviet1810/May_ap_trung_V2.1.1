@@ -199,7 +199,43 @@ inline String buildWifiOptions() {
   return options;
 }
 
+// Dinh danh thiet bi theo dung dinh dang "MAP-XXXXXXXXXXXX" ma web dung
+// (xem realtime_link.h::ensureIdentity). File nay duoc include TRUOC
+// realtime_link.h trong .ino nen tu tinh rieng, khong dung chung bien -
+// cung ly do elapsedMs/timeReached o dau file nay phai co ban rieng.
+inline String mayapDeviceIdText() {
+  const uint64_t mac = ESP.getEfuseMac();
+  char buf[20];
+  snprintf(buf, sizeof(buf), "MAP-%02X%02X%02X%02X%02X%02X",
+           static_cast<uint8_t>(mac >> 0), static_cast<uint8_t>(mac >> 8),
+           static_cast<uint8_t>(mac >> 16), static_cast<uint8_t>(mac >> 24),
+           static_cast<uint8_t>(mac >> 32), static_cast<uint8_t>(mac >> 40));
+  return String(buf);
+}
+
+inline String buildConnectionInfo() {
+  String info;
+  info += F("<div class=info><span>ID thiet bi</span><b>");
+  info += mayapDeviceIdText();
+  info += F("</b></div>");
+  info += F("<div class=info><span>Wi-Fi hien tai</span><b>");
+  if (WiFi.status() == WL_CONNECTED) {
+    info += htmlEscape(WiFi.SSID());
+    info += F(" (");
+    info += String(WiFi.RSSI());
+    info += F(" dBm)");
+  } else if (credentialsConfigured()) {
+    info += htmlEscape(String(activeSsid));
+    info += F(" (chua ket noi)");
+  } else {
+    info += F("Chua cau hinh");
+  }
+  info += F("</b></div>");
+  return info;
+}
+
 inline void handlePortalRoot() {
+  const String connectionInfo = buildConnectionInfo();
   const String options = buildWifiOptions();
   String html;
   html.reserve(4096);
@@ -215,11 +251,20 @@ inline void handlePortalRoot() {
     "select,input{width:100%;height:44px;border-radius:10px;border:1px "
     "solid #263553;background:#16213a;color:#eef4ff;padding:0 12px;"
     "font-size:15px;box-sizing:border-box}"
-    "button{width:100%;height:46px;margin-top:18px;border:0;"
+    "button,a.reload{width:100%;height:46px;margin-top:18px;border:0;"
     "border-radius:10px;background:#4f8cff;color:#fff;font-weight:700;"
-    "font-size:15px}"
-    "p{color:#9eabc2;font-size:12px;line-height:1.5}</style></head><body>"
-    "<div class=card><h1>MAYAP - Doi Wi-Fi</h1>"
+    "font-size:15px;display:flex;align-items:center;justify-content:center;"
+    "text-decoration:none;box-sizing:border-box}"
+    "a.reload{background:#263553;margin-top:10px}"
+    "p{color:#9eabc2;font-size:12px;line-height:1.5}"
+    ".info{display:flex;justify-content:space-between;align-items:center;"
+    "font-size:13px;padding:8px 0;border-bottom:1px solid #263553}"
+    ".info span{color:#9eabc2}.info b{color:#eef4ff;font-weight:600;"
+    "text-align:right;word-break:break-word}"
+    "</style></head><body>"
+    "<div class=card><h1>MAYAP - Doi Wi-Fi</h1>");
+  html += connectionInfo;
+  html += F(
     "<form method=POST action=/save>"
     "<label>Mang Wi-Fi</label><select name=ssid required>");
   html += options;
@@ -227,9 +272,20 @@ inline void handlePortalRoot() {
     "</select><label>Mat khau</label>"
     "<input name=password type=password maxlength=64 autocomplete=off>"
     "<button type=submit>Luu &amp; ket noi</button></form>"
+    "<a class=reload href=/rescan>&#8635; Tim lai Wi-Fi</a>"
     "<p>Thiet bi se tu thu ket noi mang moi. Kiem tra man hinh may ap de "
     "biet ket qua. Trang nay tu dong dong sau vai phut.</p></div></body></html>");
   portalServer.send(200, "text/html; charset=utf-8", html);
+}
+
+inline void handlePortalRescan() {
+  // Xoa ket qua quet cu va quet lai dong bo (nguoi dung vua bam "Tim lai Wi-Fi"
+  // nen cho doi vai giay la hop ly); buildWifiOptions() cua trang / se dung
+  // lai ket qua nay ngay, khong quet lan thu hai.
+  WiFi.scanDelete();
+  WiFi.scanNetworks(false, true);
+  portalServer.sendHeader("Location", "/", true);
+  portalServer.send(302, "text/plain", "");
 }
 
 inline void handlePortalSave() {
@@ -284,6 +340,7 @@ inline void portalStart(uint32_t now) {
   portalDns.start(DNS_PORT, "*", IPAddress(192, 168, 4, 1));
   portalServer.on("/", HTTP_GET, handlePortalRoot);
   portalServer.on("/save", HTTP_POST, handlePortalSave);
+  portalServer.on("/rescan", HTTP_GET, handlePortalRescan);
   portalServer.onNotFound(handlePortalNotFound);
   portalServer.begin();
 
