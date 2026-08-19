@@ -1009,8 +1009,11 @@ void buzzerBegin() {
 
 BuzzerPattern buzzerCuePattern(BuzzerCue cue) {
   switch (cue) {
-    case BuzzerCue::Key:   return {22, 0, 1};      // Tieng nhan phim rat ngan
-    case BuzzerCue::Save:  return {35, 0, 1};      // Bip rat ngan, khong gay on
+    // Coi la loai active (tu dao dong, khong chinh duoc cao do/am luong qua
+    // PWM), nen cach duy nhat de "diu" tieng la rut ngan thoi gian xung. Key
+    // vang o moi lan bam nen phai la tieng "tach" that nhe, khong phai tieng "bip".
+    case BuzzerCue::Key:   return {7, 0, 1};       // Tieng nhan phim cuc ngan, diu
+    case BuzzerCue::Save:  return {16, 0, 1};      // Bip rat ngan, khong gay on
     case BuzzerCue::Ok:    return {55, 70, 2};     // Hai bip ngan
     case BuzzerCue::Error: return {110, 100, 3};   // Ba bip de phan biet loi
     default:               return {0, 0, 0};

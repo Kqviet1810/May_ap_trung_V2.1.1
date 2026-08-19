@@ -1231,6 +1231,7 @@ struct PackedMachineConfigV1 {
   uint16_t sensorTimeoutSec;
   uint8_t alarmEnabled;
   uint8_t connectivityMode;
+  uint8_t autoResumeOnPowerLoss;  // schema 5+: "Ap lai"
 };
 struct ConfigRecordV1 {
   uint32_t magic;
@@ -1244,15 +1245,30 @@ struct ConfigRecordV1 {
 // connectivityMode. Dung mang byte de giu dung kich thuoc/CRC cu va migrate.
 constexpr size_t CONFIG_V3_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, connectivityMode);
-static_assert(CONFIG_V3_PAYLOAD_BYTES + sizeof(uint8_t) ==
+static_assert(CONFIG_V3_PAYLOAD_BYTES + sizeof(uint8_t) + sizeof(uint8_t) ==
                   sizeof(PackedMachineConfigV1),
-              "connectivityMode phai nam cuoi payload de migrate schema 3");
+              "connectivityMode phai nam ngay truoc autoResumeOnPowerLoss de migrate schema 3");
 struct ConfigRecordLegacyV3 {
   uint32_t magic;
   uint16_t schema;
   uint16_t size;
   uint32_t sequence;
   uint8_t payload[CONFIG_V3_PAYLOAD_BYTES];
+  uint32_t crc;
+};
+// Config schema 4 (v3.5.0 truoc ban co "Ap lai") co payload giong schema 5
+// tru autoResumeOnPowerLoss. Dung de nang cap tai cho khong mat cau hinh cu.
+constexpr size_t CONFIG_V4_PAYLOAD_BYTES =
+    offsetof(PackedMachineConfigV1, autoResumeOnPowerLoss);
+static_assert(CONFIG_V4_PAYLOAD_BYTES + sizeof(uint8_t) ==
+                  sizeof(PackedMachineConfigV1),
+              "autoResumeOnPowerLoss phai nam cuoi payload de migrate schema 4");
+struct ConfigRecordLegacyV4 {
+  uint32_t magic;
+  uint16_t schema;
+  uint16_t size;
+  uint32_t sequence;
+  uint8_t payload[CONFIG_V4_PAYLOAD_BYTES];
   uint32_t crc;
 };
 // Schema batch v3 bo sung moc bat dau me va lan dao thanh cong gan nhat.
@@ -1295,8 +1311,9 @@ struct BatchRecordLegacyV2 {
 
 constexpr uint32_t CONFIG_MAGIC = 0x4D415943UL; // MAYC
 constexpr uint32_t BATCH_MAGIC  = 0x4D415942UL; // MAYB
-constexpr uint16_t CONFIG_SCHEMA = 4;
+constexpr uint16_t CONFIG_SCHEMA = 5;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;
+constexpr uint16_t CONFIG_SCHEMA_LEGACY_V4 = 4;
 constexpr uint16_t BATCH_SCHEMA = 3;
 constexpr uint16_t BATCH_SCHEMA_LEGACY = 2;
 
@@ -1328,6 +1345,7 @@ inline PackedMachineConfigV1 packConfig(const MachineConfig &c) {
   p.sensorTimeoutSec = c.sensorTimeoutSec;
   p.alarmEnabled = c.alarmEnabled ? 1U : 0U;
   p.connectivityMode = static_cast<uint8_t>(c.connectivityMode);
+  p.autoResumeOnPowerLoss = c.autoResumeOnPowerLoss ? 1U : 0U;
   return p;
 }
 inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
@@ -1358,6 +1376,7 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.sensorTimeoutSec = p.sensorTimeoutSec;
   c.alarmEnabled = p.alarmEnabled != 0U;
   c.connectivityMode = static_cast<ConnectivityMode>(p.connectivityMode);
+  c.autoResumeOnPowerLoss = p.autoResumeOnPowerLoss != 0U;
   sanitizeMachineConfig(c);
   return c;
 }
@@ -1485,6 +1504,8 @@ static_assert(sizeof(ConfigRecordV1) <= EEPROM_CONFIG_SLOT_BYTES,
               "Config record khong vua slot AT24C32");
 static_assert(sizeof(ConfigRecordLegacyV3) <= EEPROM_CONFIG_SLOT_BYTES,
               "Legacy config record khong vua slot AT24C32");
+static_assert(sizeof(ConfigRecordLegacyV4) <= EEPROM_CONFIG_SLOT_BYTES,
+              "Legacy config record V4 khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordV1) <= EEPROM_BATCH_SLOT_BYTES,
               "Batch record khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordLegacyV2) <= EEPROM_BATCH_SLOT_BYTES,
@@ -1642,6 +1663,12 @@ class PersistentStore {
            r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
                             offsetof(ConfigRecordLegacyV3, crc));
   }
+  static bool validConfigLegacyV4(const ConfigRecordLegacyV4 &r) {
+    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V4 &&
+           r.size == sizeof(r) &&
+           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
+                            offsetof(ConfigRecordLegacyV4, crc));
+  }
   static bool validBatch(const BatchRecordV1 &r) {
     return r.magic == BATCH_MAGIC && r.schema == BATCH_SCHEMA &&
            r.size == sizeof(r) &&
@@ -1669,8 +1696,29 @@ class PersistentStore {
       return true;
     }
 
+    // Fallback config schema 4 (ban truoc khi co "Ap lai"). Ap lai mac dinh
+    // TAT cho ban ghi cu; lan luu cau hinh tiep theo se ghi schema 5 vao khe
+    // doi dien. Day chinh la duong nang cap giu lai toan bo cau hinh nguoi
+    // dung da chinh (nhiet do, PID, dao trung...) thay vi mat trang ve default.
+    ConfigRecordLegacyV4 la4{}, lb4{};
+    const bool vla4 = readRecord(EEPROM_ADDR_CONFIG_A, la4) &&
+                      validConfigLegacyV4(la4);
+    const bool vlb4 = readRecord(EEPROM_ADDR_CONFIG_B, lb4) &&
+                      validConfigLegacyV4(lb4);
+    if (vla4 || vlb4) {
+      const bool useA4 = !vlb4 || (vla4 && newer(la4.sequence, lb4.sequence));
+      const ConfigRecordLegacyV4 &best4 = useA4 ? la4 : lb4;
+      configPayload_ = PackedMachineConfigV1{};
+      memcpy(&configPayload_, best4.payload, sizeof(best4.payload));
+      configPayload_.autoResumeOnPowerLoss = 0U;
+      configCacheValid_ = true;
+      configCurrentIsA_ = useA4;
+      configSequence_ = best4.sequence;
+      return true;
+    }
+
     // Fallback config schema 3. Che do mang moi mac dinh OFFLINE; lan luu
-    // cau hinh tiep theo se ghi schema 4 vao khe doi dien.
+    // cau hinh tiep theo se ghi schema 5 vao khe doi dien.
     ConfigRecordLegacyV3 la{}, lb{};
     const bool vla = readRecord(EEPROM_ADDR_CONFIG_A, la) &&
                      validConfigLegacy(la);
@@ -1686,6 +1734,7 @@ class PersistentStore {
     memcpy(&configPayload_, best.payload, sizeof(best.payload));
     configPayload_.connectivityMode =
         static_cast<uint8_t>(ConnectivityMode::Offline);
+    configPayload_.autoResumeOnPowerLoss = 0U;  // chua ton tai o schema 3
     configCacheValid_ = true;
     configCurrentIsA_ = useA;
     configSequence_ = best.sequence;
