@@ -578,6 +578,21 @@ inline void serviceSessionTimeout(uint32_t now) {
   }
 }
 
+// Nguon "can hieu nang cao" duy nhat: phien web dang active HOAC cong doi
+// Wi-Fi tren HMI dang mo (AP+STA dang bat, dang phat song MAYAP-XXXX). Day
+// la noi DUY NHAT trong toan bo firmware goi esp_wifi_set_ps() - luon di qua
+// applyWifiPowerMode() de bien dem highPerfWifiApplied khong bao gio lech
+// voi trang thai phan cung that (neu co noi thu hai tu goi thang, bien dem
+// se "tuong" sai va bo qua lan dong bo sau, ket qua la giu nham che do).
+// Chay MOI vong lap ke ca khi STA dang tat (dung luc cong doi Wi-Fi vua ngat
+// STA de bat AP on dinh - xem network_service.h::portalBeginStarting), nen
+// duoc goi truoc moi nhanh return som cua mayapWebLinkUpdate().
+inline void serviceWifiPowerMode() {
+  const WifiPortalStatus portal = mayapGetWifiPortalStatus();
+  const bool portalActive = portal.state != WifiPortalState::Idle;
+  applyWifiPowerMode(webSessionActive || portalActive);
+}
+
 inline void serviceConfigPublish() {
   portENTER_CRITICAL(&webMux);
   const bool dirty = configDirty;
@@ -640,6 +655,11 @@ inline void mayapWebLinkBegin() {
 // mayapNetworkUpdate ma no chay canh).
 inline void mayapWebLinkUpdate(uint32_t now) {
   using namespace MayapRealtimeInternal;
+  // Phai chay TRUOC moi nhanh return ben duoi: cong doi Wi-Fi co the dang mo
+  // ngay ca khi STA (va vi vay MQTT) dang tat han, nhung AP van can duoc giu
+  // WIFI_PS_NONE de phat song on dinh trong luc do.
+  serviceWifiPowerMode();
+
   const NetworkStatus status = mayapGetNetworkStatus();
   const bool staOnline = status.requestedMode == ConnectivityMode::Online &&
                          status.connected;

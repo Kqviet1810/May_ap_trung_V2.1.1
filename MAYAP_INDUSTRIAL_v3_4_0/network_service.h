@@ -152,6 +152,16 @@ static char pendingSsid[WIFI_PORTAL_SSID_MAX + 1U] = "";
 static char pendingPassword[WIFI_PORTAL_PASSWORD_MAX + 1U] = "";
 static bool pendingCredentialsReady = false;
 
+// Trang thai rieng cho pha "Starting": AP tren ESP32+STA da bat ke ca khi
+// STA dang ket noi that (WiFi.softAP() vua bi tu choi vua bi cham) la
+// nguyen nhan pho bien nhat khien AP "chap chon"/gan nhu khong phat song.
+// Thu lai vai lan thay vi tin softAP() luon thanh cong ngay lan dau.
+constexpr uint32_t WIFI_PORTAL_AP_RETRY_MS = 400UL;
+constexpr uint32_t WIFI_PORTAL_AP_START_TIMEOUT_MS = 6000UL;
+static uint32_t portalApNextAttemptAt_ = 0U;
+static uint32_t portalApStartingSince_ = 0U;
+static bool portalServersStarted_ = false;
+
 static WebServer portalServer(80);
 static DNSServer portalDns;
 
@@ -328,25 +338,67 @@ inline void portalStop() {
   publishPortalState(WifiPortalState::Idle, "");
 }
 
-inline void portalStart(uint32_t now) {
+// Bat AP that su. Tach rieng khoi portalBeginStarting() de goi lai duoc
+// nhieu lan (retry) ma khong lam lai buoc doi mode/dat ten AP.
+inline bool bringUpSoftAp() {
+  WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
+                    IPAddress(255, 255, 255, 0));
+  const bool ok = WiFi.softAP(portalApName);
+  mayapSerialPrintf(false, "[PORTAL] softAP(%s) -> %s\n", portalApName,
+                    ok ? "OK" : "FAIL");
+  return ok;
+}
+
+inline void portalBeginStarting(uint32_t now) {
   const uint64_t chip = ESP.getEfuseMac();
   snprintf(portalApName, sizeof(portalApName), "MAYAP-%04X",
            static_cast<unsigned>((chip >> 32U) & 0xFFFFU));
 
+  // RAT QUAN TRONG de AP phat song on dinh: tat auto-reconnect va ngat STA
+  // dang co TRUOC khi doi mode. Neu khong, STA (dang tu dong thu ket noi lai
+  // mang cu o nen) va AP moi bat se tranh gianh cung mot radio/lich trinh -
+  // day chinh la nguyen nhan pho bien khien AP "chap chon", luc phat luc
+  // khong, thay vi bao gio cung phat on dinh nhu mong doi.
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(true, false);
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
-                    IPAddress(255, 255, 255, 0));
-  WiFi.softAP(portalApName);
-  portalDns.start(DNS_PORT, "*", IPAddress(192, 168, 4, 1));
-  portalServer.on("/", HTTP_GET, handlePortalRoot);
-  portalServer.on("/save", HTTP_POST, handlePortalSave);
-  portalServer.on("/rescan", HTTP_GET, handlePortalRescan);
-  portalServer.onNotFound(handlePortalNotFound);
-  portalServer.begin();
 
-  portalPhase = PortalPhase::ApActive;
-  portalOpenedAt = now;
+  portalApStartingSince_ = now;
+  portalApNextAttemptAt_ = now;
+  portalServersStarted_ = false;
   pendingCredentialsReady = false;
+  portalOpenedAt = now;
+  portalPhase = PortalPhase::Starting;
+  publishPortalState(WifiPortalState::Starting, portalApName);
+}
+
+inline void serviceStarting(uint32_t now) {
+  if (!timeReached(now, portalApNextAttemptAt_)) return;
+  portalApNextAttemptAt_ = now + WIFI_PORTAL_AP_RETRY_MS;
+
+  if (!bringUpSoftAp()) {
+    if (elapsedMs(now, portalApStartingSince_) >= WIFI_PORTAL_AP_START_TIMEOUT_MS) {
+      mayapSerialPrintf(true,
+          "[PORTAL] khong bat duoc AP sau %lums, huy mo cong\n",
+          static_cast<unsigned long>(WIFI_PORTAL_AP_START_TIMEOUT_MS));
+      WiFi.mode(WIFI_STA);
+      portalPhase = PortalPhase::Idle;
+      __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);
+      publishPortalState(WifiPortalState::Idle, "");
+    }
+    return;
+  }
+
+  if (!portalServersStarted_) {
+    portalDns.start(DNS_PORT, "*", IPAddress(192, 168, 4, 1));
+    portalServer.on("/", HTTP_GET, handlePortalRoot);
+    portalServer.on("/save", HTTP_POST, handlePortalSave);
+    portalServer.on("/rescan", HTTP_GET, handlePortalRescan);
+    portalServer.onNotFound(handlePortalNotFound);
+    portalServer.begin();
+    portalServersStarted_ = true;
+  }
+  portalPhase = PortalPhase::ApActive;
   publishPortalState(WifiPortalState::ApActive, portalApName);
 }
 
@@ -362,7 +414,7 @@ inline void servicePortal(uint32_t now) {
 
   if (portalPhase == PortalPhase::Idle) {
     if (!requested) return;
-    portalStart(now);
+    portalBeginStarting(now);
     return;
   }
 
@@ -370,6 +422,11 @@ inline void servicePortal(uint32_t now) {
   if (elapsedMs(now, portalOpenedAt) >= WIFI_PORTAL_MAX_OPEN_MS &&
       portalPhase != PortalPhase::Testing) {
     portalStop();
+    return;
+  }
+
+  if (portalPhase == PortalPhase::Starting) {
+    serviceStarting(now);
     return;
   }
 
