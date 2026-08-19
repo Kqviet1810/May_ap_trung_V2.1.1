@@ -1249,9 +1249,14 @@ struct ConfigRecordV1 {
 // connectivityMode. Dung mang byte de giu dung kich thuoc/CRC cu va migrate.
 constexpr size_t CONFIG_V3_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, connectivityMode);
-static_assert(CONFIG_V3_PAYLOAD_BYTES + sizeof(uint8_t) + sizeof(uint8_t) ==
+// Sau connectivityMode la 3 truong uint8_t them dan qua tung schema:
+// autoResumeOnPowerLoss (schema 5), ventilationEnabled + ventilationStartDay
+// (schema 6). Ca 3 duoc dat lai gia tri mac dinh tuong minh sau memcpy nen
+// chi can dung tong kich thuoc, khong can dung thu tu tung truong.
+static_assert(CONFIG_V3_PAYLOAD_BYTES + 4U * sizeof(uint8_t) ==
                   sizeof(PackedMachineConfigV1),
-              "connectivityMode phai nam ngay truoc autoResumeOnPowerLoss de migrate schema 3");
+              "connectivityMode phai la truong cuoi cung cua schema 3, "
+              "theo sau boi dung 3 truong uint8_t moi hon");
 struct ConfigRecordLegacyV3 {
   uint32_t magic;
   uint16_t schema;
@@ -1264,9 +1269,12 @@ struct ConfigRecordLegacyV3 {
 // tru autoResumeOnPowerLoss. Dung de nang cap tai cho khong mat cau hinh cu.
 constexpr size_t CONFIG_V4_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, autoResumeOnPowerLoss);
-static_assert(CONFIG_V4_PAYLOAD_BYTES + sizeof(uint8_t) ==
+// Sau autoResumeOnPowerLoss la 2 truong uint8_t moi hon: ventilationEnabled +
+// ventilationStartDay (schema 6), duoc dat lai gia tri mac dinh sau memcpy.
+static_assert(CONFIG_V4_PAYLOAD_BYTES + 3U * sizeof(uint8_t) ==
                   sizeof(PackedMachineConfigV1),
-              "autoResumeOnPowerLoss phai nam cuoi payload de migrate schema 4");
+              "autoResumeOnPowerLoss phai la truong cuoi cung cua schema 4, "
+              "theo sau boi dung 2 truong uint8_t moi hon");
 struct ConfigRecordLegacyV4 {
   uint32_t magic;
   uint16_t schema;
