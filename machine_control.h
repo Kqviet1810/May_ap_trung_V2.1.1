@@ -1193,8 +1193,6 @@ inline void sanitizeMachineConfig(MachineConfig &cfg) {
 
   cfg.totalIncubationDays = static_cast<uint8_t>(constrain(
       static_cast<int>(cfg.totalIncubationDays), 1, 40));
-  cfg.ventilationStartDay = static_cast<uint8_t>(constrain(
-      static_cast<int>(cfg.ventilationStartDay), 1, static_cast<int>(cfg.totalIncubationDays)));
   cfg.powerRestoreDelaySec = static_cast<uint16_t>(constrain(
       static_cast<int>(cfg.powerRestoreDelaySec), 0, 600));
   cfg.tempOffset = clampFloat(cfg.tempOffset, -5.0f, 5.0f);
@@ -1242,8 +1240,6 @@ struct PackedMachineConfigV1 {
   uint8_t alarmEnabled;
   uint8_t connectivityMode;
   uint8_t autoResumeOnPowerLoss;  // schema 5+: "Ap lai"
-  uint8_t ventilationEnabled;     // schema 6+: thong gio CO2
-  uint8_t ventilationStartDay;    // schema 6+
 };
 struct ConfigRecordV1 {
   uint32_t magic;
@@ -1257,14 +1253,12 @@ struct ConfigRecordV1 {
 // connectivityMode. Dung mang byte de giu dung kich thuoc/CRC cu va migrate.
 constexpr size_t CONFIG_V3_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, connectivityMode);
-// Sau connectivityMode la 3 truong uint8_t them dan qua tung schema:
-// autoResumeOnPowerLoss (schema 5), ventilationEnabled + ventilationStartDay
-// (schema 6). Ca 3 duoc dat lai gia tri mac dinh tuong minh sau memcpy nen
-// chi can dung tong kich thuoc, khong can dung thu tu tung truong.
-static_assert(CONFIG_V3_PAYLOAD_BYTES + 4U * sizeof(uint8_t) ==
+// Sau connectivityMode la 1 truong uint8_t moi hon: autoResumeOnPowerLoss
+// (schema 5), dat lai gia tri mac dinh tuong minh sau memcpy.
+static_assert(CONFIG_V3_PAYLOAD_BYTES + 2U * sizeof(uint8_t) ==
                   sizeof(PackedMachineConfigV1),
               "connectivityMode phai la truong cuoi cung cua schema 3, "
-              "theo sau boi dung 3 truong uint8_t moi hon");
+              "theo sau boi dung 1 truong uint8_t moi hon");
 struct ConfigRecordLegacyV3 {
   uint32_t magic;
   uint16_t schema;
@@ -1277,33 +1271,15 @@ struct ConfigRecordLegacyV3 {
 // tru autoResumeOnPowerLoss. Dung de nang cap tai cho khong mat cau hinh cu.
 constexpr size_t CONFIG_V4_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, autoResumeOnPowerLoss);
-// Sau autoResumeOnPowerLoss la 2 truong uint8_t moi hon: ventilationEnabled +
-// ventilationStartDay (schema 6), duoc dat lai gia tri mac dinh sau memcpy.
-static_assert(CONFIG_V4_PAYLOAD_BYTES + 3U * sizeof(uint8_t) ==
+static_assert(CONFIG_V4_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
                   sizeof(PackedMachineConfigV1),
-              "autoResumeOnPowerLoss phai la truong cuoi cung cua schema 4, "
-              "theo sau boi dung 2 truong uint8_t moi hon");
+              "autoResumeOnPowerLoss phai la truong cuoi cung cua PackedMachineConfigV1");
 struct ConfigRecordLegacyV4 {
   uint32_t magic;
   uint16_t schema;
   uint16_t size;
   uint32_t sequence;
   uint8_t payload[CONFIG_V4_PAYLOAD_BYTES];
-  uint32_t crc;
-};
-// Config schema 5 (co "Ap lai" nhung chua co Thong gio CO2). Dung de nang
-// cap tai cho khong mat cau hinh cu.
-constexpr size_t CONFIG_V5_PAYLOAD_BYTES =
-    offsetof(PackedMachineConfigV1, ventilationEnabled);
-static_assert(CONFIG_V5_PAYLOAD_BYTES + sizeof(uint8_t) + sizeof(uint8_t) ==
-                  sizeof(PackedMachineConfigV1),
-              "ventilationEnabled/ventilationStartDay phai nam cuoi payload de migrate schema 5");
-struct ConfigRecordLegacyV5 {
-  uint32_t magic;
-  uint16_t schema;
-  uint16_t size;
-  uint32_t sequence;
-  uint8_t payload[CONFIG_V5_PAYLOAD_BYTES];
   uint32_t crc;
 };
 // Schema batch v3 bo sung moc bat dau me va lan dao thanh cong gan nhat.
@@ -1346,10 +1322,9 @@ struct BatchRecordLegacyV2 {
 
 constexpr uint32_t CONFIG_MAGIC = 0x4D415943UL; // MAYC
 constexpr uint32_t BATCH_MAGIC  = 0x4D415942UL; // MAYB
-constexpr uint16_t CONFIG_SCHEMA = 6;
+constexpr uint16_t CONFIG_SCHEMA = 5;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V4 = 4;
-constexpr uint16_t CONFIG_SCHEMA_LEGACY_V5 = 5;
 constexpr uint16_t BATCH_SCHEMA = 3;
 constexpr uint16_t BATCH_SCHEMA_LEGACY = 2;
 
@@ -1382,8 +1357,6 @@ inline PackedMachineConfigV1 packConfig(const MachineConfig &c) {
   p.alarmEnabled = c.alarmEnabled ? 1U : 0U;
   p.connectivityMode = static_cast<uint8_t>(c.connectivityMode);
   p.autoResumeOnPowerLoss = c.autoResumeOnPowerLoss ? 1U : 0U;
-  p.ventilationEnabled = c.ventilationEnabled ? 1U : 0U;
-  p.ventilationStartDay = c.ventilationStartDay;
   return p;
 }
 inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
@@ -1415,8 +1388,6 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.alarmEnabled = p.alarmEnabled != 0U;
   c.connectivityMode = static_cast<ConnectivityMode>(p.connectivityMode);
   c.autoResumeOnPowerLoss = p.autoResumeOnPowerLoss != 0U;
-  c.ventilationEnabled = p.ventilationEnabled != 0U;
-  c.ventilationStartDay = p.ventilationStartDay;
   sanitizeMachineConfig(c);
   return c;
 }
@@ -1546,8 +1517,6 @@ static_assert(sizeof(ConfigRecordLegacyV3) <= EEPROM_CONFIG_SLOT_BYTES,
               "Legacy config record khong vua slot AT24C32");
 static_assert(sizeof(ConfigRecordLegacyV4) <= EEPROM_CONFIG_SLOT_BYTES,
               "Legacy config record V4 khong vua slot AT24C32");
-static_assert(sizeof(ConfigRecordLegacyV5) <= EEPROM_CONFIG_SLOT_BYTES,
-              "Legacy config record V5 khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordV1) <= EEPROM_BATCH_SLOT_BYTES,
               "Batch record khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordLegacyV2) <= EEPROM_BATCH_SLOT_BYTES,
@@ -1711,12 +1680,6 @@ class PersistentStore {
            r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
                             offsetof(ConfigRecordLegacyV4, crc));
   }
-  static bool validConfigLegacyV5(const ConfigRecordLegacyV5 &r) {
-    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V5 &&
-           r.size == sizeof(r) &&
-           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
-                            offsetof(ConfigRecordLegacyV5, crc));
-  }
   static bool validBatch(const BatchRecordV1 &r) {
     return r.magic == BATCH_MAGIC && r.schema == BATCH_SCHEMA &&
            r.size == sizeof(r) &&
@@ -1744,26 +1707,6 @@ class PersistentStore {
       return true;
     }
 
-    // Fallback config schema 5 (ban truoc khi co "Thong gio CO2"). Thong gio
-    // mac dinh TAT cho ban ghi cu; lan luu tiep theo se ghi schema 6.
-    ConfigRecordLegacyV5 la5{}, lb5{};
-    const bool vla5 = readRecord(EEPROM_ADDR_CONFIG_A, la5) &&
-                      validConfigLegacyV5(la5);
-    const bool vlb5 = readRecord(EEPROM_ADDR_CONFIG_B, lb5) &&
-                      validConfigLegacyV5(lb5);
-    if (vla5 || vlb5) {
-      const bool useA5 = !vlb5 || (vla5 && newer(la5.sequence, lb5.sequence));
-      const ConfigRecordLegacyV5 &best5 = useA5 ? la5 : lb5;
-      configPayload_ = PackedMachineConfigV1{};
-      memcpy(&configPayload_, best5.payload, sizeof(best5.payload));
-      configPayload_.ventilationEnabled = 0U;
-      configPayload_.ventilationStartDay = 1U;
-      configCacheValid_ = true;
-      configCurrentIsA_ = useA5;
-      configSequence_ = best5.sequence;
-      return true;
-    }
-
     // Fallback config schema 4 (ban truoc khi co "Ap lai"). Ap lai mac dinh
     // TAT cho ban ghi cu; lan luu cau hinh tiep theo se ghi schema 5 vao khe
     // doi dien. Day chinh la duong nang cap giu lai toan bo cau hinh nguoi
@@ -1779,8 +1722,6 @@ class PersistentStore {
       configPayload_ = PackedMachineConfigV1{};
       memcpy(&configPayload_, best4.payload, sizeof(best4.payload));
       configPayload_.autoResumeOnPowerLoss = 0U;
-      configPayload_.ventilationEnabled = 0U;
-      configPayload_.ventilationStartDay = 1U;
       configCacheValid_ = true;
       configCurrentIsA_ = useA4;
       configSequence_ = best4.sequence;
@@ -1805,8 +1746,6 @@ class PersistentStore {
     configPayload_.connectivityMode =
         static_cast<uint8_t>(ConnectivityMode::Offline);
     configPayload_.autoResumeOnPowerLoss = 0U;  // chua ton tai o schema 3
-    configPayload_.ventilationEnabled = 0U;
-    configPayload_.ventilationStartDay = 1U;
     configCacheValid_ = true;
     configCurrentIsA_ = useA;
     configSequence_ = best.sequence;
@@ -4533,12 +4472,6 @@ class MachineController {
     req.turnLeft = turnPhase_ == TurnPhase::MovingLeft;
     req.turnRight = turnPhase_ == TurnPhase::MovingRight;
     req.siren = emergencyActive_ && timeReached(now, sirenMutedUntil_);
-
-    // Thong gio CO2: rele du (KAO3400) dung rieng, chi bat/tat theo ngay ap,
-    // khong lien quan nhiet do. Bat tu ngay cau hinh cho toi het me.
-    const uint32_t ventilationDay = elapsedBatchSec(now) / 86400UL + 1UL;
-    req.relaySpare = config_.ventilationEnabled && batchRunning_ &&
-                     ventilationDay >= config_.ventilationStartDay;
 
     outputs_.update(now, req);
     runtime_.heaterPower = commandedPower;

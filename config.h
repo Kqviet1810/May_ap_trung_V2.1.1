@@ -63,7 +63,7 @@ constexpr uint8_t PIN_OUT_VENT_FAN     = 13;
 constexpr uint8_t PIN_OUT_TURN_RIGHT   = 14;  // truoc day: NHIET TONG
 constexpr uint8_t PIN_OUT_TURN_LEFT    = 21;  // truoc day: QUAT TUAN HOAN
 constexpr uint8_t PIN_OUT_SIREN        = 47;
-constexpr uint8_t PIN_OUT_RELAY_SPARE  = 48;  // dung cho Thong gio CO2 (bat/tat theo ngay ap)
+constexpr uint8_t PIN_OUT_RELAY_SPARE  = 48;  // rele du, chua gan chuc nang
 constexpr uint8_t PIN_STATUS_RGB       = 42;  // SK6812MINI-C
 
 // Input opto ACTIVE-LOW: kich 12 V => ngo ra opto keo GPIO xuong GND.
@@ -472,11 +472,6 @@ struct MachineConfig {
   bool circulationFanEnabled = true;
   float ventOnTemp = 38.0f;
   float ventOffTemp = 37.6f;
-
-  // Thong gio trao doi khi (CO2) - rele doc lap voi quat hut xa nhiet. Chi
-  // bat/tat theo ngay ap, khong theo nhiet do.
-  bool ventilationEnabled = false;
-  uint8_t ventilationStartDay = 1;
 
   bool turningEnabled = true;
   uint16_t turnIntervalMin = 120;

@@ -271,39 +271,32 @@ const SettingItem SETTINGS[] = {
 
   // ---- CAI DAT CHUNG > KET NOI (1 muc, + "Doi wifi" la dong phu) ----
   ITEM_U8_OPTIONS("Che do ket noi", connectivityMode,
-                  OPT_OFFLINE_ONLINE, 2),                                     // 12
-
-  // ---- CAI DAT CHUNG > THONG GIO (2 muc) ----
-  // Thong gio CO2: rele du bat/tat theo ngay ap, khong lien quan nhiet do.
-  ITEM_BOOL("Thong gio CO2", ventilationEnabled),                             // 13
-  ITEM_U8("Bat tu ngay", ventilationStartDay, 1, 40, 1, "ng")                  // 14
+                  OPT_OFFLINE_ONLINE, 2)                                      // 12
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 15, "Bang SETTINGS phai co 15 thong so");
+static_assert(SETTING_COUNT == 13, "Bang SETTINGS phai co 13 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
   4,5,6,                               // Nhiet do
   7,8,                                 // Quat hut
   9,10,11,                             // Dao trung
-  12,                                   // Ket noi
-  13,14                                 // Thong gio
+  12                                    // Ket noi
 };
 
 struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
-// Chi so 0 = Cai dat me (goc tu MainMenu); 1..5 = 5 thu muc con cua
+// Chi so 0 = Cai dat me (goc tu MainMenu); 1..4 = 4 thu muc con cua
 // "CAI DAT CHUNG" (goc tu ChungMenu). Dung chung mot co che SettingList.
 const SettingGroup GROUPS[] = {
   {"CAI DAT ME", 0, 4},
   {"NHIET DO", 4, 3},
   {"QUAT HUT", 7, 2},
   {"DAO TRUNG", 9, 3},
-  {"KET NOI", 12, 1},
-  {"THONG GIO", 13, 2}
+  {"KET NOI", 12, 1}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
-static_assert(GROUP_COUNT == 6, "Bang GROUPS phai co 6 nhom");
+static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");
 static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == SETTING_COUNT,
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
 
