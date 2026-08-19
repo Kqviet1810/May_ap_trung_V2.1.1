@@ -271,32 +271,39 @@ const SettingItem SETTINGS[] = {
 
   // ---- CAI DAT CHUNG > KET NOI (1 muc, + "Doi wifi" la dong phu) ----
   ITEM_U8_OPTIONS("Che do ket noi", connectivityMode,
-                  OPT_OFFLINE_ONLINE, 2)                                      // 12
+                  OPT_OFFLINE_ONLINE, 2),                                     // 12
+
+  // ---- CAI DAT CHUNG > THONG GIO (2 muc) ----
+  // Thong gio CO2: rele du bat/tat theo ngay ap, khong lien quan nhiet do.
+  ITEM_BOOL("Thong gio CO2", ventilationEnabled),                             // 13
+  ITEM_U8("Bat tu ngay", ventilationStartDay, 1, 40, 1, "ng")                  // 14
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 13, "Bang SETTINGS phai co 13 thong so");
+static_assert(SETTING_COUNT == 15, "Bang SETTINGS phai co 15 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
   4,5,6,                               // Nhiet do
   7,8,                                 // Quat hut
   9,10,11,                             // Dao trung
-  12                                    // Ket noi
+  12,                                   // Ket noi
+  13,14                                 // Thong gio
 };
 
 struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
-// Chi so 0 = Cai dat me (goc tu MainMenu); 1..4 = 4 thu muc con cua
+// Chi so 0 = Cai dat me (goc tu MainMenu); 1..5 = 5 thu muc con cua
 // "CAI DAT CHUNG" (goc tu ChungMenu). Dung chung mot co che SettingList.
 const SettingGroup GROUPS[] = {
   {"CAI DAT ME", 0, 4},
   {"NHIET DO", 4, 3},
   {"QUAT HUT", 7, 2},
   {"DAO TRUNG", 9, 3},
-  {"KET NOI", 12, 1}
+  {"KET NOI", 12, 1},
+  {"THONG GIO", 13, 2}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
-static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");
+static_assert(GROUP_COUNT == 6, "Bang GROUPS phai co 6 nhom");
 static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == SETTING_COUNT,
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
 
@@ -1350,15 +1357,21 @@ void selectMainItem() {
   dirty = true;
 }
 
-// Mot quy tac duy nhat cho ca nhan ngan va nhan giu tai hai trang Home:
-// 1) Neu dang co loi: uu tien mo trang chi tiet loi.
-// 2) Trang MAY AP: mo xac nhan Bat/Dung me.
-// 3) Trang TRANG THAI: mo Menu chinh.
-// Nho dung chung mot ham, nhan giu khong the re sang mot hanh dong khac
-// voi noi dung dang hien tren man hinh.
-void activateHomeContext() {
+// Quy tac cho nhan ngan/nhan giu tai ca hai trang Home (MAY AP va TRANG THAI):
+// 1) Dang co loi + nhan ngan: mo trang chi tiet loi (nhu cu).
+// 2) Dang co loi + nhan giu: duong thoat khan cap - mo thang xac nhan
+//    KET THUC ME, ke ca loi chua het han/chua tu xoa duoc. Khong the bam
+//    nham (van phai xac nhan CO/HUY), nhung khong con bi "ket" trong vong
+//    ACK lien tuc khong loi ra duoc.
+// 3) Khong co loi, trang MAY AP: mo xac nhan Bat/Dung me (nhu cu).
+// 4) Khong co loi, trang TRANG THAI: mo Menu chinh (nhu cu).
+void activateHomeContext(bool longPress) {
   if (currentRuntime.activeFaultDisplayCount) {
-    openAlarmView(View::Home);
+    if (longPress) {
+      openBatchConfirm(View::Home);
+    } else {
+      openAlarmView(View::Home);
+    }
   } else if (homePage == 0U) {
     openBatchConfirm(View::Home);
   } else {
@@ -1458,9 +1471,9 @@ void handleInput() {
 
   if (rotary.button == ButtonEvent::LongPress) {
     if (view == View::Home) {
-      // Nhan giu phai ton trong dung ngu canh dang hien thi, giong nhan ngan.
-      // Loi luon co uu tien cao hon Bat/Dung me; trang Trang thai vao Menu.
-      activateHomeContext();
+      // Nhan giu tren Home: neu dang co loi thi la duong thoat KET THUC ME,
+      // khac voi nhan ngan (mo trang loi). Khong loi thi hanh vi nhu cu.
+      activateHomeContext(true);
       return;
     }
     if (view == View::SettingList) {
@@ -1481,7 +1494,7 @@ void handleInput() {
         dirty = true;
       }
       if (rotary.button == ButtonEvent::ShortPress) {
-        activateHomeContext();
+        activateHomeContext(false);
       }
       break;
 
@@ -1842,6 +1855,14 @@ void drawStatusPair(int16_t y, const char *left, const char *right) {
   lcd.drawStr(max(1, 127 - rightWidth), y, right);
 }
 
+// Cot phai co vi tri X co dinh (khong phu thuoc do dai "ON"/"OFF"), de OUT
+// va HUT luon thang cot voi nhau giua cac lan cap nhat.
+constexpr int16_t STATUS_RIGHT_COLUMN_X = 68;
+void drawStatusPairFixed(int16_t y, const char *left, const char *right) {
+  lcd.drawStr(1, y, left ? left : "");
+  if (right) lcd.drawStr(STATUS_RIGHT_COLUMN_X, y, right);
+}
+
 void drawHomeOutputs() {
   char left[24];
   char right[24];
@@ -1853,13 +1874,15 @@ void drawHomeOutputs() {
   lcd.setFont(u8g2_font_6x12_tf);
   snprintf(left, sizeof(left), "SSR %3.0f%%", currentRuntime.heaterPower);
   snprintf(right, sizeof(right), "OUT %s", currentRuntime.heaterOn ? "ON" : "OFF");
-  drawStatusPair(24, left, right);
+  drawStatusPairFixed(24, left, right);
 
   snprintf(left, sizeof(left), "QUAT %s", currentRuntime.circulationFanOn ? "ON" : "OFF");
   snprintf(right, sizeof(right), "HUT %s", currentRuntime.ventFanOn ? "ON" : "OFF");
-  drawStatusPair(38, left, right);
+  drawStatusPairFixed(38, left, right);
 
-  lcd.drawHLine(0, 44, 128);
+  // Duong ngan chi bang nua chieu rong man hinh, can giua, thay cho thanh
+  // ngang day duoi truoc day.
+  lcd.drawHLine(32, 44, 64);
 
   if (currentRuntime.turningLockdown) {
     snprintf(turnLine, sizeof(turnLine), "DAO TRUNG: KHOA");
