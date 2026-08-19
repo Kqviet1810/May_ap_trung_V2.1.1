@@ -26,6 +26,7 @@ void mayapI2cUnlock() {
 
 #include "network_service.h"
 #include "hmi.h"
+#include "realtime_link.h"
 #include "machine_control.h"
 
 using namespace Mayap;
@@ -144,7 +145,11 @@ void networkTask(void *parameter) {
   (void)parameter;
   TickType_t lastWake = xTaskGetTickCount();
   for (;;) {
-    mayapNetworkUpdate(millis());
+    const uint32_t now = millis();
+    mayapNetworkUpdate(now);
+    // Lop web realtime chi duoc phep hoat dong tren networkTask (I/O mang);
+    // xem ghi chu dau realtime_link.h.
+    mayapWebLinkUpdate(now);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(NETWORK_TASK_PERIOD_MS));
   }
 }
@@ -218,6 +223,7 @@ void setup() {
   // Dam bao radio tat truoc khi nap cau hinh EEPROM. Chi networkTask moi
   // duoc phep khoi dong Wi-Fi neu nguoi dung da chon ONLINE.
   mayapNetworkBegin();
+  mayapWebLinkBegin();
 
   esp_task_wdt_config_t wdtConfig{};
   wdtConfig.timeout_ms = CONTROL_WDT_TIMEOUT_MS;
@@ -230,6 +236,8 @@ void setup() {
   Machine.begin();
   hmiSetConfig(Machine.config());
   hmiSetRuntime(Machine.runtime());
+  mayapWebSetConfig(Machine.config());
+  mayapWebSetRuntime(Machine.runtime());
   hmiBegin();
 
   const uint32_t now = millis();

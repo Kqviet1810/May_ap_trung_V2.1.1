@@ -1384,5 +1384,22 @@
     if (!state.mqttConnected && state.mqtt) state.mqtt.reconnect();
   });
 
+  // Page Visibility: bao ESP32 biet tab con dang mo (foreground) hay khong,
+  // de firmware tu chuyen Wi-Fi giua che do hieu nang cao (realtime) va tiet
+  // kiem nang luong. Chuyen tab/khoa may/thu nho trinh duyet deu kich hoat
+  // 'hidden' ngay lap tuc (khong doi den khi dong han tab), con TTL cua phien
+  // (WEB.sessionTtlMs) la luoi an toan du phong khi trinh duyet bi dong dot
+  // ngot ma khong kip bat 'visibilitychange' (mat dien, crash...).
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      deactivateSession(state.selectedId);
+      clearInterval(state.sessionTimer);
+    } else {
+      // sync=true: ep ESP32 phat lai snapshot+config ngay, khong doi chu ky
+      // lam moi tiep theo - quay lai tab phai thay du lieu moi ngay tuc thi.
+      activateSelectedSession(true);
+    }
+  });
+
   init();
 })();

@@ -45,6 +45,49 @@ static_assert(sizeof(NETWORK_WIFI_PASSWORD) <= 64U,
 static_assert(sizeof(NETWORK_WIFI_HOSTNAME) <= 33U,
               "Wi-Fi hostname toi da 32 ky tu");
 
+// ------------------------- Web realtime (MQTT) --------------------------------
+// Broker mac dinh la broker cong cong (chi de kiem tra, xem canh bao trong
+// config.js ban web). May thuong mai PHAI doi sang broker rieng + tai khoan
+// bang cach dinh nghia lai cac macro nay truoc khi include config.h (vi du
+// qua build_flags), khong sua truc tiep gia tri mac dinh o day.
+#ifndef MAYAP_MQTT_HOST
+#define MAYAP_MQTT_HOST "broker.emqx.io"
+#endif
+#ifndef MAYAP_MQTT_PORT
+#define MAYAP_MQTT_PORT 1883
+#endif
+#ifndef MAYAP_MQTT_USE_TLS
+#define MAYAP_MQTT_USE_TLS 0
+#endif
+#ifndef MAYAP_MQTT_USERNAME
+#define MAYAP_MQTT_USERNAME ""
+#endif
+#ifndef MAYAP_MQTT_PASSWORD
+#define MAYAP_MQTT_PASSWORD ""
+#endif
+#ifndef MAYAP_MQTT_TOPIC_ROOT
+#define MAYAP_MQTT_TOPIC_ROOT "mayap/v1"
+#endif
+constexpr char MQTT_BROKER_HOST[] = MAYAP_MQTT_HOST;
+constexpr uint16_t MQTT_BROKER_PORT = MAYAP_MQTT_PORT;
+constexpr bool MQTT_USE_TLS = (MAYAP_MQTT_USE_TLS) != 0;
+constexpr char MQTT_USERNAME[] = MAYAP_MQTT_USERNAME;
+constexpr char MQTT_PASSWORD[] = MAYAP_MQTT_PASSWORD;
+constexpr char MQTT_TOPIC_ROOT[] = MAYAP_MQTT_TOPIC_ROOT;
+
+// Nhip lam viec cua lop realtime web (khong blocking, chay trong networkTask).
+constexpr uint32_t MQTT_RECONNECT_INTERVAL_MS = 4000UL;
+// Web bao "active" (tab dang mo) qua topic session voi ttlMs rieng; day la
+// tran an toan tranh mot phien "active" treo vinh vien neu web ngung gui ma
+// khong kip bao "active:false" (mat mang dot ngot, tat trinh duyet...).
+constexpr uint32_t WEB_SESSION_MAX_TTL_MS = 60000UL;
+// Toc do phat snapshot: nhanh khi co web dang mo (foreground), cham lai khi
+// khong ai theo doi de tiet kiem song/nang luong nhung van giu "con song".
+constexpr uint32_t WEB_SNAPSHOT_ACTIVE_INTERVAL_MS = 400UL;
+constexpr uint32_t WEB_SNAPSHOT_IDLE_INTERVAL_MS = 6000UL;
+constexpr uint32_t WEB_COMMAND_ACK_TIMEOUT_MS = 8000UL;
+constexpr uint32_t WEB_CONFIG_SAVE_ACK_TIMEOUT_MS = 8000UL;
+
 // HMI chi duoc bien dich trong firmware tong; da loai bo demo doc lap.
 #define MAYAP_HMI_OWNS_I2C_BUS 0
 #define MAYAP_HMI_ENCODER_INTERRUPT 1
@@ -268,7 +311,12 @@ constexpr uint32_t NETWORK_TASK_PERIOD_MS = 250UL;
 constexpr size_t CONTROL_TASK_STACK_BYTES = 8192U;
 constexpr size_t HMI_TASK_STACK_BYTES = 10240U;
 constexpr size_t SUPERVISOR_TASK_STACK_BYTES = 4096U;
-constexpr size_t NETWORK_TASK_STACK_BYTES = 6144U;
+// Tang tu 6144 len 12288: networkTask gio con chay them MQTT client
+// (PubSubClient) + ArduinoJson cho lop web realtime (realtime_link.h), dung
+// buffer JSON tren stack toi da ~1.5KB (khop config/set - payload lon nhat,
+// 28 truong cau hinh) canh WebServer/DNSServer cua cong doi Wi-Fi da co san.
+// Du du phong tranh tran stack.
+constexpr size_t NETWORK_TASK_STACK_BYTES = 12288U;
 constexpr uint32_t TASK_STACK_MONITOR_MS = 60000UL;
 // 5 s: du bien cho giao dich I2C huu han nhung van phat hien task bi treo.
 constexpr uint32_t CONTROL_WDT_TIMEOUT_MS = 5000UL;
