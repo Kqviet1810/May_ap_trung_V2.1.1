@@ -3529,11 +3529,15 @@ class MachineController {
           ok = enterTestMode(now, message); break;
         case HmiCommandType::TestModeExit:
           exitTestMode(now);
-          ok = true; message = "DA THOAT THU NGHIEM";
+          ok = true; message = "DA THOAT TEST";
           break;
         case HmiCommandType::TestOutputPulse:
           ok = testOutputPulse(now,
               static_cast<TestOutputId>(command.alarmMask & 0xFFU), message);
+          break;
+        case HmiCommandType::TestOutputStop:
+          testOutputStop(now, static_cast<TestOutputId>(command.alarmMask & 0xFFU));
+          ok = true; message = "DA TAT THIET BI";
           break;
         case HmiCommandType::TestLimitStart:
           ok = testLimitStart(now,
@@ -3612,7 +3616,7 @@ class MachineController {
 
   bool startBatch(uint32_t now, const char *&message) {
     const InputState &in = inputs_.state();
-    if (testModeActive_) { message = "HAY THOAT THU NGHIEM TRUOC"; return false; }
+    if (testModeActive_) { message = "HAY THOAT TEST TRUOC"; return false; }
     if (batchRunning_) { message = "ME DANG CHAY"; return false; }
     if (batchClearPending_) { message = "DANG XOA DU LIEU ME CU"; return false; }
     if (safetyJournalFaultLatched_) { message = "LOI NHAT KY AN TOAN"; return false; }
@@ -3736,7 +3740,7 @@ class MachineController {
 
   bool startAutoTune(uint32_t now, const char *&message) {
     const InputState &in = inputs_.state();
-    if (testModeActive_) { message = "HAY THOAT THU NGHIEM TRUOC"; return false; }
+    if (testModeActive_) { message = "HAY THOAT TEST TRUOC"; return false; }
     if (batchRunning_ || resumePending_) { message = "DUNG ME TRUOC"; return false; }
     if (batchClearPending_) { message = "DANG XOA DU LIEU ME CU"; return false; }
     if (safetyJournalFaultLatched_) { message = "LOI NHAT KY AN TOAN"; return false; }
@@ -4563,7 +4567,7 @@ class MachineController {
   // thiet bi that trong luc dang ap trung.
   bool enterTestMode(uint32_t now, const char *&message) {
     if (batchRunning_ || resumePending_) {
-      message = "DANG CO ME - KHONG THU NGHIEM DUOC"; return false;
+      message = "DANG CO ME - KHONG TEST DUOC"; return false;
     }
     if (autotune_.running()) { message = "AUTO TUNE DANG CHAY"; return false; }
     if (batchClearPending_) { message = "DANG XOA DU LIEU ME CU"; return false; }
@@ -4576,7 +4580,7 @@ class MachineController {
     testLimitBuzzUntil_ = 0U;
     testModeLastActivityAt_ = now;
     pid_.reset();
-    message = "DA VAO CHE DO THU NGHIEM";
+    message = "DA VAO CHE DO TEST";
     mayapSerialPrintf(false, "[TEST] ENTER\n");
     return true;
   }
@@ -4594,7 +4598,7 @@ class MachineController {
   }
 
   bool testOutputPulse(uint32_t now, TestOutputId id, const char *&message) {
-    if (!testModeActive_) { message = "CHUA VAO CHE DO THU NGHIEM"; return false; }
+    if (!testModeActive_) { message = "CHUA VAO CHE DO TEST"; return false; }
     const uint8_t idx = static_cast<uint8_t>(id);
     if (idx >= static_cast<uint8_t>(TestOutputId::Count)) {
       message = "THIET BI KHONG HOP LE"; return false;
@@ -4606,14 +4610,23 @@ class MachineController {
     } else if (id == TestOutputId::TurnRight) {
       testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::TurnLeft)] = 0U;
     }
-    testOutputPulseUntil_[idx] = now + TEST_OUTPUT_PULSE_MS;
+    // Bat lien tuc toi khi nguoi lap dat tra loi CO/KHONG (testOutputStop),
+    // gioi han boi TEST_OUTPUT_HOLD_MAX_MS phong khi quen tra loi.
+    testOutputPulseUntil_[idx] = now + TEST_OUTPUT_HOLD_MAX_MS;
     testModeLastActivityAt_ = now;
-    message = "DANG XUNG THIET BI";
+    message = "DANG BAT THIET BI";
     return true;
   }
 
+  void testOutputStop(uint32_t now, TestOutputId id) {
+    const uint8_t idx = static_cast<uint8_t>(id);
+    if (idx >= static_cast<uint8_t>(TestOutputId::Count)) return;
+    testOutputPulseUntil_[idx] = 0U;
+    testModeLastActivityAt_ = now;
+  }
+
   bool testLimitStart(uint32_t now, TestLimitId target, const char *&message) {
-    if (!testModeActive_) { message = "CHUA VAO CHE DO THU NGHIEM"; return false; }
+    if (!testModeActive_) { message = "CHUA VAO CHE DO TEST"; return false; }
     testLimitTarget_ = target;
     testLimitPhase_ = TestLimitPhase::Waiting;
     testLimitDeadline_ = now + TEST_LIMIT_TIMEOUT_MS;
@@ -4957,7 +4970,7 @@ class MachineController {
     if (emergencyActive_) {
       state = "QUA NHIET CAP 3"; stateCode = MachineStateCode::Emergency;
     } else if (testModeActive_) {
-      state = "CHE DO THU NGHIEM"; stateCode = MachineStateCode::ReadyManual;
+      state = "CHE DO TEST"; stateCode = MachineStateCode::ReadyManual;
     } else if (storageFaultLatched_ || abnormalResetLatched_ ||
                faults_.active(FaultCode::OutputConflict)) {
       state = storageFaultLatched_ ? "LOI BO NHO" :

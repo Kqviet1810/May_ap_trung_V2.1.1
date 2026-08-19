@@ -289,10 +289,11 @@ constexpr uint32_t WIFI_PORTAL_TEST_TIMEOUT_MS = 15000UL;
 constexpr uint16_t WIFI_PORTAL_SSID_MAX = 32U;
 constexpr uint16_t WIFI_PORTAL_PASSWORD_MAX = 64U;
 
-// ----------------------- CHE DO THU NGHIEM ----------------------------------
-// Xung ngo ra khi test: du de nguoi lap dat nghe/nhin thay tiep diem dong,
-// khong du dai de gay nong SSR/contactor khi thao tac lap.
-constexpr uint32_t TEST_OUTPUT_PULSE_MS = 3000UL;
+// ----------------------- CHE DO TEST -----------------------------------
+// Bat ngo ra lien tuc cho toi khi nguoi lap dat tra loi CO/KHONG - tranh
+// dong/cat lap lai gay soc thiet bi. Gioi han an toan toi da phong khi
+// quen khong tra loi (vd rot khoi man hinh do mat nguon/loi).
+constexpr uint32_t TEST_OUTPUT_HOLD_MAX_MS = 20000UL;
 constexpr uint32_t TEST_LIMIT_TIMEOUT_MS = 20000UL;
 constexpr uint32_t TEST_LIMIT_CONFIRM_BUZZ_MS = 2000UL;
 // Roi trang Che do thu nghiem qua lau ma khong thao tac: tu dong thoat de
@@ -605,7 +606,7 @@ struct MachineRuntime {
 enum class HmiCommandType : uint8_t {
   None, BatchStart, BatchStop,
   AlarmAck, AutoTuneStart, ResumeYes, ResumeNo,
-  TestModeEnter, TestModeExit, TestOutputPulse, TestLimitStart, TestLimitCancel,
+  TestModeEnter, TestModeExit, TestOutputPulse, TestOutputStop, TestLimitStart, TestLimitCancel,
   WifiPortalStart, WifiPortalCancel
 };
 struct HmiCommand {

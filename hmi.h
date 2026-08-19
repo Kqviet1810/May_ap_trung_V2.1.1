@@ -500,7 +500,6 @@ uint8_t selectedGroup = 0;
 uint32_t wifiPortalLastCommandAt = 0;
 uint32_t testModeLastCommandAt = 0;
 TestLimitId testLimitSelected = TestLimitId::Left;
-uint8_t autoTuneRow = 0;
 
 constexpr uint8_t TEST_MODE_OUTPUT_ROWS = static_cast<uint8_t>(TestOutputId::Count);
 constexpr uint8_t TEST_MODE_LIMIT_ROWS = 2U;
@@ -618,7 +617,7 @@ const char *mainItemLabel(uint8_t index) {
   switch (index) {
     case MAIN_CAI_DAT_ME: return "CAI DAT ME";
     case MAIN_CAI_DAT_CHUNG: return "CAI DAT CHUNG";
-    case MAIN_THU_NGHIEM: return "CHE DO THU NGHIEM";
+    case MAIN_THU_NGHIEM: return "CHE DO TEST";
     case MAIN_NHAT_KY: return "NHAT KY ME";
     default: return "THOAT";
   }
@@ -732,11 +731,11 @@ bool commandTypesConflict(HmiCommandType a, HmiCommandType b) {
   const bool bResume = b == HmiCommandType::ResumeYes || b == HmiCommandType::ResumeNo;
   if (aResume && bResume) return true;
   const bool aTest = a == HmiCommandType::TestModeEnter || a == HmiCommandType::TestModeExit ||
-                     a == HmiCommandType::TestOutputPulse || a == HmiCommandType::TestLimitStart ||
-                     a == HmiCommandType::TestLimitCancel;
+                     a == HmiCommandType::TestOutputPulse || a == HmiCommandType::TestOutputStop ||
+                     a == HmiCommandType::TestLimitStart || a == HmiCommandType::TestLimitCancel;
   const bool bTest = b == HmiCommandType::TestModeEnter || b == HmiCommandType::TestModeExit ||
-                     b == HmiCommandType::TestOutputPulse || b == HmiCommandType::TestLimitStart ||
-                     b == HmiCommandType::TestLimitCancel;
+                     b == HmiCommandType::TestOutputPulse || b == HmiCommandType::TestOutputStop ||
+                     b == HmiCommandType::TestLimitStart || b == HmiCommandType::TestLimitCancel;
   // Thu nghiem thiet bi khong duoc dan xen voi bat dau me/auto tune.
   return (aTest && (bBatch || bTune)) || (bTest && (aBatch || aTune));
 }
@@ -891,7 +890,6 @@ void selectChungItem() {
       return;
     }
     view = View::AutoTune;
-    autoTuneRow = 0;
     dirty = true;
   } else {
     view = View::MainMenu;
@@ -903,7 +901,7 @@ void selectChungItem() {
 
 void openTestMode() {
   if (currentRuntime.batchRunning) {
-    showToast("DANG CO ME - KHONG THU NGHIEM DUOC", true);
+    showToast("DANG CO ME - KHONG TEST DUOC", true);
     return;
   }
   if (currentRuntime.autoTuneState == AutoTuneState::Running) {
@@ -1585,17 +1583,7 @@ void handleInput() {
       break;
 
     case View::AutoTune:
-      // Cuon xuong chon "THOAT" (hang 1) de thoat an toan; hang 0 la thao tac
-      // bat dau tu chinh, khong bi bam nham khi chi luot qua man hinh.
-      if (rotary.step) {
-        autoTuneRow = static_cast<uint8_t>(constrain(
-            static_cast<int>(autoTuneRow) + rotary.step, 0, 1));
-        dirty = true;
-      }
-      if (rotary.button == ButtonEvent::ShortPress) {
-        if (autoTuneRow == 0U) openAutoTuneConfirm();
-        else goBack();
-      }
+      if (rotary.button == ButtonEvent::ShortPress) openAutoTuneConfirm();
       break;
 
     case View::TestMode: {
@@ -1611,6 +1599,9 @@ void handleInput() {
         if (rotary.button == ButtonEvent::ShortPress) {
           testDeviceResult[testDeviceConfirmIndex] =
               testDeviceConfirmYes ? TestResult::Pass : TestResult::Fail;
+          queueCommand(HmiCommandType::TestOutputStop, COMMAND_DEFAULT_VALID_MS,
+                      0, static_cast<uint32_t>(testDeviceConfirmIndex));
+          testModeLastCommandAt = millis();
           testDeviceConfirmActive = false;
           dirty = true;
         }
@@ -2054,8 +2045,6 @@ void drawTurnStats() {
   else snprintf(text, sizeof(text), "DAO TIEP: --");
   lcd.setFont(u8g2_font_5x8_tf);
   lcd.drawStr(6, 58, text);
-  lcd.drawStr(max(1, 128 - static_cast<int16_t>(lcd.getStrWidth("NHAN=THOAT"))),
-             58, "NHAN=THOAT");
 }
 
 void drawEditSetting() {
@@ -2103,20 +2092,6 @@ void drawAutoTune() {
   const int16_t textX = max(
       0, (128 - static_cast<int16_t>(lcd.getStrWidth(text))) / 2);
   lcd.drawStr(textX, 46, text);
-
-  // Hang thoat rieng, chon bang cuon xuong - tranh bam nham vao khoi dong
-  // tu chinh (co dieu khien nhiet That) khi chi dinh luot qua trang.
-  lcd.setFont(u8g2_font_5x8_tf);
-  const char *exitLabel = "> THOAT <";
-  if (autoTuneRow == 1U) {
-    const int16_t w = static_cast<int16_t>(lcd.getStrWidth(exitLabel));
-    lcd.drawBox(max(0, (128 - w) / 2) - 2, 55, w + 4, 9);
-    lcd.setDrawColor(0);
-    lcd.drawStr(max(0, (128 - w) / 2), 62, exitLabel);
-    lcd.setDrawColor(1);
-  } else {
-    drawCenteredText(62, "cuon xuong de thoat");
-  }
 }
 
 const char *testOutputLabel(uint8_t index) {
@@ -2151,7 +2126,7 @@ const char *testResultTag(TestResult result) {
 }
 
 void drawTestDeviceConfirm() {
-  drawHeader("THU NGHIEM");
+  drawHeader("TEST");
   lcd.setFont(u8g2_font_6x12_tf);
   drawCenteredText(26, testOutputLabel(testDeviceConfirmIndex));
   drawCenteredText(40, "THIET BI CO CHAY KHONG?");
@@ -2163,7 +2138,7 @@ void drawTestDeviceConfirm() {
 
 void drawTestMode() {
   if (testDeviceConfirmActive) { drawTestDeviceConfirm(); return; }
-  drawHeader("THU NGHIEM");
+  drawHeader("TEST");
   lcd.setFont(u8g2_font_6x12_tf);
   char line[24];
   for (uint8_t row = 0; row < 4 && listTop + row < TEST_MODE_ITEM_COUNT; ++row) {
@@ -2198,7 +2173,7 @@ void drawTestMode() {
 }
 
 void drawTestSummary() {
-  drawHeader("TONG KET THU NGHIEM");
+  drawHeader("TONG KET TEST");
   lcd.setFont(u8g2_font_6x12_tf);
   char line[24];
   for (uint8_t row = 0; row < 4 && testSummaryIndex / 4 * 4 + row < TEST_SUMMARY_ITEM_COUNT; ++row) {
@@ -2222,8 +2197,6 @@ void drawTestSummary() {
     lcd.drawStr(max(80, 126 - static_cast<int16_t>(lcd.getStrWidth(tag))), y, tag);
     if (selected) lcd.setDrawColor(1);
   }
-  lcd.setFont(u8g2_font_5x8_tf);
-  drawCenteredText(63, "NHAN=VE MENU CHINH");
 }
 
 void drawWifiChange() {
@@ -2250,7 +2223,6 @@ void drawWifiChange() {
   } else if (state == WifiPortalState::Success) {
     lcd.drawStr(6, 40, "May da chuyen sang Wi-Fi moi");
   }
-  drawCenteredText(62, "NHAN=THOAT");
 }
 
 void formatEventAge(uint32_t ageSec, char *out, size_t size) {
