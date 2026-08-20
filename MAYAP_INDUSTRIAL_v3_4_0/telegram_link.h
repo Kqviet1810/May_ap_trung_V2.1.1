@@ -58,6 +58,17 @@ static bool knownRuntimeValid = false;
 // gio bi controlTask ghi de, tranh rang buoc "doc-roi-ghi-lai" khong an toan.
 static MachineRuntime processingRuntime{};
 
+// Backoff RIENG cho Telegram - hoan toan doc lap voi backoff cua MQTT
+// (realtime_link.h) va STA Wi-Fi (network_service.h). Ap dung cho CA hai loai
+// goi HTTPS (gui tin va hoi lenh): 1 lan that bai (bat ke gui hay hoi lenh)
+// deu keo gian lan thu tiep theo cua CA HAI, vi ca hai cung phan anh cung 1
+// cau hoi "co goi duoc toi api.telegram.org luc nay khong". Thanh cong o BAT
+// KY chieu nao cung reset ve nhanh nhat cho ca hai. TELEGRAM_MIN_SEND_GAP_MS/
+// TELEGRAM_POLL_INTERVAL_MS ben duoi la nhip lam viec BINH THUONG khi moi
+// thu deu on - khong phai retry, nen giu nguyen co dinh (khong phai dieu
+// nguoi dung phan nan); backoff nay chi kich hoat THEM khi co that bai.
+static BackoffTimer telegramBackoff{};
+
 // -------------------------------- Hang doi gui ----------------------------------
 // Chi networkTask dung (ca ghi lan doc) - moi logic quyet dinh gui gi cung
 // chay trong mayapTelegramUpdate(), khong co task nao khac cham vao.
@@ -320,6 +331,7 @@ inline bool sendTelegramMessage(const char *text) {
 inline void drainOutbox(uint32_t now) {
   if (outboxCount == 0U) return;
   if (!timeReached(now, lastSendAt + TELEGRAM_MIN_SEND_GAP_MS)) return;
+  if (!telegramBackoff.ready(now)) return;  // lan goi truoc (gui hoac hoi lenh) vua that bai
   const NetworkStatus status = mayapGetNetworkStatus();
   if (!(status.requestedMode == ConnectivityMode::Online && status.connected)) return;
 
@@ -327,13 +339,17 @@ inline void drainOutbox(uint32_t now) {
   OutboxItem &item = outbox[outboxHead];
   const bool ok = sendTelegramMessage(item.text);
   if (ok) {
+    telegramBackoff.onSuccess();
     item.used = false;
     outboxHead = static_cast<uint8_t>((outboxHead + 1U) % TELEGRAM_OUTBOX_SIZE);
     --outboxCount;
+  } else {
+    // That bai (mang chap chon, Telegram loi tam thoi...): giu nguyen dau
+    // hang doi (khong mat tin), nhung lui backoff truoc khi cho phep thu lai
+    // - khong dap HTTPS lien tuc moi TELEGRAM_MIN_SEND_GAP_MS trong khi mang
+    // dang that su mat trong nhieu gio.
+    telegramBackoff.onFailure(now);
   }
-  // That bai (mang chap chon, Telegram loi tam thoi...): giu nguyen dau hang
-  // doi, thu lai o lan drain ke tiep (cach nhau >= TELEGRAM_MIN_SEND_GAP_MS).
-  // Khong bao gio lam mat tin chi vi 1 lan goi that bai.
 }
 
 // -------------------------- Lenh tu Telegram (getUpdates) ------------------------
@@ -367,11 +383,12 @@ inline void handleCommand(const char *fromChatId, const char *text) {
 
 inline void pollUpdates(uint32_t now) {
   if (!timeReached(now, lastPollAt + TELEGRAM_POLL_INTERVAL_MS)) return;
-  lastPollAt = now;
   const char *chatId = mayapGetTelegramChatId();
   if (!chatId[0] || !TELEGRAM_BOT_TOKEN[0]) return;
+  if (!telegramBackoff.ready(now)) return;  // lan goi truoc (gui hoac hoi lenh) vua that bai
   const NetworkStatus status = mayapGetNetworkStatus();
   if (!(status.requestedMode == ConnectivityMode::Online && status.connected)) return;
+  lastPollAt = now;
 
   WiFiClientSecure client;
   client.setInsecure();
@@ -383,13 +400,19 @@ inline void pollUpdates(uint32_t now) {
   char url[176];
   snprintf(url, sizeof(url), "https://%s/bot%s/getUpdates?offset=%lld&timeout=0",
            TELEGRAM_API_HOST, TELEGRAM_BOT_TOKEN, static_cast<long long>(updateOffset));
-  if (!http.begin(client, url)) return;
+  if (!http.begin(client, url)) {
+    telegramBackoff.onFailure(now);
+    return;
+  }
   const int code = http.GET();
   if (code != 200) {
-    mayapSerialPrintf(false, "[TELEGRAM] getUpdates -> HTTP %d\n", code);
+    telegramBackoff.onFailure(now);
+    mayapSerialPrintf(false, "[TELEGRAM] getUpdates -> HTTP %d, thu lai sau %lums\n", code,
+                      static_cast<unsigned long>(telegramBackoff.nextAttemptAt - now));
     http.end();
     return;
   }
+  telegramBackoff.onSuccess();
 
   JsonDocument doc;
   const DeserializationError err = deserializeJson(doc, http.getStream());

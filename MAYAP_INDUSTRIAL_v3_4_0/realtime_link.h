@@ -84,7 +84,10 @@ static WiFiClient netClient;
 #endif
 static PubSubClient mqtt(netClient);
 
-static uint32_t nextConnectAttemptAt = 0U;
+// Backoff RIENG cho MQTT, doc lap hoan toan voi backoff cua STA Wi-Fi
+// (network_service.h) va Telegram (telegram_link.h) - moi lop tu quan ly
+// chu ky retry cua minh, khong anh huong lan nhau.
+static BackoffTimer mqttBackoff{};
 
 // ------------------------- Phien web (foreground/background) -----------------
 // Chi doc/ghi tu networkTask (session den qua MQTT callback, cung chay trong
@@ -494,8 +497,7 @@ inline void subscribeAll() {
 }
 
 inline void attemptConnect(uint32_t now) {
-  if (!timeReached(now, nextConnectAttemptAt)) return;
-  nextConnectAttemptAt = now + MQTT_RECONNECT_INTERVAL_MS;
+  if (!mqttBackoff.ready(now)) return;
 
   char clientId[32];
   snprintf(clientId, sizeof(clientId), "esp-%s", deviceId);
@@ -509,10 +511,13 @@ inline void attemptConnect(uint32_t now) {
   const bool ok = mqtt.connect(clientId, user, pass, willTopic, 0, true,
                                willMessage, true);
   if (!ok) {
-    mayapSerialPrintf(false, "[WEBLINK] MQTT connect that bai state=%d\n",
-                      mqtt.state());
+    mqttBackoff.onFailure(now);
+    mayapSerialPrintf(false, "[WEBLINK] MQTT connect that bai state=%d, thu lai sau %lums\n",
+                      mqtt.state(),
+                      static_cast<unsigned long>(mqttBackoff.nextAttemptAt - now));
     return;
   }
+  mqttBackoff.onSuccess();
   subscribeAll();
   publishPresence(true);
   portENTER_CRITICAL(&webMux);
@@ -665,6 +670,9 @@ inline void mayapWebLinkUpdate(uint32_t now) {
                          status.connected;
   if (!staOnline) {
     if (mqtt.connected()) mqtt.disconnect();
+    // STA vua mat/chua co: cho phep lan ket noi MQTT tiep theo (khi STA co
+    // lai) thu ngay, khong ke thua buoc backoff cua lan mat mang truoc do.
+    mqttBackoff.reset(now);
     return;
   }
   if (!mqtt.connected()) {

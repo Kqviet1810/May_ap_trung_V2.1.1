@@ -75,8 +75,8 @@ constexpr char MQTT_USERNAME[] = MAYAP_MQTT_USERNAME;
 constexpr char MQTT_PASSWORD[] = MAYAP_MQTT_PASSWORD;
 constexpr char MQTT_TOPIC_ROOT[] = MAYAP_MQTT_TOPIC_ROOT;
 
-// Nhip lam viec cua lop realtime web (khong blocking, chay trong networkTask).
-constexpr uint32_t MQTT_RECONNECT_INTERVAL_MS = 4000UL;
+// Reconnect MQTT dung BackoffTimer dung chung (xem phia duoi file) thay vi
+// chu ky co dinh - khong con hang so rieng o day.
 // Web bao "active" (tab dang mo) qua topic session voi ttlMs rieng; day la
 // tran an toan tranh mot phien "active" treo vinh vien neu web ngung gui ma
 // khong kip bao "active:false" (mat mang dot ngot, tat trinh duyet...).
@@ -364,9 +364,62 @@ constexpr uint8_t CONTROL_CYCLE_TRIP_COUNT = 3U;
 constexpr uint32_t HMI_HEARTBEAT_TIMEOUT_MS = 2000UL;
 constexpr uint32_t SUPERVISOR_RESTART_FALLBACK_MS = 7000UL; // TWDT 5 s duoc uu tien; day la fallback
 
+// ------------------------- Exponential backoff (dung chung) -------------------
+// Dung cho MOI vong reconnect/retry co the gap loi keo dai (Wi-Fi STA, MQTT,
+// Telegram): khong bao gio thu lai theo chu ky co dinh vinh vien - se tu keo
+// gian ra 1s -> 2s -> 4s -> 8s -> 16s -> 30s -> 60s (giu nguyen 60s ve sau,
+// KHONG bao gio bo cuoc han - thiet bi khong nguoi truc phai tu ket noi lai
+// duoc sau vai gio/vai ngay mat mang, khong can bam nut/khoi dong lai). 60s la
+// tran an toan: du gan de nguoi dung khong cho qua lau khi mang vua co lai,
+// du xa de khong "spam" CPU/song/API khi mang mat that su dai (hang gio/hang
+// ngay). Bang gia tri CO DINH (khong phai cong thuc luy thua thuan tuy) vi
+// 16->30->60 la buoc nhay thuc te pho bien hon 16->32->64, de kiem chung dung
+// tung buoc bang mat thay vi tin cong thuc.
+constexpr uint32_t BACKOFF_STEPS_MS[] = {
+    1000UL, 2000UL, 4000UL, 8000UL, 16000UL, 30000UL, 60000UL};
+constexpr uint8_t BACKOFF_STEP_COUNT =
+    sizeof(BACKOFF_STEPS_MS) / sizeof(BACKOFF_STEPS_MS[0]);
+// Jitter ngau nhien them vao MOI lan cho (0..JITTER_MAX), tranh nhieu kenh
+// (Wi-Fi/MQTT/Telegram) hoac nhieu thiet bi cung dong loat thu lai dung 1
+// thoi diem (thundering herd) sau khi mang/broker vua phuc hoi.
+constexpr uint32_t BACKOFF_JITTER_MAX_MS = 500UL;
+
+// Bo dem lui-va-doi don gian, KHONG blocking (chi so sanh moc thoi gian).
+// Moi kenh retry (Wi-Fi/MQTT/Telegram) giu MOT instance rieng - hoan toan
+// doc lap, loi/reset o kenh nay khong dung cham gi den buoc backoff cua kenh
+// khac. Khong dung heap, khong tao task/timer rieng - an toan tai nguyen.
+struct BackoffTimer {
+  uint8_t step = 0U;
+  uint32_t nextAttemptAt = 0U;
+
+  // Cho phep thu ngay lan dau tien (vd sau boot hoac sau khi nguoi dung vua
+  // bat lai ONLINE) - khong bat nguoi dung/thiet bi cho oan mot chu ky day du.
+  void reset(uint32_t now) {
+    step = 0U;
+    nextAttemptAt = now;
+  }
+
+  bool ready(uint32_t now) const {
+    return static_cast<int32_t>(now - nextAttemptAt) >= 0;
+  }
+
+  // Goi dung 1 LAN cho moi lan thu THAT BAI. Tang buoc (toi da dung o muc
+  // tran BACKOFF_STEP_COUNT-1, KHONG tang vo han - tranh tran uint8_t va giu
+  // do tre luon <= 60s+jitter, khong bao gio "bo cuoc" han).
+  void onFailure(uint32_t now) {
+    const uint32_t delay = BACKOFF_STEPS_MS[step];
+    if (step + 1U < BACKOFF_STEP_COUNT) ++step;
+    const uint32_t jitter = esp_random() % (BACKOFF_JITTER_MAX_MS + 1U);
+    nextAttemptAt = now + delay + jitter;
+  }
+
+  // Goi khi ket noi/gui THANH CONG: dua buoc ve 0 de lan loi tiep theo (neu
+  // co) lai bat dau tu do tre ngan nhat, dung yeu cau "reset retry counter".
+  void onSuccess() { step = 0U; }
+};
+
 // Wi-Fi chi chay o task rieng core 0; khong duoc goi tu task dieu khien.
 constexpr uint32_t NETWORK_CONNECT_TIMEOUT_MS = 20000UL;
-constexpr uint32_t NETWORK_RETRY_INTERVAL_MS = 30000UL;
 // Cong 1 doi Wi-Fi: mo AP toi da 5 phut cho nguoi dung nhap SSID/mat khau moi,
 // sau do tu dong dong portal va quay lai ket noi binh thuong.
 constexpr uint32_t WIFI_PORTAL_MAX_OPEN_MS = 300000UL;

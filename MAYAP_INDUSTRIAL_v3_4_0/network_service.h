@@ -45,9 +45,12 @@ static volatile int8_t publishedRssiDbm = -127;
 
 static bool radioActive = false;
 static uint32_t connectionStartedAt = 0U;
-static uint32_t lastRetryAt = 0U;
-static uint32_t lastStartAttemptAt = 0U;
-static bool startAttempted = false;
+// Backoff RIENG cua STA Wi-Fi, doc lap voi backoff cua MQTT (realtime_link.h)
+// va Telegram (telegram_link.h) - loi/reset o tang nao khong dung cham tang
+// khac. Khong con dung 2 bien lastRetryAt/lastStartAttemptAt + hang so co
+// dinh nhu truoc: moi that bai lien tiep se tu keo gian khoang cho ra thay vi
+// dap WiFi.begin() moi 30s vinh vien khi mat mang keo dai.
+static BackoffTimer staBackoff{};
 
 // ------------------------- Thong tin dang nhap Wi-Fi ------------------------
 // Doc/ghi tu networkTask. SSID/mat khau nap tu NVS (Preferences); neu chua
@@ -150,9 +153,6 @@ inline void stopRadio() {
   (void)WiFi.disconnect(true, false);
   radioActive = false;
   connectionStartedAt = 0U;
-  lastRetryAt = 0U;
-  lastStartAttemptAt = 0U;
-  startAttempted = false;
 }
 
 inline bool startStation(uint32_t now) {
@@ -171,7 +171,6 @@ inline bool startStation(uint32_t now) {
   (void)WiFi.begin(activeSsid, password);
   radioActive = true;
   connectionStartedAt = now;
-  lastRetryAt = now - NETWORK_RETRY_INTERVAL_MS;
   publish(NetworkStateCode::Connecting, false);
   return true;
 }
@@ -679,12 +678,17 @@ inline void mayapNetworkUpdate(uint32_t now) {
 
   if (!onlineRequested) {
     if (radioActive) stopRadio();
+    // Nguoi dung chu dong rut OFFLINE - khi ho bat lai ONLINE (co the sau
+    // vai gio/vai ngay), cho phep thu ket noi ngay lap tuc thay vi ke thua
+    // buoc backoff cua lan mat mang KHONG lien quan truoc do.
+    staBackoff.reset(now);
     if (!portalOwnsRadio) publish(NetworkStateCode::Offline, false);
     return;
   }
 
   if (!credentialsConfigured()) {
     if (radioActive) stopRadio();
+    staBackoff.reset(now);
     if (!portalOwnsRadio) publish(NetworkStateCode::NotConfigured, false);
     return;
   }
@@ -702,26 +706,32 @@ inline void mayapNetworkUpdate(uint32_t now) {
       publish(NetworkStateCode::Connecting, false);
     }
     radioActive = false;  // ep STA-only loop ben duoi khoi dong lai sau khi portal dong
-    startAttempted = false;
+    // Giu backoff o step 0 suot thoi gian cong dang mo (goi lai moi tick o
+    // day khong sao - chi la 2 phep gan so). Khi cong dong va nhuong lai
+    // quyen dieu khien STA, vong lap ben duoi luon bat dau tu do tre ngan
+    // nhat, khong "an theo" so lan that bai cua mang CU truoc khi mo cong.
+    staBackoff.reset(now);
     return;
   }
 
   if (!radioActive) {
-    if (startAttempted &&
-        now - lastStartAttemptAt < NETWORK_RETRY_INTERVAL_MS) {
+    if (!staBackoff.ready(now)) {
       publish(NetworkStateCode::Connecting, false);
       return;
     }
     const bool started = startStation(now);
-    lastStartAttemptAt = now;
-    startAttempted = true;
     if (!started) {
+      // setHostname()/mode() that bai (rat hiem - loi driver): lui backoff
+      // truoc khi thu lai, khong dap lien tuc gay xoay vong CPU vo ich.
+      staBackoff.onFailure(now);
       publish(NetworkStateCode::Connecting, false);
       return;
     }
+    return;  // vua goi WiFi.begin(): danh cho no NETWORK_CONNECT_TIMEOUT_MS de ket noi
   }
 
   if (WiFi.isConnected()) {
+    staBackoff.onSuccess();  // dat lai retry counter dung yeu cau
     int32_t rssi = WiFi.RSSI();
     if (rssi < -127) rssi = -127;
     if (rssi > 0) rssi = 0;
@@ -731,12 +741,12 @@ inline void mayapNetworkUpdate(uint32_t now) {
   }
 
   publish(NetworkStateCode::Connecting, false);
-  if (now - connectionStartedAt < NETWORK_CONNECT_TIMEOUT_MS ||
-      now - lastRetryAt < NETWORK_RETRY_INTERVAL_MS) {
-    return;
+  if (elapsedMs(now, connectionStartedAt) < NETWORK_CONNECT_TIMEOUT_MS) {
+    return;  // van con trong thoi gian cho hop ly cho lan thu hien tai
   }
+  if (!staBackoff.ready(now)) return;  // dang trong thoi gian lui backoff
 
-  lastRetryAt = now;
+  staBackoff.onFailure(now);
   connectionStartedAt = now;
   if (!WiFi.reconnect()) {
     const char *password = activePassword[0] == '\0' ? nullptr : activePassword;
