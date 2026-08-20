@@ -11,6 +11,6 @@ compatibility_date = "2026-08-01"
 ALLOWED_ORIGIN = "https://kqviet1810.github.io"
 
 [[d1_databases]]
-binding = "mayap_push"
+binding = "DB"
 database_name = "mayap_push"
 database_id = "e92a393c-8596-4254-b274-68e57a6de290"
