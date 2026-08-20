@@ -4963,6 +4963,7 @@ class MachineController {
     snprintf(runtime_.machineState, sizeof(runtime_.machineState), "%s", state);
     hmiSetRuntime(runtime_);
     mayapWebSetRuntime(runtime_);
+    mayapTelegramSetRuntime(runtime_);
     if (lastHmiEventSequence_ != eventLog_.sequence() ||
         elapsedMs(now, lastHmiEventPushAt_) >= 30000UL) {
       HmiEventSnapshot snapshot{};

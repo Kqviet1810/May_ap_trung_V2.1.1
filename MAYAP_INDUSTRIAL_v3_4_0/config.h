@@ -88,6 +88,43 @@ constexpr uint32_t WEB_SNAPSHOT_IDLE_INTERVAL_MS = 6000UL;
 constexpr uint32_t WEB_COMMAND_ACK_TIMEOUT_MS = 8000UL;
 constexpr uint32_t WEB_CONFIG_SAVE_ACK_TIMEOUT_MS = 8000UL;
 
+// --------------------------- Telegram Bot (doc lap voi Web) -------------------
+// KENH RIENG, KHONG DI QUA MQTT/WEB: telegram_link.h tu mo ket noi HTTPS rieng
+// toi api.telegram.org, khong phu thuoc broker MQTT hay Web con song hay khong.
+// Token bot la bi mat cua firmware (nhu mat khau Wi-Fi/MQTT o tren) - dat qua
+// build_flags, KHONG hard-code truc tiep truoc khi build ban thuong mai. Chat ID
+// la cau hinh rieng tung may, nguoi dung tu nhap qua trang web phu (192.168.4.1).
+#ifndef MAYAP_TELEGRAM_BOT_TOKEN
+#define MAYAP_TELEGRAM_BOT_TOKEN ""
+#endif
+constexpr char TELEGRAM_BOT_TOKEN[] = MAYAP_TELEGRAM_BOT_TOKEN;
+constexpr char TELEGRAM_API_HOST[] = "api.telegram.org";
+constexpr uint16_t TELEGRAM_CHAT_ID_MAX = 20U;  // du cho id kenh am "-100xxxxxxxxxxxx"
+
+// Nhip kiem tra dieu kien canh bao (khong can nhanh nhu MQTT - loi thay doi o
+// thang giay/phut, khong phai mili giay).
+constexpr uint32_t TELEGRAM_CHECK_INTERVAL_MS = 5000UL;
+// Khoang cach toi thieu giua 2 lan goi HTTPS that su, tranh don don nhieu tin
+// cung luc khi nhieu loi phat sinh gan nhau (moi lan goi block networkTask
+// vai giay do TLS handshake, nen khong the/khong nen ban song song).
+constexpr uint32_t TELEGRAM_MIN_SEND_GAP_MS = 3000UL;
+constexpr uint32_t TELEGRAM_HTTP_TIMEOUT_MS = 8000UL;
+constexpr uint32_t TELEGRAM_HTTP_CONNECT_TIMEOUT_MS = 5000UL;
+// Nhip hoi lenh tu Telegram (getUpdates, short-poll timeout=0). Day la 1 goi
+// HTTPS moi ky ke ca khi khong ai nhan lenh gi - can bang giua do phan hoi va
+// tai nguyen/bang thong; co the tang len neu khong can lenh phan hoi nhanh.
+constexpr uint32_t TELEGRAM_POLL_INTERVAL_MS = 20000UL;
+// Chu ky nhac lai khi loi con ton tai (tuy muc do - CRITICAL nhac nhanh hon
+// WARNING nhu yeu cau). "Info" gan nhu khong dung cho loi that (chi day phong).
+constexpr uint32_t TELEGRAM_REPEAT_WARNING_MS = 600000UL;    // 10 phut
+constexpr uint32_t TELEGRAM_REPEAT_CRITICAL_STOP_MS = 300000UL;      // 5 phut
+constexpr uint32_t TELEGRAM_REPEAT_CRITICAL_EMERGENCY_MS = 120000UL; // 2 phut
+constexpr uint32_t TELEGRAM_REPEAT_INFO_MS = 1800000UL;      // 30 phut (du phong)
+constexpr uint8_t TELEGRAM_OUTBOX_SIZE = 8U;
+// >= HMI_FAULT_DISPLAY_CAPACITY (so loi dang active toi da doc duoc tu runtime
+// snapshot moi lan), du du de theo doi tat ca dong thoi.
+constexpr uint8_t TELEGRAM_ACTIVE_TRACK_SIZE = 16U;
+
 // HMI chi duoc bien dich trong firmware tong; da loai bo demo doc lap.
 #define MAYAP_HMI_OWNS_I2C_BUS 0
 #define MAYAP_HMI_ENCODER_INTERRUPT 1
