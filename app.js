@@ -330,6 +330,7 @@
     renderDevice();
     renderDeviceList();
     syncSelectedDevice(true);
+    renderPushStatus();
   }
 
   function renderDevice() {
@@ -545,7 +546,6 @@
       ? `Tự động · mỗi ${$('turnInterval').value || '—'} phút`
       : 'Đang tắt đảo tự động';
     $('sensorSummary').textContent = `Bù ${numberVi($('tempOffset').value)}°C · timeout ${$('sensorTimeout').value || '—'} giây`;
-    $('notificationSummary').textContent = $('notificationsEnabled').checked ? 'Đang bật' : 'Đang tắt';
   }
 
   function hasDirtyForm(formId) {
@@ -950,10 +950,6 @@
     device.logs = device.logs.slice(0, 100);
     saveDeviceRuntime(device);
     if (device.id === state.selectedId) renderBatchLogs();
-
-    if ($('notificationsEnabled').checked && document.hidden && Notification.permission === 'granted') {
-      try { new Notification(device.name, { body: entry.message, icon: './icons/icon-192.png' }); } catch (_) {}
-    }
   }
 
   function addBatchLog(device, message, duration = '') {
@@ -1031,6 +1027,7 @@
     activateSelectedSession(force);
     if (device.config) applyConfigToUi(device, force);
     renderDevice();
+    renderPushStatus();
   }
 
   function subscribeDevice(deviceId) {
@@ -1320,26 +1317,8 @@
       if (ok) await sendCommand('autotune_start');
     });
 
-    $('notificationsEnabled').addEventListener('change', async (event) => {
-      if (!event.target.checked) {
-        localStorage.setItem(`${STORAGE}.notifications`, '0');
-        updateSettingSummaries();
-        return toast('Đã tắt thông báo trình duyệt');
-      }
-      if (!('Notification' in window)) {
-        event.target.checked = false;
-        return toast('Trình duyệt này không hỗ trợ thông báo');
-      }
-      try {
-        const permission = await Notification.requestPermission();
-        event.target.checked = permission === 'granted';
-      } catch (_) {
-        event.target.checked = false;
-      }
-      localStorage.setItem(`${STORAGE}.notifications`, event.target.checked ? '1' : '0');
-      updateSettingSummaries();
-      toast(event.target.checked ? 'Đã bật thông báo trình duyệt' : 'Trình duyệt chưa cấp quyền thông báo');
-    });
+    $('enablePushBtn').addEventListener('click', onEnablePushClick);
+    $('testPushBtn').addEventListener('click', onTestPushClick);
 
     $('openWifiPortal').addEventListener('click', async () => {
       const ok = await confirmAction({
@@ -1358,6 +1337,105 @@
     state.staleTimer = setInterval(() => renderDevice(), 5000);
   }
 
+  // Web Push (thay Telegram) - trang thai va nut bam trong card "Thông báo".
+  // Xem push.js cho toan bo logic Service Worker/Push API/VAPID.
+  let pushStatusToken = 0;
+  const PUSH_STATUS_TEXT = {
+    unsupported: ['Không hỗ trợ', 'pill offline', 'Trình duyệt này không hỗ trợ thông báo đẩy.'],
+    'not-configured': ['Chưa cấu hình', 'pill offline', 'Trang web chưa cấu hình máy chủ thông báo (cloudApiBase).'],
+    'ios-needs-install': ['Cần thêm vào Màn hình chính', 'pill soft', 'Làm theo hướng dẫn bên dưới rồi bấm lại.'],
+    denied: ['Bị chặn', 'pill offline', 'Trình duyệt đang chặn thông báo - vào cài đặt trình duyệt để cho phép lại.'],
+    'not-enabled': ['Chưa cấp quyền', 'pill soft', ''],
+    enabled: ['Đã bật', 'pill online', ''],
+    error: ['Lỗi kết nối', 'pill offline', 'Không liên lạc được với máy chủ thông báo, thử lại sau.']
+  };
+
+  async function renderPushStatus() {
+    const myToken = ++pushStatusToken;
+    const pill = $('pushStatusPill');
+    const summary = $('notificationSummary');
+    const iosGuide = $('pushIosGuide');
+    const enableBtn = $('enablePushBtn');
+    const testBtn = $('testPushBtn');
+    const errorText = $('pushErrorText');
+    const device = currentDevice();
+
+    if (!device) {
+      pill.textContent = '—';
+      pill.className = 'pill soft';
+      summary.textContent = 'Chưa có thiết bị';
+      iosGuide.hidden = true;
+      errorText.hidden = true;
+      enableBtn.disabled = true;
+      enableBtn.textContent = 'Bật thông báo';
+      testBtn.hidden = true;
+      return;
+    }
+    if (!window.MayapPush) return;
+
+    const state = await window.MayapPush.getState(device.id);
+    if (myToken !== pushStatusToken) return; // co yeu cau moi hon xen vao, bo ket qua cu
+
+    const [text, cls, desc] = PUSH_STATUS_TEXT[state.status] || PUSH_STATUS_TEXT['not-enabled'];
+    pill.textContent = text;
+    pill.className = cls;
+    summary.textContent = text;
+    iosGuide.hidden = state.status !== 'ios-needs-install';
+    errorText.hidden = !desc;
+    if (desc) errorText.textContent = desc;
+    enableBtn.disabled = false;
+    enableBtn.textContent = state.status === 'enabled' ? 'Tắt thông báo' : 'Bật thông báo';
+    testBtn.hidden = state.status !== 'enabled';
+  }
+
+  function pushReasonText(reason, detail) {
+    const map = {
+      unsupported: 'Trình duyệt này không hỗ trợ thông báo đẩy.',
+      'not-configured': 'Trang web chưa cấu hình máy chủ thông báo.',
+      'ios-needs-install': 'Hãy thêm MAYAP vào Màn hình chính trước (xem hướng dẫn bên dưới).',
+      denied: 'Bạn đã từ chối hoặc trình duyệt đang chặn thông báo.',
+      'no-device': 'Hãy chọn hoặc thêm thiết bị trước.',
+      error: `Lỗi: ${detail || 'không xác định'}`
+    };
+    return map[reason] || 'Không bật được thông báo, thử lại sau.';
+  }
+
+  async function onEnablePushClick() {
+    const device = currentDevice();
+    if (!device) return toast('Hãy thêm thiết bị trước');
+    if (!window.MayapPush) return toast('push.js chưa tải xong, thử lại sau vài giây');
+
+    const btn = $('enablePushBtn');
+    const turningOff = btn.textContent.trim() === 'Tắt thông báo';
+    btn.disabled = true;
+    btn.textContent = turningOff ? 'Đang tắt…' : 'Đang bật…';
+    try {
+      if (turningOff) {
+        await window.MayapPush.disable(device.id);
+        toast('Đã tắt thông báo trên trình duyệt này');
+      } else {
+        const result = await window.MayapPush.enable(device.id);
+        toast(result.ok ? '🔔 Thông báo đã được bật' : pushReasonText(result.reason, result.error));
+      }
+    } finally {
+      await renderPushStatus();
+    }
+  }
+
+  async function onTestPushClick() {
+    if (!window.MayapPush) return;
+    const btn = $('testPushBtn');
+    btn.disabled = true;
+    btn.textContent = 'Đang gửi…';
+    try {
+      const result = await window.MayapPush.testNotification();
+      toast(result.ok ? 'Đã gửi thông báo test - chờ vài giây trên điện thoại' : 'Chưa gửi được, thử bật lại thông báo');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Kiểm tra thông báo';
+    }
+  }
+
   function registerServiceWorker() {
     if (!('serviceWorker' in navigator) || location.protocol === 'file:') return;
     navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -1365,7 +1443,6 @@
 
   function init() {
     document.body.dataset.page = 'device';
-    $('notificationsEnabled').checked = localStorage.getItem(`${STORAGE}.notifications`) === '1';
     bindUi();
     renderSelector();
     updateSettingSummaries();
@@ -1374,6 +1451,7 @@
     connectMqtt();
     startTimers();
     registerServiceWorker();
+    renderPushStatus();
   }
 
   window.addEventListener('pagehide', () => {

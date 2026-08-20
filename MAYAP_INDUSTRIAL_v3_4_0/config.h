@@ -88,42 +88,50 @@ constexpr uint32_t WEB_SNAPSHOT_IDLE_INTERVAL_MS = 6000UL;
 constexpr uint32_t WEB_COMMAND_ACK_TIMEOUT_MS = 8000UL;
 constexpr uint32_t WEB_CONFIG_SAVE_ACK_TIMEOUT_MS = 8000UL;
 
-// --------------------------- Telegram Bot (doc lap voi Web) -------------------
-// KENH RIENG, KHONG DI QUA MQTT/WEB: telegram_link.h tu mo ket noi HTTPS rieng
-// toi api.telegram.org, khong phu thuoc broker MQTT hay Web con song hay khong.
-// Token bot la bi mat cua firmware (nhu mat khau Wi-Fi/MQTT o tren) - dat qua
-// build_flags, KHONG hard-code truc tiep truoc khi build ban thuong mai. Chat ID
-// la cau hinh rieng tung may, nguoi dung tu nhap qua trang web phu (192.168.4.1).
-#ifndef MAYAP_TELEGRAM_BOT_TOKEN
-#define MAYAP_TELEGRAM_BOT_TOKEN ""
+// --------------------------- Cloud Push (Cloudflare Worker, doc lap voi Web) ---
+// KENH RIENG, KHONG DI QUA MQTT/WEB: cloud_alert_link.h tu mo ket noi HTTPS
+// rieng toi Cloudflare Worker (xem thu muc cloudflare/), khong phu thuoc
+// broker MQTT hay Web con song hay khong. Thay the hoan toan kenh Telegram cu.
+// device_key la bi mat cua firmware (nhu mat khau Wi-Fi/MQTT o tren) - dat qua
+// build_flags, KHONG hard-code truc tiep truoc khi build ban thuong mai.
+// KHAC Telegram truoc day (can nhap Chat ID): nguoi dung cuoi KHONG can cau
+// hinh gi tren ESP32/cong Wi-Fi cho kenh nay - device_id (tu MAC, xem
+// mayapDeviceIdText()) la dinh danh cong khai, viec "ghep" trinh duyet nhan
+// thong bao hoan toan thuc hien o phia trang web (xem push.js/setup.html).
+#ifndef MAYAP_DEVICE_SECRET
+#define MAYAP_DEVICE_SECRET ""
 #endif
-constexpr char TELEGRAM_BOT_TOKEN[] = MAYAP_TELEGRAM_BOT_TOKEN;
-constexpr char TELEGRAM_API_HOST[] = "api.telegram.org";
-constexpr uint16_t TELEGRAM_CHAT_ID_MAX = 20U;  // du cho id kenh am "-100xxxxxxxxxxxx"
+constexpr char CLOUD_DEVICE_SECRET[] = MAYAP_DEVICE_SECRET;
+
+#ifndef MAYAP_CLOUD_API_HOST
+#define MAYAP_CLOUD_API_HOST ""
+#endif
+// Chi ten host, KHONG "https://" o dau (vd: "mayap-push-worker.abc.workers.dev"
+// hoac "api.tenmiencuaban.vn" neu da gan custom domain cho Worker).
+constexpr char CLOUD_API_HOST[] = MAYAP_CLOUD_API_HOST;
 
 // Nhip kiem tra dieu kien canh bao (khong can nhanh nhu MQTT - loi thay doi o
 // thang giay/phut, khong phai mili giay).
-constexpr uint32_t TELEGRAM_CHECK_INTERVAL_MS = 5000UL;
+constexpr uint32_t CLOUD_CHECK_INTERVAL_MS = 5000UL;
 // Khoang cach toi thieu giua 2 lan goi HTTPS that su, tranh don don nhieu tin
 // cung luc khi nhieu loi phat sinh gan nhau (moi lan goi block networkTask
 // vai giay do TLS handshake, nen khong the/khong nen ban song song).
-constexpr uint32_t TELEGRAM_MIN_SEND_GAP_MS = 3000UL;
-constexpr uint32_t TELEGRAM_HTTP_TIMEOUT_MS = 8000UL;
-constexpr uint32_t TELEGRAM_HTTP_CONNECT_TIMEOUT_MS = 5000UL;
-// Nhip hoi lenh tu Telegram (getUpdates, short-poll timeout=0). Day la 1 goi
-// HTTPS moi ky ke ca khi khong ai nhan lenh gi - can bang giua do phan hoi va
-// tai nguyen/bang thong; co the tang len neu khong can lenh phan hoi nhanh.
-constexpr uint32_t TELEGRAM_POLL_INTERVAL_MS = 20000UL;
+constexpr uint32_t CLOUD_MIN_SEND_GAP_MS = 3000UL;
+constexpr uint32_t CLOUD_HTTP_TIMEOUT_MS = 8000UL;
+constexpr uint32_t CLOUD_HTTP_CONNECT_TIMEOUT_MS = 5000UL;
+// Nhip bao "con song" len Worker (cap nhat last_seen/status trong D1) - khong
+// anh huong toi canh bao, chi phuc vu hien thi trang thai lien ket tren web.
+constexpr uint32_t CLOUD_HEARTBEAT_INTERVAL_MS = 60000UL;
 // Chu ky nhac lai khi loi con ton tai (tuy muc do - CRITICAL nhac nhanh hon
 // WARNING nhu yeu cau). "Info" gan nhu khong dung cho loi that (chi day phong).
-constexpr uint32_t TELEGRAM_REPEAT_WARNING_MS = 600000UL;    // 10 phut
-constexpr uint32_t TELEGRAM_REPEAT_CRITICAL_STOP_MS = 300000UL;      // 5 phut
-constexpr uint32_t TELEGRAM_REPEAT_CRITICAL_EMERGENCY_MS = 120000UL; // 2 phut
-constexpr uint32_t TELEGRAM_REPEAT_INFO_MS = 1800000UL;      // 30 phut (du phong)
-constexpr uint8_t TELEGRAM_OUTBOX_SIZE = 8U;
+constexpr uint32_t CLOUD_REPEAT_WARNING_MS = 600000UL;    // 10 phut
+constexpr uint32_t CLOUD_REPEAT_CRITICAL_STOP_MS = 300000UL;      // 5 phut
+constexpr uint32_t CLOUD_REPEAT_CRITICAL_EMERGENCY_MS = 120000UL; // 2 phut
+constexpr uint32_t CLOUD_REPEAT_INFO_MS = 1800000UL;      // 30 phut (du phong)
+constexpr uint8_t CLOUD_OUTBOX_SIZE = 8U;
 // >= HMI_FAULT_DISPLAY_CAPACITY (so loi dang active toi da doc duoc tu runtime
 // snapshot moi lan), du du de theo doi tat ca dong thoi.
-constexpr uint8_t TELEGRAM_ACTIVE_TRACK_SIZE = 16U;
+constexpr uint8_t CLOUD_ACTIVE_TRACK_SIZE = 16U;
 
 // HMI chi duoc bien dich trong firmware tong; da loai bo demo doc lap.
 #define MAYAP_HMI_OWNS_I2C_BUS 0
@@ -366,7 +374,7 @@ constexpr uint32_t SUPERVISOR_RESTART_FALLBACK_MS = 7000UL; // TWDT 5 s duoc uu 
 
 // ------------------------- Exponential backoff (dung chung) -------------------
 // Dung cho MOI vong reconnect/retry co the gap loi keo dai (Wi-Fi STA, MQTT,
-// Telegram): khong bao gio thu lai theo chu ky co dinh vinh vien - se tu keo
+// Cloud Push): khong bao gio thu lai theo chu ky co dinh vinh vien - se tu keo
 // gian ra 1s -> 2s -> 4s -> 8s -> 16s -> 30s -> 60s (giu nguyen 60s ve sau,
 // KHONG bao gio bo cuoc han - thiet bi khong nguoi truc phai tu ket noi lai
 // duoc sau vai gio/vai ngay mat mang, khong can bam nut/khoi dong lai). 60s la
@@ -380,12 +388,12 @@ constexpr uint32_t BACKOFF_STEPS_MS[] = {
 constexpr uint8_t BACKOFF_STEP_COUNT =
     sizeof(BACKOFF_STEPS_MS) / sizeof(BACKOFF_STEPS_MS[0]);
 // Jitter ngau nhien them vao MOI lan cho (0..JITTER_MAX), tranh nhieu kenh
-// (Wi-Fi/MQTT/Telegram) hoac nhieu thiet bi cung dong loat thu lai dung 1
+// (Wi-Fi/MQTT/Cloud Push) hoac nhieu thiet bi cung dong loat thu lai dung 1
 // thoi diem (thundering herd) sau khi mang/broker vua phuc hoi.
 constexpr uint32_t BACKOFF_JITTER_MAX_MS = 500UL;
 
 // Bo dem lui-va-doi don gian, KHONG blocking (chi so sanh moc thoi gian).
-// Moi kenh retry (Wi-Fi/MQTT/Telegram) giu MOT instance rieng - hoan toan
+// Moi kenh retry (Wi-Fi/MQTT/Cloud Push) giu MOT instance rieng - hoan toan
 // doc lap, loi/reset o kenh nay khong dung cham gi den buoc backoff cua kenh
 // khac. Khong dung heap, khong tao task/timer rieng - an toan tai nguyen.
 struct BackoffTimer {

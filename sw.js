@@ -1,11 +1,20 @@
 'use strict';
-const CACHE = 'mayap-web-v9.0.3';
+const CACHE = 'mayap-web-v10.0.0';
 const APP_SHELL = [
-  './', './index.html', './styles.css', './app.js', './manifest.webmanifest',
-  './icons/icon-192.png', './icons/icon-512.png'
+  './', './index.html', './styles.css', './app.js', './push.js', './manifest.webmanifest',
+  './icons/icon-192.png', './icons/icon-512.png', './icons/badge-72.png'
 ];
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL)));
+  // Dung tung cache.add() + catch rieng thay vi cache.addAll() (all-or-nothing):
+  // 1 file loi (404/mang cham luc cai dat) tung lam TOAN BO Service Worker
+  // khong cai dat duoc, chan luon ca tinh nang Push (phu thuoc SW). Thieu 1
+  // file trong app shell chi lam file do khong duoc cache truoc, khong chan
+  // ca trang.
+  event.waitUntil(
+    caches.open(CACHE).then((cache) => Promise.all(
+      APP_SHELL.map((url) => cache.add(url).catch(() => {}))
+    ))
+  );
   self.skipWaiting();
 });
 self.addEventListener('activate', (event) => {
@@ -27,4 +36,49 @@ self.addEventListener('fetch', (event) => {
     caches.open(CACHE).then((cache) => cache.put(event.request, copy));
     return response;
   })));
+});
+
+// ------------------------------- Web Push -----------------------------------
+// Nhan push tu Cloudflare Worker (thay Telegram) va hien notification that su
+// cua he dieu hanh - hoat dong ke ca khi khong co tab nao cua website dang mo.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (_) {
+    data = { title: 'MAYAP', body: event.data ? event.data.text() : '' };
+  }
+
+  const title = data.title || 'MAYAP';
+  const options = {
+    body: data.body || '',
+    icon: data.icon || './icons/icon-192.png',
+    badge: data.badge || './icons/badge-72.png',
+    data: data.data || {},
+    tag: data.data?.alarmType ? `mayap-${data.data.deviceId || ''}-${data.data.alarmType}` : undefined,
+    // Canh bao ACTIVE thay the ban cu cung loai (khong xep chong nhieu thong
+    // bao "van con loi X" giong nhau); tin RESOLVED luon la thong bao rieng
+    // (khong ghi de) de nguoi dung con thay ro da tung co canh bao.
+    renotify: data.data?.state === 'active',
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url || './', self.location.href).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if (client.url === targetUrl && 'focus' in client) return client.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+      return undefined;
+    })
+  );
+});
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  // Trinh duyet tu xoay subscription (het han/thu hoi khoa) - trang web se tu
+  // phat hien va dang ky lai o lan mo tiep theo qua MayapPush.getState() trong
+  // push.js, khong can xu ly gi them o day.
 });

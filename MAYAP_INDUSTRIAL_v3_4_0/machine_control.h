@@ -4964,7 +4964,7 @@ class MachineController {
     snprintf(runtime_.machineState, sizeof(runtime_.machineState), "%s", state);
     hmiSetRuntime(runtime_);
     mayapWebSetRuntime(runtime_);
-    mayapTelegramSetRuntime(runtime_);
+    mayapCloudSetRuntime(runtime_);
     if (lastHmiEventSequence_ != eventLog_.sequence() ||
         elapsedMs(now, lastHmiEventPushAt_) >= 30000UL) {
       HmiEventSnapshot snapshot{};
@@ -5146,12 +5146,12 @@ class MachineController {
     } else if (cmd && !strcmp(cmd, "CONFIG")) {
       // Debug day du theo yeu cau: khong chi thong so TINH (nguong/PID/...)
       // ma ca trang thai SONG (cai gi dang bat/tat, Wi-Fi da luu chua, MQTT/
-      // Telegram co dang ket noi khong...) trong CUNG mot lenh, khong bat
+      // Cloud Push co dang ket noi khong...) trong CUNG mot lenh, khong bat
       // nguoi dung phai go them STATUS moi thay het.
       printConfig();
       mayapPrintNetworkConfig();
       mayapPrintWebStatus();
-      mayapPrintTelegramStatus(now);
+      mayapPrintCloudStatus(now);
       printStatus(now);
     } else if (cmd && !strcmp(cmd, "EXIT")) {
       // Go EXIT = tat debug Serial ngay (khong doi trang thai hien tai la
@@ -5178,7 +5178,7 @@ class MachineController {
     mayapSerialPrintf(false, "TIME SET YYYY-MM-DD HH:MM:SS\n");
     mayapSerialPrintf(false, "BATCH START|STOP   ACK   FAULT LIST|CLEAR   STATUS   CONFIG   POWER\n");
     mayapSerialPrintf(false, "Nhap SERIAL de tat/bat toan bo debug. DIAG ON|OFF doi toc do STATUS.\n");
-    mayapSerialPrintf(false, "CONFIG = dump debug DAY DU (thong so + Wi-Fi/MQTT/Telegram + STATUS).\n");
+    mayapSerialPrintf(false, "CONFIG = dump debug DAY DU (thong so + Wi-Fi/MQTT/Cloud Push + STATUS).\n");
     mayapSerialPrintf(false, "EXIT = tat debug Serial ngay (tuong duong go lai SERIAL khi dang ON).\n");
     mayapSerialPrintf(false, "LOG SHOW [N]|FILES|CLEAR(RAM)   DIAG ON|OFF\n");
     mayapSerialPrintf(false, "PIN OUT: LEFT=D%u RIGHT=D%u LIGHT=D%u VENT=D%u MASTER=D%u SSR=D%u\n",

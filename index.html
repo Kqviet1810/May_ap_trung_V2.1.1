@@ -7,7 +7,7 @@
 <meta content="#103a33" name="theme-color"/>
 <title>MAYAP · Giao diện thương mại v9.0.3</title>
 
-<meta content="MAYAP - Điều khiển và theo dõi máy ấp trứng qua MQTT." name="description"/><link href="./manifest.webmanifest" rel="manifest"/><link href="./icons/icon-192.png" rel="icon"/><link href="./styles.css" rel="stylesheet"/></head>
+<meta content="MAYAP - Điều khiển và theo dõi máy ấp trứng qua MQTT." name="description"/><link href="./manifest.webmanifest" rel="manifest"/><link href="./icons/icon-192.png" rel="icon"/><link href="./icons/apple-touch-icon.png" rel="apple-touch-icon"/><link href="./styles.css" rel="stylesheet"/></head>
 <body><noscript>Website cần JavaScript để kết nối MQTT và điều khiển máy.</noscript>
 <div class="appShell">
 <aside class="sidebar">
@@ -79,9 +79,13 @@
 <form class="settingBody" id="wifiForm"><p class="settingFootnote">Đổi Wi‑Fi được thực hiện trực tiếp trên trang cài đặt của ESP32. Mật khẩu Wi‑Fi không đi qua MQTT.</p><div class="wifiGuide"><strong>3 bước ngắn gọn</strong><small>1. Giữ nút BOOT 3 giây trên máy.<br/>2. Kết nối điện thoại vào Wi‑Fi MAYAP-XXXX.<br/>3. Mở trang cài đặt và chọn Wi‑Fi mới.</small></div><button class="primary full" id="openWifiPortal" type="button">Mở trang cài đặt Wi‑Fi</button></form>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon">♢</span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang tắt</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon">♢</span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
-<div class="notificationLine"><div><strong>Cho phép thông báo</strong><small>Cảnh báo nhiệt, cảm biến, đảo trứng và mất kết nối.</small></div><label class="toggle"><input id="notificationsEnabled" type="checkbox"/><i></i></label></div>
+<div class="notificationLine"><div><strong>Nhận cảnh báo trên điện thoại</strong><small>Nhiệt độ, cảm biến, đảo trứng, mất kết nối - kể cả khi không mở trang này.</small></div><span class="pill soft" id="pushStatusPill">…</span></div>
+<div class="wifiGuide" id="pushIosGuide" hidden><strong>iPhone/iPad: thêm vào Màn hình chính trước</strong><small>Bước 1: Nhấn nút Chia sẻ trên Safari.<br/>Bước 2: Chọn "Thêm vào Màn hình chính".<br/>Bước 3: Mở MAYAP từ biểu tượng vừa tạo trên Màn hình chính.<br/>Bước 4: Bấm "Bật thông báo" lại trong trang vừa mở.</small></div>
+<p class="settingFootnote" id="pushErrorText" hidden></p>
+<button class="primary full" id="enablePushBtn" type="button">Bật thông báo</button>
+<button class="ghost full" id="testPushBtn" type="button" hidden>Kiểm tra thông báo</button>
 </div>
 </details>
 <details class="settingCard">
@@ -152,5 +156,5 @@
 </dialog>
 <div aria-live="polite" class="toast" id="toast" role="status"></div>
 
-<script src="./config.js"></script><script crossorigin="anonymous" referrerpolicy="no-referrer" src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.13.2/mqtt.min.js"></script><script src="./app.js"></script></body>
+<script src="./config.js"></script><script crossorigin="anonymous" referrerpolicy="no-referrer" src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.13.2/mqtt.min.js"></script><script src="./push.js"></script><script src="./app.js"></script></body>
 </html>

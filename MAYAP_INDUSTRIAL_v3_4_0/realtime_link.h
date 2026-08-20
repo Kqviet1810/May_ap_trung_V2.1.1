@@ -85,8 +85,8 @@ static WiFiClient netClient;
 static PubSubClient mqtt(netClient);
 
 // Backoff RIENG cho MQTT, doc lap hoan toan voi backoff cua STA Wi-Fi
-// (network_service.h) va Telegram (telegram_link.h) - moi lop tu quan ly
-// chu ky retry cua minh, khong anh huong lan nhau.
+// (network_service.h) va Cloud Push (cloud_alert_link.h) - moi lop tu quan
+// ly chu ky retry cua minh, khong anh huong lan nhau.
 static BackoffTimer mqttBackoff{};
 
 // ------------------------- Phien web (foreground/background) -----------------

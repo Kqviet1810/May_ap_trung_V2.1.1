@@ -13,5 +13,7 @@ window.MAYAP_WEB_CONFIG = Object.freeze({
   sessionRefreshMs: 9000,
   staleAfterMs: 90000,
   commandTimeoutMs: 10000,
-  configTimeoutMs: 15000
+  configTimeoutMs: 15000,
+  // Worker Cloudflare cho kenh thong bao (thay Telegram) - xem cloudflare/README.md
+  cloudApiBase: 'https://api.tenmiencuaban.vn'
 });

@@ -27,7 +27,7 @@ void mayapI2cUnlock() {
 #include "network_service.h"
 #include "hmi.h"
 #include "realtime_link.h"
-#include "telegram_link.h"
+#include "cloud_alert_link.h"
 #include "machine_control.h"
 
 using namespace Mayap;
@@ -148,11 +148,11 @@ void networkTask(void *parameter) {
   for (;;) {
     const uint32_t now = millis();
     mayapNetworkUpdate(now);
-    // Lop web realtime (MQTT) va lop Telegram chi duoc phep hoat dong tren
-    // networkTask (I/O mang); xem ghi chu dau realtime_link.h/telegram_link.h.
+    // Lop web realtime (MQTT) va lop Cloud Push chi duoc phep hoat dong tren
+    // networkTask (I/O mang); xem ghi chu dau realtime_link.h/cloud_alert_link.h.
     // Hai lop nay hoan toan doc lap voi nhau - mot ben loi khong lam hong ben kia.
     mayapWebLinkUpdate(now);
-    mayapTelegramUpdate(now);
+    mayapCloudAlertUpdate(now);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(NETWORK_TASK_PERIOD_MS));
   }
 }
@@ -227,7 +227,7 @@ void setup() {
   // duoc phep khoi dong Wi-Fi neu nguoi dung da chon ONLINE.
   mayapNetworkBegin();
   mayapWebLinkBegin();
-  mayapTelegramBegin();
+  mayapCloudAlertBegin();
 
   esp_task_wdt_config_t wdtConfig{};
   wdtConfig.timeout_ms = CONTROL_WDT_TIMEOUT_MS;
@@ -243,7 +243,7 @@ void setup() {
   hmiSetRuntime(Machine.runtime());
   mayapWebSetConfig(Machine.config());
   mayapWebSetRuntime(Machine.runtime());
-  mayapTelegramSetRuntime(Machine.runtime());
+  mayapCloudSetRuntime(Machine.runtime());
   hmiBegin();
 
   const uint32_t now = millis();

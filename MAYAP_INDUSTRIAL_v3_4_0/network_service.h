@@ -46,8 +46,8 @@ static volatile int8_t publishedRssiDbm = -127;
 static bool radioActive = false;
 static uint32_t connectionStartedAt = 0U;
 // Backoff RIENG cua STA Wi-Fi, doc lap voi backoff cua MQTT (realtime_link.h)
-// va Telegram (telegram_link.h) - loi/reset o tang nao khong dung cham tang
-// khac. Khong con dung 2 bien lastRetryAt/lastStartAttemptAt + hang so co
+// va Cloud Push (cloud_alert_link.h) - loi/reset o tang nao khong dung cham
+// tang khac. Khong con dung 2 bien lastRetryAt/lastStartAttemptAt + hang so co
 // dinh nhu truoc: moi that bai lien tiep se tu keo gian khoang cho ra thay vi
 // dap WiFi.begin() moi 30s vinh vien khi mat mang keo dai.
 static BackoffTimer staBackoff{};
@@ -91,50 +91,6 @@ inline bool saveCredentials(const char *ssid, const char *password) {
   wifiPrefs.putString("pass", password ? password : "");
   snprintf(activeSsid, sizeof(activeSsid), "%s", ssid);
   snprintf(activePassword, sizeof(activePassword), "%s", password ? password : "");
-  return true;
-}
-
-// --------------------- Telegram Chat ID (rieng WiFi, doc lap) -----------------
-// Chi la CAU HINH (chuoi Chat ID nguoi dung tu lay tu Telegram va nhap qua
-// trang web phu). Viec gui tin nhan qua Telegram hoan toan do telegram_link.h
-// tu dam nhiem qua HTTPS rieng - file nay chi luu/doc gia tri, khong biet gi
-// ve HTTP/Telegram API.
-static Preferences telegramPrefs;
-static char telegramChatId[TELEGRAM_CHAT_ID_MAX + 1U] = "";
-static bool telegramChatIdLoaded = false;
-
-inline void loadTelegramChatIdOnce() {
-  if (telegramChatIdLoaded) return;
-  telegramChatIdLoaded = true;
-  telegramPrefs.begin("mayaptg", false);
-  const String id = telegramPrefs.getString("chatid", "");
-  snprintf(telegramChatId, sizeof(telegramChatId), "%s", id.c_str());
-}
-
-// Chat ID Telegram la so nguyen, co the am (nhom/kenh dang -100xxxxxxxxxxxx).
-inline bool isValidTelegramChatId(const char *id) {
-  if (!id || !id[0]) return false;
-  size_t len = strlen(id);
-  if (len > TELEGRAM_CHAT_ID_MAX) return false;
-  size_t i = 0;
-  if (id[0] == '-') {
-    if (len < 2U) return false;
-    i = 1U;
-  }
-  for (; i < len; ++i) {
-    if (!isdigit(static_cast<unsigned char>(id[i]))) return false;
-  }
-  return true;
-}
-
-// Rong = tat thong bao Telegram cho may nay (chua cau hinh). Tra ve false chi
-// khi chuoi khong rong nhung sai dinh dang.
-inline bool saveTelegramChatId(const char *id) {
-  loadTelegramChatIdOnce();
-  const bool clearing = !id || !id[0];
-  if (!clearing && !isValidTelegramChatId(id)) return false;
-  telegramPrefs.putString("chatid", clearing ? "" : id);
-  snprintf(telegramChatId, sizeof(telegramChatId), "%s", clearing ? "" : id);
   return true;
 }
 
@@ -288,26 +244,6 @@ inline String buildConnectionInfo() {
   return info;
 }
 
-// Chi hien trang thai (khong co form rieng) - Chat ID duoc nhap chung trong
-// form Wi-Fi ben duoi, 1 nut Luu duy nhat cho ca hai (xem handlePortalSave).
-inline String buildTelegramStatusInfo() {
-  loadTelegramChatIdOnce();
-  String info;
-  info += F("<div class=info><span>Telegram</span><b>");
-  info += telegramChatId[0] ? F("Da cau hinh") : F("Chua cau hinh");
-  info += F("</b></div>");
-  if (!TELEGRAM_BOT_TOKEN[0]) {
-    // Bao ro ly do pho bien nhat khien Telegram khong gui duoc gi: token bot
-    // la cau hinh RIENG cua firmware (nguoi lap dat sua truc tiep trong
-    // config.h truoc khi nap), khong nhap duoc qua trang nay - Chat ID dung
-    // rieng khong du de bot hoat dong.
-    info += F("<p style='color:#ff8a8a'>Bot Telegram CHUA duoc cau hinh trong "
-               "firmware (thieu token) - lien he nguoi lap dat de bat tinh "
-               "nang nay.</p>");
-  }
-  return info;
-}
-
 inline void handlePortalRoot() {
   const String connectionInfo = buildConnectionInfo();
   const String options = buildWifiOptions();
@@ -337,25 +273,21 @@ inline void handlePortalRoot() {
     "text-align:right;word-break:break-word}"
     ".card + .card{margin-top:16px}"
     "</style></head><body>"
-    "<div class=card><h1>MAYAP - Cau hinh</h1>");
+    "<div class=card><h1>MAYAP - Doi Wi-Fi</h1>");
   html += connectionInfo;
-  html += buildTelegramStatusInfo();
   html += F(
     "<form method=POST action=/save>"
     "<label>Mang Wi-Fi</label><select name=ssid required>");
   html += options;
-  html += F("</select><label>Mat khau Wi-Fi</label>"
-    "<input name=password type=password maxlength=64 autocomplete=off>"
-    "<label>Telegram Chat ID (de trong neu khong dung)</label>"
-    "<input name=chatid type=text maxlength=20 autocomplete=off value='");
-  html += htmlEscape(String(telegramChatId));
   html += F(
-    "'>"
-    "<button type=submit>Luu cau hinh</button></form>"
+    "</select><label>Mat khau</label>"
+    "<input name=password type=password maxlength=64 autocomplete=off>"
+    "<button type=submit>Luu &amp; ket noi</button></form>"
     "<a class=reload href=/rescan>&#8635; Tim lai Wi-Fi</a>"
-    "<p>Thiet bi se tu thu ket noi mang moi va ap dung Chat ID Telegram moi. "
-    "Kiem tra man hinh may ap de biet ket qua. Trang nay tu dong dong sau vai "
-    "phut.</p></div>");
+    "<p>Thiet bi se tu thu ket noi mang moi. Kiem tra man hinh may ap de "
+    "biet ket qua. Trang nay tu dong dong sau vai phut. Thong bao canh bao "
+    "cua may nay duoc bat qua trang web chinh (khong can cau hinh gi o "
+    "day).</p></div>");
   html += F("</body></html>");
   portalServer.send(200, "text/html; charset=utf-8", html);
 }
@@ -370,8 +302,6 @@ inline void handlePortalRescan() {
   portalServer.send(302, "text/plain", "");
 }
 
-// Mot form duy nhat / mot nut Luu duy nhat cho ca Wi-Fi lan Telegram Chat ID
-// (truoc day tach thanh 2 form/2 nut rieng - gay kho hieu cho nguoi dung).
 inline void handlePortalSave() {
   if (!portalServer.hasArg("ssid") || portalServer.arg("ssid").isEmpty()) {
     portalServer.send(400, "text/plain; charset=utf-8", "Thieu SSID");
@@ -384,27 +314,13 @@ inline void handlePortalSave() {
     portalServer.send(400, "text/plain; charset=utf-8", "SSID/mat khau qua dai");
     return;
   }
-  String chatId = portalServer.hasArg("chatid") ? portalServer.arg("chatid") : String();
-  chatId.trim();
-  if (!chatId.isEmpty() && !isValidTelegramChatId(chatId.c_str())) {
-    portalServer.send(400, "text/plain; charset=utf-8",
-        "Chat ID Telegram khong hop le. Chi gom chu so, co the co dau - o dau "
-        "(id nhom/kenh).");
-    return;
-  }
-  if (!saveTelegramChatId(chatId.c_str())) {
-    portalServer.send(400, "text/plain; charset=utf-8", "Khong luu duoc Chat ID");
-    return;
-  }
   snprintf(pendingSsid, sizeof(pendingSsid), "%s", ssid.c_str());
   snprintf(pendingPassword, sizeof(pendingPassword), "%s", pass.c_str());
   pendingCredentialsReady = true;
   portalServer.send(200, "text/html; charset=utf-8",
       "<html><meta charset=utf-8><body style='font-family:sans-serif'>"
-      "Da luu cau hinh. May ap dang thu ket noi Wi-Fi, vui long xem man hinh "
-      "thiet bi. Neu co nhap Chat ID, may se gui tin nhan xac nhan qua "
-      "Telegram khi ket noi thanh cong (can May Chinh dang o che do "
-      "ONLINE).</body></html>");
+      "Da nhan Wi-Fi moi. May ap dang thu ket noi, vui long xem man hinh "
+      "thiet bi.</body></html>");
 }
 
 inline void handlePortalNotFound() {
@@ -569,7 +485,7 @@ inline void servicePortal(uint32_t now) {
 }  // namespace MayapNetworkInternal
 
 // Dinh danh thiet bi "MAP-XXXXXXXXXXXX" dung chung cho ca portal web va cac
-// module khac (telegram_link.h) - tranh moi noi tu tinh lai tu MAC rieng.
+// module khac (cloud_alert_link.h) - tranh moi noi tu tinh lai tu MAC rieng.
 inline String mayapDeviceIdText() {
   return MayapNetworkInternal::mayapDeviceIdText();
 }
@@ -577,7 +493,6 @@ inline String mayapDeviceIdText() {
 inline void mayapNetworkBegin() {
   using namespace MayapNetworkInternal;
   loadCredentialsOnce();
-  loadTelegramChatIdOnce();
   __atomic_store_n(&requestedMode,
                    static_cast<uint8_t>(ConnectivityMode::Offline),
                    __ATOMIC_RELEASE);
@@ -586,12 +501,11 @@ inline void mayapNetworkBegin() {
 }
 
 // Cac cau hinh KET NOI quan trong - in mot lan luc boot va bat cu khi nao go
-// lenh CONFIG, de theo doi tu xa (mat khau Wi-Fi va token Telegram KHONG bao
-// gio in ra, chi bao co cau hinh hay khong, tranh lo qua Serial).
+// lenh CONFIG, de theo doi tu xa (mat khau Wi-Fi va device_key Cloud Push
+// KHONG bao gio in ra, chi bao co cau hinh hay khong, tranh lo qua Serial).
 inline void mayapPrintNetworkConfig() {
   using namespace MayapNetworkInternal;
   loadCredentialsOnce();
-  loadTelegramChatIdOnce();
   // Goi ro namespace: ham nay cung ton tai o pham vi global (wrapper cong
   // khai ben tren) nen goi khong ro se mo ho gap "using namespace" o day.
   mayapSerialPrintf(false, "[CONFIG] id_thiet_bi=%s\n",
@@ -602,23 +516,9 @@ inline void mayapPrintNetworkConfig() {
   mayapSerialPrintf(false, "[CONFIG] mqtt_broker=%s:%u tls=%s topic_root=%s\n",
       MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_USE_TLS ? "BAT" : "TAT",
       MQTT_TOPIC_ROOT);
-  mayapSerialPrintf(false, "[CONFIG] telegram_bot_token=%s telegram_chat_id=%s\n",
-      TELEGRAM_BOT_TOKEN[0] ? "DA CAU HINH" : "CHUA CAU HINH (build flag rong)",
-      telegramChatId[0] ? telegramChatId : "(chua cau hinh)");
-}
-
-// Chi doc/ghi tu networkTask: telegram_link.h::mayapTelegramUpdate() chay
-// trong chinh task nay (giong cach mqtt.loop() cua realtime_link.h dung
-// chung task), va trang cau hinh Telegram cua cong doi Wi-Fi cung xu ly tai
-// day. Khong can atomic/mutex vi khong co task nao khac dung toi 2 bien nay.
-inline const char *mayapGetTelegramChatId() {
-  using namespace MayapNetworkInternal;
-  loadTelegramChatIdOnce();
-  return telegramChatId;
-}
-
-inline bool mayapSetTelegramChatId(const char *id) {
-  return MayapNetworkInternal::saveTelegramChatId(id);
+  mayapSerialPrintf(false, "[CONFIG] cloud_api_host=%s cloud_device_key=%s\n",
+      CLOUD_API_HOST[0] ? CLOUD_API_HOST : "(chua cau hinh)",
+      CLOUD_DEVICE_SECRET[0] ? "DA CAU HINH" : "CHUA CAU HINH (build flag rong)");
 }
 
 inline void mayapSetConnectivityMode(ConnectivityMode mode) {
