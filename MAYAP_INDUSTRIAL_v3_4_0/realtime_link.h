@@ -753,3 +753,15 @@ inline void mayapWebPushEventLog(const HmiEventSnapshot &snapshot) {
   eventSnapshotDirty = true;
   portEXIT_CRITICAL(&webMux);
 }
+
+// Trang thai SONG cua kenh MQTT/Web (bo sung cho [NET] cua printStatus() vi
+// do chi bao WiFi/STA, khong bao rieng MQTT da connect() hay chua) - dung cho
+// lenh Serial CONFIG.
+inline void mayapPrintWebStatus() {
+  using namespace MayapRealtimeInternal;
+  mayapSerialPrintf(false,
+      "[WEB] mqtt_connected=%u web_session_active=%u mqtt_backoff_step=%u/%u\n",
+      mqtt.connected(), webSessionActive,
+      static_cast<unsigned>(mqttBackoff.step),
+      static_cast<unsigned>(BACKOFF_STEP_COUNT - 1U));
+}

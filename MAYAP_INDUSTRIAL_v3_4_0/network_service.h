@@ -288,30 +288,24 @@ inline String buildConnectionInfo() {
   return info;
 }
 
-inline String buildTelegramCard() {
+// Chi hien trang thai (khong co form rieng) - Chat ID duoc nhap chung trong
+// form Wi-Fi ben duoi, 1 nut Luu duy nhat cho ca hai (xem handlePortalSave).
+inline String buildTelegramStatusInfo() {
   loadTelegramChatIdOnce();
-  String html;
-  html += F("<div class=card><h1>Thong bao Telegram</h1>"
-             "<div class=info><span>Trang thai</span><b>");
-  if (telegramChatId[0]) {
-    html += F("Da cau hinh (Chat ID ");
-    html += telegramChatId;
-    html += F(")");
-  } else {
-    html += F("Chua cau hinh");
+  String info;
+  info += F("<div class=info><span>Telegram</span><b>");
+  info += telegramChatId[0] ? F("Da cau hinh") : F("Chua cau hinh");
+  info += F("</b></div>");
+  if (!TELEGRAM_BOT_TOKEN[0]) {
+    // Bao ro ly do pho bien nhat khien Telegram khong gui duoc gi: token bot
+    // la cau hinh RIENG cua firmware (nguoi lap dat sua truc tiep trong
+    // config.h truoc khi nap), khong nhap duoc qua trang nay - Chat ID dung
+    // rieng khong du de bot hoat dong.
+    info += F("<p style='color:#ff8a8a'>Bot Telegram CHUA duoc cau hinh trong "
+               "firmware (thieu token) - lien he nguoi lap dat de bat tinh "
+               "nang nay.</p>");
   }
-  html += F("</b></div>"
-             "<form method=POST action=/telegram-save>"
-             "<label>Telegram Chat ID</label>"
-             "<input name=chatid value=\"");
-  html += htmlEscape(String(telegramChatId));  // luon la so/'-' sau validate, escape them cho chac
-  html += F("\" maxlength=20 placeholder=\"Vi du 123456789, de trong de tat\">"
-             "<button type=submit>Luu Chat ID</button></form>"
-             "<p>Mo Telegram, nhan tin cho bot @userinfobot de lay Chat ID ca "
-             "nhan (hoac lay Chat ID nhom neu them bot vao nhom). May se tu "
-             "gui tin nhan xac nhan qua Telegram ngay khi ket noi mang thanh "
-             "cong - can May Chinh dang o che do ONLINE.</p></div>");
-  return html;
+  return info;
 }
 
 inline void handlePortalRoot() {
@@ -343,20 +337,25 @@ inline void handlePortalRoot() {
     "text-align:right;word-break:break-word}"
     ".card + .card{margin-top:16px}"
     "</style></head><body>"
-    "<div class=card><h1>MAYAP - Doi Wi-Fi</h1>");
+    "<div class=card><h1>MAYAP - Cau hinh</h1>");
   html += connectionInfo;
+  html += buildTelegramStatusInfo();
   html += F(
     "<form method=POST action=/save>"
     "<label>Mang Wi-Fi</label><select name=ssid required>");
   html += options;
-  html += F(
-    "</select><label>Mat khau</label>"
+  html += F("</select><label>Mat khau Wi-Fi</label>"
     "<input name=password type=password maxlength=64 autocomplete=off>"
-    "<button type=submit>Luu &amp; ket noi</button></form>"
+    "<label>Telegram Chat ID (de trong neu khong dung)</label>"
+    "<input name=chatid type=text maxlength=20 autocomplete=off value='");
+  html += htmlEscape(String(telegramChatId));
+  html += F(
+    "'>"
+    "<button type=submit>Luu cau hinh</button></form>"
     "<a class=reload href=/rescan>&#8635; Tim lai Wi-Fi</a>"
-    "<p>Thiet bi se tu thu ket noi mang moi. Kiem tra man hinh may ap de "
-    "biet ket qua. Trang nay tu dong dong sau vai phut.</p></div>");
-  html += buildTelegramCard();
+    "<p>Thiet bi se tu thu ket noi mang moi va ap dung Chat ID Telegram moi. "
+    "Kiem tra man hinh may ap de biet ket qua. Trang nay tu dong dong sau vai "
+    "phut.</p></div>");
   html += F("</body></html>");
   portalServer.send(200, "text/html; charset=utf-8", html);
 }
@@ -371,32 +370,8 @@ inline void handlePortalRescan() {
   portalServer.send(302, "text/plain", "");
 }
 
-inline void handlePortalTelegramSave() {
-  if (!portalServer.hasArg("chatid")) {
-    portalServer.send(400, "text/plain; charset=utf-8", "Thieu Chat ID");
-    return;
-  }
-  String chatId = portalServer.arg("chatid");
-  chatId.trim();
-  if (!chatId.isEmpty() && !isValidTelegramChatId(chatId.c_str())) {
-    portalServer.send(400, "text/plain; charset=utf-8",
-        "Chat ID khong hop le. Chi gom chu so, co the co dau - o dau (id nhom/kenh).");
-    return;
-  }
-  if (!saveTelegramChatId(chatId.c_str())) {
-    portalServer.send(400, "text/plain; charset=utf-8", "Khong luu duoc Chat ID");
-    return;
-  }
-  portalServer.send(200, "text/html; charset=utf-8",
-      chatId.isEmpty()
-        ? "<html><meta charset=utf-8><body style='font-family:sans-serif'>"
-          "Da tat thong bao Telegram cho may nay.</body></html>"
-        : "<html><meta charset=utf-8><body style='font-family:sans-serif'>"
-          "Da luu Chat ID. May se tu gui tin nhan xac nhan qua Telegram khi "
-          "ket noi mang thanh cong (can May Chinh dang o che do "
-          "ONLINE).</body></html>");
-}
-
+// Mot form duy nhat / mot nut Luu duy nhat cho ca Wi-Fi lan Telegram Chat ID
+// (truoc day tach thanh 2 form/2 nut rieng - gay kho hieu cho nguoi dung).
 inline void handlePortalSave() {
   if (!portalServer.hasArg("ssid") || portalServer.arg("ssid").isEmpty()) {
     portalServer.send(400, "text/plain; charset=utf-8", "Thieu SSID");
@@ -409,13 +384,27 @@ inline void handlePortalSave() {
     portalServer.send(400, "text/plain; charset=utf-8", "SSID/mat khau qua dai");
     return;
   }
+  String chatId = portalServer.hasArg("chatid") ? portalServer.arg("chatid") : String();
+  chatId.trim();
+  if (!chatId.isEmpty() && !isValidTelegramChatId(chatId.c_str())) {
+    portalServer.send(400, "text/plain; charset=utf-8",
+        "Chat ID Telegram khong hop le. Chi gom chu so, co the co dau - o dau "
+        "(id nhom/kenh).");
+    return;
+  }
+  if (!saveTelegramChatId(chatId.c_str())) {
+    portalServer.send(400, "text/plain; charset=utf-8", "Khong luu duoc Chat ID");
+    return;
+  }
   snprintf(pendingSsid, sizeof(pendingSsid), "%s", ssid.c_str());
   snprintf(pendingPassword, sizeof(pendingPassword), "%s", pass.c_str());
   pendingCredentialsReady = true;
   portalServer.send(200, "text/html; charset=utf-8",
       "<html><meta charset=utf-8><body style='font-family:sans-serif'>"
-      "Da nhan Wi-Fi moi. May ap dang thu ket noi, vui long xem man hinh "
-      "thiet bi.</body></html>");
+      "Da luu cau hinh. May ap dang thu ket noi Wi-Fi, vui long xem man hinh "
+      "thiet bi. Neu co nhap Chat ID, may se gui tin nhan xac nhan qua "
+      "Telegram khi ket noi thanh cong (can May Chinh dang o che do "
+      "ONLINE).</body></html>");
 }
 
 inline void handlePortalNotFound() {
@@ -493,7 +482,6 @@ inline void serviceStarting(uint32_t now) {
     portalServer.on("/", HTTP_GET, handlePortalRoot);
     portalServer.on("/save", HTTP_POST, handlePortalSave);
     portalServer.on("/rescan", HTTP_GET, handlePortalRescan);
-    portalServer.on("/telegram-save", HTTP_POST, handlePortalTelegramSave);
     portalServer.onNotFound(handlePortalNotFound);
     portalServer.begin();
     portalServersStarted_ = true;

@@ -312,7 +312,10 @@ inline bool sendTelegramMessage(const char *text) {
 
   char url[128];
   snprintf(url, sizeof(url), "https://%s/bot%s/sendMessage", TELEGRAM_API_HOST, TELEGRAM_BOT_TOKEN);
-  if (!http.begin(client, url)) return false;
+  if (!http.begin(client, url)) {
+    mayapSerialPrintf(false, "[TELEGRAM] sendMessage -> http.begin() THAT BAI (URL/TLS)\n");
+    return false;
+  }
   http.addHeader("Content-Type", "application/x-www-form-urlencoded");
 
   String body;
@@ -324,7 +327,17 @@ inline bool sendTelegramMessage(const char *text) {
 
   const int code = http.POST(body);
   const bool ok = code == 200;
-  mayapSerialPrintf(false, "[TELEGRAM] sendMessage -> HTTP %d %s\n", code, ok ? "OK" : "FAIL");
+  if (ok) {
+    mayapSerialPrintf(false, "[TELEGRAM] sendMessage -> HTTP 200 OK\n");
+  } else {
+    // In them noi dung phan hoi (Telegram tra ve ly do bang JSON, vd "chat not
+    // found" khi Chat ID sai/nguoi dung chua /start voi bot) - rat can de chan
+    // doan, khac voi loi mang thuan tuy (code < 0) chi la timeout/DNS/TLS.
+    String resp = code > 0 ? http.getString() : String();
+    if (resp.length() > 160) resp = resp.substring(0, 160) + "...";
+    mayapSerialPrintf(false, "[TELEGRAM] sendMessage -> HTTP %d FAIL%s%s\n", code,
+        resp.length() ? " resp=" : "", resp.c_str());
+  }
   http.end();
   return ok;
 }
@@ -402,13 +415,23 @@ inline void pollUpdates(uint32_t now) {
            TELEGRAM_API_HOST, TELEGRAM_BOT_TOKEN, static_cast<long long>(updateOffset));
   if (!http.begin(client, url)) {
     telegramBackoff.onFailure(now);
+    mayapSerialPrintf(false, "[TELEGRAM] getUpdates -> http.begin() THAT BAI (URL/TLS)\n");
     return;
   }
   const int code = http.GET();
   if (code != 200) {
     telegramBackoff.onFailure(now);
-    mayapSerialPrintf(false, "[TELEGRAM] getUpdates -> HTTP %d, thu lai sau %lums\n", code,
-                      static_cast<unsigned long>(telegramBackoff.nextAttemptAt - now));
+    // 401 = token sai; 409 = co thiet bi/tien trinh KHAC dang goi getUpdates
+    // cung mot bot token nay (bot dung CHUNG cho ca dong san pham chi nen co
+    // TOI DA 1 client goi getUpdates tai 1 thoi diem - xem canh bao trong bao
+    // cao audit). In them phan hoi de phan biet 2 truong hop nay voi loi mang
+    // don thuan.
+    String resp = code > 0 ? http.getString() : String();
+    if (resp.length() > 160) resp = resp.substring(0, 160) + "...";
+    mayapSerialPrintf(false,
+        "[TELEGRAM] getUpdates -> HTTP %d%s%s, thu lai sau %lums\n", code,
+        resp.length() ? " resp=" : "", resp.c_str(),
+        static_cast<unsigned long>(telegramBackoff.nextAttemptAt - now));
     http.end();
     return;
   }
@@ -452,6 +475,27 @@ inline void mayapTelegramUpdate(uint32_t now) {
   const char *chatId = mayapGetTelegramChatId();
   if (!chatId[0]) return;  // chua cau hinh Chat ID - khong lam gi ca, tiet kiem tai nguyen
 
+  if (!TELEGRAM_BOT_TOKEN[0]) {
+    // Nguyen nhan PHO BIEN NHAT khien "da nhap dung Chat ID nhung khong nhan
+    // duoc thong bao nao ca": token bot la macro build-time trong config.h
+    // (MAYAP_TELEGRAM_BOT_TOKEN), KHONG nhap duoc qua trang Wi-Fi - truoc day
+    // sendTelegramMessage()/pollUpdates() thoat som va IM LANG (khong log gi)
+    // khi thieu token, nen loi nay gan nhu khong the chan doan qua Serial. In
+    // canh bao ro rang, lap lai dinh ky (khong lien tuc) de khong bi troi mat
+    // trong log nhung van chac chan duoc nhin thay.
+    static uint32_t lastTokenWarnAt = 0U;
+    if (lastTokenWarnAt == 0U ||
+        MayapTelegramInternal::timeReached(now, lastTokenWarnAt + 300000UL)) {
+      lastTokenWarnAt = now;
+      mayapSerialPrintf(false,
+          "[TELEGRAM] CANH BAO: da co Chat ID nhung CHUA co Bot Token trong "
+          "firmware (MAYAP_TELEGRAM_BOT_TOKEN rong trong config.h) - se KHONG "
+          "gui/nhan duoc bat ky tin nhan Telegram nao cho toi khi nguoi lap dat "
+          "nap lai firmware voi token hop le.\n");
+    }
+    return;
+  }
+
   static uint32_t lastCheckAt = 0U;
   // Goi ro namespace: bien ngoai "using namespace" dua ten nay vao ngang
   // hang voi timeReached() global cua hmi.h (khong bi che khuat nhu khi goi
@@ -482,4 +526,34 @@ inline void mayapTelegramSetRuntime(const MachineRuntime &runtime) {
   knownRuntime = runtime;
   knownRuntimeValid = true;
   portEXIT_CRITICAL(&tgMux);
+}
+
+// Trang thai SONG cua kenh Telegram (khac voi mayapPrintNetworkConfig() la
+// cau hinh TINH) - dung cho lenh Serial CONFIG de debug day du khi bot khong
+// gui/nhan duoc gi: token/chatid co hay khong, hang doi con bao nhieu tin
+// dang cho, backoff dang lui toi buoc may, lan gui/hoi lenh gan nhat cach day
+// bao lau. Goi ro namespace vi ham nay o pham vi global (xem ghi chu
+// timeReached o mayapTelegramUpdate ben tren - cung ly do).
+inline void mayapPrintTelegramStatus(uint32_t now) {
+  using namespace MayapTelegramInternal;
+  const char *chatId = mayapGetTelegramChatId();
+  mayapSerialPrintf(false,
+      "[TELEGRAM] token=%s chatid=%s outbox=%u/%u backoff_step=%u/%u\n",
+      TELEGRAM_BOT_TOKEN[0] ? "DA CAU HINH" : "CHUA CAU HINH",
+      chatId[0] ? chatId : "(chua cau hinh)",
+      static_cast<unsigned>(outboxCount),
+      static_cast<unsigned>(TELEGRAM_OUTBOX_SIZE),
+      static_cast<unsigned>(telegramBackoff.step),
+      static_cast<unsigned>(BACKOFF_STEP_COUNT - 1U));
+  const long sendAgoSec = lastSendAt == 0U
+      ? -1L
+      : static_cast<long>(MayapTelegramInternal::elapsedMs(now, lastSendAt) / 1000U);
+  const long pollAgoSec = lastPollAt == 0U
+      ? -1L
+      : static_cast<long>(MayapTelegramInternal::elapsedMs(now, lastPollAt) / 1000U);
+  mayapSerialPrintf(false,
+      "[TELEGRAM] lan_gui_gan_nhat=%lds_truoc lan_hoi_lenh_gan_nhat=%lds_truoc "
+      "backlog_da_nuot=%s (-1 = chua tung)\n",
+      sendAgoSec, pollAgoSec,
+      updateOffsetInitialized ? "CO" : "CHUA (se bo qua lenh cu o lan hoi dau tien)");
 }

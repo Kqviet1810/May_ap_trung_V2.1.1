@@ -5144,8 +5144,23 @@ class MachineController {
     } else if (cmd && !strcmp(cmd, "STATUS")) {
       printStatus(now);
     } else if (cmd && !strcmp(cmd, "CONFIG")) {
+      // Debug day du theo yeu cau: khong chi thong so TINH (nguong/PID/...)
+      // ma ca trang thai SONG (cai gi dang bat/tat, Wi-Fi da luu chua, MQTT/
+      // Telegram co dang ket noi khong...) trong CUNG mot lenh, khong bat
+      // nguoi dung phai go them STATUS moi thay het.
       printConfig();
       mayapPrintNetworkConfig();
+      mayapPrintWebStatus();
+      mayapPrintTelegramStatus(now);
+      printStatus(now);
+    } else if (cmd && !strcmp(cmd, "EXIT")) {
+      // Go EXIT = tat debug Serial ngay (khong doi trang thai hien tai la
+      // ON/OFF - luon chac chan ve OFF). Luu y: ESP32 KHONG the tin cay phat
+      // hien "dong cong Serial" o muc firmware (DTR/RTS va hanh vi USB-CDC
+      // khac nhau tuy board/driver may tinh) nen chi ho tro lenh go tay nay,
+      // khong tu dong theo trang thai cong that.
+      mayapSetSerialDebugEnabled(false);
+      mayapSerialPrintf(true, "[SERIAL] OFF (EXIT)\n");
     } else if (cmd && !strcmp(cmd, "HELP")) {
       printSerialHelp();
     } else {
@@ -5163,6 +5178,8 @@ class MachineController {
     mayapSerialPrintf(false, "TIME SET YYYY-MM-DD HH:MM:SS\n");
     mayapSerialPrintf(false, "BATCH START|STOP   ACK   FAULT LIST|CLEAR   STATUS   CONFIG   POWER\n");
     mayapSerialPrintf(false, "Nhap SERIAL de tat/bat toan bo debug. DIAG ON|OFF doi toc do STATUS.\n");
+    mayapSerialPrintf(false, "CONFIG = dump debug DAY DU (thong so + Wi-Fi/MQTT/Telegram + STATUS).\n");
+    mayapSerialPrintf(false, "EXIT = tat debug Serial ngay (tuong duong go lai SERIAL khi dang ON).\n");
     mayapSerialPrintf(false, "LOG SHOW [N]|FILES|CLEAR(RAM)   DIAG ON|OFF\n");
     mayapSerialPrintf(false, "PIN OUT: LEFT=D%u RIGHT=D%u LIGHT=D%u VENT=D%u MASTER=D%u SSR=D%u\n",
         PIN_OUT_TURN_LEFT, PIN_OUT_TURN_RIGHT, PIN_OUT_LIGHT,
