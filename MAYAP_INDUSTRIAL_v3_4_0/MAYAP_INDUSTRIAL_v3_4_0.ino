@@ -238,6 +238,7 @@ void setup() {
   if (result != ESP_OK) fatalRestart("WDT INIT", result);
 
   Machine.begin();
+  mayapPrintNetworkConfig();
   hmiSetConfig(Machine.config());
   hmiSetRuntime(Machine.runtime());
   mayapWebSetConfig(Machine.config());

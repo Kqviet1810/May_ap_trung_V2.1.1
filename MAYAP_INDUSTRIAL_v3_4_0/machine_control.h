@@ -3026,6 +3026,7 @@ class MachineController {
     } else if (automaticResetRecovery_ && resumePending_) {
       mayapSerialPrintf(false, "[BOOT] RESET HE THONG - TU PHUC HOI ME TU EEPROM\n");
     }
+    printConfig();
     if (mayapSerialDebugEnabled()) printSerialHelp();
   }
 
@@ -5142,6 +5143,9 @@ class MachineController {
           power_.ackRequired(), !safetyJournalFaultLatched_);
     } else if (cmd && !strcmp(cmd, "STATUS")) {
       printStatus(now);
+    } else if (cmd && !strcmp(cmd, "CONFIG")) {
+      printConfig();
+      mayapPrintNetworkConfig();
     } else if (cmd && !strcmp(cmd, "HELP")) {
       printSerialHelp();
     } else {
@@ -5157,7 +5161,7 @@ class MachineController {
     mayapSerialPrintf(false, "SIM RESET\n");
 #endif
     mayapSerialPrintf(false, "TIME SET YYYY-MM-DD HH:MM:SS\n");
-    mayapSerialPrintf(false, "BATCH START|STOP   ACK   FAULT LIST|CLEAR   STATUS   POWER\n");
+    mayapSerialPrintf(false, "BATCH START|STOP   ACK   FAULT LIST|CLEAR   STATUS   CONFIG   POWER\n");
     mayapSerialPrintf(false, "Nhap SERIAL de tat/bat toan bo debug. DIAG ON|OFF doi toc do STATUS.\n");
     mayapSerialPrintf(false, "LOG SHOW [N]|FILES|CLEAR(RAM)   DIAG ON|OFF\n");
     mayapSerialPrintf(false, "PIN OUT: LEFT=D%u RIGHT=D%u LIGHT=D%u VENT=D%u MASTER=D%u SSR=D%u\n",
@@ -5202,6 +5206,40 @@ class MachineController {
       return FAN_PRESTART_MS - elapsedMs(now, fanOnSince_);
     }
     return 0U;
+  }
+
+  // Cac thong so DIEU KHIEN quan trong - in mot lan luc boot va bat cu khi
+  // nao go lenh CONFIG, de theo doi tu xa (chi doc, khong sua duoc tu day)
+  // dung nguong nao dang co hieu luc ma khong can mo man hinh HMI.
+  void printConfig() const {
+    mayapSerialPrintf(false,
+        "[CONFIG] SV=%.1fC hys=%.2fC bao_thap=%.1fC bao_cao=%.1fC khan_cap=%.1fC che_do=%s\n",
+        config_.targetTemp, config_.tempHysteresis, config_.lowTempAlarm,
+        config_.highTempAlarm, config_.emergencyTemp,
+        config_.controlMode == ControlMode::Pid ? "PID" : "ON/OFF");
+    mayapSerialPrintf(false,
+        "[CONFIG] PID kp=%.2f ki=%.2f kd=%.2f chu_ky=%us cong_suat_max=%u%%\n",
+        config_.kp, config_.ki, config_.kd, config_.pidCycleSec,
+        config_.maxHeaterPower);
+    mayapSerialPrintf(false,
+        "[CONFIG] am_thap=%.0f%% tre_bao_am=%us quat_hut_bat=%.1fC quat_hut_tat=%.1fC quat_tuan_hoan=%s\n",
+        config_.lowHumidityAlarm, config_.humidityAlarmDelaySec,
+        config_.ventOnTemp, config_.ventOffTemp,
+        config_.circulationFanEnabled ? "BAT" : "TAT");
+    mayapSerialPrintf(false,
+        "[CONFIG] dao_trung=%s chu_ky=%uph tre_loi_dao=%us huong_ke=%s so_ngay_ap=%u\n",
+        config_.turningEnabled ? "TU DONG" : "TAT", config_.turnIntervalMin,
+        config_.turnMaxRunSec,
+        config_.nextDirection == TurnDirection::Right ? "PHAI" : "TRAI",
+        config_.totalIncubationDays);
+    mayapSerialPrintf(false,
+        "[CONFIG] ap_lai_sau_mat_dien=%s tre_khoi_phuc=%us bu_nhiet=%.1fC bu_am=%.0f%% timeout_cam_bien=%us\n",
+        config_.autoResumeOnPowerLoss ? "TU DONG" : "HOI XAC NHAN",
+        config_.powerRestoreDelaySec, config_.tempOffset,
+        config_.humidityOffset, config_.sensorTimeoutSec);
+    mayapSerialPrintf(false, "[CONFIG] canh_bao_am_thanh=%s che_do_ket_noi=%s\n",
+        config_.alarmEnabled ? "BAT" : "TAT",
+        config_.connectivityMode == ConnectivityMode::Online ? "ONLINE" : "OFFLINE");
   }
 
   void printStatus(uint32_t now) {

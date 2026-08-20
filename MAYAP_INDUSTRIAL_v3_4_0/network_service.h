@@ -597,6 +597,28 @@ inline void mayapNetworkBegin() {
   publish(NetworkStateCode::Offline, false);
 }
 
+// Cac cau hinh KET NOI quan trong - in mot lan luc boot va bat cu khi nao go
+// lenh CONFIG, de theo doi tu xa (mat khau Wi-Fi va token Telegram KHONG bao
+// gio in ra, chi bao co cau hinh hay khong, tranh lo qua Serial).
+inline void mayapPrintNetworkConfig() {
+  using namespace MayapNetworkInternal;
+  loadCredentialsOnce();
+  loadTelegramChatIdOnce();
+  // Goi ro namespace: ham nay cung ton tai o pham vi global (wrapper cong
+  // khai ben tren) nen goi khong ro se mo ho gap "using namespace" o day.
+  mayapSerialPrintf(false, "[CONFIG] id_thiet_bi=%s\n",
+      MayapNetworkInternal::mayapDeviceIdText().c_str());
+  mayapSerialPrintf(false, "[CONFIG] wifi_ssid=%s da_luu_mat_khau=%s\n",
+      activeSsid[0] ? activeSsid : "(chua cau hinh)",
+      activePassword[0] ? "CO" : "KHONG");
+  mayapSerialPrintf(false, "[CONFIG] mqtt_broker=%s:%u tls=%s topic_root=%s\n",
+      MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_USE_TLS ? "BAT" : "TAT",
+      MQTT_TOPIC_ROOT);
+  mayapSerialPrintf(false, "[CONFIG] telegram_bot_token=%s telegram_chat_id=%s\n",
+      TELEGRAM_BOT_TOKEN[0] ? "DA CAU HINH" : "CHUA CAU HINH (build flag rong)",
+      telegramChatId[0] ? telegramChatId : "(chua cau hinh)");
+}
+
 // Chi doc/ghi tu networkTask: telegram_link.h::mayapTelegramUpdate() chay
 // trong chinh task nay (giong cach mqtt.loop() cua realtime_link.h dung
 // chung task), va trang cau hinh Telegram cua cong doi Wi-Fi cung xu ly tai
