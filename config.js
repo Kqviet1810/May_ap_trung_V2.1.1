@@ -20,5 +20,5 @@ window.MAYAP_WEB_CONFIG = Object.freeze({
   // 'https://mayap-push-worker.<ten-tai-khoan>.workers.dev' hoac
   // 'https://api.tenmiencuatoi.com' neu da gan custom domain.
   // De trong ('') se khien card "Thong bao" bao "Chua cau hinh" (xem push.js).
-  cloudApiBase: ''
+  cloudApiBase: 'https://mayap-push-worker.vietk-mayaptrung.workers.dev'
 });
