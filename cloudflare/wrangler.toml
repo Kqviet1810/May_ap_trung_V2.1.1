@@ -1,6 +1,9 @@
 name = "mayap-push-worker"
 main = "src/index.js"
 compatibility_date = "2026-08-01"
+# Bat buoc: thu vien gui Web Push (@block65/webcrypto-web-push) tham chieu
+# node:crypto lam fallback - thieu co nay Worker co the loi luc gui push that.
+compatibility_flags = ["nodejs_compat"]
 
 # Bien KHONG bi mat (khong nhay cam) - xem README de biet cach dat cac secret
 # (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, DEVICE_KEY_PEPPER)
