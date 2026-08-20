@@ -29,8 +29,10 @@
 // Tai nguyen: moi lan gui/nhan tao MOI mot WiFiClientSecure NGAN HAN (huy ngay
 // sau khi xong), khong giu ket noi thuong truc nhu MQTT - phu hop voi tan
 // suat thap (vai phut/lan) va tranh chiem RAM lau dai tren thiet bi khong
-// PSRAM. Buffer TLS duoc giam qua setBufferSizes() de gioi han dinh RAM tam
-// thoi trong luc goi (~9 KB thay vi mac dinh ~32 KB/phien).
+// PSRAM. Dung buffer TLS MAC DINH cua thu vien (WiFiClientSecure/
+// NetworkClientSecure o ban core moi khong con lo setBufferSizes() cong khai
+// - ban core cu neu co ham nay co the tu them lai de giam dinh RAM tam thoi
+// luc goi, khong bat buoc de chay dung).
 // ============================================================================
 
 namespace MayapTelegramInternal {
@@ -303,7 +305,6 @@ inline bool sendTelegramMessage(const char *text) {
 
   WiFiClientSecure client;
   client.setInsecure();  // khong xac thuc CA (giong lop MQTT TLS) - xem ghi chu dau file
-  client.setBufferSizes(8192, 1024);  // giam RAM tam thoi so voi mac dinh 16K/16K
 
   HTTPClient http;
   http.setConnectTimeout(TELEGRAM_HTTP_CONNECT_TIMEOUT_MS);
@@ -392,7 +393,6 @@ inline void pollUpdates(uint32_t now) {
 
   WiFiClientSecure client;
   client.setInsecure();
-  client.setBufferSizes(8192, 1024);
   HTTPClient http;
   http.setConnectTimeout(TELEGRAM_HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(TELEGRAM_HTTP_TIMEOUT_MS);
@@ -453,7 +453,10 @@ inline void mayapTelegramUpdate(uint32_t now) {
   if (!chatId[0]) return;  // chua cau hinh Chat ID - khong lam gi ca, tiet kiem tai nguyen
 
   static uint32_t lastCheckAt = 0U;
-  if (timeReached(now, lastCheckAt + TELEGRAM_CHECK_INTERVAL_MS)) {
+  // Goi ro namespace: bien ngoai "using namespace" dua ten nay vao ngang
+  // hang voi timeReached() global cua hmi.h (khong bi che khuat nhu khi goi
+  // tu BEN TRONG namespace), gay loi bien dich "goi ham mo ho" (ambiguous).
+  if (MayapTelegramInternal::timeReached(now, lastCheckAt + TELEGRAM_CHECK_INTERVAL_MS)) {
     lastCheckAt = now;
     portENTER_CRITICAL(&tgMux);
     const bool valid = knownRuntimeValid;

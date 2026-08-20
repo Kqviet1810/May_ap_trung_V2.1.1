@@ -580,6 +580,12 @@ inline void servicePortal(uint32_t now) {
 
 }  // namespace MayapNetworkInternal
 
+// Dinh danh thiet bi "MAP-XXXXXXXXXXXX" dung chung cho ca portal web va cac
+// module khac (telegram_link.h) - tranh moi noi tu tinh lai tu MAC rieng.
+inline String mayapDeviceIdText() {
+  return MayapNetworkInternal::mayapDeviceIdText();
+}
+
 inline void mayapNetworkBegin() {
   using namespace MayapNetworkInternal;
   loadCredentialsOnce();
