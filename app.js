@@ -1373,6 +1373,7 @@
     const errorText = $('pushErrorText');
     const device = currentDevice();
 
+    const zeroBanner = $('pushZeroDevicesBanner');
     if (!device) {
       pill.textContent = '—';
       pill.className = 'pill soft';
@@ -1382,6 +1383,7 @@
       enableBtn.disabled = true;
       enableBtn.textContent = 'Bật thông báo';
       testBtn.hidden = true;
+      if (zeroBanner) zeroBanner.classList.remove('show');
       return;
     }
     if (!window.MayapPush) return;
@@ -1399,6 +1401,15 @@
     enableBtn.disabled = false;
     enableBtn.textContent = state.status === 'enabled' ? 'Tắt thông báo' : 'Bật thông báo';
     testBtn.hidden = state.status !== 'enabled';
+
+    // Rieng canh bao "chua ai nhan thong bao": doc so lien ket THAT tren D1
+    // (khong chi trinh duyet nay) - im lang neu khong xac dinh duoc (null),
+    // chi hien khi CHAC CHAN la 0 de tranh bao nham luc mat mang.
+    if (zeroBanner) {
+      const linkedCount = await window.MayapPush.getLinkedCount(device.id);
+      if (myToken !== pushStatusToken) return;
+      zeroBanner.classList.toggle('show', linkedCount === 0);
+    }
   }
 
   function pushReasonText(reason, detail) {

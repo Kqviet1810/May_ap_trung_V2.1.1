@@ -135,6 +135,43 @@ constexpr uint32_t CLOUD_REPEAT_INFO_MS = 1800000UL;      // 30 phut (du phong)
 // cloud_alert_link.h::checkLightAfterBatch) - co the tat rieng qua
 // MachineConfig::lightAfterBatchAlarmEnabled, khong anh huong cac canh bao khac.
 constexpr uint32_t CLOUD_LIGHT_AFTER_BATCH_REPEAT_MS = 1800000UL; // 30 phut
+
+// ---------------------------------------------------------------------------
+// Nguong cho nhom canh bao bo sung (ra soat toan dien - xem machine_control.h
+// FaultCode::HumidityHigh/TemperatureRateExceeded/TemperatureUnstable/
+// HeaterNotHeating va cloud_alert_link.h checkBatchSchedule/checkTurnCycle
+// Missed/checkMaintenanceReminder/checkWifiSignal). CO CHU DICH de o dang
+// hang so co dinh (khong them truong MachineConfig/khong doi CONFIG_SCHEMA)
+// de tranh dung lai loi migrate EEPROM da gap 2 lan truoc do - neu sau nay
+// can chinh tay theo may, doi truc tiep gia tri o day roi nap lai firmware.
+// ---------------------------------------------------------------------------
+constexpr float HUMIDITY_HIGH_ALARM_C = 85.0f;
+constexpr float HUMIDITY_HIGH_HYSTERESIS_C = 2.0f;
+// Toc do tang/giam nhiet bat thuong: so sanh nhiet do hien tai voi nhiet do
+// cua chinh no TEMP_RATE_WINDOW_MS truoc - lech qua TEMP_RATE_LIMIT_C la canh bao.
+constexpr uint32_t TEMP_RATE_WINDOW_MS = 120000UL;   // 2 phut
+constexpr float TEMP_RATE_LIMIT_C = 1.0f;
+// Dao dong nhiet mat on dinh: dem so lan nhiet do doi dau quanh diem dat
+// (vuot khoi dai hysteresis) trong 1 khung gio co dinh.
+constexpr uint32_t TEMP_OSCILLATION_WINDOW_MS = 600000UL; // 10 phut
+constexpr uint8_t TEMP_OSCILLATION_CROSS_LIMIT = 6U;
+// Thanh nhiet duoc lenh BAT lien tuc qua lau ma nhiet khong tang du
+// HEATER_STUCK_MIN_RISE_C - nghi ngo SSR/relay dinh hong dieu khien duoc.
+constexpr uint32_t HEATER_STUCK_DURATION_MS = 900000UL; // 15 phut
+constexpr float HEATER_STUCK_MIN_RISE_C = 0.3f;
+// Bo lo lich dao: khong ghi nhan lan dao nao thanh cong qua
+// TURN_MISSED_MULTIPLIER x chu ky dao da cau hinh.
+constexpr uint8_t TURN_MISSED_MULTIPLIER = 2U;
+// Nhac truoc khi den ngay du kien no.
+constexpr uint8_t BATCH_NEARING_END_DAYS_LEFT = 2U;
+// Nhac bao tri dinh ky - tinh tu luc ESP32 khoi dong (khong luu EEPROM, xem
+// cloud_alert_link.h::checkMaintenanceReminder).
+constexpr uint32_t CLOUD_MAINTENANCE_REMINDER_MS = 30UL * 24UL * 60UL * 60UL * 1000UL; // 30 ngay
+// Wi-Fi yeu keo dai (dBm cang am cang yeu) truoc khi bao, tranh bao ngay khi
+// chi thoang qua yeu vai giay.
+constexpr int8_t WIFI_RSSI_WEAK_DBM = -82;
+constexpr uint32_t WIFI_RSSI_WEAK_DURATION_MS = 300000UL; // 5 phut
+
 constexpr uint8_t CLOUD_OUTBOX_SIZE = 8U;
 // >= HMI_FAULT_DISPLAY_CAPACITY (so loi dang active toi da doc duoc tu runtime
 // snapshot moi lan), du du de theo doi tat ca dong thoi.

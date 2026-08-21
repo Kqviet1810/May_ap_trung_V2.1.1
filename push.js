@@ -261,6 +261,24 @@
     return { status: 'enabled', endpoint: subscription.endpoint };
   }
 
+  // So trinh duyet dang lien ket nhan thong bao cho 1 device_id (doc tu D1
+  // qua Worker, KHONG chi trinh duyet hien tai) - dung de canh bao "chua co
+  // ai nhan thong bao ca". Tra ve null khi khong xac dinh duoc (mat mang,
+  // device chua dang ky...) de tranh bao nham "0" khi thuc ra la chua ro.
+  async function getLinkedCount(deviceId) {
+    if (!deviceId) return null;
+    const url = apiUrl(`/api/device/${encodeURIComponent(deviceId)}/status`);
+    if (!url) return null;
+    try {
+      const res = await fetch(url);
+      const body = await res.json().catch(() => ({}));
+      if (!body.success || !body.exists) return null;
+      return typeof body.linked_browsers === 'number' ? body.linked_browsers : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   window.MayapPush = {
     isSupported,
     isIos,
@@ -269,5 +287,6 @@
     disable,
     testNotification,
     getState,
+    getLinkedCount,
   };
 })();

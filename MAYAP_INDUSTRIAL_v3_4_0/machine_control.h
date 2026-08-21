@@ -364,7 +364,11 @@ enum class FaultCode : uint16_t {
   LowTemperature = 110,
   HighTemperature = 111,
   EmergencyTemperature = 112,
+  TemperatureRateExceeded = 113,
+  TemperatureUnstable = 114,
+  HeaterNotHeating = 115,
   HumidityLow = 120,
+  HumidityHigh = 121,
   HeaterSwitchOffDuringBatch = 130,
   // 131 (quat tuan hoan tat giua me) da bo: quat tuan hoan la bat buoc va duoc
   // ep bat cung nao me con chay, khong con phu thuoc cong tac tay nua.
@@ -417,6 +421,12 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // Khan cap: cam SSR va nha contactor tong ngay.
     {FaultCode::EmergencyTemperature, FaultSeverity::Emergency, 255U, AlarmEmergency, false, true, true, true, true, true, "TEMP EMERGENCY"},
     {FaultCode::HumidityLow, FaultSeverity::Warning, 40U, AlarmHumidityLow, false, false, false, false, false, false, "HUM LOW"},
+    {FaultCode::HumidityHigh, FaultSeverity::Warning, 40U, AlarmHumidityLow, false, false, false, false, false, false, "HUM HIGH"},
+    // 3 loi bo sung duoi day la CANH BAO SOM/CHAN DOAN, khong phai cat an
+    // toan cung nhu Low/HighTemperature - khong inhibit SSR/master, chi bao.
+    {FaultCode::TemperatureRateExceeded, FaultSeverity::Warning, 60U, AlarmTempHigh, false, false, false, false, false, false, "TEMP RATE HIGH"},
+    {FaultCode::TemperatureUnstable, FaultSeverity::Warning, 45U, AlarmTempHigh, false, false, false, false, false, false, "TEMP UNSTABLE"},
+    {FaultCode::HeaterNotHeating, FaultSeverity::Warning, 65U, AlarmSystem, false, false, false, false, false, false, "HEATER NOT HEATING"},
     // Mat mot chuc nang thiet yeu trong luc me dang chay phai bao ngay.
     {FaultCode::HeaterSwitchOffDuringBatch, FaultSeverity::Stop, 222U, AlarmSystem, false, true, true, false, false, false, "HEATER SWITCH OFF"},
     {FaultCode::ResumeRequiresAuto, FaultSeverity::Warning, 180U, AlarmSystem, false, false, false, false, false, false, "RESUME NEEDS AUTO"},
@@ -627,7 +637,7 @@ class FaultManager {
   }
 
  private:
-  // Hien co 25 ma FaultCode thuc. De du headroom de loi moi khong ghi de
+  // Hien co 28 ma FaultCode thuc. De du headroom de loi moi khong ghi de
   // mot slot dang active (co the lam mat lien dong an toan), cap 32 slot tinh.
   static constexpr uint8_t MAX_FAULTS = 32U;
   FaultState &slot(FaultCode code) {
@@ -3997,6 +4007,66 @@ class MachineController {
       humidityTimer_.reset();
     }
 
+    const bool humHighCondition = batchRunning_ && sensorUsable_ &&
+                                  humidity_ >= HUMIDITY_HIGH_ALARM_C;
+    humidityHighActive_ = humidityHighTimer_.update(
+        now, humHighCondition, static_cast<uint32_t>(config_.humidityAlarmDelaySec) * 1000UL);
+    if (humidityHighActive_ && humidity_ <= HUMIDITY_HIGH_ALARM_C - HUMIDITY_HIGH_HYSTERESIS_C) {
+      humidityHighActive_ = false;
+      humidityHighTimer_.reset();
+    }
+
+    // Toc do tang/giam nhiet bat thuong: so sanh voi chinh no TEMP_RATE_WINDOW_MS
+    // truoc. Chi danh gia lai moi khi het 1 khung gio (khong phai lien tuc) -
+    // du cho canh bao chan doan phu, khong phai cat an toan tuc thi.
+    if (!isfinite(tempRateRefValue_) || elapsedMs(now, tempRateRefAt_) >= TEMP_RATE_WINDOW_MS) {
+      if (isfinite(tempRateRefValue_) && sensorUsable_ && isfinite(temperature_) && batchRunning_) {
+        temperatureRateActive_ = fabsf(temperature_ - tempRateRefValue_) >= TEMP_RATE_LIMIT_C;
+      } else {
+        temperatureRateActive_ = false;
+      }
+      tempRateRefValue_ = (sensorUsable_ && isfinite(temperature_)) ? temperature_ : NAN;
+      tempRateRefAt_ = now;
+    }
+
+    // Dao dong nhiet mat on dinh: dem so lan doi dau quanh diem dat (ra khoi
+    // dai hysteresis) trong 1 khung gio co dinh TEMP_OSCILLATION_WINDOW_MS.
+    if (elapsedMs(now, tempOscillationWindowStart_) >= TEMP_OSCILLATION_WINDOW_MS) {
+      temperatureUnstableActive_ = batchRunning_ && sensorUsable_ &&
+          tempOscillationCrossCount_ >= TEMP_OSCILLATION_CROSS_LIMIT;
+      tempOscillationCrossCount_ = 0U;
+      tempOscillationWindowStart_ = now;
+      tempOscillationLastSign_ = 0;
+    }
+    if (sensorUsable_ && isfinite(temperature_)) {
+      const float diff = temperature_ - config_.targetTemp;
+      const int8_t sign = (diff > config_.tempHysteresis) ? 1 :
+                           (diff < -config_.tempHysteresis) ? -1 : tempOscillationLastSign_;
+      if (tempOscillationLastSign_ != 0 && sign != 0 && sign != tempOscillationLastSign_ &&
+          tempOscillationCrossCount_ < UINT8_MAX) {
+        ++tempOscillationCrossCount_;
+      }
+      if (sign != 0) tempOscillationLastSign_ = sign;
+    }
+
+    // Thanh nhiet duoc lenh BAT lien tuc (khong ngat quang) qua
+    // HEATER_STUCK_DURATION_MS ma nhiet khong tang du HEATER_STUCK_MIN_RISE_C
+    // va van con thap hon diem dat - nghi ngo SSR/relay dinh, khong that su
+    // dieu khien duoc thanh nhiet du lenh da gui dung.
+    const bool heaterCommandedOn = outputs_.state().heaterSsr;
+    if (!heaterCommandedOn || !batchRunning_ || !sensorUsable_) {
+      heaterStuckTracking_ = false;
+      heaterNotHeatingActive_ = false;
+    } else if (!heaterStuckTracking_) {
+      heaterStuckTracking_ = true;
+      heaterStuckSinceAt_ = now;
+      heaterStuckStartTemp_ = temperature_;
+    } else if (elapsedMs(now, heaterStuckSinceAt_) >= HEATER_STUCK_DURATION_MS) {
+      heaterNotHeatingActive_ = isfinite(heaterStuckStartTemp_) &&
+          (temperature_ - heaterStuckStartTemp_) < HEATER_STUCK_MIN_RISE_C &&
+          temperature_ < config_.targetTemp - config_.tempHysteresis;
+    }
+
     const bool sensorGrace = !timeReached(now, sensorStartupGraceUntil_) &&
                              !sensorUsable_;
     faults_.set(FaultCode::SensorLost, !sensorUsable_ && !sensorGrace, now,
@@ -4016,6 +4086,15 @@ class MachineController {
                 isfinite(safetyTemp) ? static_cast<int16_t>(lroundf(safetyTemp * 10.0f)) : 0);
     faults_.set(FaultCode::HumidityLow, humidityLowActive_, now,
                 isfinite(humidity_) ? static_cast<int16_t>(lroundf(humidity_ * 10.0f)) : 0);
+    faults_.set(FaultCode::HumidityHigh, humidityHighActive_, now,
+                isfinite(humidity_) ? static_cast<int16_t>(lroundf(humidity_ * 10.0f)) : 0);
+    faults_.set(FaultCode::TemperatureRateExceeded, temperatureRateActive_, now,
+                isfinite(temperature_) ? static_cast<int16_t>(lroundf(temperature_ * 10.0f)) : 0);
+    faults_.set(FaultCode::TemperatureUnstable, temperatureUnstableActive_, now,
+                static_cast<int16_t>(tempOscillationCrossCount_));
+    faults_.set(FaultCode::HeaterNotHeating, heaterNotHeatingActive_, now,
+                (isfinite(heaterStuckStartTemp_) && isfinite(temperature_))
+                    ? static_cast<int16_t>(lroundf((temperature_ - heaterStuckStartTemp_) * 10.0f)) : 0);
     const InputState &in = inputs_.state();
     const bool recoveryExecuting = resumePending_ && !resumeConfirmationRequired_;
     const bool heatFunctionRequired = batchRunning_ || recoveryExecuting;
@@ -5492,6 +5571,21 @@ class MachineController {
   bool highTemperatureActive_ = false;
   bool emergencyActive_ = false;
   bool humidityLowActive_ = false;
+
+  // --- Nhom canh bao bo sung (chan doan/canh bao som) ---
+  ConditionTimer humidityHighTimer_{};
+  bool humidityHighActive_ = false;
+  float tempRateRefValue_ = NAN;
+  uint32_t tempRateRefAt_ = 0U;
+  bool temperatureRateActive_ = false;
+  int8_t tempOscillationLastSign_ = 0;
+  uint8_t tempOscillationCrossCount_ = 0U;
+  uint32_t tempOscillationWindowStart_ = 0U;
+  bool temperatureUnstableActive_ = false;
+  bool heaterStuckTracking_ = false;
+  uint32_t heaterStuckSinceAt_ = 0U;
+  float heaterStuckStartTemp_ = NAN;
+  bool heaterNotHeatingActive_ = false;
   uint32_t sirenMutedUntil_ = 0;
   uint32_t heatRestartNotBefore_ = 0;
   uint32_t postCoolUntil_ = 0;

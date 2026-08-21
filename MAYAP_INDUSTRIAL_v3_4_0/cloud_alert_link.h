@@ -152,7 +152,11 @@ inline const char *faultSummaryText(uint16_t code) {
     case 110: return "Nhiệt độ xuống thấp hơn ngưỡng cảnh báo";
     case 111: return "Nhiệt độ vượt quá ngưỡng cảnh báo cao";
     case 112: return "QUÁ NHIỆT KHẨN CẤP - đã ngắt nguồn nhiệt ngay lập tức";
+    case 113: return "Nhiệt độ thay đổi quá nhanh bất thường - kiểm tra cửa/quạt/relay";
+    case 114: return "Nhiệt độ dao động không ổn định - có thể cần chỉnh lại PID";
+    case 115: return "Thanh nhiệt được lệnh bật lâu nhưng nhiệt không tăng - nghi ngờ hỏng relay/SSR";
     case 120: return "Độ ẩm thấp - kiểm tra nguồn cấp nước";
+    case 121: return "Độ ẩm cao bất thường - kiểm tra thông gió";
     case 130: return "Công tắc nhiệt bị tắt trong lúc đang ấp";
     case 132: return "Cần bật lại chế độ AUTO để tiếp tục mẻ";
     case 133: return "Chế độ AUTO bị tắt trong lúc đang ấp";
@@ -319,6 +323,137 @@ inline void checkLightAfterBatch(uint32_t now) {
     lightAfterBatchActive = false;
     enqueueResolved("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
         "Đèn đã tắt hoặc mẻ ấp đã kết thúc.");
+  }
+}
+
+// --------------------- Canh bao: bo lo lich dao trung ---------------------
+// Khac cac loi co khi tuc thi da co (ket CTHT, qua gio dao...): day la "lich
+// dao bi treo am tham" - dem so lan dao THANH CONG (turnCountBatch) khong
+// tang du lau so voi chu ky da cau hinh, du khong co loi co khi ro rang nao.
+static uint32_t turnMissedLastCount = 0;
+static bool turnMissedHaveCount = false;
+static uint32_t turnMissedCountChangedAt = 0;
+static bool turnMissedActive = false;
+
+inline void checkTurnCycleMissed(uint32_t now) {
+  if (!processingConfig.turningEnabled || !processingRuntime.batchRunning) {
+    turnMissedHaveCount = false;
+    if (turnMissedActive) {
+      turnMissedActive = false;
+      enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
+          "Lịch đảo trứng đã hoạt động lại bình thường.");
+    }
+    return;
+  }
+  if (!turnMissedHaveCount || processingRuntime.turnCountBatch != turnMissedLastCount) {
+    turnMissedLastCount = processingRuntime.turnCountBatch;
+    turnMissedCountChangedAt = now;
+    turnMissedHaveCount = true;
+    if (turnMissedActive) {
+      turnMissedActive = false;
+      enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
+          "Lịch đảo trứng đã hoạt động lại bình thường.");
+    }
+    return;
+  }
+  const uint32_t staleLimitMs = static_cast<uint32_t>(processingConfig.turnIntervalMin) *
+      60000UL * TURN_MISSED_MULTIPLIER;
+  if (!turnMissedActive && staleLimitMs > 0U &&
+      timeReached(now, turnMissedCountChangedAt + staleLimitMs)) {
+    turnMissedActive = true;
+    enqueueLevel("TURN_CYCLE_STALLED", NotifyLevel::Warning,
+        "Đã lâu không ghi nhận lần đảo trứng nào thành công dù mẻ ấp đang chạy - kiểm tra cơ cấu đảo.");
+  }
+}
+
+// --------------------- Nhac: sap den ngay no / me qua han ------------------
+static bool batchNearingEndSent = false;
+static bool batchOverdueActive = false;
+
+inline void checkBatchSchedule(uint32_t now) {
+  (void)now;
+  if (!processingRuntime.batchRunning) {
+    batchNearingEndSent = false;
+    if (batchOverdueActive) {
+      batchOverdueActive = false;
+      enqueueResolved("BATCH_OVERDUE", NotifyLevel::Info, "Mẻ ấp đã kết thúc.");
+    }
+    return;
+  }
+  const uint8_t total = processingConfig.totalIncubationDays;
+  const uint8_t current = processingRuntime.currentDay;
+  if (total == 0U) return;
+
+  if (!batchNearingEndSent && total > current &&
+      static_cast<uint8_t>(total - current) <= BATCH_NEARING_END_DAYS_LEFT) {
+    batchNearingEndSent = true;
+    char body[160];
+    snprintf(body, sizeof(body),
+        "Mẻ ấp sắp hoàn tất - còn khoảng %u ngày nữa là đến ngày dự kiến nở (ngày %u/%u).",
+        static_cast<unsigned>(total - current), static_cast<unsigned>(current),
+        static_cast<unsigned>(total));
+    enqueueLevel("BATCH_NEARING_END", NotifyLevel::Info, body);
+  }
+  if (!batchOverdueActive && current > total) {
+    batchOverdueActive = true;
+    char body[160];
+    snprintf(body, sizeof(body),
+        "Mẻ ấp đã quá %u ngày so với dự kiến (ngày %u/%u) - kiểm tra lại tình trạng trứng.",
+        static_cast<unsigned>(current - total), static_cast<unsigned>(current),
+        static_cast<unsigned>(total));
+    enqueueLevel("BATCH_OVERDUE", NotifyLevel::Warning, body);
+  }
+}
+
+// --------------------------- Nhac bao tri dinh ky ---------------------------
+// Tinh tu luc ESP32 khoi dong (KHONG luu EEPROM - xem giai thich trong
+// config.h canh CLOUD_MAINTENANCE_REMINDER_MS): may thuong chay lien tuc
+// nhieu tuan nen day la danh doi hop ly de tranh them 1 truong cau hinh moi.
+static uint32_t maintenanceLastSentAt = 0;
+static bool maintenanceBaselineSet = false;
+
+inline void checkMaintenanceReminder(uint32_t now) {
+  if (!maintenanceBaselineSet) {
+    maintenanceBaselineSet = true;
+    maintenanceLastSentAt = now;
+    return;
+  }
+  if (timeReached(now, maintenanceLastSentAt + CLOUD_MAINTENANCE_REMINDER_MS)) {
+    maintenanceLastSentAt = now;
+    enqueueLevel("MAINTENANCE_REMINDER", NotifyLevel::Info,
+        "Đã đến kỳ nhắc bảo trì định kỳ - nên kiểm tra vệ sinh cảm biến, quạt và cơ cấu đảo trứng.");
+  }
+}
+
+// ------------------------- Canh bao: Wi-Fi tin hieu yeu ---------------------
+static bool wifiWeakTracking = false;
+static uint32_t wifiWeakSinceAt = 0;
+static bool wifiWeakActive = false;
+
+inline void checkWifiSignal(uint32_t now) {
+  const NetworkStatus status = mayapGetNetworkStatus();
+  const bool onlineAndWeak = status.requestedMode == ConnectivityMode::Online &&
+      status.connected && status.rssiDbm <= WIFI_RSSI_WEAK_DBM;
+  if (!onlineAndWeak) {
+    wifiWeakTracking = false;
+    if (wifiWeakActive) {
+      wifiWeakActive = false;
+      enqueueResolved("WIFI_SIGNAL_WEAK", NotifyLevel::Info, "Tín hiệu Wi-Fi đã ổn định trở lại.");
+    }
+    return;
+  }
+  if (!wifiWeakTracking) {
+    wifiWeakTracking = true;
+    wifiWeakSinceAt = now;
+    return;
+  }
+  if (!wifiWeakActive && timeReached(now, wifiWeakSinceAt + WIFI_RSSI_WEAK_DURATION_MS)) {
+    wifiWeakActive = true;
+    char body[160];
+    snprintf(body, sizeof(body),
+        "Tín hiệu Wi-Fi yếu kéo dài (%d dBm) - cân nhắc đặt máy gần router hơn hoặc dùng bộ kích sóng.",
+        static_cast<int>(status.rssiDbm));
+    enqueueLevel("WIFI_SIGNAL_WEAK", NotifyLevel::Warning, body);
   }
 }
 
@@ -503,9 +638,15 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
     if (valid) {
       checkFaults(now);
       checkTransitions(now);
-      if (configValid) checkLightAfterBatch(now);
+      if (configValid) {
+        checkLightAfterBatch(now);
+        checkBatchSchedule(now);
+        checkTurnCycleMissed(now);
+      }
     }
     checkConnectivity(now);
+    checkWifiSignal(now);
+    checkMaintenanceReminder(now);
   }
 
   serviceRegister(now);

@@ -1704,7 +1704,10 @@ uint32_t alarmBitForFaultCode(uint16_t code) {
     case 110: return AlarmTempLow;
     case 111: return AlarmTempHigh;
     case 112: return AlarmEmergency;
+    case 113: case 114: return AlarmTempHigh;
+    case 115: return AlarmSystem;
     case 120: return AlarmHumidityLow;
+    case 121: return AlarmHumidityLow;
     case 130: case 131: case 132: return AlarmSystem;
     case 133: return AlarmAutoMode;
     case 134: return AlarmTurning;
@@ -1723,7 +1726,11 @@ const char *faultTitle(uint16_t code) {
     case 110: return "NHIET DO THAP";
     case 111: return "NHIET DO CAO";
     case 112: return "QUA NHIET KHAN";
+    case 113: return "NHIET DO BIEN THIEN NHANH";
+    case 114: return "NHIET DO KHONG ON DINH";
+    case 115: return "THANH NHIET KHONG NONG";
     case 120: return "DO AM THAP";
+    case 121: return "DO AM CAO";
     case 130: return "TAT CONG TAC NHIET";
     case 131: return "QUAT TUAN HOAN OFF";
     case 132: return "CAN CHUYEN SANG AUTO";
@@ -1757,8 +1764,13 @@ void faultDetail(const HmiFaultItem &fault, char *out, size_t size) {
                        currentConfig.highTempAlarm); break;
     case 112: snprintf(out, size, "PV %.1f > %.1fC", fault.detail * 0.1f,
                        currentConfig.emergencyTemp); break;
+    case 113: snprintf(out, size, "PV %.1fC LECH NHANH", fault.detail * 0.1f); break;
+    case 114: snprintf(out, size, "%d LAN DOI CHIEU/10P", fault.detail); break;
+    case 115: snprintf(out, size, "TANG %.1fC/15P (THAP)", fault.detail * 0.1f); break;
     case 120: snprintf(out, size, "AM %.0f%% < %.0f%%", currentRuntime.humidity,
                        currentConfig.lowHumidityAlarm); break;
+    case 121: snprintf(out, size, "AM %.0f%% > %.0f%%", currentRuntime.humidity,
+                       HUMIDITY_HIGH_ALARM_C); break;
     case 130: snprintf(out, size, "NHIET DA BI KHOA"); break;
     case 131: snprintf(out, size, "MANUAL: HAY BAT QUAT"); break;
     case 132: snprintf(out, size, "PHUC HOI ME DANG CHO"); break;
