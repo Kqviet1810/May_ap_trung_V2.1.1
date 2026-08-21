@@ -1432,7 +1432,9 @@
       if (result.ok) {
         toast('Đã gửi thông báo test - chờ vài giây trên điện thoại');
       } else if (result.pushStatus) {
-        toast(`Chưa gửi được (mã lỗi ${result.pushStatus}${result.pushError ? ': ' + result.pushError : ''})`, 4500);
+        const detail = `Chưa gửi được (mã lỗi ${result.pushStatus}${result.pushError ? ': ' + result.pushError : ''})`;
+        console.error('[push] test that bai:', detail);
+        toast(detail, 9000);
       } else {
         toast('Chưa gửi được, thử bật lại thông báo');
       }

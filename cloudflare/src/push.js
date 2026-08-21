@@ -40,10 +40,11 @@ export async function sendWebPush(env, subscriptionRow, notification) {
       console.log(`[push] OK host=${endpointHost} status=${res.status}`);
       return { ok: true };
     }
-    const body = await res.text().catch(() => '');
-    console.error(`[push] FAIL host=${endpointHost} status=${res.status} body=${body.slice(0, 300)}`);
-    if (res.status === 404 || res.status === 410) return { ok: false, gone: true, status: res.status };
-    return { ok: false, gone: false, status: res.status };
+    const rawBody = await res.text().catch(() => '');
+    const body = rawBody.slice(0, 300);
+    console.error(`[push] FAIL host=${endpointHost} status=${res.status} body=${body}`);
+    if (res.status === 404 || res.status === 410) return { ok: false, gone: true, status: res.status, error: body };
+    return { ok: false, gone: false, status: res.status, error: body };
   } catch (error) {
     console.error(`[push] THROW host=${endpointHost} error=${String(error && error.message ? error.message : error)}`);
     return { ok: false, gone: false, status: 0, error: String(error && error.message ? error.message : error) };
