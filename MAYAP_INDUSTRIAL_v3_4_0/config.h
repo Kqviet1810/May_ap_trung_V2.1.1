@@ -119,9 +119,12 @@ constexpr uint32_t CLOUD_CHECK_INTERVAL_MS = 5000UL;
 constexpr uint32_t CLOUD_MIN_SEND_GAP_MS = 3000UL;
 constexpr uint32_t CLOUD_HTTP_TIMEOUT_MS = 8000UL;
 constexpr uint32_t CLOUD_HTTP_CONNECT_TIMEOUT_MS = 5000UL;
-// Nhip bao "con song" len Worker (cap nhat last_seen/status trong D1) - khong
-// anh huong toi canh bao, chi phuc vu hien thi trang thai lien ket tren web.
-constexpr uint32_t CLOUD_HEARTBEAT_INTERVAL_MS = 60000UL;
+// Nhip bao "con song" len Worker (cap nhat last_seen/status trong D1). Ngoai
+// hien thi trang thai lien ket tren web, day cung la co so de Worker phat
+// hien mat dien/mat mang (xem cloudflare/src/index.js::checkDeviceConnectivity,
+// nguong DEVICE_OFFLINE_THRESHOLD_MS) - giu ty le >=4 lan nhip/nguong de
+// tranh bao nham khi mang chi chap chon vai chuc giay.
+constexpr uint32_t CLOUD_HEARTBEAT_INTERVAL_MS = 30000UL;
 // Chu ky nhac lai khi loi con ton tai (tuy muc do - CRITICAL nhac nhanh hon
 // WARNING nhu yeu cau). "Info" gan nhu khong dung cho loi that (chi day phong).
 constexpr uint32_t CLOUD_REPEAT_WARNING_MS = 600000UL;    // 10 phut

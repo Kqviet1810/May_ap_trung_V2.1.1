@@ -21,10 +21,10 @@ import { sendWebPush, buildNotificationPayload } from './push.js';
 // muc nay cho CUNG mot (device_id, alarm_type) khi trang thai khong doi.
 const MIN_ALARM_COOLDOWN_MS = 15_000;
 
-// ESP32 heartbeat moi 60s (CLOUD_HEARTBEAT_INTERVAL_MS) - cho phep truot ~4
-// lan (mat goi/backoff luc mang chap chon) truoc khi coi la "mat ket noi
-// that su" de tranh bao gia luc mang giat nhe.
-const DEVICE_OFFLINE_THRESHOLD_MS = 5 * 60 * 1000;
+// ESP32 heartbeat moi 30s (CLOUD_HEARTBEAT_INTERVAL_MS trong config.h) - cho
+// phep truot ~4 lan (mat goi/backoff luc mang chap chon) truoc khi coi la
+// "mat ket noi that su" de tranh bao gia luc mang giat nhe.
+const DEVICE_OFFLINE_THRESHOLD_MS = 2 * 60 * 1000;
 
 function corsHeaders(env) {
   return {

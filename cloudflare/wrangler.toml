@@ -22,4 +22,4 @@ database_id = "e92a393c-8596-4254-b274-68e57a6de290"
 # dien/mat mang) va tu gui push "mat ket noi", vi luc do chinh ESP32 da chet
 # nen khong the tu bao duoc. Xem scheduled() trong src/index.js.
 [triggers]
-crons = ["*/2 * * * *"]
+crons = ["* * * * *"]
