@@ -17,3 +17,9 @@ ALLOWED_ORIGIN = "https://kqviet1810.github.io"
 binding = "DB"
 database_name = "mayap_push"
 database_id = "e92a393c-8596-4254-b274-68e57a6de290"
+
+# Chay doc lap voi ESP32 - phat hien khi thiet bi im lang bat thuong (mat
+# dien/mat mang) va tu gui push "mat ket noi", vi luc do chinh ESP32 da chet
+# nen khong the tu bao duoc. Xem scheduled() trong src/index.js.
+[triggers]
+crons = ["*/2 * * * *"]

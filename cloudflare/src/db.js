@@ -31,6 +31,13 @@ export async function touchDevice(db, deviceId, status, now, deviceName) {
   }
 }
 
+// Doi status ma KHONG dung toi last_seen (touchDevice() dung khi that su co
+// tin moi tu thiet bi; ham nay dung khi Worker tu suy ra trang thai, vi du
+// tu danh dau 'offline' luc phat hien im lang - khong duoc lam moi last_seen).
+export async function setDeviceStatus(db, deviceId, status) {
+  await db.prepare('UPDATE devices SET status = ?2 WHERE device_id = ?1').bind(deviceId, status).run();
+}
+
 export async function getSubscriptionsForDevice(db, deviceId) {
   const { results } = await db
     .prepare('SELECT * FROM push_subscriptions WHERE device_id = ?1')
@@ -64,6 +71,30 @@ export async function upsertSubscription(db, { deviceId, endpoint, p256dh, auth,
 
 export async function deleteSubscriptionByEndpoint(db, endpoint) {
   await db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?1').bind(endpoint).run();
+}
+
+// Thiet bi dang danh dau 'online' nhung im lang qua lau (het heartbeat) -
+// ung vien "vua mat ket noi" (mat dien/mat mang), chua duoc bao.
+export async function getStaleOnlineDevices(db, staleBefore) {
+  const { results } = await db
+    .prepare("SELECT * FROM devices WHERE status = 'online' AND last_seen IS NOT NULL AND last_seen < ?1")
+    .bind(staleBefore)
+    .all();
+  return results || [];
+}
+
+// Thiet bi dang co canh bao DEVICE_OFFLINE con active nhung da online tro
+// lai (heartbeat gan day) - can gui tin "da ket noi lai".
+export async function getRecoveredOfflineDevices(db, staleBefore) {
+  const { results } = await db
+    .prepare(
+      `SELECT d.* FROM devices d
+       JOIN alarm_state a ON a.device_id = d.device_id AND a.alarm_type = 'DEVICE_OFFLINE'
+       WHERE a.active = 1 AND d.last_seen IS NOT NULL AND d.last_seen >= ?1`
+    )
+    .bind(staleBefore)
+    .all();
+  return results || [];
 }
 
 export async function getAlarmState(db, deviceId, alarmType) {

@@ -3,6 +3,9 @@ import {
   getDeviceByDeviceId,
   insertDevice,
   touchDevice,
+  setDeviceStatus,
+  getStaleOnlineDevices,
+  getRecoveredOfflineDevices,
   getSubscriptionsForDevice,
   getSubscriptionByEndpoint,
   upsertSubscription,
@@ -17,6 +20,11 @@ import { sendWebPush, buildNotificationPayload } from './push.js';
 // du firmware co loi va goi lien tuc, worker cung khong ban push nhanh hon
 // muc nay cho CUNG mot (device_id, alarm_type) khi trang thai khong doi.
 const MIN_ALARM_COOLDOWN_MS = 15_000;
+
+// ESP32 heartbeat moi 60s (CLOUD_HEARTBEAT_INTERVAL_MS) - cho phep truot ~4
+// lan (mat goi/backoff luc mang chap chon) truoc khi coi la "mat ket noi
+// that su" de tranh bao gia luc mang giat nhe.
+const DEVICE_OFFLINE_THRESHOLD_MS = 5 * 60 * 1000;
 
 function corsHeaders(env) {
   return {
@@ -256,7 +264,78 @@ async function handleDeviceStatus(env, deviceId) {
   });
 }
 
+// -------------------------- Cron: phat hien thiet bi mat ket noi --------------------------
+// Chay DOC LAP voi ESP32 (xem wrangler.toml [triggers]) - vi khi mat dien
+// chinh may ap cung chet theo nen KHONG THE tu goi API bao "toi vua mat
+// dien". Worker phai tu phat hien qua khoang lang cua last_seen.
+async function sendDeviceLifecycleAlarm(env, device, { state, message }) {
+  const now = Date.now();
+  const subscriptions = await getSubscriptionsForDevice(env.DB, device.device_id);
+  const notification = buildNotificationPayload({
+    deviceId: device.device_id,
+    deviceName: device.device_name,
+    alarmType: 'DEVICE_OFFLINE',
+    severity: 'critical',
+    state,
+    message,
+  });
+
+  let notificationSent = 0;
+  for (const sub of subscriptions) {
+    const result = await sendWebPush(env, sub, notification);
+    if (result.ok) {
+      notificationSent += 1;
+    } else if (result.gone) {
+      await deleteSubscriptionByEndpoint(env.DB, sub.endpoint);
+    }
+  }
+
+  await upsertAlarmState(env.DB, {
+    deviceId: device.device_id,
+    alarmType: 'DEVICE_OFFLINE',
+    active: state === 'active',
+    firstSentAt: now,
+    lastSentAt: now,
+    lastMessage: message,
+  });
+  await insertAlarmLog(env.DB, {
+    deviceId: device.device_id,
+    alarmType: 'DEVICE_OFFLINE',
+    severity: 'critical',
+    state,
+    message,
+    temperature: null,
+    humidity: null,
+    notificationSent: notificationSent > 0,
+    now,
+  });
+}
+
+async function checkDeviceConnectivity(env) {
+  const staleBefore = Date.now() - DEVICE_OFFLINE_THRESHOLD_MS;
+
+  const staleDevices = await getStaleOnlineDevices(env.DB, staleBefore);
+  for (const device of staleDevices) {
+    await setDeviceStatus(env.DB, device.device_id, 'offline');
+    await sendDeviceLifecycleAlarm(env, device, {
+      state: 'active',
+      message: 'Máy ấp đã mất kết nối hơn 5 phút - có thể mất điện hoặc mất Wi-Fi. Kiểm tra ngay!',
+    });
+  }
+
+  const recoveredDevices = await getRecoveredOfflineDevices(env.DB, staleBefore);
+  for (const device of recoveredDevices) {
+    await sendDeviceLifecycleAlarm(env, device, {
+      state: 'resolved',
+      message: 'Máy ấp đã kết nối lại bình thường.',
+    });
+  }
+}
+
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(checkDeviceConnectivity(env));
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
 
