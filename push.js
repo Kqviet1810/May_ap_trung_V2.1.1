@@ -219,7 +219,14 @@
         body: JSON.stringify({ endpoint }),
       });
       const body = await res.json().catch(() => ({}));
-      return { ok: Boolean(body.success), notificationSent: body.notification_sent || 0 };
+      return {
+        ok: Boolean(body.success),
+        notificationSent: body.notification_sent || 0,
+        // push_status/push_error: ma loi THAT tu may chu push (Apple/Google/
+        // Mozilla), Worker tra ve khi gui that bai - xem cloudflare/src/index.js.
+        pushStatus: body.push_status,
+        pushError: body.push_error,
+      };
     } catch (error) {
       return { ok: false, reason: 'error', error: String(error?.message || error) };
     }

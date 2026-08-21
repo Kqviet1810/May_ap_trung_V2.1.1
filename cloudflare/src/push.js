@@ -27,13 +27,25 @@ export async function sendWebPush(env, subscriptionRow, notification) {
     },
   };
 
+  // wrangler tail (dang tail mac dinh) chi hien HTTP status Worker tra ve cho
+  // TRINH DUYET (luon la 200, xem handleTestPush/handleAlarm) - KHONG hien
+  // duoc ket qua goi fetch() toi may chu push (Apple/Google/Mozilla) o day
+  // neu khong tu console.log/error ra. Day la ly do "Ok" tren tail truoc do
+  // khong phan anh dung viec gui that toi Apple co thanh cong hay khong.
+  const endpointHost = (() => { try { return new URL(subscription.endpoint).host; } catch (_) { return '?'; } })();
   try {
     const payload = await buildPushPayload(message, subscription, vapid);
     const res = await fetch(subscription.endpoint, payload);
-    if (res.ok) return { ok: true };
+    if (res.ok) {
+      console.log(`[push] OK host=${endpointHost} status=${res.status}`);
+      return { ok: true };
+    }
+    const body = await res.text().catch(() => '');
+    console.error(`[push] FAIL host=${endpointHost} status=${res.status} body=${body.slice(0, 300)}`);
     if (res.status === 404 || res.status === 410) return { ok: false, gone: true, status: res.status };
     return { ok: false, gone: false, status: res.status };
   } catch (error) {
+    console.error(`[push] THROW host=${endpointHost} error=${String(error && error.message ? error.message : error)}`);
     return { ok: false, gone: false, status: 0, error: String(error && error.message ? error.message : error) };
   }
 }

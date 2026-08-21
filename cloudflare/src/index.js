@@ -231,7 +231,13 @@ async function handleTestPush(request, env) {
   };
   const result = await sendWebPush(env, sub, notification);
   if (!result.ok && result.gone) await deleteSubscriptionByEndpoint(env.DB, endpoint);
-  return json(env, { success: result.ok, notification_sent: result.ok ? 1 : 0 });
+  // Tra ve them status/error khi that bai - de xem duoc ly do that qua tab
+  // Network cua trinh duyet ma khong bat buoc phai chay wrangler tail.
+  return json(env, {
+    success: result.ok,
+    notification_sent: result.ok ? 1 : 0,
+    ...(result.ok ? {} : { push_status: result.status, push_error: result.error || '' }),
+  });
 }
 
 // -------------------------- Endpoint: trang thai lien ket cua 1 thiet bi --------------------------

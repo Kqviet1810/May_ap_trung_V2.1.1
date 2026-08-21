@@ -1429,7 +1429,13 @@
     btn.textContent = 'Đang gửi…';
     try {
       const result = await window.MayapPush.testNotification();
-      toast(result.ok ? 'Đã gửi thông báo test - chờ vài giây trên điện thoại' : 'Chưa gửi được, thử bật lại thông báo');
+      if (result.ok) {
+        toast('Đã gửi thông báo test - chờ vài giây trên điện thoại');
+      } else if (result.pushStatus) {
+        toast(`Chưa gửi được (mã lỗi ${result.pushStatus}${result.pushError ? ': ' + result.pushError : ''})`, 4500);
+      } else {
+        toast('Chưa gửi được, thử bật lại thông báo');
+      }
     } finally {
       btn.disabled = false;
       btn.textContent = 'Kiểm tra thông báo';
