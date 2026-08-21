@@ -1,5 +1,5 @@
 'use strict';
-const CACHE = 'mayap-web-v10.1.0';
+const CACHE = 'mayap-web-v10.2.0';
 const APP_SHELL = [
   './', './index.html', './styles.css', './app.js', './push.js', './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/badge-72.png'
@@ -31,6 +31,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (url.origin !== self.location.origin) return;
+  // Network-first cho HTML/JS/CSS: luon co gang lay ban moi nhat tu mang
+  // truoc, chi dung cache khi mat mang. Cache-first (cu) tung khien trang
+  // "khong bao gio tu cap nhat" cho nguoi dung da tung mo qua 1 lan, vi no
+  // tra ve cache ngay ma khong kiem tra mang, kho nhan ra ke ca sau khi
+  // Service Worker moi da activate (dac biet dai tren iOS PWA).
+  const isCoreAsset = /\.(?:html|js|css)$/.test(url.pathname) || url.pathname.endsWith('/');
+  if (isCoreAsset) {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        return response;
+      }).catch(() => caches.match(event.request))
+    );
+    return;
+  }
   event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
     const copy = response.clone();
     caches.open(CACHE).then((cache) => cache.put(event.request, copy));
