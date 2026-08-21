@@ -1259,12 +1259,13 @@ struct ConfigRecordV1 {
 // connectivityMode. Dung mang byte de giu dung kich thuoc/CRC cu va migrate.
 constexpr size_t CONFIG_V3_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, connectivityMode);
-// Sau connectivityMode la 1 truong uint8_t moi hon: autoResumeOnPowerLoss
-// (schema 5), dat lai gia tri mac dinh tuong minh sau memcpy.
-static_assert(CONFIG_V3_PAYLOAD_BYTES + 2U * sizeof(uint8_t) ==
+// Sau connectivityMode la 3 truong uint8_t moi hon: autoResumeOnPowerLoss
+// (schema 5), lightAfterBatchAlarmEnabled (schema 6) - dat lai gia tri mac
+// dinh tuong minh sau memcpy.
+static_assert(CONFIG_V3_PAYLOAD_BYTES + 3U * sizeof(uint8_t) ==
                   sizeof(PackedMachineConfigV1),
               "connectivityMode phai la truong cuoi cung cua schema 3, "
-              "theo sau boi dung 1 truong uint8_t moi hon");
+              "theo sau boi dung 3 truong uint8_t moi hon");
 struct ConfigRecordLegacyV3 {
   uint32_t magic;
   uint16_t schema;
@@ -1277,9 +1278,10 @@ struct ConfigRecordLegacyV3 {
 // tru autoResumeOnPowerLoss. Dung de nang cap tai cho khong mat cau hinh cu.
 constexpr size_t CONFIG_V4_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, autoResumeOnPowerLoss);
-static_assert(CONFIG_V4_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
+static_assert(CONFIG_V4_PAYLOAD_BYTES + 2U * sizeof(uint8_t) ==
                   sizeof(PackedMachineConfigV1),
-              "autoResumeOnPowerLoss phai la truong cuoi cung cua PackedMachineConfigV1");
+              "autoResumeOnPowerLoss + lightAfterBatchAlarmEnabled phai la 2 "
+              "truong cuoi cung cua PackedMachineConfigV1");
 struct ConfigRecordLegacyV4 {
   uint32_t magic;
   uint16_t schema;
@@ -1542,6 +1544,8 @@ static_assert(sizeof(ConfigRecordLegacyV3) <= EEPROM_CONFIG_SLOT_BYTES,
               "Legacy config record khong vua slot AT24C32");
 static_assert(sizeof(ConfigRecordLegacyV4) <= EEPROM_CONFIG_SLOT_BYTES,
               "Legacy config record V4 khong vua slot AT24C32");
+static_assert(sizeof(ConfigRecordLegacyV5) <= EEPROM_CONFIG_SLOT_BYTES,
+              "Legacy config record V5 khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordV1) <= EEPROM_BATCH_SLOT_BYTES,
               "Batch record khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordLegacyV2) <= EEPROM_BATCH_SLOT_BYTES,
