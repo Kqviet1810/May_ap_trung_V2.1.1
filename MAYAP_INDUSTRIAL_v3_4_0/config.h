@@ -128,6 +128,10 @@ constexpr uint32_t CLOUD_REPEAT_WARNING_MS = 600000UL;    // 10 phut
 constexpr uint32_t CLOUD_REPEAT_CRITICAL_STOP_MS = 300000UL;      // 5 phut
 constexpr uint32_t CLOUD_REPEAT_CRITICAL_EMERGENCY_MS = 120000UL; // 2 phut
 constexpr uint32_t CLOUD_REPEAT_INFO_MS = 1800000UL;      // 30 phut (du phong)
+// Nhac lai neu den van bat trong luc me ap dang chay (xem
+// cloud_alert_link.h::checkLightAfterBatch) - co the tat rieng qua
+// MachineConfig::lightAfterBatchAlarmEnabled, khong anh huong cac canh bao khac.
+constexpr uint32_t CLOUD_LIGHT_AFTER_BATCH_REPEAT_MS = 1800000UL; // 30 phut
 constexpr uint8_t CLOUD_OUTBOX_SIZE = 8U;
 // >= HMI_FAULT_DISPLAY_CAPACITY (so loi dang active toi da doc duoc tu runtime
 // snapshot moi lan), du du de theo doi tat ca dong thoi.
@@ -637,6 +641,10 @@ struct MachineConfig {
   uint16_t sensorTimeoutSec = 10;
   bool alarmEnabled = true;
   ConnectivityMode connectivityMode = ConnectivityMode::Offline;
+  // Nhac lai moi 30 phut qua Cloud Push neu den van bat trong luc me ap dang
+  // chay (xem cloud_alert_link.h::checkLightAfterBatch). Nguoi dung co the
+  // tat rieng canh bao nay ma khong anh huong cac canh bao khac.
+  bool lightAfterBatchAlarmEnabled = true;
 };
 
 struct NetworkStatus {
@@ -703,6 +711,8 @@ struct MachineRuntime {
   bool heaterOn = false;
   bool circulationFanOn = false;
   bool ventFanOn = false;
+  bool lightOn = false;
+  bool sirenOn = false;
   TurnState turnState = TurnState::Stopped;
   uint16_t nextTurnMinutes = 0;
   bool nextTurnScheduled = false;
@@ -730,6 +740,7 @@ struct MachineRuntime {
   bool networkConnected = false;
   int8_t networkRssiDbm = -127;
   char dateText[11] = "--/--/----";
+  char timeText[6] = "--:--";  // "HH:MM" tu RTC, hien o thanh trang thai man chinh
   char machineState[20] = "KHOI DONG";
 
   // Che do thu nghiem: bitmask theo TestOutputId dang duoc xung ON, va

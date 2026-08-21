@@ -1822,6 +1822,21 @@ void drawHomeMain() {
   char text[32];
   drawHeader("MAY AP");
 
+  // Gio:phut thuc tu RTC, dat o giua thanh trang thai - CHI rieng cho man
+  // chinh (khong dua vao drawHeader() dung chung cho moi man hinh, tranh
+  // hien o ca menu/cai dat nhu khong duoc yeu cau). Vung [36,64] la khoang
+  // trong giua tieu de "MAY AP" (~ket thuc x=33) va nhan canh bao/ngay thang
+  // (bat dau tu x=67) - chon co dinh de khong bao gio de len 2 ben do.
+  lcd.setFont(u8g2_font_5x8_tf);
+  {
+    constexpr int16_t TIME_ZONE_LEFT = 36;
+    constexpr int16_t TIME_ZONE_RIGHT = 64;
+    const int16_t timeWidth = static_cast<int16_t>(lcd.getStrWidth(currentRuntime.timeText));
+    const int16_t timeX = TIME_ZONE_LEFT +
+        max(0, ((TIME_ZONE_RIGHT - TIME_ZONE_LEFT) - timeWidth) / 2);
+    lcd.drawStr(timeX, 8, currentRuntime.timeText);
+  }
+
   // Man tong quan: PV la thong tin uu tien so 1. Chia man hinh thanh
   // vung PV ben trai (~70 px) va 3 dong thong tin phu ben phai.
   // Khong dung khung/duong ke de tiet kiem diem anh va giu giao dien thoang.

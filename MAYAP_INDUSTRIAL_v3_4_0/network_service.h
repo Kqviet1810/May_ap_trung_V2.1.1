@@ -248,32 +248,47 @@ inline void handlePortalRoot() {
   const String connectionInfo = buildConnectionInfo();
   const String options = buildWifiOptions();
   String html;
-  html.reserve(4096);
+  html.reserve(5120);  // CSS dai hon ban cu (dong bo mau thuong hieu) - du cho + 1KB
+  // Mang dung MAU/PHONG CACH giong het trang web chinh (index.html/styles.css)
+  // de nguoi dung cam thay "cung 1 san pham" thay vi 1 trang ky thuat roi rac
+  // - du day la trang RIENG, tu ESP32 host qua AP offline (khong the tai
+  // Google Fonts/CSS ngoai, phai tu chua toan bo nhu truoc).
   html += F(
     "<!doctype html><html lang=vi><head><meta charset=utf-8>"
     "<meta name=viewport content='width=device-width,initial-scale=1'>"
-    "<title>MAYAP Wi-Fi</title><style>"
-    "body{font-family:sans-serif;background:#0b1220;color:#eef4ff;"
-    "margin:0;padding:24px 16px}.card{max-width:420px;margin:auto;"
-    "background:#111a2e;border:1px solid #263553;border-radius:16px;"
-    "padding:22px}h1{font-size:20px;margin:0 0 14px}"
-    "label{display:block;font-size:13px;margin:14px 0 6px;color:#9eabc2}"
-    "select,input{width:100%;height:44px;border-radius:10px;border:1px "
-    "solid #263553;background:#16213a;color:#eef4ff;padding:0 12px;"
+    "<title>MAYAP - Doi Wi-Fi</title><style>"
+    "*{box-sizing:border-box}"
+    "body{margin:0;font-family:ui-sans-serif,-apple-system,'Segoe UI',Roboto,"
+    "Arial,sans-serif;background:linear-gradient(180deg,#f2f7f5,#eaf2f0);"
+    "color:#0c2f2a;min-height:100vh;padding:28px 16px}"
+    ".card{max-width:420px;margin:0 auto;background:#fff;"
+    "border:1px solid #cededb;border-radius:20px;"
+    "box-shadow:0 12px 32px rgba(10,55,48,.08);padding:24px}"
+    ".brandRow{display:flex;align-items:center;gap:12px;margin-bottom:6px}"
+    ".brandMark{width:38px;height:38px;border-radius:12px;background:#49cfbc;"
+    "color:#073b34;font-weight:900;font-size:18px;display:flex;"
+    "align-items:center;justify-content:center;flex:none}"
+    "h1{font-size:19px;margin:0;letter-spacing:-.3px}"
+    "label{display:block;font-size:12px;font-weight:700;margin:16px 0 6px;"
+    "color:#496963;text-transform:uppercase;letter-spacing:.3px}"
+    "select,input{width:100%;height:48px;border-radius:14px;border:1px "
+    "solid #c5d8d4;background:#fff;color:#0c2f2a;padding:0 14px;"
     "font-size:15px;box-sizing:border-box}"
-    "button,a.reload{width:100%;height:46px;margin-top:18px;border:0;"
-    "border-radius:10px;background:#4f8cff;color:#fff;font-weight:700;"
+    "select:focus,input:focus{outline:0;border-color:#42aa9c;"
+    "box-shadow:0 0 0 3px rgba(66,170,156,.15)}"
+    "button,a.reload{width:100%;height:48px;margin-top:18px;border:0;"
+    "border-radius:14px;background:#0d8275;color:#fff;font-weight:800;"
     "font-size:15px;display:flex;align-items:center;justify-content:center;"
-    "text-decoration:none;box-sizing:border-box}"
-    "a.reload{background:#263553;margin-top:10px}"
-    "p{color:#9eabc2;font-size:12px;line-height:1.5}"
+    "text-decoration:none;box-sizing:border-box;cursor:pointer}"
+    "a.reload{background:#eef5f3;color:#0c2f2a;margin-top:10px}"
+    "p{color:#718783;font-size:12px;line-height:1.6;margin:16px 0 0}"
     ".info{display:flex;justify-content:space-between;align-items:center;"
-    "font-size:13px;padding:8px 0;border-bottom:1px solid #263553}"
-    ".info span{color:#9eabc2}.info b{color:#eef4ff;font-weight:600;"
+    "font-size:13px;padding:9px 0;border-bottom:1px solid #e2ece9}"
+    ".info span{color:#718783}.info b{color:#0c2f2a;font-weight:700;"
     "text-align:right;word-break:break-word}"
-    ".card + .card{margin-top:16px}"
     "</style></head><body>"
-    "<div class=card><h1>MAYAP - Doi Wi-Fi</h1>");
+    "<div class=card><div class=brandRow><div class=brandMark>M</div>"
+    "<h1>Doi mang Wi-Fi cho may ap</h1></div>");
   html += connectionInfo;
   html += F(
     "<form method=POST action=/save>"
@@ -284,10 +299,11 @@ inline void handlePortalRoot() {
     "<input name=password type=password maxlength=64 autocomplete=off>"
     "<button type=submit>Luu &amp; ket noi</button></form>"
     "<a class=reload href=/rescan>&#8635; Tim lai Wi-Fi</a>"
-    "<p>Thiet bi se tu thu ket noi mang moi. Kiem tra man hinh may ap de "
-    "biet ket qua. Trang nay tu dong dong sau vai phut. Thong bao canh bao "
-    "cua may nay duoc bat qua trang web chinh (khong can cau hinh gi o "
-    "day).</p></div>");
+    "<p><b>Sau khi luu:</b> may se tu thu ket noi mang moi, kiem tra man "
+    "hinh may ap de biet ket qua. Bay gio ban co the chuyen dien thoai tro "
+    "lai mang Wi-Fi thuong (thoat khoi mang MAYAP-XXXX) va mo lai trang web "
+    "chinh nhu cu. Thong bao canh bao cua may nay duoc bat rieng qua trang "
+    "web chinh, khong can cau hinh gi them o day.</p></div>");
   html += F("</body></html>");
   portalServer.send(200, "text/html; charset=utf-8", html);
 }
@@ -318,9 +334,26 @@ inline void handlePortalSave() {
   snprintf(pendingPassword, sizeof(pendingPassword), "%s", pass.c_str());
   pendingCredentialsReady = true;
   portalServer.send(200, "text/html; charset=utf-8",
-      "<html><meta charset=utf-8><body style='font-family:sans-serif'>"
-      "Da nhan Wi-Fi moi. May ap dang thu ket noi, vui long xem man hinh "
-      "thiet bi.</body></html>");
+      "<!doctype html><html lang=vi><head><meta charset=utf-8>"
+      "<meta name=viewport content='width=device-width,initial-scale=1'>"
+      "<title>MAYAP - Da luu Wi-Fi</title><style>"
+      "body{margin:0;font-family:ui-sans-serif,-apple-system,'Segoe UI',"
+      "Roboto,Arial,sans-serif;background:linear-gradient(180deg,#f2f7f5,"
+      "#eaf2f0);color:#0c2f2a;min-height:100vh;display:flex;"
+      "align-items:center;justify-content:center;padding:24px}"
+      ".card{max-width:380px;background:#fff;border:1px solid #cededb;"
+      "border-radius:20px;box-shadow:0 12px 32px rgba(10,55,48,.08);"
+      "padding:26px;text-align:center}"
+      ".ok{width:52px;height:52px;border-radius:50%;background:#dff3ef;"
+      "color:#0d8275;font-size:26px;display:flex;align-items:center;"
+      "justify-content:center;margin:0 auto 14px}"
+      "h1{font-size:18px;margin:0 0 8px}p{color:#718783;font-size:13px;"
+      "line-height:1.6;margin:0}"
+      "</style></head><body><div class=card><div class=ok>&#10003;</div>"
+      "<h1>Da luu Wi-Fi moi</h1>"
+      "<p>May ap dang thu ket noi mang vua nhap, vui long xem man hinh "
+      "thiet bi de biet ket qua. Ban co the dong trang nay va chuyen dien "
+      "thoai tro lai mang Wi-Fi thuong.</p></div></body></html>");
 }
 
 inline void handlePortalNotFound() {

@@ -867,6 +867,7 @@ class RtcDs3231 {
   }
 
   const char *dateText() const { return valid_ ? dateText_ : "--/--/----"; }
+  const char *timeText() const { return valid_ ? timeText_ : "--:--"; }
 
   bool takeReconnectNotice() {
     const bool value = reconnectNotice_;
@@ -958,6 +959,9 @@ class RtcDs3231 {
              static_cast<unsigned>(value.day % 100U),
              static_cast<unsigned>(value.month % 100U),
              static_cast<unsigned>(value.year % 10000U));
+    snprintf(timeText_, sizeof(timeText_), "%02u:%02u",
+             static_cast<unsigned>(value.hour % 24U),
+             static_cast<unsigned>(value.minute % 60U));
   }
 
   void syncShadow(uint32_t now, uint32_t value) {
@@ -1120,6 +1124,7 @@ class RtcDs3231 {
   bool reconnectNotice_ = false;
   bool autoRepairNotice_ = false;
   char dateText_[11] = "--/--/----";
+  char timeText_[6] = "--:--";
 };
 
 // ============================================================================
@@ -1240,6 +1245,7 @@ struct PackedMachineConfigV1 {
   uint8_t alarmEnabled;
   uint8_t connectivityMode;
   uint8_t autoResumeOnPowerLoss;  // schema 5+: "Ap lai"
+  uint8_t lightAfterBatchAlarmEnabled;  // schema 6+: canh bao den con bat khi dang ap
 };
 struct ConfigRecordV1 {
   uint32_t magic;
@@ -1282,6 +1288,22 @@ struct ConfigRecordLegacyV4 {
   uint8_t payload[CONFIG_V4_PAYLOAD_BYTES];
   uint32_t crc;
 };
+// Config schema 5 (truoc ban co canh bao "den con bat khi dang ap") co
+// payload giong schema 6 tru lightAfterBatchAlarmEnabled. Dung de nang cap
+// tai cho khong mat cau hinh cu, giong het cach lam voi schema 3/4 o tren.
+constexpr size_t CONFIG_V5_PAYLOAD_BYTES =
+    offsetof(PackedMachineConfigV1, lightAfterBatchAlarmEnabled);
+static_assert(CONFIG_V5_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
+                  sizeof(PackedMachineConfigV1),
+              "lightAfterBatchAlarmEnabled phai la truong cuoi cung cua PackedMachineConfigV1");
+struct ConfigRecordLegacyV5 {
+  uint32_t magic;
+  uint16_t schema;
+  uint16_t size;
+  uint32_t sequence;
+  uint8_t payload[CONFIG_V5_PAYLOAD_BYTES];
+  uint32_t crc;
+};
 // Schema batch v3 bo sung moc bat dau me va lan dao thanh cong gan nhat.
 struct PackedBatchV1 {
   uint8_t wasRunning;
@@ -1322,9 +1344,10 @@ struct BatchRecordLegacyV2 {
 
 constexpr uint32_t CONFIG_MAGIC = 0x4D415943UL; // MAYC
 constexpr uint32_t BATCH_MAGIC  = 0x4D415942UL; // MAYB
-constexpr uint16_t CONFIG_SCHEMA = 5;
+constexpr uint16_t CONFIG_SCHEMA = 6;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V4 = 4;
+constexpr uint16_t CONFIG_SCHEMA_LEGACY_V5 = 5;
 constexpr uint16_t BATCH_SCHEMA = 3;
 constexpr uint16_t BATCH_SCHEMA_LEGACY = 2;
 
@@ -1357,6 +1380,7 @@ inline PackedMachineConfigV1 packConfig(const MachineConfig &c) {
   p.alarmEnabled = c.alarmEnabled ? 1U : 0U;
   p.connectivityMode = static_cast<uint8_t>(c.connectivityMode);
   p.autoResumeOnPowerLoss = c.autoResumeOnPowerLoss ? 1U : 0U;
+  p.lightAfterBatchAlarmEnabled = c.lightAfterBatchAlarmEnabled ? 1U : 0U;
   return p;
 }
 inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
@@ -1388,6 +1412,7 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.alarmEnabled = p.alarmEnabled != 0U;
   c.connectivityMode = static_cast<ConnectivityMode>(p.connectivityMode);
   c.autoResumeOnPowerLoss = p.autoResumeOnPowerLoss != 0U;
+  c.lightAfterBatchAlarmEnabled = p.lightAfterBatchAlarmEnabled != 0U;
   sanitizeMachineConfig(c);
   return c;
 }
@@ -1680,6 +1705,12 @@ class PersistentStore {
            r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
                             offsetof(ConfigRecordLegacyV4, crc));
   }
+  static bool validConfigLegacyV5(const ConfigRecordLegacyV5 &r) {
+    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V5 &&
+           r.size == sizeof(r) &&
+           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
+                            offsetof(ConfigRecordLegacyV5, crc));
+  }
   static bool validBatch(const BatchRecordV1 &r) {
     return r.magic == BATCH_MAGIC && r.schema == BATCH_SCHEMA &&
            r.size == sizeof(r) &&
@@ -1707,8 +1738,29 @@ class PersistentStore {
       return true;
     }
 
+    // Fallback config schema 5 (ban truoc khi co canh bao "den con bat khi
+    // dang ap"). Canh bao nay mac dinh BAT cho ban ghi cu (khop dung default
+    // cua MachineConfig::lightAfterBatchAlarmEnabled); lan luu cau hinh tiep
+    // theo se ghi schema 6 vao khe doi dien.
+    ConfigRecordLegacyV5 la5{}, lb5{};
+    const bool vla5 = readRecord(EEPROM_ADDR_CONFIG_A, la5) &&
+                      validConfigLegacyV5(la5);
+    const bool vlb5 = readRecord(EEPROM_ADDR_CONFIG_B, lb5) &&
+                      validConfigLegacyV5(lb5);
+    if (vla5 || vlb5) {
+      const bool useA5 = !vlb5 || (vla5 && newer(la5.sequence, lb5.sequence));
+      const ConfigRecordLegacyV5 &best5 = useA5 ? la5 : lb5;
+      configPayload_ = PackedMachineConfigV1{};
+      memcpy(&configPayload_, best5.payload, sizeof(best5.payload));
+      configPayload_.lightAfterBatchAlarmEnabled = 1U;
+      configCacheValid_ = true;
+      configCurrentIsA_ = useA5;
+      configSequence_ = best5.sequence;
+      return true;
+    }
+
     // Fallback config schema 4 (ban truoc khi co "Ap lai"). Ap lai mac dinh
-    // TAT cho ban ghi cu; lan luu cau hinh tiep theo se ghi schema 5 vao khe
+    // TAT cho ban ghi cu; lan luu cau hinh tiep theo se ghi schema 6 vao khe
     // doi dien. Day chinh la duong nang cap giu lai toan bo cau hinh nguoi
     // dung da chinh (nhiet do, PID, dao trung...) thay vi mat trang ve default.
     ConfigRecordLegacyV4 la4{}, lb4{};
@@ -1722,6 +1774,7 @@ class PersistentStore {
       configPayload_ = PackedMachineConfigV1{};
       memcpy(&configPayload_, best4.payload, sizeof(best4.payload));
       configPayload_.autoResumeOnPowerLoss = 0U;
+      configPayload_.lightAfterBatchAlarmEnabled = 1U;
       configCacheValid_ = true;
       configCurrentIsA_ = useA4;
       configSequence_ = best4.sequence;
@@ -1729,7 +1782,7 @@ class PersistentStore {
     }
 
     // Fallback config schema 3. Che do mang moi mac dinh OFFLINE; lan luu
-    // cau hinh tiep theo se ghi schema 5 vao khe doi dien.
+    // cau hinh tiep theo se ghi schema 6 vao khe doi dien.
     ConfigRecordLegacyV3 la{}, lb{};
     const bool vla = readRecord(EEPROM_ADDR_CONFIG_A, la) &&
                      validConfigLegacy(la);
@@ -1746,6 +1799,7 @@ class PersistentStore {
     configPayload_.connectivityMode =
         static_cast<uint8_t>(ConnectivityMode::Offline);
     configPayload_.autoResumeOnPowerLoss = 0U;  // chua ton tai o schema 3
+    configPayload_.lightAfterBatchAlarmEnabled = 1U;
     configCacheValid_ = true;
     configCurrentIsA_ = useA;
     configSequence_ = best.sequence;
@@ -2953,6 +3007,7 @@ class MachineController {
     else snprintf(runtime_.dateText, sizeof(runtime_.dateText), "--/--/----");
     hmiSetConfig(config_);
     mayapWebSetConfig(config_);
+    mayapCloudSetConfig(config_);
 
     PackedBatchV1 batch{};
     const bool hasBatchRecord = storeReady && store_.loadBatch(batch);
@@ -3158,6 +3213,7 @@ class MachineController {
         configLoaded_ = true;
         hmiSetConfig(config_);
         mayapWebSetConfig(config_);
+        mayapCloudSetConfig(config_);
         mayapSetConnectivityMode(config_.connectivityMode);
         pid_.applyConfigBumpless(now, config_.targetTemp, temperature_, config_);
       }
@@ -3170,6 +3226,7 @@ class MachineController {
         configLoaded_ = true;
         hmiSetConfig(config_);
         mayapWebSetConfig(config_);
+        mayapCloudSetConfig(config_);
         mayapSetConnectivityMode(config_.connectivityMode);
       }
     }
@@ -3407,6 +3464,7 @@ class MachineController {
         config_ = readback;
         hmiSetConfig(config_);
         mayapWebSetConfig(config_);
+        mayapCloudSetConfig(config_);
         mayapSetConnectivityMode(config_.connectivityMode);
         eventLog_.push(now, EventType::ConfigSaved,
                        static_cast<uint16_t>(EventCode::ConfigSaved));
@@ -4029,6 +4087,7 @@ class MachineController {
         config_ = readback;
         hmiSetConfig(config_);
         mayapWebSetConfig(config_);
+        mayapCloudSetConfig(config_);
         mayapSetConnectivityMode(config_.connectivityMode);
         eventLog_.push(now, EventType::AutoTuneEnd,
                        static_cast<uint16_t>(EventCode::AutoTuneSuccess),
@@ -4859,6 +4918,10 @@ class MachineController {
     if (runtime_.timeValid) {
       snprintf(runtime_.dateText, sizeof(runtime_.dateText), "%s",
                rtc_.dateText());
+      snprintf(runtime_.timeText, sizeof(runtime_.timeText), "%s",
+               rtc_.timeText());
+    } else {
+      snprintf(runtime_.timeText, sizeof(runtime_.timeText), "--:--");
     }
     runtime_.batchRunning = batchRunning_ || resumePending_;
     if (resumePending_ && !batchRunning_) {
@@ -4876,6 +4939,8 @@ class MachineController {
     runtime_.heaterOn = outputs_.state().heaterSsr;
     runtime_.circulationFanOn = outputs_.state().circulationFan;
     runtime_.ventFanOn = outputs_.state().ventFan;
+    runtime_.lightOn = outputs_.state().light;
+    runtime_.sirenOn = outputs_.state().siren;
     runtime_.autoTuneState = autotune_.state();
     runtime_.autoTuneProgress = autotune_.progress();
     runtime_.primaryFaultCode = static_cast<uint16_t>(faults_.primary());
@@ -5257,6 +5322,8 @@ class MachineController {
     mayapSerialPrintf(false, "[CONFIG] canh_bao_am_thanh=%s che_do_ket_noi=%s\n",
         config_.alarmEnabled ? "BAT" : "TAT",
         config_.connectivityMode == ConnectivityMode::Online ? "ONLINE" : "OFFLINE");
+    mayapSerialPrintf(false, "[CONFIG] canh_bao_den_con_bat_khi_dang_ap=%s\n",
+        config_.lightAfterBatchAlarmEnabled ? "BAT" : "TAT");
   }
 
   void printStatus(uint32_t now) {

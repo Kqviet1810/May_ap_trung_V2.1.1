@@ -29,7 +29,7 @@
     'powerRestoreDelaySec', 'sensorTimeoutSec', 'maxHeaterPower',
     'totalIncubationDays', 'circulationFanEnabled', 'turningEnabled',
     'autoResumeAfterPower', 'allowHeatWithoutBatch', 'alarmEnabled',
-    'controlMode', 'nextDirection'
+    'lightAfterBatchAlarmEnabled', 'controlMode', 'nextDirection'
   ]);
 
   const DEFAULT_BATCH_META = Object.freeze({
@@ -461,6 +461,8 @@
       updateOutput('outputCirculation', false);
       updateOutput('outputVent', false);
       updateOutput('outputTurn', false, 'ĐANG ĐẢO', 'CHỜ');
+      updateOutput('outputLight', false);
+      updateOutput('outputSiren', false);
       setCurrentActivity('Chưa có dữ liệu vận hành', 'Đang chờ snapshot từ ESP32', 'idle');
       renderBatchAction(device, null);
       return;
@@ -472,6 +474,8 @@
     updateOutput('outputHeater', bool(runtime.heaterOn));
     updateOutput('outputCirculation', bool(runtime.circulationFanOn));
     updateOutput('outputVent', bool(runtime.ventFanOn));
+    updateOutput('outputLight', bool(runtime.lightOn));
+    updateOutput('outputSiren', bool(runtime.sirenOn));
 
     const turnMap = { 0: 'DỪNG', 1: 'TRÁI', 2: 'PHẢI', 3: 'CHỜ', 4: 'LỖI' };
     const turn = Number(runtime.turnState);
@@ -594,7 +598,9 @@
     assign('sensorForm', 'humidityOffset', config.humidityOffset);
     assign('sensorForm', 'sensorTimeout', config.sensorTimeoutSec);
 
-    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm'].forEach((formId) => {
+    check('lightAlarmForm', 'lightAfterBatchAlarmEnabled', config.lightAfterBatchAlarmEnabled);
+
+    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm'].forEach((formId) => {
       if (force || !hasDirtyForm(formId)) setFormState(formId, 'saved', 'Đã đồng bộ với ESP32');
     });
     updateSettingSummaries();
@@ -645,6 +651,8 @@
       config.tempOffset = Number($('tempOffset').value);
       config.humidityOffset = Number($('humidityOffset').value);
       config.sensorTimeoutSec = Number($('sensorTimeout').value);
+    } else if (group === 'lightAlarm') {
+      config.lightAfterBatchAlarmEnabled = $('lightAfterBatchAlarmEnabled').checked;
     }
     return config;
   }
@@ -1306,6 +1314,11 @@
       await sendConfig('sensorForm', 'sensor');
     });
 
+    $('lightAlarmForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      await sendConfig('lightAlarmForm', 'lightAlarm');
+    });
+
     $('startTune').addEventListener('click', async () => {
       const runtime = currentDevice()?.snapshot?.runtime;
       if (runtime?.batchRunning) return toast('Không thể Auto Tune khi mẻ đang chạy');
@@ -1322,14 +1335,14 @@
 
     $('openWifiPortal').addEventListener('click', async () => {
       const ok = await confirmAction({
-        title: 'Mở trang đổi Wi‑Fi?',
-        message: 'Trước tiên giữ nút BOOT trên ESP32 trong 3 giây, sau đó kết nối điện thoại với mạng MAYAP-XXXX.',
-        accept: 'Mở 192.168.4.1'
+        title: 'Đã kết nối vào MAYAP-XXXX chưa?',
+        message: 'Bấm "Mở trang đổi Wi‑Fi" chỉ hoạt động khi điện thoại ĐANG kết nối vào mạng MAYAP-XXXX của máy ấp (bước 1-2 trong hướng dẫn). Nếu chưa, hãy thoát ra làm 2 bước đó trước.',
+        accept: 'Mở trang đổi Wi‑Fi'
       });
       if (ok) window.location.href = 'http://192.168.4.1/';
     });
 
-    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm'].forEach(registerDirty);
+    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm'].forEach(registerDirty);
   }
 
   function startTimers() {

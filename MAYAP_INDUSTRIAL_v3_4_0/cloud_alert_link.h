@@ -75,6 +75,13 @@ static bool knownRuntimeValid = false;
 // controlTask ghi de, tranh rang buoc "doc-roi-ghi-lai" khong an toan.
 static MachineRuntime processingRuntime{};
 
+// Hop thu config (giong het pattern hop thu runtime o tren) - chi can doc
+// cac co BAT/TAT canh bao (vd lightAfterBatchAlarmEnabled), khong can toan
+// bo MachineConfig nhung dung chung struct cho don gian/de doi chieu.
+static MachineConfig knownConfig{};
+static bool knownConfigValid = false;
+static MachineConfig processingConfig{};
+
 // Backoff RIENG cho Cloud Push - hoan toan doc lap voi backoff cua MQTT
 // (realtime_link.h) va STA Wi-Fi (network_service.h). Dung chung cho ca 3
 // loai goi HTTPS (register/heartbeat/alarm) vi ca 3 cung phan anh cung 1 cau
@@ -282,6 +289,39 @@ inline void checkTransitions(uint32_t now) {
   }
 }
 
+// --------------------- Canh bao: den van bat khi dang ap me --------------------
+// Dieu kien: me ap dang chay VA den (lightOn) van bat. Gui 1 lan khi vua phat
+// hien, sau do nhac lai moi CLOUD_LIGHT_AFTER_BATCH_REPEAT_MS (30 phut) neu
+// van con dung, va bao "da binh thuong" ngay khi het dieu kien (tat den hoac
+// ket thuc me) - dung nguyen mau checkFaults() nhung cho 1 dieu kien don, co
+// the tat rieng qua config (khac cac loi FaultCode khac khong tat duoc).
+static bool lightAfterBatchActive = false;
+static uint32_t lightAfterBatchLastSentAt = 0;
+
+inline void checkLightAfterBatch(uint32_t now) {
+  if (!processingConfig.lightAfterBatchAlarmEnabled) {
+    lightAfterBatchActive = false;  // nguoi dung vua tat: khong con "dinh" trang thai active cu
+    return;
+  }
+  const bool condition = processingRuntime.batchRunning && processingRuntime.lightOn;
+  if (condition) {
+    if (!lightAfterBatchActive) {
+      lightAfterBatchActive = true;
+      lightAfterBatchLastSentAt = now;
+      enqueueLevel("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
+          "Đèn vẫn đang bật trong lúc mẻ ấp đang chạy - kiểm tra lại nếu không cần thiết.");
+    } else if (timeReached(now, lightAfterBatchLastSentAt + CLOUD_LIGHT_AFTER_BATCH_REPEAT_MS)) {
+      lightAfterBatchLastSentAt = now;
+      enqueueLevel("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
+          "Vẫn còn: đèn đang bật trong lúc mẻ ấp đang chạy.");
+    }
+  } else if (lightAfterBatchActive) {
+    lightAfterBatchActive = false;
+    enqueueResolved("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
+        "Đèn đã tắt hoặc mẻ ấp đã kết thúc.");
+  }
+}
+
 inline void checkConnectivity(uint32_t now) {
   (void)now;
   const NetworkStatus status = mayapGetNetworkStatus();
@@ -457,10 +497,13 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
     portENTER_CRITICAL(&cloudMux);
     const bool valid = knownRuntimeValid;
     if (valid) processingRuntime = knownRuntime;
+    const bool configValid = knownConfigValid;
+    if (configValid) processingConfig = knownConfig;
     portEXIT_CRITICAL(&cloudMux);
     if (valid) {
       checkFaults(now);
       checkTransitions(now);
+      if (configValid) checkLightAfterBatch(now);
     }
     checkConnectivity(now);
   }
@@ -480,6 +523,16 @@ inline void mayapCloudSetRuntime(const MachineRuntime &runtime) {
   portENTER_CRITICAL(&cloudMux);
   knownRuntime = runtime;
   knownRuntimeValid = true;
+  portEXIT_CRITICAL(&cloudMux);
+}
+
+// Cung noi/cung nhip voi mayapWebSetConfig() cua realtime_link.h - chi can
+// cho checkLightAfterBatch() biet lightAfterBatchAlarmEnabled dang BAT/TAT.
+inline void mayapCloudSetConfig(const MachineConfig &config) {
+  using namespace MayapCloudInternal;
+  portENTER_CRITICAL(&cloudMux);
+  knownConfig = config;
+  knownConfigValid = true;
   portEXIT_CRITICAL(&cloudMux);
 }
 

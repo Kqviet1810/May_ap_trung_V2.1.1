@@ -242,6 +242,7 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   c["autoResumeAfterPower"] = cfg.autoResumeOnPowerLoss;
   c["allowHeatWithoutBatch"] = cfg.allowHeatWithoutBatch;
   c["alarmEnabled"] = cfg.alarmEnabled;
+  c["lightAfterBatchAlarmEnabled"] = cfg.lightAfterBatchAlarmEnabled;
   c["controlMode"] = static_cast<uint8_t>(cfg.controlMode);
   c["nextDirection"] = static_cast<uint8_t>(cfg.nextDirection);
   publishJson("config/reported", doc, true);
@@ -261,6 +262,8 @@ inline void publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
   r["heaterPower"] = rt.heaterPower;
   r["circulationFanOn"] = rt.circulationFanOn;
   r["ventFanOn"] = rt.ventFanOn;
+  r["lightOn"] = rt.lightOn;
+  r["sirenOn"] = rt.sirenOn;
   r["turnState"] = static_cast<uint8_t>(rt.turnState);
   r["nextTurnMinutes"] = rt.nextTurnMinutes;
   r["autoTuneState"] = static_cast<uint8_t>(rt.autoTuneState);
@@ -408,6 +411,8 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   candidate.allowHeatWithoutBatch =
       configObj["allowHeatWithoutBatch"] | candidate.allowHeatWithoutBatch;
   candidate.alarmEnabled = configObj["alarmEnabled"] | candidate.alarmEnabled;
+  candidate.lightAfterBatchAlarmEnabled =
+      configObj["lightAfterBatchAlarmEnabled"] | candidate.lightAfterBatchAlarmEnabled;
   candidate.controlMode = static_cast<ControlMode>(
       configObj["controlMode"] | static_cast<uint8_t>(candidate.controlMode));
   candidate.nextDirection = static_cast<TurnDirection>(

@@ -48,6 +48,8 @@
 <div><span>Tuần hoàn</span><strong class="on" id="outputCirculation">ON</strong></div>
 <div><span>Thông gió</span><strong id="outputVent">OFF</strong></div>
 <div><span>Đảo trứng</span><strong id="outputTurn">CHỜ</strong></div>
+<div><span>Đèn</span><strong id="outputLight">OFF</strong></div>
+<div><span>Còi báo</span><strong id="outputSiren">OFF</strong></div>
 </div>
 <button class="primary full" type="submit">Lưu thông số nhanh</button>
 </form>
@@ -76,7 +78,7 @@
 <div class="settingsStack">
 <details class="settingCard" id="wifiSetting">
 <summary><span class="settingIcon">⌁</span><span class="settingSummary"><strong>Đổi Wi‑Fi</strong><small id="wifiSettingSummary">Đang kết nối: Phòng 301</small></span><span aria-hidden="true" class="disclosure"></span></summary>
-<form class="settingBody" id="wifiForm"><p class="settingFootnote">Đổi Wi‑Fi được thực hiện trực tiếp trên trang cài đặt của ESP32. Mật khẩu Wi‑Fi không đi qua MQTT.</p><div class="wifiGuide"><strong>3 bước ngắn gọn</strong><small>1. Giữ nút BOOT 3 giây trên máy.<br/>2. Kết nối điện thoại vào Wi‑Fi MAYAP-XXXX.<br/>3. Mở trang cài đặt và chọn Wi‑Fi mới.</small></div><button class="primary full" id="openWifiPortal" type="button">Mở trang cài đặt Wi‑Fi</button></form>
+<form class="settingBody" id="wifiForm"><p class="settingFootnote">Trình duyệt không cho phép trang web này (HTTPS) nói chuyện thẳng với máy ấp khi máy chưa có mạng - cần đổi Wi‑Fi ngay trên máy qua 1 bước chuyển mạng tạm thời. Mật khẩu Wi‑Fi không đi qua MQTT hay Internet.</p><div class="wifiGuide"><strong>4 bước</strong><small>1. Giữ nút BOOT 3 giây trên máy ấp (đèn báo cấu hình sẽ sáng).<br/>2. Trên điện thoại, vào Cài đặt Wi‑Fi và kết nối vào mạng <b>MAYAP-XXXX</b>.<br/>3. Bấm nút bên dưới - trang đổi Wi‑Fi của máy ấp sẽ tự mở, chọn mạng nhà bạn và nhập mật khẩu.<br/>4. Sau khi lưu, kết nối điện thoại trở lại Wi‑Fi nhà bạn - quay lại đây, máy sẽ tự online lại trong ít phút.</small></div><button class="primary full" id="openWifiPortal" type="button">Mở trang đổi Wi‑Fi (bước 3)</button></form>
 </details>
 <details class="settingCard">
 <summary><span class="settingIcon">♢</span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>
@@ -86,6 +88,10 @@
 <p class="settingFootnote" id="pushErrorText" hidden></p>
 <button class="primary full" id="enablePushBtn" type="button">Bật thông báo</button>
 <button class="ghost full" id="testPushBtn" type="button" hidden>Kiểm tra thông báo</button>
+<form id="lightAlarmForm" style="display:grid;gap:14px;margin-top:4px">
+<div class="notificationLine"><div><strong>Nhắc nếu đèn còn bật khi đang ấp</strong><small>Nhắc lại mỗi 30 phút nếu đèn vẫn bật sau khi mẻ ấp đã bắt đầu.</small></div><label class="toggle"><input checked="" id="lightAfterBatchAlarmEnabled" type="checkbox"/><i></i></label></div>
+<button class="ghost full" type="submit">Lưu cài đặt nhắc đèn</button>
+</form>
 </div>
 </details>
 <details class="settingCard">
