@@ -99,12 +99,12 @@ constexpr uint32_t WEB_CONFIG_SAVE_ACK_TIMEOUT_MS = 8000UL;
 // mayapDeviceIdText()) la dinh danh cong khai, viec "ghep" trinh duyet nhan
 // thong bao hoan toan thuc hien o phia trang web (xem push.js/setup.html).
 #ifndef MAYAP_DEVICE_SECRET
-#define MAYAP_DEVICE_SECRET ""
+#define MAYAP_DEVICE_SECRET "ddd731ab21ea9024e9c69abbe67b63e9"
 #endif
 constexpr char CLOUD_DEVICE_SECRET[] = MAYAP_DEVICE_SECRET;
 
 #ifndef MAYAP_CLOUD_API_HOST
-#define MAYAP_CLOUD_API_HOST ""
+#define MAYAP_CLOUD_API_HOST "mayap-push-worker.vietk-mayaptrung.workers.dev"
 #endif
 // Chi ten host, KHONG "https://" o dau (vd: "mayap-push-worker.abc.workers.dev"
 // hoac "api.tenmiencuaban.vn" neu da gan custom domain cho Worker).
