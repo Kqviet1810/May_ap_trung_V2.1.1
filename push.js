@@ -97,11 +97,23 @@
   }
 
   // reason co the la: 'unsupported' | 'ios-needs-install' | 'denied' | 'error'
+  //
+  // QUAN TRONG cho Safari/iOS: requestPermission() phai la thao tac async
+  // DAU TIEN sau cu cham cua nguoi dung, khong duoc co await nao (vi du
+  // dang ky Service Worker) chen truoc no. WebKit gan quyen "user gesture"
+  // rat chat - de mot await khac chay truoc se lam mat "user activation",
+  // khien requestPermission() lang le khong hien hop thoai hoac tu choi,
+  // dù nut van goi duoc binh thuong tren Chrome/Android (khong bi rang buoc
+  // nay). Vi vay xin quyen TRUOC, dang ky Service Worker SAU.
   async function enable(deviceId, options = {}) {
     if (!deviceId) return { ok: false, reason: 'no-device' };
     if (!isSupported()) return { ok: false, reason: 'unsupported' };
     if (!cloudApiBase()) return { ok: false, reason: 'not-configured' };
     if (isIos() && !isStandalone()) return { ok: false, reason: 'ios-needs-install' };
+
+    if (Notification.permission === 'denied') return { ok: false, reason: 'denied' };
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return { ok: false, reason: 'denied' };
 
     let registration;
     try {
@@ -109,10 +121,6 @@
     } catch (error) {
       return { ok: false, reason: 'error', error: String(error?.message || error) };
     }
-
-    if (Notification.permission === 'denied') return { ok: false, reason: 'denied' };
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') return { ok: false, reason: 'denied' };
 
     try {
       const publicKey = await fetchVapidPublicKey();
