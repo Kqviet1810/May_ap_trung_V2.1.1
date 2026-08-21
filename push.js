@@ -73,6 +73,23 @@
     return data.publicKey;
   }
 
+  // "Khoi dong truoc" dang ky Service Worker + lay VAPID public key NGAY khi
+  // trang tai xong (khong doi nguoi dung bam nut). Chuyen requestPermission()
+  // len dau tien (xem enable() ben duoi) da giai quyet phan lon van de, nhung
+  // Safari/iOS con thuc te bi mat "user activation" ngay ca boi 1 await MANG
+  // (goi fetchVapidPublicKey) chen giua luc cap quyen va luc goi subscribe() -
+  // nen ca 2 buoc nay cung can duoc lam SAN, de trong enable() chi con
+  // Promise.all() tren 2 promise (thuong) DA XONG tu truoc, khong con doi
+  // mang giua chung "cap quyen" va "subscribe" nua.
+  let warmupPromise = null;
+  function warmUp() {
+    if (!warmupPromise) {
+      warmupPromise = Promise.allSettled([registerServiceWorker(), fetchVapidPublicKey()]);
+    }
+    return warmupPromise;
+  }
+  if (isSupported() && cloudApiBase()) warmUp();
+
   // Goi /api/push/subscribe la thao tac UPSERT re/an toan goi lai nhieu lan -
   // dung ca khi bat thong bao lan dau LAN khi tu "vien lai" link cho mot
   // subscription da co san (vi du sau khi trinh duyet tu xoay subscription o
@@ -96,15 +113,25 @@
     saveLinked(linked);
   }
 
+  function errorText(error) {
+    // Bao gom ten loi that (vi du DOMException "NotAllowedError") - can de
+    // chan doan Safari/iOS khi thu that bai, khac Chrome/Android o dung loi
+    // nay nhung khong bao gio hien ra tren giao dien truoc day.
+    const name = error?.name ? `${error.name}: ` : '';
+    return `${name}${error?.message || error}`;
+  }
+
   // reason co the la: 'unsupported' | 'ios-needs-install' | 'denied' | 'error'
   //
-  // QUAN TRONG cho Safari/iOS: requestPermission() phai la thao tac async
-  // DAU TIEN sau cu cham cua nguoi dung, khong duoc co await nao (vi du
-  // dang ky Service Worker) chen truoc no. WebKit gan quyen "user gesture"
-  // rat chat - de mot await khac chay truoc se lam mat "user activation",
-  // khien requestPermission() lang le khong hien hop thoai hoac tu choi,
-  // dù nut van goi duoc binh thuong tren Chrome/Android (khong bi rang buoc
-  // nay). Vi vay xin quyen TRUOC, dang ky Service Worker SAU.
+  // QUAN TRONG cho Safari/iOS: WebKit gan chat "user activation" cua cu cham
+  // nguoi dung - Notification.requestPermission() phai la thao tac async DAU
+  // TIEN, va cang IT await mang (dang ky Service Worker, goi API lay VAPID
+  // key) xen giua luc cap quyen va luc goi pushManager.subscribe() cang tot.
+  // Chrome/Android khong bi rang buoc nay nen truoc day test tren Android
+  // "chay tot" che mat loi nay tren iPhone. Giai phap: "khoi dong truoc" ca
+  // Service Worker lan VAPID key ngay luc trang tai (xem warmUp() o tren),
+  // de o day chi con cho 1 Promise.allSettled() DA CO SAN (khong phai doi
+  // mang), giu subscribe() sat cu cham nhat co the.
   async function enable(deviceId, options = {}) {
     if (!deviceId) return { ok: false, reason: 'no-device' };
     if (!isSupported()) return { ok: false, reason: 'unsupported' };
@@ -112,18 +139,25 @@
     if (isIos() && !isStandalone()) return { ok: false, reason: 'ios-needs-install' };
 
     if (Notification.permission === 'denied') return { ok: false, reason: 'denied' };
-    const permission = await Notification.requestPermission();
+    let permission;
+    try {
+      permission = await Notification.requestPermission();
+    } catch (error) {
+      return { ok: false, reason: 'error', error: errorText(error) };
+    }
     if (permission !== 'granted') return { ok: false, reason: 'denied' };
 
-    let registration;
-    try {
-      registration = await registerServiceWorker();
-    } catch (error) {
-      return { ok: false, reason: 'error', error: String(error?.message || error) };
+    const [registrationResult, publicKeyResult] = await warmUp();
+    if (registrationResult.status === 'rejected') {
+      return { ok: false, reason: 'error', error: errorText(registrationResult.reason) };
+    }
+    if (publicKeyResult.status === 'rejected') {
+      return { ok: false, reason: 'error', error: errorText(publicKeyResult.reason) };
     }
 
     try {
-      const publicKey = await fetchVapidPublicKey();
+      const registration = registrationResult.value;
+      const publicKey = publicKeyResult.value;
       let subscription = await registration.pushManager.getSubscription();
       if (!subscription) {
         subscription = await registration.pushManager.subscribe({
@@ -135,7 +169,7 @@
       await linkSubscription(deviceId, subscription, options.pairingToken);
       return { ok: true };
     } catch (error) {
-      return { ok: false, reason: 'error', error: String(error?.message || error) };
+      return { ok: false, reason: 'error', error: errorText(error) };
     }
   }
 
