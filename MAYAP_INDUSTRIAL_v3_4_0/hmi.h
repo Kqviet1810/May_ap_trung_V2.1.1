@@ -1038,15 +1038,19 @@ BuzzerPattern buzzerCuePattern(BuzzerCue cue) {
 }
 
 BuzzerPattern alarmPattern(uint32_t bit) {
+  // Coi HMI la loai active (tu dao dong san, xem ghi chu o buzzerCuePattern())
+  // nen KHONG chinh duoc do to nho/dB qua phan mem - da rut ngan het muc thoi
+  // gian xung (onMs) con lai gan mot nua so voi truoc, giam tong thoi gian
+  // keu that su moi lan bao (van du de nghe thay va phan biet cac muc do).
   switch (bit) {
-    case AlarmEmergency:   return {900, 100, 0};   // Gan lien tuc, uu tien cao nhat
-    case AlarmSystem:      return {600, 200, 0};
-    case AlarmAutoMode:    return {300, 700, 0};
-    case AlarmSensor:      return {450, 300, 0};
-    case AlarmTurning:     return {400, 400, 0};
-    case AlarmTempHigh:    return {350, 500, 0};
-    case AlarmTempLow:     return {220, 900, 0};
-    case AlarmHumidityLow: return {120, 2880, 0};  // Het nuoc: nhac nho thua
+    case AlarmEmergency:   return {450, 100, 0};   // Gan lien tuc, uu tien cao nhat
+    case AlarmSystem:      return {300, 200, 0};
+    case AlarmAutoMode:    return {150, 700, 0};
+    case AlarmSensor:      return {220, 300, 0};
+    case AlarmTurning:     return {200, 400, 0};
+    case AlarmTempHigh:    return {175, 500, 0};
+    case AlarmTempLow:     return {110, 900, 0};
+    case AlarmHumidityLow: return {60, 2880, 0};  // Het nuoc: nhac nho thua
     default:               return {0, 0, 0};
   }
 }
@@ -2090,9 +2094,31 @@ void drawEditSetting() {
   const int16_t labelX = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(item.label))) / 2);
   lcd.drawStr(labelX, 23, item.label);
   formatSettingValue(item, editValue, value, sizeof(value));
-  lcd.setFont(u8g2_font_helvB14_tf);
-  const int16_t x = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(value))) / 2);
-  lcd.drawStr(x, 48, value);
+
+  if (item.type == SettingType::Bool) {
+    // Cong tac BAT/TAT ve dang do hoa (giong toggle switch cac app dien
+    // thoai) thay vi chi chu "BAT"/"TAT" tho - nhin trang thai ngay khong
+    // can doc chu, khoi bam nham chieu.
+    const bool on = editValue >= 0.5f;
+    constexpr int16_t trackW = 52, trackH = 22, trackY = 30, knobR = 8, knobInset = 11;
+    const int16_t trackX = (128 - trackW) / 2;
+    lcd.setDrawColor(1);
+    if (on) lcd.drawRBox(trackX, trackY, trackW, trackH, trackH / 2);
+    else lcd.drawRFrame(trackX, trackY, trackW, trackH, trackH / 2);
+    const int16_t knobY = trackY + trackH / 2;
+    const int16_t knobX = on ? (trackX + trackW - knobInset) : (trackX + knobInset);
+    lcd.setDrawColor(on ? 0 : 1);
+    lcd.drawDisc(knobX, knobY, knobR);
+    lcd.setDrawColor(1);
+
+    lcd.setFont(u8g2_font_helvB12_tf);
+    const int16_t vx = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(value))) / 2);
+    lcd.drawStr(vx, 61, value);
+  } else {
+    lcd.setFont(u8g2_font_helvB14_tf);
+    const int16_t x = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(value))) / 2);
+    lcd.drawStr(x, 48, value);
+  }
 }
 
 const char *autoTuneStateText(AutoTuneState state) {
@@ -2160,15 +2186,42 @@ const char *testResultTag(TestResult result) {
   }
 }
 
+// 2 nut lon dung chung cho moi man xac nhan Co/Khong tren HMI (dung lai o
+// day va drawConfirmScreen() ben duoi) - thay cho kieu chu nho ">CO< KHONG"
+// tho, kho nhin/de bam nham truoc day.
+void drawYesNoButtons(bool yesSelected, const char *yesLabel, const char *noLabel) {
+  constexpr int16_t btnY = 40, btnH = 20, margin = 4, gap = 6;
+  constexpr int16_t btnW = (128 - 2 * margin - gap) / 2;
+  const int16_t yesX = margin;
+  const int16_t noX = margin + btnW + gap;
+
+  lcd.setFont(u8g2_font_helvB12_tf);
+  lcd.setDrawColor(1);
+  if (yesSelected) lcd.drawBox(yesX, btnY, btnW, btnH);
+  else lcd.drawFrame(yesX, btnY, btnW, btnH);
+  lcd.setDrawColor(yesSelected ? 0 : 1);
+  {
+    const int16_t tw = static_cast<int16_t>(lcd.getStrWidth(yesLabel));
+    lcd.drawStr(yesX + max(0, (btnW - tw) / 2), btnY + 15, yesLabel);
+  }
+
+  lcd.setDrawColor(1);
+  if (!yesSelected) lcd.drawBox(noX, btnY, btnW, btnH);
+  else lcd.drawFrame(noX, btnY, btnW, btnH);
+  lcd.setDrawColor(yesSelected ? 1 : 0);
+  {
+    const int16_t tw = static_cast<int16_t>(lcd.getStrWidth(noLabel));
+    lcd.drawStr(noX + max(0, (btnW - tw) / 2), btnY + 15, noLabel);
+  }
+  lcd.setDrawColor(1);
+}
+
 void drawTestDeviceConfirm() {
   drawHeader("TEST");
   lcd.setFont(u8g2_font_6x12_tf);
-  drawCenteredText(26, testOutputLabel(testDeviceConfirmIndex));
-  drawCenteredText(40, "THIET BI CO CHAY KHONG?");
-  lcd.setFont(u8g2_font_5x8_tf);
-  char line[24];
-  snprintf(line, sizeof(line), testDeviceConfirmYes ? ">CO< KHONG" : "CO >KHONG<");
-  drawCenteredText(58, line);
+  drawCenteredText(24, testOutputLabel(testDeviceConfirmIndex));
+  drawCenteredText(36, "CO CHAY KHONG?");
+  drawYesNoButtons(testDeviceConfirmYes, "CO", "KHONG");
 }
 
 void drawTestMode() {
@@ -2477,32 +2530,7 @@ void drawConfirmScreen() {
     lcd.drawStr(max(1, (128 - w2) / 2), y1 + 13, line2);
   }
 
-  // 2 nut lon CO/HUY, moi nut gan nua chieu rong man hinh - de nhin va kho
-  // bam nham hon han so voi dong chu nho o cuoi man truoc day.
-  constexpr int16_t btnY = 40, btnH = 20, margin = 4, gap = 6;
-  constexpr int16_t btnW = (128 - 2 * margin - gap) / 2;
-  const int16_t yesX = margin;
-  const int16_t noX = margin + btnW + gap;
-
-  lcd.setFont(u8g2_font_helvB12_tf);
-  lcd.setDrawColor(1);
-  if (confirmYes) lcd.drawBox(yesX, btnY, btnW, btnH);
-  else lcd.drawFrame(yesX, btnY, btnW, btnH);
-  lcd.setDrawColor(confirmYes ? 0 : 1);
-  {
-    const int16_t tw = static_cast<int16_t>(lcd.getStrWidth("CO"));
-    lcd.drawStr(yesX + max(0, (btnW - tw) / 2), btnY + 15, "CO");
-  }
-
-  lcd.setDrawColor(1);
-  if (!confirmYes) lcd.drawBox(noX, btnY, btnW, btnH);
-  else lcd.drawFrame(noX, btnY, btnW, btnH);
-  lcd.setDrawColor(confirmYes ? 1 : 0);
-  {
-    const int16_t tw = static_cast<int16_t>(lcd.getStrWidth("HUY"));
-    lcd.drawStr(noX + max(0, (btnW - tw) / 2), btnY + 15, "HUY");
-  }
-  lcd.setDrawColor(1);
+  drawYesNoButtons(confirmYes, "CO", "HUY");
 }
 
 void drawToast(uint32_t now) {
