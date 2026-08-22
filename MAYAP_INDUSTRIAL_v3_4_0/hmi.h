@@ -49,6 +49,7 @@ struct BuzzerState {
   bool resumePromptActive = false;
   bool turnPatternActive = false;
   uint8_t turnPhase = 0;
+  uint8_t emergencyPhase = 0;
   uint8_t transientPulsesLeft = 0;
   BuzzerPattern transientPattern{0, 0, 0};
 };
@@ -1029,7 +1030,9 @@ BuzzerPattern buzzerCuePattern(BuzzerCue cue) {
     // Coi la loai active (tu dao dong, khong chinh duoc cao do/am luong qua
     // PWM), nen cach duy nhat de "diu" tieng la rut ngan thoi gian xung. Key
     // vang o moi lan bam nen phai la tieng "tach" that nhe, khong phai tieng "bip".
-    case BuzzerCue::Key:   return {4, 0, 1};       // Tieng nhan phim cuc ngan, gan nhu "cach"
+    // pulses=0 -> buzzerPlayCue() tu bo qua (xem "if (!pattern.pulses) return;")
+    // - bo han tieng khi nhan phim theo yeu cau, khong can dung tung noi goi.
+    case BuzzerCue::Key:   return {0, 0, 0};
     case BuzzerCue::Save:  return {10, 0, 1};      // Bip cuc ngan, khong gay on
     case BuzzerCue::Ok:    return {35, 50, 2};     // Hai bip nhe
     case BuzzerCue::Error: return {90, 90, 3};     // Van giu 3 bip ro rang de phan biet loi (an toan)
@@ -1145,6 +1148,30 @@ void buzzerUpdate(uint32_t now) {
     buzzer.turnPatternActive = false;
     buzzer.turnPhase = 0U;
     buzzerStopTransient();
+
+    if (alarmBit == AlarmEmergency) {
+      // Nhip "Temporal-3" (ISO 8201) - chuan quoc te cho coi bao chay/khan
+      // cap: 3 tieng bip ngan + 1 khoang lang dai hon, lap lai. Nghe RO la
+      // canh bao that su ngay lap tuc, thay vi 1 tieng bip don deu deu nhu
+      // cac muc canh bao khac (van giu nguyen alarmPattern() cho cac muc do
+      // thap hon - chi rieng Khan cap moi dang nhip nay).
+      constexpr uint8_t T3_STEPS = 6U;
+      constexpr bool T3_ON[T3_STEPS]      = {true, false, true, false, true, false};
+      constexpr uint16_t T3_MS[T3_STEPS]  = {450, 450, 450, 450, 450, 1300};
+      if (buzzer.soundingAlarmBit != alarmBit) {
+        buzzer.soundingAlarmBit = alarmBit;
+        buzzer.emergencyPhase = 0U;
+        buzzerWrite(true);
+        buzzer.deadline = now + T3_MS[0];
+        return;
+      }
+      if (static_cast<int32_t>(now - buzzer.deadline) < 0) return;
+      buzzer.emergencyPhase = static_cast<uint8_t>((buzzer.emergencyPhase + 1U) % T3_STEPS);
+      buzzerWrite(T3_ON[buzzer.emergencyPhase]);
+      buzzer.deadline = now + T3_MS[buzzer.emergencyPhase];
+      return;
+    }
+
     const BuzzerPattern pattern = alarmPattern(alarmBit);
     if (buzzer.soundingAlarmBit != alarmBit) {
       buzzer.soundingAlarmBit = alarmBit;
