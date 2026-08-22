@@ -508,7 +508,13 @@
     $('liveTemp').textContent = `${numberVi(runtime.temperature)}°C`;
     $('liveHumidity').textContent = `${numberVi(runtime.humidity, 0)}%`;
     $('liveState').textContent = runtime.machineState || (runtime.batchRunning ? 'Đang ấp' : 'Sẵn sàng');
-    updateOutput('outputHeater', bool(runtime.heaterOn));
+    // Thanh nhiet dong cat theo chu ky PID (mac dinh 10s) nen trang thai SSR
+    // tuc thoi (heaterOn) nhap nhay rat nhanh - snapshot 400ms-6s de bat trung
+    // luc OFF giua 2 xung, nguoi dung thay "may dang nong" nhung wed bao OFF.
+    // heaterPower > 0 phan anh dung y dinh dieu khien (PID dang can nhiet),
+    // on dinh hon nhieu cho hien thi cho nguoi dung.
+    const heaterActive = Number(runtime.heaterPower) > 0;
+    updateOutput('outputHeater', heaterActive);
     updateOutput('outputCirculation', bool(runtime.circulationFanOn));
     updateOutput('outputVent', bool(runtime.ventFanOn));
     updateOutput('outputLight', bool(runtime.lightOn));
@@ -558,7 +564,7 @@
       setCurrentActivity(`Đang đảo trứng sang ${turn === 1 ? 'trái' : 'phải'}`, 'Đang chờ công tắc hành trình', 'active');
     } else if (runtime.ventFanOn) {
       setCurrentActivity('Quạt thông gió đang chạy', `Nhiệt độ ${numberVi(runtime.temperature)} °C`, 'active');
-    } else if (runtime.heaterOn) {
+    } else if (heaterActive) {
       setCurrentActivity(`Đang gia nhiệt ${numberVi(runtime.temperature)} °C`, `Công suất ${numberVi(runtime.heaterPower, 0)}%`, 'active');
     } else if (runtime.batchRunning) {
       setCurrentActivity(`Đang giữ nhiệt ${numberVi(runtime.temperature)} °C`, `Còn ${runtime.nextTurnMinutes || 0} phút tới lần đảo`, 'active');
