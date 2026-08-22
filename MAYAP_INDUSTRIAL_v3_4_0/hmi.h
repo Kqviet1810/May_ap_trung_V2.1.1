@@ -2213,41 +2213,67 @@ const char *testResultTag(TestResult result) {
   }
 }
 
+// Ve dau tick (v) day net, tam trong hop (cx,cy) +/- (halfW,halfH). Ve bang
+// drawLine() thay vi font icon co san - chac chan tuong thich moi ban u8g2,
+// khong phu thuoc bang ma glyph phai tra cuu dung.
+void drawCheckIcon(int16_t cx, int16_t cy, int16_t halfW, int16_t halfH) {
+  const int16_t x1 = cx - halfW, y1 = cy;
+  const int16_t x2 = cx - halfW / 3, y2 = cy + halfH;
+  const int16_t x3 = cx + halfW, y3 = cy - halfH;
+  for (int16_t d = -1; d <= 1; ++d) {
+    lcd.drawLine(x1, y1 + d, x2, y2 + d);
+    lcd.drawLine(x2, y2 + d, x3, y3 + d);
+  }
+}
+
+// Ve dau X day net, tam trong hop (cx,cy) +/- r.
+void drawCrossIcon(int16_t cx, int16_t cy, int16_t r) {
+  for (int16_t d = -1; d <= 1; ++d) {
+    lcd.drawLine(cx - r, cy - r + d, cx + r, cy + r + d);
+    lcd.drawLine(cx - r, cy + r + d, cx + r, cy - r + d);
+  }
+}
+
 // 2 nut lon dung chung cho moi man xac nhan Co/Khong tren HMI (dung lai o
-// day va drawConfirmScreen() ben duoi) - thay cho kieu chu nho ">CO< KHONG"
-// tho, kho nhin/de bam nham truoc day.
+// day va drawConfirmScreen() ben duoi) - dung icon tick/X lon de nhan dien
+// nhanh (giong HMI cong nghiep that), chu nhan chi con nho phia duoi icon.
 void drawYesNoButtons(bool yesSelected, const char *yesLabel, const char *noLabel) {
-  constexpr int16_t btnY = 40, btnH = 20, margin = 4, gap = 6;
+  constexpr int16_t btnY = 34, btnH = 18, margin = 4, gap = 6, capY = 61;
   constexpr int16_t btnW = (128 - 2 * margin - gap) / 2;
   const int16_t yesX = margin;
   const int16_t noX = margin + btnW + gap;
+  const int16_t yesCx = yesX + btnW / 2, noCx = noX + btnW / 2;
+  const int16_t cy = btnY + btnH / 2;
 
-  lcd.setFont(u8g2_font_helvB12_tf);
   lcd.setDrawColor(1);
-  if (yesSelected) lcd.drawBox(yesX, btnY, btnW, btnH);
-  else lcd.drawFrame(yesX, btnY, btnW, btnH);
+  if (yesSelected) lcd.drawRBox(yesX, btnY, btnW, btnH, 4);
+  else lcd.drawRFrame(yesX, btnY, btnW, btnH, 4);
   lcd.setDrawColor(yesSelected ? 0 : 1);
+  drawCheckIcon(yesCx, cy, 8, 5);
+
+  lcd.setDrawColor(1);
+  if (!yesSelected) lcd.drawRBox(noX, btnY, btnW, btnH, 4);
+  else lcd.drawRFrame(noX, btnY, btnW, btnH, 4);
+  lcd.setDrawColor(yesSelected ? 1 : 0);
+  drawCrossIcon(noCx, cy, 6);
+  lcd.setDrawColor(1);
+
+  lcd.setFont(u8g2_font_5x8_tf);
   {
     const int16_t tw = static_cast<int16_t>(lcd.getStrWidth(yesLabel));
-    lcd.drawStr(yesX + max(0, (btnW - tw) / 2), btnY + 15, yesLabel);
+    lcd.drawStr(yesCx - tw / 2, capY, yesLabel);
   }
-
-  lcd.setDrawColor(1);
-  if (!yesSelected) lcd.drawBox(noX, btnY, btnW, btnH);
-  else lcd.drawFrame(noX, btnY, btnW, btnH);
-  lcd.setDrawColor(yesSelected ? 1 : 0);
   {
     const int16_t tw = static_cast<int16_t>(lcd.getStrWidth(noLabel));
-    lcd.drawStr(noX + max(0, (btnW - tw) / 2), btnY + 15, noLabel);
+    lcd.drawStr(noCx - tw / 2, capY, noLabel);
   }
-  lcd.setDrawColor(1);
 }
 
 void drawTestDeviceConfirm() {
   drawHeader("TEST");
   lcd.setFont(u8g2_font_6x12_tf);
-  drawCenteredText(24, testOutputLabel(testDeviceConfirmIndex));
-  drawCenteredText(36, "CO CHAY KHONG?");
+  drawCenteredText(20, testOutputLabel(testDeviceConfirmIndex));
+  drawCenteredText(31, "CO CHAY KHONG?");
   drawYesNoButtons(testDeviceConfirmYes, "CO", "KHONG");
 }
 
@@ -2549,12 +2575,12 @@ void drawConfirmScreen() {
   }
 
   lcd.setFont(u8g2_font_6x12_tf);
-  const int16_t y1 = line2[0] ? 24 : 28;
+  const int16_t y1 = line2[0] ? 19 : 28;
   const int16_t w1 = static_cast<int16_t>(lcd.getStrWidth(line1));
   lcd.drawStr(max(1, (128 - w1) / 2), y1, line1);
   if (line2[0]) {
     const int16_t w2 = static_cast<int16_t>(lcd.getStrWidth(line2));
-    lcd.drawStr(max(1, (128 - w2) / 2), y1 + 13, line2);
+    lcd.drawStr(max(1, (128 - w2) / 2), y1 + 11, line2);
   }
 
   drawYesNoButtons(confirmYes, "CO", "HUY");
