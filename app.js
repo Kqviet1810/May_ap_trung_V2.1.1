@@ -749,7 +749,14 @@
       }, WEB.configTimeoutMs)
     });
     try {
-      publish(topics(device.id).config, payload, { qos: 1, retain: true });
+      // retain:false (KHONG giu lai tren broker) - day la lenh "luu cau hinh"
+      // 1 lan, khong phai trang thai. Voi retain:true truoc day, ESP32 se
+      // nhan lai CHINH payload nay moi lan subscribe lai topic config/set -
+      // dieu nay xay ra o MOI lan ket noi lai MQTT (ke ca WiFi chap chon
+      // thoang qua, khong chi luc khoi dong lai), gay ghi EEPROM lai vo ich
+      // va co the DE LEN cau hinh moi hon nguoi dung vua sua truc tiep tren
+      // HMI sau lan luu web gan nhat - loi im lang, rat kho tu phat hien.
+      publish(topics(device.id).config, payload, { qos: 1, retain: false });
     } catch (error) {
       clearPending(id);
       setFormState(formId, 'error', error.message);
@@ -1135,7 +1142,17 @@
       state.mqttConnected = true;
       state.mqttMessage = 'MQTT đã kết nối';
       state.subscriptions.clear();
-      state.devices.forEach((device) => subscribeDevice(device.id));
+      state.devices.forEach((device) => {
+        subscribeDevice(device.id);
+        // Don rac 1 lan: cac ban truoc cua trang nay tung gui config/set voi
+        // retain:true (da sua), co the con sot lai tren broker tu truoc khi
+        // sua. Publish payload rong kem retain:true la cach chuan cua MQTT de
+        // XOA retained message cu - lam moi lan ket noi cho chac, khong ton
+        // gi neu khong con gi de xoa (broker chi bo qua neu topic dang trong).
+        try {
+          state.mqtt.publish(topics(device.id).config, '', { qos: 1, retain: true });
+        } catch (_) {}
+      });
       activateSelectedSession(true);
       renderDevice();
     });
