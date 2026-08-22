@@ -254,11 +254,13 @@ inline void checkFaults(uint32_t now) {
       track.severity = item.severity;
       track.firstSentAt = now;
       track.lastSentAt = now;
-      snprintf(body, sizeof(body), "%s (mã lỗi %u)", faultSummaryText(item.code), item.code);
+      // KHONG kem "ma loi X" - nguoi dung thuong khong can biet ma noi bo,
+      // chi can biet DANG XAY RA CHUYEN GI (xem faultSummaryText).
+      snprintf(body, sizeof(body), "%s", faultSummaryText(item.code));
       enqueueLevel(alarmType, level, body);
     } else if (timeReached(now, track.lastSentAt + interval)) {
       track.lastSentAt = now;
-      snprintf(body, sizeof(body), "Vẫn còn: %s (mã lỗi %u)", faultSummaryText(item.code), item.code);
+      snprintf(body, sizeof(body), "Vẫn còn: %s", faultSummaryText(item.code));
       enqueueLevel(alarmType, level, body);
     }
   }
@@ -268,7 +270,11 @@ inline void checkFaults(uint32_t now) {
       char alarmType[24];
       alarmTypeForFault(faultTrack[s].code, alarmType, sizeof(alarmType));
       char body[160];
-      snprintf(body, sizeof(body), "%s (mã lỗi %u)", faultSummaryText(faultTrack[s].code), faultTrack[s].code);
+      // Bao ro rang la DA HET (khac han luc moi bao - xem enqueueLevel o
+      // tren), khong chi lap lai y y mo ta loi kem "ma loi X" nhu truoc -
+      // nguoi dung de nham la dang bao lai loi cu chu khong phai da het.
+      snprintf(body, sizeof(body), "%s - đã khôi phục, không còn lỗi này nữa.",
+               faultSummaryText(faultTrack[s].code));
       enqueueResolved(alarmType, levelForSeverity(faultTrack[s].severity), body);
       faultTrack[s] = FaultTrack{};
     }
