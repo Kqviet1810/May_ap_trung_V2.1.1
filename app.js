@@ -1473,8 +1473,22 @@
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 
+  // Mo tu link trong thong bao day (?device=MAP-XXXX) - tu chon dung thiet bi
+  // thay vi luon mo theo thiet bi da chon truoc do/mac dinh, de bam vao thong
+  // bao la thay dung may dang bao loi ngay, khong phai vao "trang trong".
+  function applyDeepLinkDevice() {
+    const requested = normalizeDeviceId(new URLSearchParams(window.location.search).get('device') || '');
+    if (!requested) return;
+    const exists = state.devices.some((item) => item.id === requested);
+    if (exists && state.selectedId !== requested) {
+      state.selectedId = requested;
+      saveDevices();
+    }
+  }
+
   function init() {
     document.body.dataset.page = 'device';
+    applyDeepLinkDevice();
     bindUi();
     renderSelector();
     updateSettingSummaries();

@@ -31,6 +31,16 @@ export async function touchDevice(db, deviceId, status, now, deviceName) {
   }
 }
 
+// Rieng cho heartbeat: ghi them batch_running (0/1) cung luc voi last_seen -
+// day la nguon "dang co me ap chay khong" moi nhat de checkDeviceConnectivity
+// quyet dinh co bao mat ket noi hay khong (chi bao khi dang co me ap chay).
+export async function touchDeviceHeartbeat(db, deviceId, now, batchRunning) {
+  await db
+    .prepare('UPDATE devices SET last_seen = ?2, status = ?3, batch_running = ?4 WHERE device_id = ?1')
+    .bind(deviceId, now, 'online', batchRunning ? 1 : 0)
+    .run();
+}
+
 // Doi status ma KHONG dung toi last_seen (touchDevice() dung khi that su co
 // tin moi tu thiet bi; ham nay dung khi Worker tu suy ra trang thai, vi du
 // tu danh dau 'offline' luc phat hien im lang - khong duoc lam moi last_seen).

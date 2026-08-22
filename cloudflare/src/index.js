@@ -3,6 +3,7 @@ import {
   getDeviceByDeviceId,
   insertDevice,
   touchDevice,
+  touchDeviceHeartbeat,
   setDeviceStatus,
   getStaleOnlineDevices,
   getRecoveredOfflineDevices,
@@ -92,7 +93,7 @@ async function handleHeartbeat(request, env) {
   const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, device.device_key_hash);
   if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
 
-  await touchDevice(env.DB, deviceId, 'online', Date.now());
+  await touchDeviceHeartbeat(env.DB, deviceId, Date.now(), Boolean(body?.batch_running));
   return json(env, { success: true });
 }
 
@@ -233,9 +234,12 @@ async function handleTestPush(request, env) {
   const notification = {
     title: '🔔 Test thành công',
     body: 'Thiết bị của bạn đã kết nối thông báo.',
-    icon: '/icons/icon-192.png',
-    badge: '/icons/badge-72.png',
-    data: { deviceId: sub.device_id, alarmType: 'TEST', severity: 'info', state: 'active', url: '/', ts: Date.now() },
+    icon: './icons/icon-192.png',
+    badge: './icons/badge-72.png',
+    data: {
+      deviceId: sub.device_id, alarmType: 'TEST', severity: 'info', state: 'active',
+      url: `./?device=${encodeURIComponent(sub.device_id || '')}`, ts: Date.now(),
+    },
   };
   const result = await sendWebPush(env, sub, notification);
   if (!result.ok && result.gone) await deleteSubscriptionByEndpoint(env.DB, endpoint);
@@ -317,6 +321,11 @@ async function checkDeviceConnectivity(env) {
   const staleDevices = await getStaleOnlineDevices(env.DB, staleBefore);
   for (const device of staleDevices) {
     await setDeviceStatus(env.DB, device.device_id, 'offline');
+    // Chi gui push khi device dang co me ap chay tai lan heartbeat GAN NHAT
+    // (batch_running ghi kem moi heartbeat - xem touchDeviceHeartbeat trong
+    // db.js) - khong co me nao dang chay thi mat mang/mat dien khong can bao,
+    // theo yeu cau: chi quan tam khi dang ap that su.
+    if (!device.batch_running) continue;
     await sendDeviceLifecycleAlarm(env, device, {
       state: 'active',
       message: 'Máy ấp đã mất kết nối hơn 5 phút - có thể mất điện hoặc mất Wi-Fi. Kiểm tra ngay!',

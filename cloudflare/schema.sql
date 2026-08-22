@@ -10,7 +10,12 @@ CREATE TABLE IF NOT EXISTS devices (
   pairing_token       TEXT,
   created_at          INTEGER NOT NULL,
   last_seen           INTEGER,
-  status              TEXT NOT NULL DEFAULT 'unknown'
+  status              TEXT NOT NULL DEFAULT 'unknown',
+  -- Trang thai me ap tai lan heartbeat GAN NHAT (0/1) - dung de canh bao
+  -- "mat ket noi thiet bi" CHI bao khi dang co me ap chay (xem
+  -- checkDeviceConnectivity trong src/index.js). Neu D1 da co tu truoc, chay
+  -- them: ALTER TABLE devices ADD COLUMN batch_running INTEGER NOT NULL DEFAULT 0;
+  batch_running       INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS push_subscriptions (

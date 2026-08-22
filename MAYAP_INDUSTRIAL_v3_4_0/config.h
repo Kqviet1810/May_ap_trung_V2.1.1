@@ -164,9 +164,6 @@ constexpr float HEATER_STUCK_MIN_RISE_C = 0.3f;
 constexpr uint8_t TURN_MISSED_MULTIPLIER = 2U;
 // Nhac truoc khi den ngay du kien no.
 constexpr uint8_t BATCH_NEARING_END_DAYS_LEFT = 2U;
-// Nhac bao tri dinh ky - tinh tu luc ESP32 khoi dong (khong luu EEPROM, xem
-// cloud_alert_link.h::checkMaintenanceReminder).
-constexpr uint32_t CLOUD_MAINTENANCE_REMINDER_MS = 30UL * 24UL * 60UL * 60UL * 1000UL; // 30 ngay
 // Wi-Fi yeu keo dai (dBm cang am cang yeu) truoc khi bao, tranh bao ngay khi
 // chi thoang qua yeu vai giay.
 constexpr int8_t WIFI_RSSI_WEAK_DBM = -82;

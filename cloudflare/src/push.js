@@ -78,15 +78,22 @@ export function buildNotificationPayload({ deviceId, deviceName, alarmType, seve
   return {
     title,
     body: lines.join('\n').trim(),
-    icon: '/icons/icon-192.png',
-    badge: '/icons/badge-72.png',
+    // Duong dan TUONG DOI (khong co "/" o dau): trang GitHub Pages nam trong
+    // 1 thu muc con (vi du /May_ap_trung_V2.1.1/), Service Worker resolve lai
+    // theo self.location.href cua chinh no (xem notificationclick trong
+    // sw.js) - dung "/..." tuyet doi se roi ve GOC domain (trang rong/404)
+    // thay vi dung trang, day chinh la loi "bam vao thong bao ra trang trong".
+    icon: './icons/icon-192.png',
+    badge: './icons/badge-72.png',
     data: {
       deviceId,
       deviceName: deviceName || deviceId,
       alarmType,
       severity,
       state,
-      url: '/',
+      // Mo dung trang dang dieu khien VA tu chon dung thiet bi (xem
+      // app.js::applyDeepLinkDevice), khong phai trang goc chung chung.
+      url: `./?device=${encodeURIComponent(deviceId || '')}`,
       ts: Date.now(),
     },
   };

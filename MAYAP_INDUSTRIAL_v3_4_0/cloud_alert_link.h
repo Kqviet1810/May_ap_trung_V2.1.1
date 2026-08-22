@@ -278,8 +278,6 @@ inline void checkFaults(uint32_t now) {
 // --------------------------- Su kien mot lan (INFO/SYSTEM) -----------------------
 static bool lastBatchRunning = false;
 static bool haveLastBatchRunning = false;
-static bool lastOnline = false;
-static bool haveLastOnline = false;
 
 inline void checkTransitions(uint32_t now) {
   (void)now;
@@ -405,26 +403,6 @@ inline void checkBatchSchedule(uint32_t now) {
   }
 }
 
-// --------------------------- Nhac bao tri dinh ky ---------------------------
-// Tinh tu luc ESP32 khoi dong (KHONG luu EEPROM - xem giai thich trong
-// config.h canh CLOUD_MAINTENANCE_REMINDER_MS): may thuong chay lien tuc
-// nhieu tuan nen day la danh doi hop ly de tranh them 1 truong cau hinh moi.
-static uint32_t maintenanceLastSentAt = 0;
-static bool maintenanceBaselineSet = false;
-
-inline void checkMaintenanceReminder(uint32_t now) {
-  if (!maintenanceBaselineSet) {
-    maintenanceBaselineSet = true;
-    maintenanceLastSentAt = now;
-    return;
-  }
-  if (timeReached(now, maintenanceLastSentAt + CLOUD_MAINTENANCE_REMINDER_MS)) {
-    maintenanceLastSentAt = now;
-    enqueueLevel("MAINTENANCE_REMINDER", NotifyLevel::Info,
-        "Đã đến kỳ nhắc bảo trì định kỳ - nên kiểm tra vệ sinh cảm biến, quạt và cơ cấu đảo trứng.");
-  }
-}
-
 // ------------------------- Canh bao: Wi-Fi tin hieu yeu ---------------------
 static bool wifiWeakTracking = false;
 static uint32_t wifiWeakSinceAt = 0;
@@ -457,25 +435,13 @@ inline void checkWifiSignal(uint32_t now) {
   }
 }
 
-inline void checkConnectivity(uint32_t now) {
-  (void)now;
-  const NetworkStatus status = mayapGetNetworkStatus();
-  const bool online = status.requestedMode == ConnectivityMode::Online && status.connected;
-  if (!haveLastOnline) {
-    lastOnline = online;
-    haveLastOnline = true;
-    if (online) enqueueLevel("SYSTEM_ONLINE", NotifyLevel::System, "Máy đã khởi động và có mạng - sẵn sàng gửi thông báo.");
-    return;
-  }
-  if (online != lastOnline) {
-    lastOnline = online;
-    if (online) {
-      enqueueLevel("SYSTEM_ONLINE", NotifyLevel::System, "Đã khôi phục kết nối mạng.");
-    } else {
-      enqueueLevel("SYSTEM_OFFLINE", NotifyLevel::System, "Mất kết nối mạng - tin nhắn sẽ được gửi lại khi có mạng trở lại.");
-    }
-  }
-}
+// GHI CHU: tung co checkConnectivity() gui "SYSTEM_ONLINE/SYSTEM_OFFLINE" moi
+// khi ESP32 tu thay doi trang thai mang - BO DI vi qua on ao (tu bao ngay ca
+// khi WiFi chi giat rat ngan luc dang backoff/thu lai) va da THUA so voi canh
+// bao "mat ket noi thiet bi" phia Worker (checkDeviceConnectivity trong
+// cloudflare/src/index.js) - kenh do doc lap, co debounce that su (>=2 phut),
+// dang tin cay hon nhieu. Trang thai online/offline tuc thi van xem duoc tren
+// web qua MQTT (khong can push rieng).
 
 // ------------------------------- Goi HTTPS ---------------------------------------
 inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const char *path) {
@@ -523,6 +489,11 @@ inline bool sendHeartbeat() {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
   doc["device_key"] = CLOUD_DEVICE_SECRET;
+  // Worker dung co nay de quyet dinh co bao "mat ket noi" hay khong - chi bao
+  // khi dang co me ap chay tai lan heartbeat gan nhat (xem checkDeviceConnectivity
+  // trong cloudflare/src/index.js). processingRuntime duoc lam moi moi chu ky
+  // kiem tra (CLOUD_CHECK_INTERVAL_MS), du moi cho heartbeat moi 30s.
+  doc["batch_running"] = processingRuntime.batchRunning;
   return postJson("/api/device/heartbeat", doc, "heartbeat");
 }
 
@@ -644,9 +615,7 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
         checkTurnCycleMissed(now);
       }
     }
-    checkConnectivity(now);
     checkWifiSignal(now);
-    checkMaintenanceReminder(now);
   }
 
   serviceRegister(now);
