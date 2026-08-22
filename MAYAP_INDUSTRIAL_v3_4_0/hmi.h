@@ -1810,13 +1810,28 @@ void drawAlarm() {
   char detail[30];
   char footer[40];
   drawHeader("CANH BAO");
-  lcd.setFont(u8g2_font_helvB10_tf);
+
+  // Tu co font neu tieu de qua dai cho 128px (mot vai ten loi - ke ca vai ma
+  // co tu truoc, khong chi ma moi them - dai hon du de tran man o co dinh
+  // helvB10 truoc day, gay mat chu). Thu tu uu tien: dam/lon truoc, nho dan.
   const char *title = faultTitle(fault.code);
-  const int16_t titleX = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(title))) / 2);
+  lcd.setFont(u8g2_font_helvB10_tf);
+  int16_t titleW = static_cast<int16_t>(lcd.getStrWidth(title));
+  if (titleW > 124) {
+    lcd.setFont(u8g2_font_6x12_tf);
+    titleW = static_cast<int16_t>(lcd.getStrWidth(title));
+  }
+  if (titleW > 124) {
+    lcd.setFont(u8g2_font_5x8_tf);
+    titleW = static_cast<int16_t>(lcd.getStrWidth(title));
+  }
+  const int16_t titleX = max(0, (128 - titleW) / 2);
   lcd.drawStr(titleX, 29, title);
+
   faultDetail(fault, detail, sizeof(detail));
   lcd.setFont(u8g2_font_5x8_tf);
-  const int16_t detailX = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(detail))) / 2);
+  int16_t detailW = static_cast<int16_t>(lcd.getStrWidth(detail));
+  const int16_t detailX = max(0, (128 - detailW) / 2);
   lcd.drawStr(detailX, 42, detail);
   snprintf(footer, sizeof(footer), "E%03u %u/%u  NHAN=ACK",
            fault.code, alarmIndex + 1U, count);
@@ -2433,29 +2448,60 @@ void drawEventLog() {
   lcd.drawStr(1, 59, footer);
 }
 
-void drawConfirm() {
-  char line[27];
+// Man hinh xac nhan RIENG, chiem toan bo LCD - truoc day chi la 1 dai 9px o
+// cuoi man de khong che noi dung, nhung qua nho de doc/de bam nham. Gio thay
+// han noi dung man dang xem (xem render(): bo qua ve view khi dang confirm),
+// nen co the dung het khong gian cho cau hoi + 2 nut CO/HUY to, ro rang.
+void drawConfirmScreen() {
+  drawHeader("XAC NHAN");
+
+  const char *line1;
+  const char *line2 = "";
   if (confirmAction == ConfirmAction::ResumeBatch) {
-    snprintf(line, sizeof(line), confirmYes ? "MAT DIEN? >TIEP< HUY"
-                                             : "MAT DIEN? TIEP >HUY<");
+    line1 = "MAT DIEN - TIEP TUC";
+    line2 = "ME DANG AP?";
   } else if (confirmAction == ConfirmAction::AutoTuneStart) {
-    snprintf(line, sizeof(line), confirmYes ? "AUTO PID? >CO< HUY"
-                                             : "AUTO PID? CO >HUY<");
+    line1 = "CHAY AUTO TUNE PID?";
   } else if (currentRuntime.batchRunning) {
-    snprintf(line, sizeof(line), confirmYes ? "DUNG ME? >CO< HUY"
-                                             : "DUNG ME? CO >HUY<");
+    line1 = "DUNG ME DANG CHAY?";
   } else {
-    snprintf(line, sizeof(line), confirmYes ? "BAT ME? >CO< HUY"
-                                             : "BAT ME? CO >HUY<");
+    line1 = "BAT DAU ME AP MOI?";
   }
 
-  // Xac nhan chi thay thanh tac vu 9 px o day, khong che noi dung trang.
+  lcd.setFont(u8g2_font_6x12_tf);
+  const int16_t y1 = line2[0] ? 24 : 28;
+  const int16_t w1 = static_cast<int16_t>(lcd.getStrWidth(line1));
+  lcd.drawStr(max(1, (128 - w1) / 2), y1, line1);
+  if (line2[0]) {
+    const int16_t w2 = static_cast<int16_t>(lcd.getStrWidth(line2));
+    lcd.drawStr(max(1, (128 - w2) / 2), y1 + 13, line2);
+  }
+
+  // 2 nut lon CO/HUY, moi nut gan nua chieu rong man hinh - de nhin va kho
+  // bam nham hon han so voi dong chu nho o cuoi man truoc day.
+  constexpr int16_t btnY = 40, btnH = 20, margin = 4, gap = 6;
+  constexpr int16_t btnW = (128 - 2 * margin - gap) / 2;
+  const int16_t yesX = margin;
+  const int16_t noX = margin + btnW + gap;
+
+  lcd.setFont(u8g2_font_helvB12_tf);
   lcd.setDrawColor(1);
-  lcd.drawBox(0, 55, 128, 9);
-  lcd.setDrawColor(0);
-  lcd.setFont(u8g2_font_5x8_tf);
-  const int16_t x = max(1, (128 - static_cast<int16_t>(lcd.getStrWidth(line))) / 2);
-  lcd.drawStr(x, 63, line);
+  if (confirmYes) lcd.drawBox(yesX, btnY, btnW, btnH);
+  else lcd.drawFrame(yesX, btnY, btnW, btnH);
+  lcd.setDrawColor(confirmYes ? 0 : 1);
+  {
+    const int16_t tw = static_cast<int16_t>(lcd.getStrWidth("CO"));
+    lcd.drawStr(yesX + max(0, (btnW - tw) / 2), btnY + 15, "CO");
+  }
+
+  lcd.setDrawColor(1);
+  if (!confirmYes) lcd.drawBox(noX, btnY, btnW, btnH);
+  else lcd.drawFrame(noX, btnY, btnW, btnH);
+  lcd.setDrawColor(confirmYes ? 1 : 0);
+  {
+    const int16_t tw = static_cast<int16_t>(lcd.getStrWidth("HUY"));
+    lcd.drawStr(noX + max(0, (btnW - tw) / 2), btnY + 15, "HUY");
+  }
   lcd.setDrawColor(1);
 }
 
@@ -2493,22 +2539,28 @@ void render(uint32_t now) {
   lcd.setFontMode(0);
   lcd.setFontDirection(0);
   lcd.clearBuffer();
-  switch (view) {
-    case View::Home: drawHome(); break;
-    case View::MainMenu: drawMainMenu(); break;
-    case View::ChungMenu: drawChungMenu(); break;
-    case View::SettingList: drawSettingList(); break;
-    case View::EditSetting: drawEditSetting(); break;
-    case View::TurnStats: drawTurnStats(); break;
-    case View::AutoTune: drawAutoTune(); break;
-    case View::TestMode: drawTestMode(); break;
-    case View::TestSummary: drawTestSummary(); break;
-    case View::WifiChange: drawWifiChange(); break;
-    case View::EventLog: drawEventLog(); break;
-    case View::Alarm: drawAlarm(); break;
+  const bool showConfirmScreen = confirmationActive() && view != View::Alarm;
+  if (showConfirmScreen) {
+    // Man xac nhan thay HAN cho view hien tai (khong ve chong len) - xem
+    // drawConfirmScreen() de biet ly do doi tu dai 9px cuoi man sang ca man.
+    drawConfirmScreen();
+  } else {
+    switch (view) {
+      case View::Home: drawHome(); break;
+      case View::MainMenu: drawMainMenu(); break;
+      case View::ChungMenu: drawChungMenu(); break;
+      case View::SettingList: drawSettingList(); break;
+      case View::EditSetting: drawEditSetting(); break;
+      case View::TurnStats: drawTurnStats(); break;
+      case View::AutoTune: drawAutoTune(); break;
+      case View::TestMode: drawTestMode(); break;
+      case View::TestSummary: drawTestSummary(); break;
+      case View::WifiChange: drawWifiChange(); break;
+      case View::EventLog: drawEventLog(); break;
+      case View::Alarm: drawAlarm(); break;
+    }
+    drawToast(now);
   }
-  if (confirmationActive() && view != View::Alarm) drawConfirm();
-  else drawToast(now);
   lcd.setDrawColor(1);
   if (i2cLockCallback && !i2cLockCallback(I2C_TIMEOUT_MS)) {
     dirty = true;

@@ -273,7 +273,10 @@ inline void checkFaults(uint32_t now) {
       // Bao ro rang la DA HET (khac han luc moi bao - xem enqueueLevel o
       // tren), khong chi lap lai y y mo ta loi kem "ma loi X" nhu truoc -
       // nguoi dung de nham la dang bao lai loi cu chu khong phai da het.
-      snprintf(body, sizeof(body), "%s - đã khôi phục.", faultSummaryText(faultTrack[s].code));
+      // "Da het:" dung DAU cau, khong phai cuoi - nguoi dung thuong chi doc
+      // vai chu dau tien cua thong bao, can biet NGAY la loi da qua chua
+      // phai doc het ca mo ta loi cu roi moi thay chu "da khoi phuc" o cuoi.
+      snprintf(body, sizeof(body), "Đã hết: %s", faultSummaryText(faultTrack[s].code));
       enqueueResolved(alarmType, levelForSeverity(faultTrack[s].severity), body);
       faultTrack[s] = FaultTrack{};
     }

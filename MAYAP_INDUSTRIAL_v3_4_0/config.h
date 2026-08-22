@@ -110,9 +110,13 @@ constexpr char CLOUD_DEVICE_SECRET[] = MAYAP_DEVICE_SECRET;
 // hoac "api.tenmiencuaban.vn" neu da gan custom domain cho Worker).
 constexpr char CLOUD_API_HOST[] = MAYAP_CLOUD_API_HOST;
 
-// Nhip kiem tra dieu kien canh bao (khong can nhanh nhu MQTT - loi thay doi o
-// thang giay/phut, khong phai mili giay).
-constexpr uint32_t CLOUD_CHECK_INTERVAL_MS = 5000UL;
+// Nhip kiem tra dieu kien canh bao - rut tu 5s xuong 2s de loi that (cam
+// bien, cong tac nhiet...) duoc phat hien va day vao hang doi gui nhanh hon;
+// ban than buoc kiem tra khong co I/O mang (chi so sanh bien trong RAM) nen
+// re, khong anh huong hieu nang. Do tre CON LAI (~1-3s) la HTTPS that su qua
+// mang toi Worker + Apple/Google giao thong bao ve may - nam ngoai kha nang
+// toi uu them cua firmware (xem giai thich day du trong bao cao gui nguoi dung).
+constexpr uint32_t CLOUD_CHECK_INTERVAL_MS = 2000UL;
 // Khoang cach toi thieu giua 2 lan goi HTTPS that su, tranh don don nhieu tin
 // cung luc khi nhieu loi phat sinh gan nhau (moi lan goi block networkTask
 // vai giay do TLS handshake, nen khong the/khong nen ban song song).
@@ -300,8 +304,10 @@ constexpr uint32_t SAVE_CONFIRM_TIMEOUT_MS = 8000UL;
 constexpr uint32_t COMMAND_CONFIRM_TIMEOUT_MS = 8000UL;
 constexpr uint16_t COMMAND_DEFAULT_VALID_MS = 5000U;
 constexpr uint16_t COMMAND_AUTOTUNE_VALID_MS = 5000U;
-constexpr uint32_t TOAST_INFO_MS = 2200UL;
-constexpr uint32_t TOAST_ERROR_MS = 4200UL;
+// Rut ngan hon truoc (2200/4200ms) - man HMI nho, de bi che noi dung neu
+// thanh thong bao hien qua lau o cuoi man.
+constexpr uint32_t TOAST_INFO_MS = 1400UL;
+constexpr uint32_t TOAST_ERROR_MS = 2500UL;
 // Thong bao HMI chi chiem thanh trang thai 9 px o day, khong che noi dung.
 constexpr uint8_t HMI_STATUS_TEXT_MAX_CHARS = 22U;
 constexpr uint32_t HMI_INPUT_GUARD_MS = 140UL;
