@@ -24,10 +24,13 @@ import { sendWebPush, buildNotificationPayload } from './push.js';
 // muc nay cho CUNG mot (device_id, alarm_type) khi trang thai khong doi.
 const MIN_ALARM_COOLDOWN_MS = 15_000;
 
-// ESP32 heartbeat moi 30s (CLOUD_HEARTBEAT_INTERVAL_MS trong config.h) - cho
-// phep truot ~4 lan (mat goi/backoff luc mang chap chon) truoc khi coi la
-// "mat ket noi that su" de tranh bao gia luc mang giat nhe.
-const DEVICE_OFFLINE_THRESHOLD_MS = 2 * 60 * 1000;
+// ESP32 heartbeat moi 15s (CLOUD_HEARTBEAT_INTERVAL_MS trong config.h) - cho
+// phep truot ~5 lan (mat goi/backoff luc mang chap chon) truoc khi coi la
+// "mat ket noi that su" de tranh bao gia luc mang giat nhe. Day la do tre
+// nhanh nhat hop ly dat duoc: Cron Trigger cua Cloudflare toi da 1 phut/lan
+// (gioi han nen tang), nen ~75s la can bang tot nhat giua "nhanh" va
+// "khong bao gia" voi kien truc heartbeat+cron polling nay.
+const DEVICE_OFFLINE_THRESHOLD_MS = 75 * 1000;
 
 function corsHeaders(env) {
   return {
@@ -405,7 +408,7 @@ async function checkDeviceConnectivity(env) {
     if (!device.batch_running) continue;
     await sendDeviceLifecycleAlarm(env, device, {
       state: 'active',
-      message: 'Máy ấp đã mất kết nối hơn 5 phút - có thể mất điện hoặc mất Wi-Fi. Kiểm tra ngay!',
+      message: 'Mất kết nối trên 75 giây - kiểm tra nguồn điện hoặc Wi-Fi ngay.',
     });
   }
 
@@ -413,7 +416,7 @@ async function checkDeviceConnectivity(env) {
   for (const device of recoveredDevices) {
     await sendDeviceLifecycleAlarm(env, device, {
       state: 'resolved',
-      message: 'Máy ấp đã kết nối lại bình thường.',
+      message: 'Đã kết nối lại bình thường.',
     });
   }
 }

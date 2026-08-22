@@ -122,9 +122,16 @@ constexpr uint32_t CLOUD_HTTP_CONNECT_TIMEOUT_MS = 5000UL;
 // Nhip bao "con song" len Worker (cap nhat last_seen/status trong D1). Ngoai
 // hien thi trang thai lien ket tren web, day cung la co so de Worker phat
 // hien mat dien/mat mang (xem cloudflare/src/index.js::checkDeviceConnectivity,
-// nguong DEVICE_OFFLINE_THRESHOLD_MS) - giu ty le >=4 lan nhip/nguong de
-// tranh bao nham khi mang chi chap chon vai chuc giay.
-constexpr uint32_t CLOUD_HEARTBEAT_INTERVAL_MS = 30000UL;
+// nguong DEVICE_OFFLINE_THRESHOLD_MS) - giu ty le >=4-5 lan nhip/nguong de
+// tranh bao nham khi mang chi chap chon vai chuc giay. 15s la muc nhanh nhat
+// hop ly cho kenh HTTPS dinh ky kieu nay (khac MQTT keepalive/LWT o
+// realtime_link.h - kenh do da phat hien mat ket noi GAN NHU TUC THI qua
+// broker cho trang web dang mo, nhung KHONG the dung lam nguon cho Cloud
+// Push vi Cloudflare Worker khong giu duoc ket noi MQTT thuong truc/khong
+// nhan duoc su kien LWT khi khong co request nao toi). Cron kiem tra phia
+// Worker toi da 1 phut/lan (san co, gioi han cua nen tang) nen day la do
+// tre nhanh nhat dat duoc cho kenh bao qua dien thoai voi kien truc hien tai.
+constexpr uint32_t CLOUD_HEARTBEAT_INTERVAL_MS = 15000UL;
 // Chu ky nhac lai khi loi con ton tai (tuy muc do - CRITICAL nhac nhanh hon
 // WARNING nhu yeu cau). "Info" gan nhu khong dung cho loi that (chi day phong).
 constexpr uint32_t CLOUD_REPEAT_WARNING_MS = 600000UL;    // 10 phut

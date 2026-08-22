@@ -152,9 +152,9 @@ inline const char *faultSummaryText(uint16_t code) {
     case 110: return "Nhiệt độ xuống thấp hơn ngưỡng cảnh báo";
     case 111: return "Nhiệt độ vượt quá ngưỡng cảnh báo cao";
     case 112: return "QUÁ NHIỆT KHẨN CẤP - đã ngắt nguồn nhiệt ngay lập tức";
-    case 113: return "Nhiệt độ thay đổi quá nhanh bất thường - kiểm tra cửa/quạt/relay";
-    case 114: return "Nhiệt độ dao động không ổn định - có thể cần chỉnh lại PID";
-    case 115: return "Thanh nhiệt được lệnh bật lâu nhưng nhiệt không tăng - nghi ngờ hỏng relay/SSR";
+    case 113: return "Nhiệt độ biến thiên bất thường - kiểm tra quạt/relay";
+    case 114: return "Nhiệt độ dao động bất thường - kiểm tra chỉnh định PID";
+    case 115: return "Thanh nhiệt hoạt động nhưng nhiệt không tăng - nghi ngờ hỏng relay/SSR";
     case 120: return "Độ ẩm thấp - kiểm tra nguồn cấp nước";
     case 121: return "Độ ẩm cao bất thường - kiểm tra thông gió";
     case 130: return "Công tắc nhiệt bị tắt trong lúc đang ấp";
@@ -273,8 +273,7 @@ inline void checkFaults(uint32_t now) {
       // Bao ro rang la DA HET (khac han luc moi bao - xem enqueueLevel o
       // tren), khong chi lap lai y y mo ta loi kem "ma loi X" nhu truoc -
       // nguoi dung de nham la dang bao lai loi cu chu khong phai da het.
-      snprintf(body, sizeof(body), "%s - đã khôi phục, không còn lỗi này nữa.",
-               faultSummaryText(faultTrack[s].code));
+      snprintf(body, sizeof(body), "%s - đã khôi phục.", faultSummaryText(faultTrack[s].code));
       enqueueResolved(alarmType, levelForSeverity(faultTrack[s].severity), body);
       faultTrack[s] = FaultTrack{};
     }
@@ -317,7 +316,7 @@ inline void checkLightAfterBatch(uint32_t now) {
       lightAfterBatchActive = true;
       lightAfterBatchLastSentAt = now;
       enqueueLevel("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
-          "Đèn vẫn đang bật trong lúc mẻ ấp đang chạy - kiểm tra lại nếu không cần thiết.");
+          "Đèn đang bật trong lúc mẻ ấp đang chạy - kiểm tra nếu không cần thiết.");
     } else if (timeReached(now, lightAfterBatchLastSentAt + CLOUD_LIGHT_AFTER_BATCH_REPEAT_MS)) {
       lightAfterBatchLastSentAt = now;
       enqueueLevel("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
@@ -345,7 +344,7 @@ inline void checkTurnCycleMissed(uint32_t now) {
     if (turnMissedActive) {
       turnMissedActive = false;
       enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
-          "Lịch đảo trứng đã hoạt động lại bình thường.");
+          "Đảo trứng đã hoạt động bình thường trở lại.");
     }
     return;
   }
@@ -356,7 +355,7 @@ inline void checkTurnCycleMissed(uint32_t now) {
     if (turnMissedActive) {
       turnMissedActive = false;
       enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
-          "Lịch đảo trứng đã hoạt động lại bình thường.");
+          "Đảo trứng đã hoạt động bình thường trở lại.");
     }
     return;
   }
@@ -366,7 +365,7 @@ inline void checkTurnCycleMissed(uint32_t now) {
       timeReached(now, turnMissedCountChangedAt + staleLimitMs)) {
     turnMissedActive = true;
     enqueueLevel("TURN_CYCLE_STALLED", NotifyLevel::Warning,
-        "Đã lâu không ghi nhận lần đảo trứng nào thành công dù mẻ ấp đang chạy - kiểm tra cơ cấu đảo.");
+        "Không ghi nhận đảo trứng thành công quá lâu - kiểm tra cơ cấu đảo.");
   }
 }
 
@@ -393,7 +392,7 @@ inline void checkBatchSchedule(uint32_t now) {
     batchNearingEndSent = true;
     char body[160];
     snprintf(body, sizeof(body),
-        "Mẻ ấp sắp hoàn tất - còn khoảng %u ngày nữa là đến ngày dự kiến nở (ngày %u/%u).",
+        "Còn %u ngày đến ngày dự kiến nở (ngày %u/%u).",
         static_cast<unsigned>(total - current), static_cast<unsigned>(current),
         static_cast<unsigned>(total));
     enqueueLevel("BATCH_NEARING_END", NotifyLevel::Info, body);
@@ -402,7 +401,7 @@ inline void checkBatchSchedule(uint32_t now) {
     batchOverdueActive = true;
     char body[160];
     snprintf(body, sizeof(body),
-        "Mẻ ấp đã quá %u ngày so với dự kiến (ngày %u/%u) - kiểm tra lại tình trạng trứng.",
+        "Quá hạn %u ngày (ngày %u/%u) - kiểm tra tình trạng trứng.",
         static_cast<unsigned>(current - total), static_cast<unsigned>(current),
         static_cast<unsigned>(total));
     enqueueLevel("BATCH_OVERDUE", NotifyLevel::Warning, body);
@@ -435,7 +434,7 @@ inline void checkWifiSignal(uint32_t now) {
     wifiWeakActive = true;
     char body[160];
     snprintf(body, sizeof(body),
-        "Tín hiệu Wi-Fi yếu kéo dài (%d dBm) - cân nhắc đặt máy gần router hơn hoặc dùng bộ kích sóng.",
+        "Tín hiệu Wi-Fi yếu kéo dài (%d dBm) - nên đặt máy gần router hơn.",
         static_cast<int>(status.rssiDbm));
     enqueueLevel("WIFI_SIGNAL_WEAK", NotifyLevel::Warning, body);
   }
