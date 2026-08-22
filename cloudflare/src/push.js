@@ -56,28 +56,30 @@ export async function sendWebPush(env, subscriptionRow, notification) {
 // Telegram) - o day chi quyet dinh TIEU DE + emoji theo severity/state, tranh
 // lap lai bang tra cuu ma loi o ca 3 noi (ESP32/Worker/frontend).
 export function buildNotificationPayload({ deviceId, deviceName, alarmType, severity, state, message, temperature, humidity }) {
-  let title;
-  if (state === 'resolved') {
-    title = '🟢 ĐÃ BÌNH THƯỜNG';
-  } else if (severity === 'critical') {
-    title = '🔴 CẢNH BÁO MÁY ẤP';
-  } else if (severity === 'warning') {
-    title = '🟠 CẢNH BÁO';
-  } else if (severity === 'system') {
-    title = '⚙️ HỆ THỐNG';
-  } else {
-    title = '🔵 THÔNG BÁO';
-  }
+  let emoji;
+  if (state === 'resolved') emoji = '🟢';
+  else if (severity === 'critical') emoji = '🔴';
+  else if (severity === 'warning') emoji = '🟠';
+  else if (severity === 'system') emoji = '⚙️';
+  else emoji = '🔵';
 
-  const lines = [];
-  if (Number.isFinite(temperature)) lines.push(`Nhiệt độ: ${temperature.toFixed(1)}°C`);
-  if (Number.isFinite(humidity)) lines.push(`Độ ẩm: ${Math.round(humidity)}%`);
-  if (lines.length) lines.push('');
-  lines.push(message || '');
+  // TEN MAY luon nam trong TIEU DE (khong phai trong body) - tieu de thong
+  // bao hau nhu khong bao gio bi cat bot tren Android/iOS, khac voi body de
+  // bi rut gon "..." khi qua dai. Nguoi dung theo doi NHIEU may tren cung 1
+  // dien thoai can biet NGAY may nao bao ma khong phai mo rong thong bao.
+  const title = `${emoji} ${deviceName || deviceId || 'MAYAP'}`;
+
+  // Body: 1 dong duy nhat, uu tien noi dung quan trong nhat len DAU cau (phan
+  // de bi cat khi thu gon la CUOI cau, khong phai dau) - bo dong trong thua
+  // thai truoc day, gop nhiet do/am vao cuoi trong ngoac cho gon.
+  const readings = [];
+  if (Number.isFinite(temperature)) readings.push(`${temperature.toFixed(1)}°C`);
+  if (Number.isFinite(humidity)) readings.push(`${Math.round(humidity)}%`);
+  const suffix = readings.length ? ` (${readings.join(', ')})` : '';
 
   return {
     title,
-    body: lines.join('\n').trim(),
+    body: `${message || ''}${suffix}`.trim(),
     // Duong dan TUONG DOI (khong co "/" o dau): trang GitHub Pages nam trong
     // 1 thu muc con (vi du /May_ap_trung_V2.1.1/), Service Worker resolve lai
     // theo self.location.href cua chinh no (xem notificationclick trong

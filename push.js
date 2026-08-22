@@ -132,8 +132,12 @@
   // Service Worker lan VAPID key ngay luc trang tai (xem warmUp() o tren),
   // de o day chi con cho 1 Promise.allSettled() DA CO SAN (khong phai doi
   // mang), giu subscribe() sat cu cham nhat co the.
-  async function enable(deviceId, options = {}) {
-    if (!deviceId) return { ok: false, reason: 'no-device' };
+  // deviceIds: mang cac device_id can lien ket (TOAN BO thiet bi dang co tren
+  // dashboard nay, khong chi 1 may dang chon) - 1 trinh duyet/dien thoai theo
+  // doi N may thi phai nhan canh bao ca N may, khong chi may dang dieu khien.
+  async function enable(deviceIds, options = {}) {
+    const ids = (Array.isArray(deviceIds) ? deviceIds : [deviceIds]).filter(Boolean);
+    if (!ids.length) return { ok: false, reason: 'no-device' };
     if (!isSupported()) return { ok: false, reason: 'unsupported' };
     if (!cloudApiBase()) return { ok: false, reason: 'not-configured' };
     if (isIos() && !isStandalone()) return { ok: false, reason: 'ios-needs-install' };
@@ -166,14 +170,28 @@
         });
       }
 
-      await linkSubscription(deviceId, subscription, options.pairingToken);
-      return { ok: true };
+      // Lien ket LAN LUOT tung device_id vao CUNG 1 subscription - loi 1 may
+      // (vi du device_key sai/chua dang ky) khong chan cac may con lai.
+      let lastError = null;
+      let linkedAny = false;
+      for (const id of ids) {
+        try {
+          await linkSubscription(id, subscription, options.pairingToken);
+          linkedAny = true;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!linkedAny) return { ok: false, reason: 'error', error: errorText(lastError) };
+      return { ok: true, partial: Boolean(lastError) };
     } catch (error) {
       return { ok: false, reason: 'error', error: errorText(error) };
     }
   }
 
-  async function disable(deviceId) {
+  // Tat thong bao cho CA TRINH DUYET (khong con rieng tung may) - dung 1
+  // subscription duy nhat cho toan bo may da lien ket tren dien thoai nay.
+  async function disable() {
     if (!isSupported()) return { ok: true };
     try {
       const registration = await navigator.serviceWorker.getRegistration('./sw.js');
@@ -192,11 +210,7 @@
     } catch (_) {
       // Khong chan UI neu huy that bai - trang thai se tu dong bo lai o lan kiem tra tiep theo.
     }
-    if (deviceId) {
-      const linked = loadLinked();
-      delete linked[deviceId];
-      saveLinked(linked);
-    }
+    saveLinked({});
     return { ok: true };
   }
 
@@ -241,7 +255,10 @@
   // goi lai server duoc vi Service Worker khong co localStorage), ham nay TU
   // dang ky lai voi Worker (upsert, an toan goi nhieu lan) thay vi bao sai
   // trang thai cho nguoi dung.
-  async function getState(deviceId) {
+  // deviceIds: TOAN BO device_id hien co tren dashboard (khong chi may dang
+  // chon) - tu dong lien ket lai may nao chua khop/chua co (them may moi,
+  // subscription tu xoay...) ma khong can nguoi dung bam lai "Bat thong bao".
+  async function getState(deviceIds) {
     if (!isSupported()) return { status: 'unsupported' };
     if (!cloudApiBase()) return { status: 'not-configured' };
     if (isIos() && !isStandalone()) return { status: 'ios-needs-install' };
@@ -250,10 +267,14 @@
     const subscription = await registration?.pushManager.getSubscription();
     if (!subscription || Notification.permission !== 'granted') return { status: 'not-enabled' };
 
-    if (deviceId) {
+    const ids = (Array.isArray(deviceIds) ? deviceIds : [deviceIds]).filter(Boolean);
+    if (ids.length) {
       const linked = loadLinked();
-      if (linked[deviceId]?.endpoint !== subscription.endpoint) {
-        try { await linkSubscription(deviceId, subscription); } catch (_) {
+      const missing = ids.filter((id) => linked[id]?.endpoint !== subscription.endpoint);
+      if (missing.length) {
+        try {
+          for (const id of missing) await linkSubscription(id, subscription);
+        } catch (_) {
           return { status: 'error', endpoint: subscription.endpoint };
         }
       }

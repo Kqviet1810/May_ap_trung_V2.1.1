@@ -1234,6 +1234,9 @@
       renderSelector();
       subscribeDevice(id);
       $('deviceDialog').close();
+      // Neu thong bao da bat san tren trinh duyet nay, tu lien ket luon may
+      // moi them vao (khong bat nguoi dung phai bam lai "Bat thong bao").
+      renderPushStatus();
       toast('Đã thêm thiết bị. Website đang chờ dữ liệu thật.');
     });
 
@@ -1388,19 +1391,22 @@
     }
     if (!window.MayapPush) return;
 
-    const state = await window.MayapPush.getState(device.id);
+    // Truyen TOAN BO device_id dang co (khong chi may dang chon) - "bat thong
+    // bao" ap dung cho ca dashboard, tu dong lien ket may moi neu thieu.
+    const allDeviceIds = state.devices.map((item) => item.id);
+    const pushState = await window.MayapPush.getState(allDeviceIds);
     if (myToken !== pushStatusToken) return; // co yeu cau moi hon xen vao, bo ket qua cu
 
-    const [text, cls, desc] = PUSH_STATUS_TEXT[state.status] || PUSH_STATUS_TEXT['not-enabled'];
+    const [text, cls, desc] = PUSH_STATUS_TEXT[pushState.status] || PUSH_STATUS_TEXT['not-enabled'];
     pill.textContent = text;
     pill.className = cls;
     summary.textContent = text;
-    iosGuide.hidden = state.status !== 'ios-needs-install';
+    iosGuide.hidden = pushState.status !== 'ios-needs-install';
     errorText.hidden = !desc;
     if (desc) errorText.textContent = desc;
     enableBtn.disabled = false;
-    enableBtn.textContent = state.status === 'enabled' ? 'Tắt thông báo' : 'Bật thông báo';
-    testBtn.hidden = state.status !== 'enabled';
+    enableBtn.textContent = pushState.status === 'enabled' ? 'Tắt thông báo' : 'Bật thông báo';
+    testBtn.hidden = pushState.status !== 'enabled';
 
     // Rieng canh bao "chua ai nhan thong bao": doc so lien ket THAT tren D1
     // (khong chi trinh duyet nay) - im lang neu khong xac dinh duoc (null),
@@ -1435,11 +1441,12 @@
     btn.textContent = turningOff ? 'Đang tắt…' : 'Đang bật…';
     try {
       if (turningOff) {
-        await window.MayapPush.disable(device.id);
+        await window.MayapPush.disable();
         toast('Đã tắt thông báo trên trình duyệt này');
       } else {
-        const result = await window.MayapPush.enable(device.id);
-        toast(result.ok ? '🔔 Thông báo đã được bật' : pushReasonText(result.reason, result.error));
+        const allDeviceIds = state.devices.map((item) => item.id);
+        const result = await window.MayapPush.enable(allDeviceIds);
+        toast(result.ok ? '🔔 Đã bật thông báo cho tất cả thiết bị trên dashboard này' : pushReasonText(result.reason, result.error));
       }
     } finally {
       await renderPushStatus();

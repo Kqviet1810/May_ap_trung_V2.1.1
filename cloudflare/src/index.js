@@ -230,10 +230,12 @@ async function handleTestPush(request, env) {
 
   const sub = await getSubscriptionByEndpoint(env.DB, endpoint);
   if (!sub) return json(env, { success: false, error: 'chua dang ky thong bao tren trinh duyet nay' }, 404);
+  const device = await getDeviceByDeviceId(env.DB, sub.device_id);
+  const deviceLabel = device?.device_name || sub.device_id;
 
   const notification = {
-    title: '🔔 Test thành công',
-    body: 'Thiết bị của bạn đã kết nối thông báo.',
+    title: `🔔 Test thành công - ${deviceLabel}`,
+    body: 'Thiết bị này đã kết nối thông báo thành công.',
     icon: './icons/icon-192.png',
     badge: './icons/badge-72.png',
     data: {

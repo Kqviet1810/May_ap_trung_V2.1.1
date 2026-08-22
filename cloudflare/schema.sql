@@ -18,15 +18,29 @@ CREATE TABLE IF NOT EXISTS devices (
   batch_running       INTEGER NOT NULL DEFAULT 0
 );
 
+-- 1 trinh duyet (1 endpoint) co the lien ket voi NHIEU device_id cung luc
+-- (nguoi dung theo doi nhieu may tren cung 1 dien thoai) - vi vay UNIQUE la
+-- CAP (device_id, endpoint), KHONG PHAI rieng endpoint (rieng endpoint tung
+-- lam lan bat thong bao cho may B tu dong "cuop" endpoint khoi may A).
+-- Neu D1 da co bang cu (endpoint UNIQUE rieng), chay migrate:
+--   CREATE TABLE push_subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT,
+--     device_id TEXT NOT NULL, endpoint TEXT NOT NULL, p256dh TEXT NOT NULL,
+--     auth TEXT NOT NULL, user_agent TEXT, created_at INTEGER NOT NULL,
+--     updated_at INTEGER NOT NULL, UNIQUE(device_id, endpoint));
+--   INSERT INTO push_subscriptions_new SELECT * FROM push_subscriptions;
+--   DROP TABLE push_subscriptions;
+--   ALTER TABLE push_subscriptions_new RENAME TO push_subscriptions;
+--   CREATE INDEX IF NOT EXISTS idx_push_subscriptions_device ON push_subscriptions(device_id);
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   device_id     TEXT NOT NULL,
-  endpoint      TEXT NOT NULL UNIQUE,
+  endpoint      TEXT NOT NULL,
   p256dh        TEXT NOT NULL,
   auth          TEXT NOT NULL,
   user_agent    TEXT,
   created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL
+  updated_at    INTEGER NOT NULL,
+  UNIQUE(device_id, endpoint)
 );
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_device ON push_subscriptions(device_id);
 

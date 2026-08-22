@@ -68,8 +68,7 @@ export async function upsertSubscription(db, { deviceId, endpoint, p256dh, auth,
     .prepare(
       `INSERT INTO push_subscriptions (device_id, endpoint, p256dh, auth, user_agent, created_at, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
-       ON CONFLICT(endpoint) DO UPDATE SET
-         device_id = excluded.device_id,
+       ON CONFLICT(device_id, endpoint) DO UPDATE SET
          p256dh = excluded.p256dh,
          auth = excluded.auth,
          user_agent = excluded.user_agent,
