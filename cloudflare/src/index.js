@@ -153,16 +153,22 @@ async function handleAlarm(request, env) {
       humidity,
     });
 
-    for (const sub of subscriptions) {
-      const result = await sendWebPush(env, sub, notification);
+    // Gui song song toi tat ca subscription cua thiet bi (Promise.all) thay vi
+    // tuan tu tung cai mot - 1 endpoint cham/treo (vd may push service dang
+    // qua tai) truoc day se lam nghen ca hang doi, khien nhung nguoi con lai
+    // duoc lien ket voi cung thiet bi nhan thong bao tre theo.
+    const results = await Promise.all(subscriptions.map((sub) => sendWebPush(env, sub, notification)));
+    const staleEndpoints = [];
+    results.forEach((result, i) => {
       if (result.ok) {
         notificationSent += 1;
       } else if (result.gone) {
         // Subscription het han/bi thu hoi phia trinh duyet - don dep de lan
         // sau khong con thu gui vao mot endpoint da chet.
-        await deleteSubscriptionByEndpoint(env.DB, sub.endpoint);
+        staleEndpoints.push(subscriptions[i].endpoint);
       }
-    }
+    });
+    await Promise.all(staleEndpoints.map((endpoint) => deleteSubscriptionByEndpoint(env.DB, endpoint)));
 
     await upsertAlarmState(env.DB, {
       deviceId,
@@ -365,14 +371,16 @@ async function sendDeviceLifecycleAlarm(env, device, { state, message }) {
   });
 
   let notificationSent = 0;
-  for (const sub of subscriptions) {
-    const result = await sendWebPush(env, sub, notification);
+  const results = await Promise.all(subscriptions.map((sub) => sendWebPush(env, sub, notification)));
+  const staleEndpoints = [];
+  results.forEach((result, i) => {
     if (result.ok) {
       notificationSent += 1;
     } else if (result.gone) {
-      await deleteSubscriptionByEndpoint(env.DB, sub.endpoint);
+      staleEndpoints.push(subscriptions[i].endpoint);
     }
-  }
+  });
+  await Promise.all(staleEndpoints.map((endpoint) => deleteSubscriptionByEndpoint(env.DB, endpoint)));
 
   await upsertAlarmState(env.DB, {
     deviceId: device.device_id,

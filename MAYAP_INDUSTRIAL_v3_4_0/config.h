@@ -110,13 +110,16 @@ constexpr char CLOUD_DEVICE_SECRET[] = MAYAP_DEVICE_SECRET;
 // hoac "api.tenmiencuaban.vn" neu da gan custom domain cho Worker).
 constexpr char CLOUD_API_HOST[] = MAYAP_CLOUD_API_HOST;
 
-// Nhip kiem tra dieu kien canh bao - rut tu 5s xuong 2s de loi that (cam
-// bien, cong tac nhiet...) duoc phat hien va day vao hang doi gui nhanh hon;
-// ban than buoc kiem tra khong co I/O mang (chi so sanh bien trong RAM) nen
-// re, khong anh huong hieu nang. Do tre CON LAI (~1-3s) la HTTPS that su qua
-// mang toi Worker + Apple/Google giao thong bao ve may - nam ngoai kha nang
-// toi uu them cua firmware (xem giai thich day du trong bao cao gui nguoi dung).
-constexpr uint32_t CLOUD_CHECK_INTERVAL_MS = 2000UL;
+// Nhip kiem tra dieu kien canh bao - rut tiep tu 2s xuong 0.5s de loi that
+// (cam bien, cong tac nhiet...) duoc phat hien va day vao hang doi gui nhanh
+// hon nua; ban than buoc kiem tra khong co I/O mang (chi so sanh bien trong
+// RAM, mo/dong 1 critical section rat ngan) nen re, khong anh huong hieu
+// nang - chi con bi gioi han boi nhip 250ms cua networkTask (NETWORK_TASK_
+// PERIOD_MS). Do tre CON LAI (thuong 0.5-2s) la TLS handshake + HTTPS that
+// su qua mang toi Worker + Apple/Google giao thong bao ve may - nam ngoai
+// kha nang toi uu them cua firmware (xem giai thich day du trong bao cao
+// gui nguoi dung).
+constexpr uint32_t CLOUD_CHECK_INTERVAL_MS = 500UL;
 // Khoang cach toi thieu giua 2 lan goi HTTPS that su, tranh don don nhieu tin
 // cung luc khi nhieu loi phat sinh gan nhau (moi lan goi block networkTask
 // vai giay do TLS handshake, nen khong the/khong nen ban song song).
