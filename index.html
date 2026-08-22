@@ -96,6 +96,27 @@
 </div>
 </details>
 <details class="settingCard">
+<summary><span class="settingIcon">✎</span><span class="settingSummary"><strong>Tên máy &amp; mã PIN</strong><small id="deviceIdentitySummary">Đổi tên hiển thị và mã PIN của máy đang chọn</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<div class="settingBody">
+<form id="renameDeviceForm" style="display:grid;gap:10px">
+<p class="settingFootnote">Tên hiển thị áp dụng cho tất cả mọi người xem máy này (kể cả trên thông báo đẩy) - giữ nguyên tới khi bạn đổi, không phụ thuộc thiết bị đang chọn.</p>
+<label class="field"><span>Tên hiển thị mới</span><input autocomplete="off" id="renameDeviceName" maxlength="64" placeholder="Máy ấp số 2" required=""/></label>
+<label class="field"><span>Mã PIN hiện tại</span><input autocomplete="off" id="renameDevicePin" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Mặc định 1111" required="" type="password"/></label>
+<p class="formError" id="renameDeviceError" role="alert"></p>
+<button class="primary full" type="submit">Đổi tên máy</button>
+</form>
+<hr style="border:none;border-top:1px solid var(--line, #d7e3e0);margin:16px 0"/>
+<form id="changePinForm" style="display:grid;gap:10px">
+<p class="settingFootnote">Mã PIN chỉ gồm chữ số (4-8 số) - dùng để xác nhận khi thêm máy này trên điện thoại khác hoặc đổi tên máy. Mặc định xuất xưởng là <b>1111</b>.</p>
+<label class="field"><span>Mã PIN hiện tại</span><input autocomplete="off" id="changePinOld" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Mặc định 1111" required="" type="password"/></label>
+<label class="field"><span>Mã PIN mới</span><input autocomplete="off" id="changePinNew1" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="4-8 chữ số" required="" type="password"/></label>
+<label class="field"><span>Nhập lại mã PIN mới</span><input autocomplete="off" id="changePinNew2" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="4-8 chữ số" required="" type="password"/></label>
+<p class="formError" id="changePinError" role="alert"></p>
+<button class="ghost full" type="submit">Đổi mã PIN</button>
+</form>
+</div>
+</details>
+<details class="settingCard">
 <summary><span class="settingIcon">°</span><span class="settingSummary"><strong>Nhiệt độ và bảo vệ</strong><small id="temperatureSummary">Đặt 37,5°C · ngắt khẩn 39,0°C</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody temperatureFormCompact" id="temperatureForm">
 <div class="tempGrid">
@@ -148,8 +169,8 @@
 <form class="dialogBody" id="addDeviceForm">
 <div class="dialogHead"><div><p class="eyebrow">THÊM THIẾT BỊ</p><h2>Kết nối bằng ID ESP32</h2></div><button aria-label="Đóng" class="iconButton" id="closeDeviceDialog" type="button">×</button></div>
 <label class="field"><span>ID thiết bị</span><input autocomplete="off" id="newDeviceId" maxlength="20" placeholder="MAP-A1B2C3D4E5F6" required=""/></label>
-<label class="field"><span>Tên hiển thị</span><input autocomplete="off" id="newDeviceName" maxlength="32" placeholder="Máy ấp số 2" required=""/></label>
-<p class="dialogNote">Nhập đúng Device ID hiển thị trên ESP32. Website tự đăng ký các topic của máy và chờ dữ liệu thật.</p>
+<label class="field"><span>Mã PIN thiết bị</span><input autocomplete="off" id="newDevicePin" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Mặc định 1111" required="" type="password"/></label>
+<p class="dialogNote">Nhập đúng Device ID hiển thị trên ESP32 và mã PIN của máy (mặc định xuất xưởng là <b>1111</b>, đổi được trong Cài đặt). Tên hiển thị lấy theo tên đã đặt cho máy này - đổi trong Cài đặt sau khi thêm.</p>
 <button class="primary full" type="submit">Thêm và chọn thiết bị</button>
 <div class="deviceList" id="deviceList"></div>
 </form>

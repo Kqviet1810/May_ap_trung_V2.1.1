@@ -120,6 +120,43 @@
     return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
   }
 
+  // Goi thang Cloudflare Worker cho nhom "danh tinh thiet bi" (PIN/ten hien
+  // thi) - tach rieng voi push.js vi khong lien quan gi den Web Push, chi
+  // dung chung 1 config cloudApiBase.
+  function cloudApiUrl(path) {
+    const base = String(WEB.cloudApiBase || '').replace(/\/+$/, '');
+    return base ? `${base}${path}` : null;
+  }
+
+  async function postCloudJson(path, payload) {
+    const url = cloudApiUrl(path);
+    if (!url) return { success: false, error: 'Trang web chưa cấu hình máy chủ (cloudApiBase)' };
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.success) return { success: false, error: body.error || `Máy chủ từ chối (HTTP ${res.status})` };
+      return body;
+    } catch (error) {
+      return { success: false, error: String(error?.message || error) };
+    }
+  }
+
+  function verifyDevicePin(deviceId, pin) {
+    return postCloudJson('/api/device/verify-pin', { device_id: deviceId, pin });
+  }
+
+  function renameDeviceRemote(deviceId, pin, name) {
+    return postCloudJson('/api/device/rename', { device_id: deviceId, pin, name });
+  }
+
+  function changeDevicePin(deviceId, oldPin, newPin) {
+    return postCloudJson('/api/device/change-pin', { device_id: deviceId, old_pin: oldPin, new_pin: newPin });
+  }
+
   function escapeHtml(value) {
     return String(value).replace(/[&<>'"]/g, (char) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
@@ -1219,12 +1256,30 @@
     $('deviceDialog').addEventListener('click', (event) => {
       if (event.target === $('deviceDialog')) $('deviceDialog').close();
     });
-    $('addDeviceForm').addEventListener('submit', (event) => {
+    $('addDeviceForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const id = normalizeDeviceId($('newDeviceId').value);
-      const name = $('newDeviceName').value.trim();
+      const pin = $('newDevicePin').value.trim();
       if (!DEVICE_ID_RE.test(id)) return toast('ID phải đúng dạng MAP-A1B2C3D4E5F6');
-      if (!name) return toast('Hãy nhập tên hiển thị');
+      if (!/^[0-9]{4,8}$/.test(pin)) return toast('Mã PIN phải là 4-8 chữ số');
+
+      const submitBtn = event.target.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Đang kiểm tra…';
+      let result;
+      try {
+        result = await verifyDevicePin(id, pin);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Thêm và chọn thiết bị';
+      }
+      if (!result.success) return toast(result.error || 'Sai mã PIN hoặc thiết bị chưa đăng ký');
+
+      // Ten hien thi lay tu server (da dat san tu truoc, hoac mac dinh la
+      // chinh device_id) - KHONG cho nguoi dung tu go ten luc them nua, vi
+      // ten gio la thuoc tinh CHUNG cua thiet bi (doi trong Cai dat), khong
+      // phai rieng cua tung trinh duyet.
+      const name = result.device_name || id;
       const existed = state.devices.find((device) => device.id === id);
       if (existed) existed.name = name;
       else state.devices.push(createDevice(id, name));
@@ -1238,6 +1293,74 @@
       // moi them vao (khong bat nguoi dung phai bam lai "Bat thong bao").
       renderPushStatus();
       toast('Đã thêm thiết bị. Website đang chờ dữ liệu thật.');
+    });
+
+    $('renameDeviceForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const device = currentDevice();
+      const errorEl = $('renameDeviceError');
+      errorEl.classList.remove('show');
+      if (!device) return toast('Hãy chọn thiết bị trước');
+      const name = $('renameDeviceName').value.trim();
+      const pin = $('renameDevicePin').value.trim();
+      if (!name) return toast('Hãy nhập tên hiển thị mới');
+      if (!/^[0-9]{4,8}$/.test(pin)) return toast('Mã PIN phải là 4-8 chữ số');
+
+      const submitBtn = event.target.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Đang lưu…';
+      let result;
+      try {
+        result = await renameDeviceRemote(device.id, pin, name);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Đổi tên máy';
+      }
+      if (!result.success) {
+        errorEl.textContent = result.error || 'Không đổi được tên máy';
+        errorEl.classList.add('show');
+        return;
+      }
+      device.name = result.device_name || name;
+      saveDevices();
+      renderSelector();
+      $('renameDevicePin').value = '';
+      toast('Đã đổi tên máy');
+    });
+
+    $('changePinForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const device = currentDevice();
+      const errorEl = $('changePinError');
+      errorEl.classList.remove('show');
+      if (!device) return toast('Hãy chọn thiết bị trước');
+      const oldPin = $('changePinOld').value.trim();
+      const newPin1 = $('changePinNew1').value.trim();
+      const newPin2 = $('changePinNew2').value.trim();
+      if (!/^[0-9]{4,8}$/.test(newPin1)) return toast('Mã PIN mới phải là 4-8 chữ số');
+      if (newPin1 !== newPin2) {
+        errorEl.textContent = 'Mã PIN mới nhập lại không khớp';
+        errorEl.classList.add('show');
+        return;
+      }
+
+      const submitBtn = event.target.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Đang đổi…';
+      let result;
+      try {
+        result = await changeDevicePin(device.id, oldPin, newPin1);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Đổi mã PIN';
+      }
+      if (!result.success) {
+        errorEl.textContent = result.error || 'Không đổi được mã PIN';
+        errorEl.classList.add('show');
+        return;
+      }
+      event.target.reset();
+      toast('Đã đổi mã PIN thiết bị');
     });
 
     $('quickForm').addEventListener('submit', async (event) => {

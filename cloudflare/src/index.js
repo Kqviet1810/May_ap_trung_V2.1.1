@@ -5,6 +5,8 @@ import {
   touchDevice,
   touchDeviceHeartbeat,
   setDeviceStatus,
+  renameDevice,
+  setDevicePinHash,
   getStaleOnlineDevices,
   getRecoveredOfflineDevices,
   getSubscriptionsForDevice,
@@ -78,7 +80,12 @@ async function handleRegister(request, env) {
   if (!valid) {
     return json(env, { success: false, error: 'device_key khong khop voi thiet bi da dang ky' }, 401);
   }
-  await touchDevice(env.DB, deviceId, 'online', now, deviceName || undefined);
+  // KHONG truyen deviceName o day: ESP32 luon gui device_name = chinh
+  // device_id cua no (khong co gia tri gi hon), truyen vao se GHI DE mat ten
+  // than thien nguoi dung da tu doi qua web moi lan ESP32 dang ky lai (moi
+  // lan khoi dong lai). Ten hien thi gio HOAN TOAN do web quan ly (xem
+  // handleRenameDevice) - firmware khong con vai tro gi voi truong nay.
+  await touchDevice(env.DB, deviceId, 'online', now);
   return json(env, { success: true, device_id: deviceId, pairing_token: existing.pairing_token, created: false });
 }
 
@@ -254,6 +261,74 @@ async function handleTestPush(request, env) {
   });
 }
 
+// PIN rieng cua nguoi dung (KHAC device_key cua firmware) - gate cho "them
+// thiet bi" va "doi ten may" tren web, tranh nguoi la biet device_id la them/
+// sua duoc thiet bi cua nguoi khac. NULL = chua tung doi, coi nhu dang la
+// PIN mac dinh xuat xuong "1111".
+async function verifyDevicePin(env, device, pin) {
+  const value = String(pin || '');
+  if (!device.web_pin_hash) return value === '1111';
+  return verifyDeviceKey(value, env.DEVICE_KEY_PEPPER, device.web_pin_hash);
+}
+
+function isValidPin(pin) {
+  return typeof pin === 'string' && /^[0-9]{4,8}$/.test(pin);
+}
+
+// -------------------------- Endpoint: xac thuc PIN (dung khi them thiet bi) --------------------------
+async function handleVerifyPin(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const pin = String(body?.pin || '');
+  if (!isValidDeviceId(deviceId)) return json(env, { success: false, error: 'device_id khong hop le' }, 400);
+
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device) return json(env, { success: false, error: 'device chua dang ky - hay bat may va cho ket noi mang truoc' }, 404);
+  const valid = await verifyDevicePin(env, device, pin);
+  if (!valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
+  return json(env, { success: true, device_name: device.device_name || device.device_id });
+}
+
+// -------------------------- Endpoint: doi ten may --------------------------
+async function handleRenameDevice(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const pin = String(body?.pin || '');
+  const name = String(body?.name || '').trim().slice(0, 64);
+  if (!isValidDeviceId(deviceId) || !name) {
+    return json(env, { success: false, error: 'thieu device_id/pin/name hop le' }, 400);
+  }
+
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
+  const valid = await verifyDevicePin(env, device, pin);
+  if (!valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
+
+  await renameDevice(env.DB, deviceId, name);
+  return json(env, { success: true, device_name: name });
+}
+
+// -------------------------- Endpoint: doi PIN --------------------------
+async function handleChangePin(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const oldPin = String(body?.old_pin || '');
+  const newPin = String(body?.new_pin || '');
+  if (!isValidDeviceId(deviceId)) return json(env, { success: false, error: 'device_id khong hop le' }, 400);
+  if (!isValidPin(newPin)) {
+    return json(env, { success: false, error: 'PIN mới phải là số, từ 4 đến 8 chữ số' }, 400);
+  }
+
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
+  const valid = await verifyDevicePin(env, device, oldPin);
+  if (!valid) return json(env, { success: false, error: 'Sai mã PIN hiện tại' }, 401);
+
+  const newHash = await hashDeviceKey(newPin, env.DEVICE_KEY_PEPPER);
+  await setDevicePinHash(env.DB, deviceId, newHash);
+  return json(env, { success: true });
+}
+
 // -------------------------- Endpoint: trang thai lien ket cua 1 thiet bi --------------------------
 async function handleDeviceStatus(env, deviceId) {
   const device = await getDeviceByDeviceId(env.DB, deviceId);
@@ -366,6 +441,15 @@ export default {
       }
       if (url.pathname === '/api/device/alarm' && request.method === 'POST') {
         return await handleAlarm(request, env);
+      }
+      if (url.pathname === '/api/device/verify-pin' && request.method === 'POST') {
+        return await handleVerifyPin(request, env);
+      }
+      if (url.pathname === '/api/device/rename' && request.method === 'POST') {
+        return await handleRenameDevice(request, env);
+      }
+      if (url.pathname === '/api/device/change-pin' && request.method === 'POST') {
+        return await handleChangePin(request, env);
       }
       if (url.pathname === '/api/push/subscribe' && request.method === 'POST') {
         return await handleSubscribe(request, env);

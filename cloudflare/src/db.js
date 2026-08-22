@@ -41,6 +41,18 @@ export async function touchDeviceHeartbeat(db, deviceId, now, batchRunning) {
     .run();
 }
 
+// Doi ten hien thi (hoan toan do web quan ly - xem ghi chu trong handleRegister
+// o index.js ve ly do KHONG con de firmware ghi de truong nay).
+export async function renameDevice(db, deviceId, name) {
+  await db.prepare('UPDATE devices SET device_name = ?2 WHERE device_id = ?1').bind(deviceId, name).run();
+}
+
+// Luu hash PIN moi (web_pin_hash) - null truoc do coi nhu dang la PIN mac
+// dinh xuat xuong "1111" (xem verifyDevicePin trong index.js).
+export async function setDevicePinHash(db, deviceId, pinHash) {
+  await db.prepare('UPDATE devices SET web_pin_hash = ?2 WHERE device_id = ?1').bind(deviceId, pinHash).run();
+}
+
 // Doi status ma KHONG dung toi last_seen (touchDevice() dung khi that su co
 // tin moi tu thiet bi; ham nay dung khi Worker tu suy ra trang thai, vi du
 // tu danh dau 'offline' luc phat hien im lang - khong duoc lam moi last_seen).

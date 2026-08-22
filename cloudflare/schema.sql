@@ -15,7 +15,14 @@ CREATE TABLE IF NOT EXISTS devices (
   -- "mat ket noi thiet bi" CHI bao khi dang co me ap chay (xem
   -- checkDeviceConnectivity trong src/index.js). Neu D1 da co tu truoc, chay
   -- them: ALTER TABLE devices ADD COLUMN batch_running INTEGER NOT NULL DEFAULT 0;
-  batch_running       INTEGER NOT NULL DEFAULT 0
+  batch_running       INTEGER NOT NULL DEFAULT 0,
+  -- Ma PIN rieng cua nguoi dung (4-8 so, KHAC device_key/CLOUD_DEVICE_SECRET
+  -- cua firmware) - dung khi THEM thiet bi tren web va khi DOI TEN may, tranh
+  -- nguoi la biet duoc device_id la them/doi ten duoc thiet bi cua nguoi khac.
+  -- NULL = chua tung doi, coi nhu dang la mac dinh xuat xuong "1111" (xem
+  -- verifyDevicePin trong src/index.js). Neu D1 da co tu truoc, chay them:
+  --   ALTER TABLE devices ADD COLUMN web_pin_hash TEXT;
+  web_pin_hash        TEXT
 );
 
 -- 1 trinh duyet (1 endpoint) co the lien ket voi NHIEU device_id cung luc
