@@ -387,7 +387,11 @@
     } else if (connection === 'connecting') {
       pill.textContent = 'ĐANG KẾT NỐI';
       pill.className = 'pill soft';
-      $('wifiConnectionText').textContent = state.mqttMessage;
+      // Chi can bao trang thai don gian cho nguoi dung (dang ket noi/online/
+      // offline) - truoc day hien thang chi tiet ky thuat noi bo cua thu vien
+      // MQTT (vd "MQTT loi: websocket error", "Trinh duyet dang offline"...),
+      // khong can thiet va gay roi cho nguoi dung khong ranh ky thuat.
+      $('wifiConnectionText').textContent = 'Đang kết nối…';
       $('sideStatus').textContent = 'Đang kết nối';
     } else {
       pill.textContent = 'OFFLINE';
@@ -605,7 +609,16 @@
     const assign = (formId, id, value) => {
       if (!force && hasDirtyForm(formId)) return;
       const element = $(id);
-      if (element) element.value = value;
+      if (!element) return;
+      // So thuc (float) ben ESP32 (32-bit) khong bieu dien chinh xac tuyet
+      // doi cac gia tri thap phan (vd 30.1 luu thanh 30.099999904632568...),
+      // lo ra khi gan thang vao o input dang so ("37,00000001..." rat kho
+      // chiu). Lam tron ve toi da 3 chu so thap phan (moi truong nay chi
+      // dung toi 1 chu so) truoc khi gan de xoa het phan du sai so.
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        value = Math.round(value * 1000) / 1000;
+      }
+      element.value = value;
     };
     const check = (formId, id, value) => {
       if (!force && hasDirtyForm(formId)) return;
@@ -664,6 +677,23 @@
     });
   }
 
+  // Doi nhiet do dat (SV) qua form nhanh (quick/batch, chi co 1 o SV, khong
+  // co cac nguong bao/hut) can keo theo cac nguong lien quan cung 1 khoang
+  // dich chuyen - giong het commitSetting() ben firmware (hmi.h) da lam khi
+  // doi SV tren man hinh may. Neu khong, cac nguong nay "cu" so voi SV moi,
+  // gay loi thuc te: doi SV tu 37.5 xuong 30 qua form nhanh, sau do vao HMI
+  // chinh "Bao cao" (dang con la 38.2) thi khong the ha xuong gan SV moi
+  // duoc vi bi chinh cai nguong lac hau nay khoa lai.
+  function shiftTempThresholds(config, oldTarget, newTarget) {
+    const delta = newTarget - oldTarget;
+    if (!Number.isFinite(delta) || delta === 0) return;
+    config.lowTempAlarm = Number(config.lowTempAlarm) + delta;
+    config.highTempAlarm = Number(config.highTempAlarm) + delta;
+    config.emergencyTemp = Number(config.emergencyTemp) + delta;
+    config.ventOnTemp = Number(config.ventOnTemp) + delta;
+    config.ventOffTemp = Number(config.ventOffTemp) + delta;
+  }
+
   function buildConfig(group) {
     const device = currentDevice();
     if (!device?.config || !validateFullConfig(device.config)) {
@@ -672,10 +702,14 @@
     }
     const config = { ...device.config };
     if (group === 'quick') {
-      config.targetTemp = Number($('quickTarget').value);
+      const newTarget = Number($('quickTarget').value);
+      shiftTempThresholds(config, config.targetTemp, newTarget);
+      config.targetTemp = newTarget;
       config.turnIntervalMin = Number($('quickTurn').value);
     } else if (group === 'batch') {
-      config.targetTemp = Number($('batchTarget').value);
+      const newTarget = Number($('batchTarget').value);
+      shiftTempThresholds(config, config.targetTemp, newTarget);
+      config.targetTemp = newTarget;
       config.totalIncubationDays = Number($('totalDays').value);
       config.autoResumeAfterPower = $('resumeAfterPowerLoss').checked;
     } else if (group === 'temperature') {
@@ -724,6 +758,12 @@
     }
     const config = buildConfig(group);
     if (!config) return;
+
+    // Gia tri khong doi so voi cau hinh dang co thi thoi, khong can gui/bao
+    // gi ca - giong HMI (xem commitSetting() trong hmi.h). "batch" la hanh
+    // dong BAT DAU ME (khong phai chi luu thong so) nen luon phai gui du
+    // config trung, khong ap dung guard nay.
+    if (group !== 'batch' && configEquals(config, device.config)) return;
 
     if (group === 'batch') {
       device.batchMeta = {

@@ -247,7 +247,7 @@ const SettingItem SETTINGS[] = {
   ITEM_BOOL_OPTIONS("Ap lai", autoResumeOnPowerLoss, OPT_ON_OFF_HOI),           // 2
   ITEM_U8("So ngay ap", totalIncubationDays, 1, 40, 1, "ng"),                   // 3
 
-  // ---- CAI DAT CHUNG > NHIET DO (3 muc) ----
+  // ---- CAI DAT CHUNG > NHIET DO (4 muc) ----
   // Chuoi nhiet tren LCD duoc rang buoc dong bo:
   // Bao thap < SV <= Hut tat < Hut bat <= Bao cao < Bao khan cap.
   ITEM_FLOAT("Bao thap", lowTempAlarm, 25.0f,
@@ -258,32 +258,37 @@ const SettingItem SETTINGS[] = {
   ITEM_FLOAT("Bao khan cap", emergencyTemp,
              TARGET_TEMP_MIN_C + HIGH_ALARM_GAP_C + EMERGENCY_ABOVE_HIGH_C,
              EMERGENCY_MAX_C, 0.1f, 1, "C"),                                   // 6
+  // Bu sai so cam bien (config_.tempOffset) - da co san tren web (form Cam
+  // bien) va da luu EEPROM tu truoc, chi moi them vao HMI de chinh truc tiep
+  // tren may khong can mo web. Dung chung field/gioi han voi machine_control.h
+  // sanitizeConfig() (clampFloat -5..5).
+  ITEM_FLOAT("Bu nhiet do", tempOffset, -5.0f, 5.0f, 0.1f, 1, "C"),            // 7
 
   // ---- CAI DAT CHUNG > QUAT HUT (2 muc) ----
   ITEM_FLOAT("Quat hut bat", ventOnTemp, TARGET_TEMP_MIN_C + VENT_ON_ABOVE_SV_C,
-             HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 7
-  ITEM_FLOAT("Quat hut tat", ventOffTemp, TARGET_TEMP_MIN_C,
              HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 8
+  ITEM_FLOAT("Quat hut tat", ventOffTemp, TARGET_TEMP_MIN_C,
+             HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 9
 
   // ---- CAI DAT CHUNG > DAO TRUNG (3 muc, + "So lan dao" la dong phu) ----
-  ITEM_BOOL("Tu dong dao", turningEnabled),                                    // 9
-  ITEM_U16("Chu ky dao", turnIntervalMin, 1, 720, 1, "ph"),                   // 10
-  ITEM_U16("Tre loi dao", turnMaxRunSec, 5, 600, 5, "s"),                    // 11
+  ITEM_BOOL("Tu dong dao", turningEnabled),                                    // 10
+  ITEM_U16("Chu ky dao", turnIntervalMin, 1, 720, 1, "ph"),                   // 11
+  ITEM_U16("Tre loi dao", turnMaxRunSec, 5, 600, 5, "s"),                    // 12
 
   // ---- CAI DAT CHUNG > KET NOI (1 muc, + "Doi wifi" la dong phu) ----
   ITEM_U8_OPTIONS("Che do ket noi", connectivityMode,
-                  OPT_OFFLINE_ONLINE, 2)                                      // 12
+                  OPT_OFFLINE_ONLINE, 2)                                      // 13
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 13, "Bang SETTINGS phai co 13 thong so");
+static_assert(SETTING_COUNT == 14, "Bang SETTINGS phai co 14 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
-  4,5,6,                               // Nhiet do
-  7,8,                                 // Quat hut
-  9,10,11,                             // Dao trung
-  12                                    // Ket noi
+  4,5,6,7,                             // Nhiet do
+  8,9,                                 // Quat hut
+  10,11,12,                            // Dao trung
+  13                                    // Ket noi
 };
 
 struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
@@ -291,10 +296,10 @@ struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
 // "CAI DAT CHUNG" (goc tu ChungMenu). Dung chung mot co che SettingList.
 const SettingGroup GROUPS[] = {
   {"CAI DAT ME", 0, 4},
-  {"NHIET DO", 4, 3},
-  {"QUAT HUT", 7, 2},
-  {"DAO TRUNG", 9, 3},
-  {"KET NOI", 12, 1}
+  {"NHIET DO", 4, 4},
+  {"QUAT HUT", 8, 2},
+  {"DAO TRUNG", 10, 3},
+  {"KET NOI", 13, 1}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
 static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");
@@ -355,26 +360,36 @@ void normalizeConfig(MachineConfig &cfg) {
   cfg.ventOffTemp = constrain(cfg.ventOffTemp, ventOffMin, ventOffMax);
 }
 
+// Chi rang buoc theo SV (targetTemp) - gia tri LUON moi nhat - thay vi rang
+// buoc CHEO giua cac nguong voi nhau (vd Bao cao truoc day bi khoa toi thieu
+// bang Hut bat). Kieu rang buoc cheo cu co 1 loi thuc te: neu nguoi dung doi
+// SV qua trang wed bang form "nhanh" (chi doi rieng SV, khong keo theo cac
+// nguong con lai), cac nguong con lai tro thanh "cu" - va sau do tren HMI,
+// nguoi dung KHONG THE chinh 1 nguong nao do ve gan SV moi duoc nua vi bi
+// chinh cai nguong lac hau do khoa lai (vd: SV=30 nhung Bao cao chi cho
+// chinh xuong toi 38.1, dung ra phai xuong duoc 30.1). Thu tu tuong doi
+// giua cac nguong (Bao thap<SV<=Hut tat<Hut bat<=Bao cao<Khan cap) van duoc
+// dam bao dung tai thoi diem LUU thuc su qua sanitizeMachineConfig() trong
+// machine_control.h - ham do luon tinh lai toan bo chuoi tu SV moi nhat va
+// tu keo cac nguong con lai ve dung vi tri, khong can khoa nguoi dung lai o
+// day. Xem thêm buildConfig() trong app.js - form "nhanh" tren wed cung da
+// duoc sua de tu keo theo cac nguong nay khi doi SV, tranh loi lac hau xay
+// ra tu dau.
 void settingLimits(const MachineConfig &cfg, const SettingItem &item,
                    float &minimum, float &maximum) {
   minimum = item.minimum; maximum = item.maximum;
   const uint16_t offset = item.offset;
   if (offset == offsetof(MachineConfig, lowTempAlarm)) {
     maximum = fminf(maximum, cfg.targetTemp - LOW_ALARM_GAP_C);
-  }
-  else if (offset == offsetof(MachineConfig, highTempAlarm)) {
+  } else if (offset == offsetof(MachineConfig, highTempAlarm)) {
     minimum = fmaxf(minimum, cfg.targetTemp + HIGH_ALARM_GAP_C);
-    minimum = fmaxf(minimum, cfg.ventOnTemp);
-    maximum = fminf(maximum, cfg.emergencyTemp - EMERGENCY_ABOVE_HIGH_C);
   } else if (offset == offsetof(MachineConfig, emergencyTemp)) {
-    minimum = fmaxf(minimum, cfg.highTempAlarm + EMERGENCY_ABOVE_HIGH_C);
+    minimum = fmaxf(minimum,
+        cfg.targetTemp + HIGH_ALARM_GAP_C + EMERGENCY_ABOVE_HIGH_C);
   } else if (offset == offsetof(MachineConfig, ventOnTemp)) {
     minimum = fmaxf(minimum, cfg.targetTemp + VENT_ON_ABOVE_SV_C);
-    minimum = fmaxf(minimum, cfg.ventOffTemp + VENT_HYSTERESIS_C);
-    maximum = fminf(maximum, cfg.highTempAlarm);
   } else if (offset == offsetof(MachineConfig, ventOffTemp)) {
     minimum = fmaxf(minimum, cfg.targetTemp + VENT_OFF_ABOVE_SV_C);
-    maximum = fminf(maximum, cfg.ventOnTemp - VENT_HYSTERESIS_C);
   }
   if (minimum > maximum) minimum = maximum;
 }
@@ -644,8 +659,14 @@ const char *groupExtraLabel(uint8_t group) {
 bool settingLockedDuringBatch(uint8_t settingIndex) {
   if (!currentRuntime.batchRunning) return false;
   // Khoa cac tham so lam thay doi lich/chuyen dong dao khi me da bat dau.
-  return settingIndex == 3U || settingIndex == 9U ||
-         settingIndex == 10U || settingIndex == 11U;
+  // So sanh theo offset field (khong phai chi so cung trong mang SETTINGS[])
+  // de khong vo tinh khoa nham muc khac neu sau nay them/xoa/doi cho thong
+  // so trong bang (da tung la loi thuc te khi them "Bu nhiet do").
+  const uint16_t offset = SETTINGS[settingIndex].offset;
+  return offset == offsetof(MachineConfig, totalIncubationDays) ||
+         offset == offsetof(MachineConfig, turningEnabled) ||
+         offset == offsetof(MachineConfig, turnIntervalMin) ||
+         offset == offsetof(MachineConfig, turnMaxRunSec);
 }
 
 uint8_t settingListItemCount(uint8_t group) {
@@ -1345,10 +1366,9 @@ void commitSetting() {
   const float oldValue = readSetting(currentConfig, item);
   const float newValue = readSetting(candidate, item);
   view = View::SettingList;
-  if (fabsf(oldValue - newValue) < 0.0001f) {
-    showToast("GIA TRI KHONG DOI");
-    return;
-  }
+  // Gia tri khong doi thi thoat lang le, khong can bao gi ca - nguoi dung
+  // chi xem/luot qua thong so thi khong nen bi lam phien bang 1 dong toast.
+  if (fabsf(oldValue - newValue) < 0.0001f) return;
   if (!startConfigSave(candidate)) return;
   currentConfig = candidate;
   showToast("DANG LUU...");
@@ -1711,7 +1731,10 @@ void handleInput() {
 // ============================================================
 // 6. VE GIAO DIEN
 // ============================================================
-void drawHeader(const char *title) {
+// showDate=false cho cac man hinh trong luong "cai dat" (CAI DAT CHUNG va
+// cac man con cua no) - ngay thang khong can thiet khi dang chinh thong so,
+// bot roi mat va nhuong cho tieu de dai hon (xem drawEditSetting()).
+void drawHeader(const char *title, bool showDate) {
   lcd.setDrawColor(1);
   lcd.setFont(u8g2_font_5x8_tf);
   char shortTitle[14];
@@ -1725,9 +1748,10 @@ void drawHeader(const char *title) {
     lcd.drawStr(69, 8, "!");
     lcd.setDrawColor(1);
   }
-  lcd.drawStr(dateX, 8, date);
+  if (showDate) lcd.drawStr(dateX, 8, date);
   lcd.drawHLine(0, 10, 128);
 }
+void drawHeader(const char *title) { drawHeader(title, true); }
 
 uint32_t alarmBitForFaultCode(uint16_t code) {
   switch (code) {
@@ -1878,22 +1902,10 @@ void drawCenteredText(int16_t y, const char *text) {
 
 void drawHomeMain() {
   char text[32];
-  drawHeader("MAY AP");
-
-  // Gio:phut thuc tu RTC, dat o giua thanh trang thai - CHI rieng cho man
-  // chinh (khong dua vao drawHeader() dung chung cho moi man hinh, tranh
-  // hien o ca menu/cai dat nhu khong duoc yeu cau). Vung [36,64] la khoang
-  // trong giua tieu de "MAY AP" (~ket thuc x=33) va nhan canh bao/ngay thang
-  // (bat dau tu x=67) - chon co dinh de khong bao gio de len 2 ben do.
-  lcd.setFont(u8g2_font_5x8_tf);
-  {
-    constexpr int16_t TIME_ZONE_LEFT = 36;
-    constexpr int16_t TIME_ZONE_RIGHT = 64;
-    const int16_t timeWidth = static_cast<int16_t>(lcd.getStrWidth(currentRuntime.timeText));
-    const int16_t timeX = TIME_ZONE_LEFT +
-        max(0, ((TIME_ZONE_RIGHT - TIME_ZONE_LEFT) - timeWidth) / 2);
-    lcd.drawStr(timeX, 8, currentRuntime.timeText);
-  }
+  // Bo chu "MAY AP" (khong mang thong tin gi them), thay bang gio:phut
+  // ngay tai vi tri tieu de - truoc day gio bi nhet vao 1 khe rat hep
+  // [36,64] giua tieu de va ngay thang, gio co ca vi tri tieu de rong rai.
+  drawHeader(currentRuntime.timeText);
 
   // Man tong quan: PV la thong tin uu tien so 1. Chia man hinh thanh
   // vung PV ben trai (~70 px) va 3 dong thong tin phu ben phai.
@@ -2041,7 +2053,7 @@ void drawMainMenu() {
 }
 
 void drawChungMenu() {
-  drawHeader("CAI DAT CHUNG");
+  drawHeader("CAI DAT CHUNG", false);
   lcd.setFont(u8g2_font_6x12_tf);
   for (uint8_t row = 0; row < 4 && chungTop + row < CHUNG_COUNT; ++row) {
     const uint8_t index = chungTop + row;
@@ -2062,7 +2074,7 @@ void drawSettingList() {
   const SettingGroup &group = GROUPS[selectedGroup];
   const uint8_t itemCount = settingListItemCount(selectedGroup);
   const uint8_t exitIndex = settingListExitIndex(selectedGroup);
-  drawHeader(group.label);
+  drawHeader(group.label, false);
   lcd.setFont(u8g2_font_6x12_tf);
   char value[18];
   for (uint8_t row = 0; row < 4 && listTop + row < itemCount; ++row) {
@@ -2096,7 +2108,7 @@ void drawSettingList() {
 
 void drawTurnStats() {
   char text[28];
-  drawHeader("SO LAN DAO");
+  drawHeader("SO LAN DAO", false);
   lcd.setFont(u8g2_font_6x12_tf);
 
   snprintf(text, sizeof(text), "HOM NAY: %u LAN",
@@ -2116,13 +2128,22 @@ void drawTurnStats() {
 void drawEditSetting() {
   const SettingItem &item = SETTINGS[editSettingIndex];
   char value[24];
-  drawHeader("CHINH THONG SO");
+  // "SUA THONG SO" (khong phai "CHINH THONG SO") - tieu de cu dai 14 ky tu,
+  // vuot gioi han cat chuoi 13 ky tu cua drawHeader() nen bi rung mat chu
+  // "O" cuoi cung ("...THONG S"), day chinh la loi nguoi dung bao.
+  drawHeader("SUA THONG SO", false);
   lcd.setFont(u8g2_font_6x12_tf);
   const int16_t labelX = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(item.label))) / 2);
   lcd.drawStr(labelX, 23, item.label);
   formatSettingValue(item, editValue, value, sizeof(value));
 
-  if (item.type == SettingType::Bool) {
+  // "Ap lai" (autoResumeOnPowerLoss) KHONG dung cong tac do hoa nhu cac muc
+  // Bool khac - day la lua chon giua 2 CHE DO (tu dong / hoi xac nhan), khong
+  // phai bat-tat 1 tinh nang don, nen cong tac ON/OFF gay hieu lam. Giu chu
+  // to ro rang nhu truoc day, dung chung nhanh "else" ben duoi voi cac muc
+  // khong phai Bool.
+  const bool isAutoResumeItem = item.offset == offsetof(MachineConfig, autoResumeOnPowerLoss);
+  if (item.type == SettingType::Bool && !isAutoResumeItem) {
     // Cong tac BAT/TAT ve dang do hoa (giong toggle switch cac app dien
     // thoai) thay vi chi chu "BAT"/"TAT" tho - nhin trang thai ngay khong
     // can doc chu, khoi bam nham chieu.
@@ -2159,7 +2180,7 @@ const char *autoTuneStateText(AutoTuneState state) {
 
 void drawAutoTune() {
   char text[28];
-  drawHeader("TU CHINH PID");
+  drawHeader("TU CHINH PID", false);
   lcd.setFont(u8g2_font_helvB12_tf);
   const char *state = autoTuneStateText(currentRuntime.autoTuneState);
   const int16_t stateX = max(
