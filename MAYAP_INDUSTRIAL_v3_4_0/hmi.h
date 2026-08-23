@@ -52,6 +52,12 @@ struct BuzzerState {
   uint8_t emergencyPhase = 0;
   uint8_t transientPulsesLeft = 0;
   BuzzerPattern transientPattern{0, 0, 0};
+  // "Coi thong minh" cho AlarmTempHigh (xem buzzerUpdate()): thay vi keu lai
+  // theo 1 hen gio co dinh (CRITICAL_RESOUND_MS) bat ke nhiet do dang lam gi,
+  // theo doi xu huong nhiet tu luc ACK - con dang GIAM thi giu im (ma loi van
+  // hien tren man hinh), nhiet dung yen hoac tang tro lai thi keu lai NGAY.
+  float tempHighAckBestTemp = NAN;
+  uint32_t tempHighAckLastSampleAt = 0;
 };
 
 BuzzerState buzzer;
@@ -1127,6 +1133,14 @@ void buzzerAcknowledge(uint32_t alarmMask) {
   for (uint8_t i = 0; i < ALARM_PRIORITY_COUNT; ++i) {
     if (alarmMask & ALARM_PRIORITY[i]) buzzer.acknowledgedAt[i] = now;
   }
+  if (alarmMask & AlarmTempHigh) {
+    // Moc goc cho "coi thong minh" (xem buzzerUpdate()) - lay nhiet do ngay
+    // luc ACK lam moc so sanh dau tien.
+    buzzer.tempHighAckBestTemp = (currentRuntime.sensorOnline &&
+                                  isfinite(currentRuntime.temperature))
+        ? currentRuntime.temperature : NAN;
+    buzzer.tempHighAckLastSampleAt = now;
+  }
   buzzer.soundingAlarmBit = AlarmNone;
   buzzerStopTransient();
   buzzerWrite(false);
@@ -1137,13 +1151,20 @@ void buzzerUnacknowledge(uint32_t alarmMask) {
   for (uint8_t i = 0; i < ALARM_PRIORITY_COUNT; ++i) {
     if (alarmMask & ALARM_PRIORITY[i]) buzzer.acknowledgedAt[i] = 0;
   }
+  if (alarmMask & AlarmTempHigh) {
+    buzzer.tempHighAckBestTemp = NAN;
+    buzzer.tempHighAckLastSampleAt = 0;
+  }
   buzzer.soundingAlarmBit = AlarmNone;
 }
 
+// LUU Y: AlarmTempHigh KHONG dung ham nay - no co logic rieng theo doi xu
+// huong nhiet ("coi thong minh", xem nhanh rieng trong buzzerUpdate()) thay
+// vi hen gio co dinh.
 uint32_t alarmRepeatMs(uint32_t bit) {
   if (bit == AlarmEmergency) return EMERGENCY_RESOUND_MS;
   if (bit == AlarmAutoMode) return AUTO_LOST_RESOUND_MS;
-  if (bit == AlarmSystem || bit == AlarmSensor || bit == AlarmTurning || bit == AlarmTempHigh) {
+  if (bit == AlarmSystem || bit == AlarmSensor || bit == AlarmTurning) {
     return CRITICAL_RESOUND_MS;
   }
   return 0;
@@ -1152,10 +1173,44 @@ uint32_t alarmRepeatMs(uint32_t bit) {
 void buzzerUpdate(uint32_t now) {
   // Bit da het loi tu dong mat ACK. Loi tai xuat hien se keu lai.
   buzzer.acknowledgedAlarmMask &= currentRuntime.alarmMask;
+  if (!(buzzer.acknowledgedAlarmMask & AlarmTempHigh)) {
+    buzzer.tempHighAckBestTemp = NAN;
+    buzzer.tempHighAckLastSampleAt = 0;
+  }
   for (uint8_t i = 0; i < ALARM_PRIORITY_COUNT; ++i) {
     const uint32_t bit = ALARM_PRIORITY[i];
     if (!(buzzer.acknowledgedAlarmMask & bit)) {
       buzzer.acknowledgedAt[i] = 0;
+      continue;
+    }
+    if (bit == AlarmTempHigh) {
+      // "Coi thong minh": khac moi bit khac (hen gio co dinh CRITICAL_
+      // RESOUND_MS ben duoi), rieng nhiet do cao theo doi XU HUONG - con dang
+      // giam thi giu im (ma loi E111 van hien tren man hinh binh thuong,
+      // khong bi xoa), dung yen hoac tang tro lai thi keu lai NGAY khong doi
+      // het gio. Mat cam bien giua luc dang im lang thi khong the biet xu
+      // huong nua - an toan hon la keu lai ngay.
+      const bool haveTemp = currentRuntime.sensorOnline &&
+                            isfinite(currentRuntime.temperature);
+      bool resoundNow = !haveTemp;
+      if (haveTemp && timeReached(now, buzzer.tempHighAckLastSampleAt +
+                                       TEMP_HIGH_SMART_MUTE_SAMPLE_MS)) {
+        buzzer.tempHighAckLastSampleAt = now;
+        if (!isfinite(buzzer.tempHighAckBestTemp)) {
+          buzzer.tempHighAckBestTemp = currentRuntime.temperature;
+        } else if (currentRuntime.temperature <=
+                   buzzer.tempHighAckBestTemp - TEMP_HIGH_SMART_MUTE_EPSILON_C) {
+          buzzer.tempHighAckBestTemp = currentRuntime.temperature;  // van giam that
+        } else {
+          resoundNow = true;  // dung yen hoac tang tro lai
+        }
+      }
+      if (resoundNow) {
+        buzzer.acknowledgedAlarmMask &= ~bit;
+        buzzer.acknowledgedAt[i] = 0;
+        buzzer.tempHighAckBestTemp = NAN;
+        buzzer.tempHighAckLastSampleAt = 0;
+      }
       continue;
     }
     const uint32_t repeatMs = alarmRepeatMs(bit);

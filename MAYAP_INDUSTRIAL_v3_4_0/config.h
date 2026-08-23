@@ -333,6 +333,14 @@ constexpr uint8_t COMMAND_QUEUE_SIZE = 4;
 constexpr uint8_t COMMAND_ACK_QUEUE_SIZE = 4;
 constexpr uint32_t EMERGENCY_RESOUND_MS = 60000UL;
 constexpr uint32_t CRITICAL_RESOUND_MS = 300000UL;
+// "Coi thong minh" rieng cho AlarmTempHigh (xem buzzerUpdate() trong hmi.h):
+// sau khi ACK, kiem tra xu huong nhiet moi khoang nay - neu nhiet giam it
+// nhat TEMP_HIGH_SMART_MUTE_EPSILON_C so voi lan kiem truoc thi coi la "dang
+// giam", giu im lang; dung yen hoac tang thi keu lai ngay (khong doi het
+// CRITICAL_RESOUND_MS). Epsilon 0.05C du lon de vuot nhieu cam bien thong
+// thuong (~0.02-0.03C) nhung du nho de nhan ra xu huong that trong 20s.
+constexpr uint32_t TEMP_HIGH_SMART_MUTE_SAMPLE_MS = 20000UL;
+constexpr float TEMP_HIGH_SMART_MUTE_EPSILON_C = 0.05f;
 // AUTO bi tat giua me: chi bao sau 2 phut, sau ACK neu van OFF thi keu lai 10 phut/lan.
 constexpr uint32_t AUTO_LOST_ALARM_DELAY_MS = 120000UL;
 constexpr uint32_t AUTO_LOST_RESOUND_MS = 600000UL;
