@@ -29,7 +29,8 @@
     'powerRestoreDelaySec', 'sensorTimeoutSec', 'maxHeaterPower',
     'totalIncubationDays', 'circulationFanEnabled', 'turningEnabled',
     'autoResumeAfterPower', 'allowHeatWithoutBatch', 'alarmEnabled',
-    'lightAfterBatchAlarmEnabled', 'controlMode', 'nextDirection'
+    'lightAfterBatchAlarmEnabled', 'highTempAlarmWithoutBatch', 'controlMode',
+    'nextDirection'
   ]);
 
   const DEFAULT_BATCH_META = Object.freeze({
@@ -644,6 +645,7 @@
     assign('temperatureForm', 'emergencyTemp', config.emergencyTemp);
     assign('temperatureForm', 'ventOn', config.ventOnTemp);
     assign('temperatureForm', 'ventOff', config.ventOffTemp);
+    check('temperatureForm', 'highTempAlarmWithoutBatch', config.highTempAlarmWithoutBatch);
 
     check('turningForm', 'turningEnabled', config.turningEnabled);
     assign('turningForm', 'turnInterval', config.turnIntervalMin);
@@ -719,6 +721,7 @@
       config.emergencyTemp = Number($('emergencyTemp').value);
       config.ventOnTemp = Number($('ventOn').value);
       config.ventOffTemp = Number($('ventOff').value);
+      config.highTempAlarmWithoutBatch = $('highTempAlarmWithoutBatch').checked;
     } else if (group === 'turning') {
       config.turningEnabled = $('turningEnabled').checked;
       config.turnIntervalMin = Number($('turnInterval').value);

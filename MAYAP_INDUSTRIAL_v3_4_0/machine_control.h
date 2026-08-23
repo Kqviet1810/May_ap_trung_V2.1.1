@@ -1256,6 +1256,7 @@ struct PackedMachineConfigV1 {
   uint8_t connectivityMode;
   uint8_t autoResumeOnPowerLoss;  // schema 5+: "Ap lai"
   uint8_t lightAfterBatchAlarmEnabled;  // schema 6+: canh bao den con bat khi dang ap
+  uint8_t highTempAlarmWithoutBatch;  // schema 7+: bao nhiet cao/khan cap ke ca khong co me
 };
 struct ConfigRecordV1 {
   uint32_t magic;
@@ -1269,13 +1270,13 @@ struct ConfigRecordV1 {
 // connectivityMode. Dung mang byte de giu dung kich thuoc/CRC cu va migrate.
 constexpr size_t CONFIG_V3_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, connectivityMode);
-// Sau connectivityMode la 3 truong uint8_t moi hon: autoResumeOnPowerLoss
-// (schema 5), lightAfterBatchAlarmEnabled (schema 6) - dat lai gia tri mac
-// dinh tuong minh sau memcpy.
-static_assert(CONFIG_V3_PAYLOAD_BYTES + 3U * sizeof(uint8_t) ==
+// Sau connectivityMode la 4 truong uint8_t moi hon: autoResumeOnPowerLoss
+// (schema 5), lightAfterBatchAlarmEnabled (schema 6), highTempAlarmWithoutBatch
+// (schema 7) - dat lai gia tri mac dinh tuong minh sau memcpy.
+static_assert(CONFIG_V3_PAYLOAD_BYTES + 4U * sizeof(uint8_t) ==
                   sizeof(PackedMachineConfigV1),
               "connectivityMode phai la truong cuoi cung cua schema 3, "
-              "theo sau boi dung 3 truong uint8_t moi hon");
+              "theo sau boi dung 4 truong uint8_t moi hon");
 struct ConfigRecordLegacyV3 {
   uint32_t magic;
   uint16_t schema;
@@ -1288,10 +1289,11 @@ struct ConfigRecordLegacyV3 {
 // tru autoResumeOnPowerLoss. Dung de nang cap tai cho khong mat cau hinh cu.
 constexpr size_t CONFIG_V4_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, autoResumeOnPowerLoss);
-static_assert(CONFIG_V4_PAYLOAD_BYTES + 2U * sizeof(uint8_t) ==
+static_assert(CONFIG_V4_PAYLOAD_BYTES + 3U * sizeof(uint8_t) ==
                   sizeof(PackedMachineConfigV1),
-              "autoResumeOnPowerLoss + lightAfterBatchAlarmEnabled phai la 2 "
-              "truong cuoi cung cua PackedMachineConfigV1");
+              "autoResumeOnPowerLoss + lightAfterBatchAlarmEnabled + "
+              "highTempAlarmWithoutBatch phai la 3 truong cuoi cung cua "
+              "PackedMachineConfigV1");
 struct ConfigRecordLegacyV4 {
   uint32_t magic;
   uint16_t schema;
@@ -1305,15 +1307,32 @@ struct ConfigRecordLegacyV4 {
 // tai cho khong mat cau hinh cu, giong het cach lam voi schema 3/4 o tren.
 constexpr size_t CONFIG_V5_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, lightAfterBatchAlarmEnabled);
-static_assert(CONFIG_V5_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
-                  sizeof(PackedMachineConfigV1),
-              "lightAfterBatchAlarmEnabled phai la truong cuoi cung cua PackedMachineConfigV1");
 struct ConfigRecordLegacyV5 {
   uint32_t magic;
   uint16_t schema;
   uint16_t size;
   uint32_t sequence;
   uint8_t payload[CONFIG_V5_PAYLOAD_BYTES];
+  uint32_t crc;
+};
+// Config schema 6 (truoc ban co "Bao nhiet ngoai me") co payload giong
+// schema 7 tru highTempAlarmWithoutBatch. Dung de nang cap tai cho khong
+// mat cau hinh cu, giong het cach lam voi schema 3/4/5 o tren.
+constexpr size_t CONFIG_V6_PAYLOAD_BYTES =
+    offsetof(PackedMachineConfigV1, highTempAlarmWithoutBatch);
+static_assert(CONFIG_V5_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
+                  CONFIG_V6_PAYLOAD_BYTES,
+              "lightAfterBatchAlarmEnabled phai la truong duy nhat giua "
+              "schema 5 va schema 6");
+static_assert(CONFIG_V6_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
+                  sizeof(PackedMachineConfigV1),
+              "highTempAlarmWithoutBatch phai la truong cuoi cung cua PackedMachineConfigV1");
+struct ConfigRecordLegacyV6 {
+  uint32_t magic;
+  uint16_t schema;
+  uint16_t size;
+  uint32_t sequence;
+  uint8_t payload[CONFIG_V6_PAYLOAD_BYTES];
   uint32_t crc;
 };
 // Schema batch v3 bo sung moc bat dau me va lan dao thanh cong gan nhat.
@@ -1356,10 +1375,11 @@ struct BatchRecordLegacyV2 {
 
 constexpr uint32_t CONFIG_MAGIC = 0x4D415943UL; // MAYC
 constexpr uint32_t BATCH_MAGIC  = 0x4D415942UL; // MAYB
-constexpr uint16_t CONFIG_SCHEMA = 6;
+constexpr uint16_t CONFIG_SCHEMA = 7;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V4 = 4;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V5 = 5;
+constexpr uint16_t CONFIG_SCHEMA_LEGACY_V6 = 6;
 constexpr uint16_t BATCH_SCHEMA = 3;
 constexpr uint16_t BATCH_SCHEMA_LEGACY = 2;
 
@@ -1393,6 +1413,7 @@ inline PackedMachineConfigV1 packConfig(const MachineConfig &c) {
   p.connectivityMode = static_cast<uint8_t>(c.connectivityMode);
   p.autoResumeOnPowerLoss = c.autoResumeOnPowerLoss ? 1U : 0U;
   p.lightAfterBatchAlarmEnabled = c.lightAfterBatchAlarmEnabled ? 1U : 0U;
+  p.highTempAlarmWithoutBatch = c.highTempAlarmWithoutBatch ? 1U : 0U;
   return p;
 }
 inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
@@ -1425,6 +1446,7 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.connectivityMode = static_cast<ConnectivityMode>(p.connectivityMode);
   c.autoResumeOnPowerLoss = p.autoResumeOnPowerLoss != 0U;
   c.lightAfterBatchAlarmEnabled = p.lightAfterBatchAlarmEnabled != 0U;
+  c.highTempAlarmWithoutBatch = p.highTempAlarmWithoutBatch != 0U;
   sanitizeMachineConfig(c);
   return c;
 }
@@ -1556,6 +1578,8 @@ static_assert(sizeof(ConfigRecordLegacyV4) <= EEPROM_CONFIG_SLOT_BYTES,
               "Legacy config record V4 khong vua slot AT24C32");
 static_assert(sizeof(ConfigRecordLegacyV5) <= EEPROM_CONFIG_SLOT_BYTES,
               "Legacy config record V5 khong vua slot AT24C32");
+static_assert(sizeof(ConfigRecordLegacyV6) <= EEPROM_CONFIG_SLOT_BYTES,
+              "Legacy config record V6 khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordV1) <= EEPROM_BATCH_SLOT_BYTES,
               "Batch record khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordLegacyV2) <= EEPROM_BATCH_SLOT_BYTES,
@@ -1725,6 +1749,12 @@ class PersistentStore {
            r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
                             offsetof(ConfigRecordLegacyV5, crc));
   }
+  static bool validConfigLegacyV6(const ConfigRecordLegacyV6 &r) {
+    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V6 &&
+           r.size == sizeof(r) &&
+           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
+                            offsetof(ConfigRecordLegacyV6, crc));
+  }
   static bool validBatch(const BatchRecordV1 &r) {
     return r.magic == BATCH_MAGIC && r.schema == BATCH_SCHEMA &&
            r.size == sizeof(r) &&
@@ -1752,6 +1782,28 @@ class PersistentStore {
       return true;
     }
 
+    // Fallback config schema 6 (ban truoc khi co "Bao nhiet ngoai me"). Muc
+    // nay mac dinh BAT cho ban ghi cu (giu nguyen hanh vi tu truoc gio: canh
+    // bao nhiet cao/khan cap hoat dong ke ca khong co me), khop dung default
+    // cua MachineConfig::highTempAlarmWithoutBatch; lan luu cau hinh tiep
+    // theo se ghi schema 7 vao khe doi dien.
+    ConfigRecordLegacyV6 la6{}, lb6{};
+    const bool vla6 = readRecord(EEPROM_ADDR_CONFIG_A, la6) &&
+                      validConfigLegacyV6(la6);
+    const bool vlb6 = readRecord(EEPROM_ADDR_CONFIG_B, lb6) &&
+                      validConfigLegacyV6(lb6);
+    if (vla6 || vlb6) {
+      const bool useA6 = !vlb6 || (vla6 && newer(la6.sequence, lb6.sequence));
+      const ConfigRecordLegacyV6 &best6 = useA6 ? la6 : lb6;
+      configPayload_ = PackedMachineConfigV1{};
+      memcpy(&configPayload_, best6.payload, sizeof(best6.payload));
+      configPayload_.highTempAlarmWithoutBatch = 1U;
+      configCacheValid_ = true;
+      configCurrentIsA_ = useA6;
+      configSequence_ = best6.sequence;
+      return true;
+    }
+
     // Fallback config schema 5 (ban truoc khi co canh bao "den con bat khi
     // dang ap"). Canh bao nay mac dinh BAT cho ban ghi cu (khop dung default
     // cua MachineConfig::lightAfterBatchAlarmEnabled); lan luu cau hinh tiep
@@ -1767,6 +1819,7 @@ class PersistentStore {
       configPayload_ = PackedMachineConfigV1{};
       memcpy(&configPayload_, best5.payload, sizeof(best5.payload));
       configPayload_.lightAfterBatchAlarmEnabled = 1U;
+      configPayload_.highTempAlarmWithoutBatch = 1U;
       configCacheValid_ = true;
       configCurrentIsA_ = useA5;
       configSequence_ = best5.sequence;
@@ -1789,6 +1842,7 @@ class PersistentStore {
       memcpy(&configPayload_, best4.payload, sizeof(best4.payload));
       configPayload_.autoResumeOnPowerLoss = 0U;
       configPayload_.lightAfterBatchAlarmEnabled = 1U;
+      configPayload_.highTempAlarmWithoutBatch = 1U;
       configCacheValid_ = true;
       configCurrentIsA_ = useA4;
       configSequence_ = best4.sequence;
@@ -1814,6 +1868,7 @@ class PersistentStore {
         static_cast<uint8_t>(ConnectivityMode::Offline);
     configPayload_.autoResumeOnPowerLoss = 0U;  // chua ton tai o schema 3
     configPayload_.lightAfterBatchAlarmEnabled = 1U;
+    configPayload_.highTempAlarmWithoutBatch = 1U;
     configCacheValid_ = true;
     configCurrentIsA_ = useA;
     configSequence_ = best.sequence;
@@ -3933,9 +3988,17 @@ class MachineController {
     const bool validSafety = safetySampleValid_ && isfinite(safetyTemp);
     const bool wasHigh = highTemperatureActive_;
     const bool wasEmergency = emergencyActive_;
+    // Che do "Bao nhiet ngoai me" (cai dat nhiet - mac dinh BAT, giu nguyen
+    // hanh vi tu truoc gio): TAT thi cap 2/3 CHI duoc phep TRIGGER khi dang
+    // co me ap, giong het cap 1 (Nhiet do thap) von da luon nhu vay. Chi cong
+    // gate nay vao dieu kien KHOI TAO (trip) - mot khi da active thi tiep tuc
+    // theo doi/thoat binh thuong qua hysteresis o duoi, KHONG bi "quen" giua
+    // chung neu me vua ket thuc luc dang co loi (an toan: khong bao gio boi
+    // roi 1 canh bao qua nhiet dang active).
+    const bool tempAlarmEligible = config_.highTempAlarmWithoutBatch || batchRunning_;
 
     // Cap 3 vao ngay bang mau hop le dau tien, sau do giu qua mat cam bien.
-    if (validSafety && safetyTemp >= config_.emergencyTemp) {
+    if (tempAlarmEligible && validSafety && safetyTemp >= config_.emergencyTemp) {
       emergencyActive_ = true;
       emergencyClearTimer_.reset();
     } else if (emergencyActive_) {
@@ -3950,7 +4013,8 @@ class MachineController {
 
     // Cap 2 co xac nhan vao va xac nhan thoat rieng, khong chap chon contactor.
     if (!highTemperatureActive_) {
-      const bool highTrip = validSafety && safetyTemp >= config_.highTempAlarm;
+      const bool highTrip = tempAlarmEligible && validSafety &&
+                            safetyTemp >= config_.highTempAlarm;
       if (highTripTimer_.update(now, highTrip, HIGH_TEMP_CONFIRM_MS)) {
         highTemperatureActive_ = true;
         highClearTimer_.reset();
@@ -5414,6 +5478,8 @@ class MachineController {
         config_.connectivityMode == ConnectivityMode::Online ? "ONLINE" : "OFFLINE");
     mayapSerialPrintf(false, "[CONFIG] canh_bao_den_con_bat_khi_dang_ap=%s\n",
         config_.lightAfterBatchAlarmEnabled ? "BAT" : "TAT");
+    mayapSerialPrintf(false, "[CONFIG] bao_nhiet_ngoai_me=%s\n",
+        config_.highTempAlarmWithoutBatch ? "BAT" : "TAT");
   }
 
   void printStatus(uint32_t now) {

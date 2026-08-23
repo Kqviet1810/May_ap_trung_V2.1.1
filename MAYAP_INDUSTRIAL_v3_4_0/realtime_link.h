@@ -243,6 +243,7 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   c["allowHeatWithoutBatch"] = cfg.allowHeatWithoutBatch;
   c["alarmEnabled"] = cfg.alarmEnabled;
   c["lightAfterBatchAlarmEnabled"] = cfg.lightAfterBatchAlarmEnabled;
+  c["highTempAlarmWithoutBatch"] = cfg.highTempAlarmWithoutBatch;
   c["controlMode"] = static_cast<uint8_t>(cfg.controlMode);
   c["nextDirection"] = static_cast<uint8_t>(cfg.nextDirection);
   publishJson("config/reported", doc, true);
@@ -413,6 +414,8 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   candidate.alarmEnabled = configObj["alarmEnabled"] | candidate.alarmEnabled;
   candidate.lightAfterBatchAlarmEnabled =
       configObj["lightAfterBatchAlarmEnabled"] | candidate.lightAfterBatchAlarmEnabled;
+  candidate.highTempAlarmWithoutBatch =
+      configObj["highTempAlarmWithoutBatch"] | candidate.highTempAlarmWithoutBatch;
   candidate.controlMode = static_cast<ControlMode>(
       configObj["controlMode"] | static_cast<uint8_t>(candidate.controlMode));
   candidate.nextDirection = static_cast<TurnDirection>(

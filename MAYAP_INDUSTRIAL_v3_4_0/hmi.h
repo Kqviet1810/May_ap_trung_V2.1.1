@@ -253,7 +253,7 @@ const SettingItem SETTINGS[] = {
   ITEM_BOOL_OPTIONS("Ap lai", autoResumeOnPowerLoss, OPT_ON_OFF_HOI),           // 2
   ITEM_U8("So ngay ap", totalIncubationDays, 1, 40, 1, "ng"),                   // 3
 
-  // ---- CAI DAT CHUNG > NHIET DO (4 muc) ----
+  // ---- CAI DAT CHUNG > NHIET DO (5 muc) ----
   // Chuoi nhiet tren LCD duoc rang buoc dong bo:
   // Bao thap < SV <= Hut tat < Hut bat <= Bao cao < Bao khan cap.
   ITEM_FLOAT("Bao thap", lowTempAlarm, 25.0f,
@@ -269,32 +269,35 @@ const SettingItem SETTINGS[] = {
   // tren may khong can mo web. Dung chung field/gioi han voi machine_control.h
   // sanitizeConfig() (clampFloat -5..5).
   ITEM_FLOAT("Bu nhiet do", tempOffset, -5.0f, 5.0f, 0.1f, 1, "C"),            // 7
+  // BAT (mac dinh): Bao cao/Bao khan cap hoat dong moi luc, ke ca khong co
+  // me ap. TAT: 2 canh bao nay CHI kiem tra khi dang co me (giong Bao thap).
+  ITEM_BOOL("Bao nhiet ngoai me", highTempAlarmWithoutBatch),                  // 8
 
   // ---- CAI DAT CHUNG > QUAT HUT (2 muc) ----
   ITEM_FLOAT("Quat hut bat", ventOnTemp, TARGET_TEMP_MIN_C + VENT_ON_ABOVE_SV_C,
-             HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 8
-  ITEM_FLOAT("Quat hut tat", ventOffTemp, TARGET_TEMP_MIN_C,
              HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 9
+  ITEM_FLOAT("Quat hut tat", ventOffTemp, TARGET_TEMP_MIN_C,
+             HIGH_ALARM_MAX_C, 0.1f, 1, "C"),                                  // 10
 
   // ---- CAI DAT CHUNG > DAO TRUNG (3 muc, + "So lan dao" la dong phu) ----
-  ITEM_BOOL("Tu dong dao", turningEnabled),                                    // 10
-  ITEM_U16("Chu ky dao", turnIntervalMin, 1, 720, 1, "ph"),                   // 11
-  ITEM_U16("Tre loi dao", turnMaxRunSec, 5, 600, 5, "s"),                    // 12
+  ITEM_BOOL("Tu dong dao", turningEnabled),                                    // 11
+  ITEM_U16("Chu ky dao", turnIntervalMin, 1, 720, 1, "ph"),                   // 12
+  ITEM_U16("Tre loi dao", turnMaxRunSec, 5, 600, 5, "s"),                    // 13
 
   // ---- CAI DAT CHUNG > KET NOI (1 muc, + "Doi wifi" la dong phu) ----
   ITEM_U8_OPTIONS("Che do ket noi", connectivityMode,
-                  OPT_OFFLINE_ONLINE, 2)                                      // 13
+                  OPT_OFFLINE_ONLINE, 2)                                      // 14
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 14, "Bang SETTINGS phai co 14 thong so");
+static_assert(SETTING_COUNT == 15, "Bang SETTINGS phai co 15 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
-  4,5,6,7,                             // Nhiet do
-  8,9,                                 // Quat hut
-  10,11,12,                            // Dao trung
-  13                                    // Ket noi
+  4,5,6,7,8,                           // Nhiet do
+  9,10,                                // Quat hut
+  11,12,13,                            // Dao trung
+  14                                    // Ket noi
 };
 
 struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
@@ -302,10 +305,10 @@ struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
 // "CAI DAT CHUNG" (goc tu ChungMenu). Dung chung mot co che SettingList.
 const SettingGroup GROUPS[] = {
   {"CAI DAT ME", 0, 4},
-  {"NHIET DO", 4, 4},
-  {"QUAT HUT", 8, 2},
-  {"DAO TRUNG", 10, 3},
-  {"KET NOI", 13, 1}
+  {"NHIET DO", 4, 5},
+  {"QUAT HUT", 9, 2},
+  {"DAO TRUNG", 11, 3},
+  {"KET NOI", 14, 1}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
 static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");

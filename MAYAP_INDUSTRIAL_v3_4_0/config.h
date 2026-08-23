@@ -713,6 +713,13 @@ struct MachineConfig {
   // chay (xem cloud_alert_link.h::checkLightAfterBatch). Nguoi dung co the
   // tat rieng canh bao nay ma khong anh huong cac canh bao khac.
   bool lightAfterBatchAlarmEnabled = true;
+  // BAT (mac dinh, giu nguyen hanh vi tu truoc gio): canh bao Nhiet do cao/
+  // Qua nhiet khan cap (E111/E112) hoat dong moi luc, ke ca khong co me ap -
+  // day la trang thai an toan, phat hien qua nhiet bat thuong trong phong du
+  // may dang khong ap. TAT: 2 canh bao nay CHI kiem tra khi dang co me ap
+  // (giong het Nhiet do thap - E110 - von da luon nhu vay), huu ich neu
+  // phong dat may nong tu nhien luc khong ap gay bao gia lien tuc.
+  bool highTempAlarmWithoutBatch = true;
 };
 
 struct NetworkStatus {
