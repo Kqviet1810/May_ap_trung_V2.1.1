@@ -3140,6 +3140,11 @@ void applyRuntime(MachineRuntime runtime) {
         testLimitResult[idx] = currentRuntime.testLimitPhase == TestLimitPhase::Success
             ? TestResult::Pass : TestResult::Fail;
       }
+      // Xac nhan am thanh bang coi NOI BO cua HMI, khong phai relay coi that
+      // (truoc day dung req.siren ben firmware - da sua vi lam keu coi that
+      // ngoai y muon moi lan test cong tac hanh trinh, xem machine_control.h).
+      buzzerPlayCue(currentRuntime.testLimitPhase == TestLimitPhase::Success
+          ? BuzzerCue::Ok : BuzzerCue::Error);
     }
     lastObservedTestLimitPhase = currentRuntime.testLimitPhase;
   }

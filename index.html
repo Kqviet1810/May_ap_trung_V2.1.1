@@ -83,8 +83,8 @@
 <details class="settingCard">
 <summary><span class="settingIcon">♢</span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
-<div class="notificationLine"><div><strong>Nhận cảnh báo trên điện thoại</strong><small>Áp dụng cho TẤT CẢ thiết bị đã thêm trên dashboard này (không chỉ máy đang chọn) - nhiệt độ, cảm biến, đảo trứng, mất kết nối, kể cả khi không mở trang này.</small></div><span class="pill soft" id="pushStatusPill">…</span></div>
-<div class="formError" id="pushZeroDevicesBanner" role="alert">⚠️ Chưa có điện thoại nào đang nhận thông báo cho máy này - mọi cảnh báo (kể cả mất điện) sẽ không tới được ai. Bấm "Bật thông báo" bên dưới trên ít nhất 1 điện thoại.</div>
+<div class="notificationLine"><div><strong>Nhận cảnh báo trên điện thoại</strong><small>Áp dụng cho TẤT CẢ thiết bị trên dashboard này, kể cả khi không mở trang.</small></div><span class="pill soft" id="pushStatusPill">…</span></div>
+<div class="formError" id="pushZeroDevicesBanner" role="alert">⚠️ Chưa có điện thoại nào nhận thông báo cho máy này - mất điện hay lỗi sẽ không ai biết. Bấm "Bật thông báo" bên dưới.</div>
 <div class="wifiGuide" id="pushIosGuide" hidden><strong>iPhone/iPad: thêm vào Màn hình chính trước</strong><small>Bước 1: Nhấn nút Chia sẻ trên Safari.<br/>Bước 2: Chọn "Thêm vào Màn hình chính".<br/>Bước 3: Mở MAYAP từ biểu tượng vừa tạo trên Màn hình chính.<br/>Bước 4: Bấm "Bật thông báo" lại trong trang vừa mở.</small></div>
 <p class="settingFootnote" id="pushErrorText" hidden></p>
 <button class="primary full" id="enablePushBtn" type="button">Bật thông báo</button>
@@ -99,18 +99,18 @@
 <summary><span class="settingIcon">✎</span><span class="settingSummary"><strong>Tên máy &amp; mã PIN</strong><small id="deviceIdentitySummary">Đổi tên hiển thị và mã PIN của máy đang chọn</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
 <form id="renameDeviceForm" style="display:grid;gap:10px">
-<p class="settingFootnote">Tên hiển thị áp dụng cho tất cả mọi người xem máy này (kể cả trên thông báo đẩy) - giữ nguyên tới khi bạn đổi, không phụ thuộc thiết bị đang chọn.</p>
-<label class="field"><span>Tên hiển thị mới</span><input autocomplete="off" id="renameDeviceName" maxlength="64" placeholder="Máy ấp số 2" required=""/></label>
-<label class="field"><span>Mã PIN hiện tại</span><input autocomplete="off" id="renameDevicePin" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Mặc định 1111" required="" type="password"/></label>
+<p class="settingFootnote">Áp dụng cho mọi người xem máy này, kể cả trên thông báo đẩy.</p>
+<label class="field"><span>Tên mới</span><input autocomplete="off" id="renameDeviceName" maxlength="64" placeholder="Máy ấp số 2" required=""/></label>
+<label class="field"><span>PIN hiện tại</span><input autocomplete="off" id="renameDevicePin" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Mặc định 1111" required="" type="password"/></label>
 <p class="formError" id="renameDeviceError" role="alert"></p>
 <button class="primary full" type="submit">Đổi tên máy</button>
 </form>
 <hr style="border:none;border-top:1px solid var(--line, #d7e3e0);margin:16px 0"/>
 <form id="changePinForm" style="display:grid;gap:10px">
-<p class="settingFootnote">Mã PIN chỉ gồm chữ số (4-8 số) - dùng để xác nhận khi thêm máy này trên điện thoại khác hoặc đổi tên máy. Mặc định xuất xưởng là <b>1111</b>.</p>
-<label class="field"><span>Mã PIN hiện tại</span><input autocomplete="off" id="changePinOld" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Mặc định 1111" required="" type="password"/></label>
-<label class="field"><span>Mã PIN mới</span><input autocomplete="off" id="changePinNew1" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="4-8 chữ số" required="" type="password"/></label>
-<label class="field"><span>Nhập lại mã PIN mới</span><input autocomplete="off" id="changePinNew2" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="4-8 chữ số" required="" type="password"/></label>
+<p class="settingFootnote">PIN 4-8 chữ số, dùng khi thêm máy trên điện thoại khác.</p>
+<label class="field"><span>PIN hiện tại</span><input autocomplete="off" id="changePinOld" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Mặc định 1111" required="" type="password"/></label>
+<label class="field"><span>PIN mới</span><input autocomplete="off" id="changePinNew1" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="4-8 chữ số" required="" type="password"/></label>
+<label class="field"><span>Nhập lại PIN mới</span><input autocomplete="off" id="changePinNew2" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="4-8 chữ số" required="" type="password"/></label>
 <p class="formError" id="changePinError" role="alert"></p>
 <button class="ghost full" type="submit">Đổi mã PIN</button>
 </form>

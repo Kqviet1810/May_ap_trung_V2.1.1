@@ -4645,13 +4645,23 @@ class MachineController {
                                    !safetyJournalFaultLatched_ &&
         !storageFaultLatched_ && (!storageDegraded_ || batchRunning_);
 
-    // Quyen giu contactor contactor tong nhiet tach doc lap voi quyen cap xung SSR D1.
-    // High chi khoa D1; Emergency va cac loi nghiem trong moi nha contactor tong nhiet.
-    const bool normalMasterPermit = !faults_.masterDropRequired() &&
-        storageAllowsHeat && !abnormalResetLatched_ && in.heaterEnable &&
+    // RELAY NHIET TONG (contactor) theo dung yeu cau nguoi lap dat: cong tac
+    // nhiet vat ly (in.heaterEnable) la quyen dieu khien CAO NHAT cho relay
+    // nay - BAT cong tac la relay BAT ngay, khong con cho me/cam bien/quat/
+    // thoi gian nghi nua (cac dieu kien "thuong quy" nay CHI con duoc phep
+    // canh bao qua fault code, khong con duoc phep ngat relay). CHI GIU LAI
+    // 1 ngoai le duy nhat: qua nhiet KHAN CAP (emergencyActive_) - lop du
+    // phong an toan doc lap cho truong hop chinh SSR D1 bi ket/chay o trang
+    // thai BAT (loi phan cung SSR thuc te hay gap), khong lien quan cong tac.
+    const bool normalMasterPermit = in.heaterEnable && !emergencyActive_;
+    // D1 SSR/PID (dong nhiet THAT su) van giu NGUYEN VEN toan bo cac dieu
+    // kien an toan nhu truoc gio - chi RIENG relay tong o tren la doi theo
+    // yeu cau, khong lam long cac dieu kien cho dong dien nhiet thuc te.
+    const bool heaterPidConditions = !faults_.masterDropRequired() &&
+        storageAllowsHeat && !abnormalResetLatched_ &&
         batchAllowsHeat && sensorUsable_ && fanAllowsHeat &&
         timeReached(now, heatRestartNotBefore_);
-    const bool normalSsrPermit = normalMasterPermit &&
+    const bool normalSsrPermit = normalMasterPermit && heaterPidConditions &&
         !faults_.ssrInhibited() && !ventTemperatureActive_;
 
     float commandedPower = 0.0f;
@@ -4835,9 +4845,15 @@ class MachineController {
     req.circulationFan = pulseOn(TestOutputId::CirculationFan);
     req.ventFan = pulseOn(TestOutputId::VentFan);
     req.light = pulseOn(TestOutputId::Light);
-    const bool limitBuzzActive = testLimitPhase_ == TestLimitPhase::Success &&
-                                 !timeReached(now, testLimitBuzzUntil_);
-    req.siren = pulseOn(TestOutputId::Siren) || limitBuzzActive;
+    // LOI DA SUA: truoc day khi tac dong cong tac hanh trinh thanh cong, code
+    // tu dong bat CA RELAY COI THAT (req.siren) trong TEST_LIMIT_CONFIRM_BUZZ_MS
+    // de lam "tieng bip xac nhan" - nhung day la 1 ngo ra vat ly that (qua
+    // relay), khong phai coi bao noi bo cua HMI, nen moi lan test cong tac
+    // hanh trinh lai lam keu coi that ngoai y muon. Coi (siren) gio CHI theo
+    // dung nut test rieng cua no; xac nhan am thanh cho test cong tac hanh
+    // trinh da chuyen sang coi noi bo HMI (xem hmi.h - buzzerPlayCue khi
+    // testLimitPhase chuyen sang Success).
+    req.siren = pulseOn(TestOutputId::Siren);
     req.turnLeft = pulseOn(TestOutputId::TurnLeft);
     req.turnRight = pulseOn(TestOutputId::TurnRight);
 
