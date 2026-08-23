@@ -299,6 +299,37 @@ inline void checkTransitions(uint32_t now) {
   }
 }
 
+// ------------------- Thong bao: da co dien lai giua me ap -------------------
+// Khi mat dien, chinh may ap cung tat theo nen KHONG the tu bao luc do (canh
+// bao "mat ket noi" do Worker tu phat hien qua khoang lang heartbeat - xem
+// checkDeviceConnectivity trong cloudflare/src/index.js). Nhung luc CO DIEN
+// LAI thi ESP32 song lai va biet ro minh vua khoi dong sau mat dien giua me
+// (runtime.powerLossRecovery, dat trong MachineController::begin) - day la
+// thoi diem bao ve dien thoai chinh xac va co ich nhat: nguoi dung can biet
+// dien da co lai VA me ap co tu chay tiep khong hay dang cho xac nhan tay.
+static bool powerRestoreReported = false;
+
+inline void checkPowerRestored(uint32_t now) {
+  (void)now;
+  if (powerRestoreReported || !processingRuntime.powerLossRecovery) return;
+  // Chi bao khi thuc su co me ap dang cho phuc hoi/dang chay - mat dien luc
+  // khong ap gi thi khong can lam phien (cung nguyen tac voi canh bao mat
+  // ket noi phia Worker, chi bao khi dang co me).
+  if (!processingRuntime.batchRunning && !processingRuntime.resumeConfirmationRequired) return;
+  powerRestoreReported = true;
+  if (processingRuntime.resumeConfirmationRequired) {
+    enqueueLevel("POWER_RESTORED", NotifyLevel::Warning,
+        "Đã có điện lại. Mẻ ấp đang CHỜ XÁC NHẬN trên máy để chạy tiếp.");
+  } else {
+    char body[160];
+    snprintf(body, sizeof(body),
+        "Đã có điện lại. Mẻ ấp đã tự chạy tiếp (ngày %u/%u).",
+        static_cast<unsigned>(processingRuntime.currentDay),
+        static_cast<unsigned>(processingConfig.totalIncubationDays));
+    enqueueLevel("POWER_RESTORED", NotifyLevel::Info, body);
+  }
+}
+
 // --------------------- Canh bao: den van bat khi dang ap me --------------------
 // Dieu kien: me ap dang chay VA den (lightOn) van bat. Gui 1 lan khi vua phat
 // hien, sau do nhac lai moi CLOUD_LIGHT_AFTER_BATCH_REPEAT_MS (30 phut) neu
@@ -327,8 +358,16 @@ inline void checkLightAfterBatch(uint32_t now) {
     }
   } else if (lightAfterBatchActive) {
     lightAfterBatchActive = false;
-    enqueueResolved("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
-        "Đèn đã tắt hoặc mẻ ấp đã kết thúc.");
+    // Noi RO nguyen nhan het canh bao, khong bao chung chung "den da tat HOAC
+    // me ap da ket thuc" - nguoi dung doc xong khong biet thuc te vua xay ra
+    // chuyen gi. Tai day van con du du lieu de biet chinh xac ve nao dung.
+    if (!processingRuntime.lightOn) {
+      enqueueResolved("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
+          "Đã hết: đèn đã được tắt.");
+    } else {
+      enqueueResolved("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
+          "Đã hết: mẻ ấp đã kết thúc (đèn vẫn đang bật).");
+    }
   }
 }
 
@@ -346,8 +385,17 @@ inline void checkTurnCycleMissed(uint32_t now) {
     turnMissedHaveCount = false;
     if (turnMissedActive) {
       turnMissedActive = false;
-      enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
-          "Đảo trứng đã hoạt động bình thường trở lại.");
+      // KHONG bao "da hoat dong binh thuong tro lai" o day - canh bao het
+      // vi me ap dung/nguoi dung tat tu dong dao, KHONG phai vi co cau dao
+      // da chay lai duoc. Bao dung su that de nguoi dung khong hieu nham la
+      // may da tu khac phuc xong (nhanh "da chay lai that" nam ben duoi).
+      if (!processingRuntime.batchRunning) {
+        enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
+            "Đã hết: mẻ ấp đã kết thúc (chưa kiểm tra được cơ cấu đảo).");
+      } else {
+        enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
+            "Đã hết: đã tắt tự động đảo (chưa kiểm tra được cơ cấu đảo).");
+      }
     }
     return;
   }
@@ -357,8 +405,9 @@ inline void checkTurnCycleMissed(uint32_t now) {
     turnMissedHaveCount = true;
     if (turnMissedActive) {
       turnMissedActive = false;
+      // Day moi la phuc hoi THAT: dem so lan dao thanh cong vua tang tro lai.
       enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
-          "Đảo trứng đã hoạt động bình thường trở lại.");
+          "Đã hết: đảo trứng đã chạy lại bình thường.");
     }
     return;
   }
@@ -424,7 +473,7 @@ inline void checkWifiSignal(uint32_t now) {
     wifiWeakTracking = false;
     if (wifiWeakActive) {
       wifiWeakActive = false;
-      enqueueResolved("WIFI_SIGNAL_WEAK", NotifyLevel::Info, "Tín hiệu Wi-Fi đã ổn định trở lại.");
+      enqueueResolved("WIFI_SIGNAL_WEAK", NotifyLevel::Info, "Đã hết: tín hiệu Wi-Fi đã ổn định trở lại.");
     }
     return;
   }
@@ -618,6 +667,7 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
       checkFaults(now);
       checkTransitions(now);
       if (configValid) {
+        checkPowerRestored(now);
         checkLightAfterBatch(now);
         checkBatchSchedule(now);
         checkTurnCycleMissed(now);

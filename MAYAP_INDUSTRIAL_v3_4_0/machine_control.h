@@ -3047,6 +3047,11 @@ class MachineController {
       // nhiet, cam bien, RTC...) duoc dap ung trong processResume().
       resumeConfirmationRequired_ = resetReasonIsPowerInterruption(resetReason_) &&
                                     !config_.autoResumeOnPowerLoss;
+      // Ghi nhan "vua co dien lai giua me ap" DOC LAP voi viec co phai hoi
+      // xac nhan hay khong (autoResumeOnPowerLoss BAT thi khong hoi, nhung
+      // van la mat dien that) - cloud_alert_link.h can co nay de bao ve dien
+      // thoai du nguoi dung dang de che do ap lai tu dong.
+      powerLossRecovery_ = resetReasonIsPowerInterruption(resetReason_);
       automaticResetRecovery_ = resetReasonIsAutomaticRecovery(resetReason_);
       elapsedBeforeStartSec_ = batch.elapsedSec;
       savedElapsedAtCheckpoint_ = batch.elapsedSec;
@@ -3074,6 +3079,7 @@ class MachineController {
     runtime_.alarmMask = faults_.alarmMask();
     runtime_.sensorStartupGrace = true;
     runtime_.resumeConfirmationRequired = resumeConfirmationRequired_;
+    runtime_.powerLossRecovery = powerLossRecovery_;
     copyRuntimeToHmi();
 
     mayapSerialPrintf(false,
@@ -4983,6 +4989,7 @@ class MachineController {
     runtime_.sensorStartupGrace = !timeReached(now, sensorStartupGraceUntil_) &&
                                   !sensorUsable_;
     runtime_.resumeConfirmationRequired = resumeConfirmationRequired_;
+    runtime_.powerLossRecovery = powerLossRecovery_;
     runtime_.timeValid = rtc_.valid();
     const NetworkStatus &network = lastNetworkStatus_;
     runtime_.connectivityMode = network.requestedMode;
@@ -5511,6 +5518,9 @@ class MachineController {
   bool resumePending_ = false;
   bool resumeConfirmationRequired_ = false;
   bool automaticResetRecovery_ = false;
+  // Dat 1 lan trong begin() khi phat hien khoi dong lai sau mat dien giua me
+  // ap; giu nguyen suot phien chay (khong tu xoa) de cloud_alert_link.h doc.
+  bool powerLossRecovery_ = false;
   ResumeBlockReason resumeBlockReason_ = ResumeBlockReason::None;
   bool batchClearPending_ = false;
   uint8_t batchClearAttemptCount_ = 0U;

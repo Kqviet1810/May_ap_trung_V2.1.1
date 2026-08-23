@@ -589,6 +589,13 @@ HmiEventSnapshot eventLogInbox;
 bool runtimeInboxPending = false;
 bool configInboxPending = false;
 bool eventLogInboxPending = false;
+// Man hinh khoi dong: thoat khi DA nhan du ca runtime lan config that (de man
+// chinh hien ra la da day du so lieu, khong con o trong) va da qua
+// SPLASH_MIN_MS; hoac het SPLASH_MAX_MS thi thoat du chua nhan duoc gi.
+bool splashActive = true;
+uint32_t splashStartedAt = 0;
+bool splashHadRuntime = false;
+bool splashHadConfig = false;
 bool apiWorkPending = false;
 char dateInbox[11] = "--/--/----";
 bool dateInboxPending = false;
@@ -1528,6 +1535,13 @@ void handleInput() {
     resetRotaryPending();
     return;
   }
+  // Dang o man khoi dong: nuot moi thao tac (khong dieu huong mu trong luc
+  // man hinh chua hien menu), tranh vua bat may lo xoay num la da nhay vao
+  // mot trang nao do ma khong biet.
+  if (splashActive) {
+    resetRotaryPending();
+    return;
+  }
 
   if (handleInlineConfirmation()) return;
 
@@ -1753,6 +1767,54 @@ void drawHeader(const char *title, bool showDate) {
 }
 void drawHeader(const char *title) { drawHeader(title, true); }
 
+// ---------------------- Chong tran chu dung chung ----------------------
+// Man hinh chi rong 128px. Moi cho ve chuoi co do dai THAY DOI theo du lieu
+// (ten loi, ten Wi-Fi, ten thiet bi, noi dung su kien...) deu phai di qua
+// day thay vi drawStr() thang, neu khong se bi cat mat chu o bien man hinh
+// ma khong bao gi - da tung xay ra o nhieu man khac nhau.
+//
+// Chon font LON NHAT trong 3 muc ma chuoi van vua maxWidth, va dat font do
+// lam font hien hanh. Tra ve be rong that de goi ben ngoai tu dat vi tri.
+int16_t fitFontWidth(const char *text, int16_t maxWidth,
+                     const uint8_t *big, const uint8_t *mid,
+                     const uint8_t *small) {
+  if (!text) text = "";
+  lcd.setFont(big);
+  int16_t w = static_cast<int16_t>(lcd.getStrWidth(text));
+  if (w <= maxWidth) return w;
+  lcd.setFont(mid);
+  w = static_cast<int16_t>(lcd.getStrWidth(text));
+  if (w <= maxWidth) return w;
+  lcd.setFont(small);
+  return static_cast<int16_t>(lcd.getStrWidth(text));
+}
+
+// Ve can giua, tu ha co font neu qua dai. maxWidth chua le 2px moi ben.
+void drawCenteredFit(int16_t y, const char *text, const uint8_t *big,
+                     const uint8_t *mid, const uint8_t *small,
+                     int16_t maxWidth = 124) {
+  if (!text) text = "";
+  const int16_t w = fitFontWidth(text, maxWidth, big, mid, small);
+  lcd.drawStr(max(0, (128 - w) / 2), y, text);
+}
+
+// Ve can trai tai x, tu ha co font neu qua dai so voi phan man hinh con lai.
+void drawLeftFit(int16_t x, int16_t y, const char *text, const uint8_t *big,
+                 const uint8_t *mid, const uint8_t *small) {
+  if (!text) text = "";
+  fitFontWidth(text, static_cast<int16_t>(126 - x), big, mid, small);
+  lcd.drawStr(x, y, text);
+}
+
+// Nhu drawLeftFit nhung chi dinh RO be rong toi da cho phep (dung khi ben
+// phai da co noi dung khac chiem cho, vd cot gia tri trong danh sach cai dat).
+void drawLeftFit2(int16_t x, int16_t y, const char *text, int16_t maxRight,
+                  const uint8_t *big, const uint8_t *small) {
+  if (!text) text = "";
+  fitFontWidth(text, static_cast<int16_t>(maxRight - x), big, small, small);
+  lcd.drawStr(x, y, text);
+}
+
 uint32_t alarmBitForFaultCode(uint16_t code) {
   switch (code) {
     case 101: case 102: case 103: return AlarmSensor;
@@ -1869,25 +1931,12 @@ void drawAlarm() {
   // Tu co font neu tieu de qua dai cho 128px (mot vai ten loi - ke ca vai ma
   // co tu truoc, khong chi ma moi them - dai hon du de tran man o co dinh
   // helvB10 truoc day, gay mat chu). Thu tu uu tien: dam/lon truoc, nho dan.
-  const char *title = faultTitle(fault.code);
-  lcd.setFont(u8g2_font_helvB10_tf);
-  int16_t titleW = static_cast<int16_t>(lcd.getStrWidth(title));
-  if (titleW > 124) {
-    lcd.setFont(u8g2_font_6x12_tf);
-    titleW = static_cast<int16_t>(lcd.getStrWidth(title));
-  }
-  if (titleW > 124) {
-    lcd.setFont(u8g2_font_5x8_tf);
-    titleW = static_cast<int16_t>(lcd.getStrWidth(title));
-  }
-  const int16_t titleX = max(0, (128 - titleW) / 2);
-  lcd.drawStr(titleX, 29, title);
+  drawCenteredFit(29, faultTitle(fault.code), u8g2_font_helvB10_tf,
+                  u8g2_font_6x12_tf, u8g2_font_5x8_tf);
 
   faultDetail(fault, detail, sizeof(detail));
-  lcd.setFont(u8g2_font_5x8_tf);
-  int16_t detailW = static_cast<int16_t>(lcd.getStrWidth(detail));
-  const int16_t detailX = max(0, (128 - detailW) / 2);
-  lcd.drawStr(detailX, 42, detail);
+  drawCenteredFit(42, detail, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+                  u8g2_font_5x8_tf);
   snprintf(footer, sizeof(footer), "E%03u %u/%u  NHAN=ACK",
            fault.code, alarmIndex + 1U, count);
   lcd.setFont(u8g2_font_5x8_tf);
@@ -1898,6 +1947,22 @@ void drawCenteredText(int16_t y, const char *text) {
   if (!text) text = "";
   const int16_t width = static_cast<int16_t>(lcd.getStrWidth(text));
   lcd.drawStr(max(0, (128 - width) / 2), y, text);
+}
+
+// Man hinh khoi dong - chu nho, 3 dong can giua theo chieu doc, khong khung
+// vien de nhin gon gang. Hien tu luc bat may den khi da co du so lieu that
+// (xem splashActive trong render()).
+void drawSplash() {
+  char line[24];
+  lcd.setDrawColor(1);
+  lcd.setFont(u8g2_font_6x12_tf);
+  drawCenteredText(22, "DIEU KHIEN MAY AP");
+
+  lcd.setFont(u8g2_font_5x8_tf);
+  snprintf(line, sizeof(line), "V%s", MAYAP_FIRMWARE_VERSION);
+  drawCenteredText(38, line);
+
+  drawCenteredText(54, "Dang khoi dong...");
 }
 
 void drawHomeMain() {
@@ -1912,8 +1977,11 @@ void drawHomeMain() {
   // Khong dung khung/duong ke de tiet kiem diem anh va giu giao dien thoang.
   constexpr int16_t TEMP_ZONE_WIDTH = 70;
   // Dich cot SV/AM/DAO ra gan mep phai hon de khong bi dinh sat vung nhiet do,
-  // giup hai ben man hinh can doi hon.
-  constexpr int16_t RIGHT_X = 80;
+  // giup hai ben man hinh can doi hon. 76 (khong phai 80): cac dong dai nhat
+  // ("SV 37.5C", "DAO 720p", "DAO KHOA" - 8 ky tu font 6x12 = 48px) o x=80 se
+  // ket thuc dung diem anh cuoi cung 127, dinh sat mep man hinh; 76 chua lai
+  // le phai 4px cho can doi va van cach vung nhiet do (rong 70) 6px.
+  constexpr int16_t RIGHT_X = 76;
 
   snprintf(text, sizeof(text), currentRuntime.sensorOnline ? "%.1f" : "--.-",
            currentRuntime.temperature);
@@ -2091,9 +2159,16 @@ void drawSettingList() {
       const SettingItem &item = SETTINGS[settingIndex];
       if (settingLockedDuringBatch(settingIndex)) snprintf(value, sizeof(value), "KHOA");
       else formatSettingValue(item, readSetting(currentConfig, item), value, sizeof(value));
-      lcd.drawStr(2, y, item.label);
-      const int16_t x = max(86, 126 - static_cast<int16_t>(lcd.getStrWidth(value)));
-      lcd.drawStr(x, y, value);
+      // Ve GIA TRI truoc (can phai, khong bi ep vao cot cung x=86 nhu truoc),
+      // roi moi ve NHAN vao dung phan con lai voi khe ho 4px. Cach cu ep gia
+      // tri bat dau tu x=86 co dinh nen nhan dai nhat ("Che do ket noi", ket
+      // thuc dung x=86) dinh sat vao gia tri, nhin nhu bi cham chu.
+      lcd.setFont(u8g2_font_6x12_tf);
+      const int16_t valueW = static_cast<int16_t>(lcd.getStrWidth(value));
+      const int16_t valueX = max(2, 126 - valueW);
+      lcd.drawStr(valueX, y, value);
+      drawLeftFit2(2, y, item.label, static_cast<int16_t>(valueX - 4),
+                   u8g2_font_6x12_tf, u8g2_font_5x8_tf);
     } else if (groupHasExtraRow(selectedGroup) && local == group.count) {
       // Dong muc phu (thong ke dao/doi wifi) can trai dong bo voi cac muc cai dat.
       lcd.drawStr(2, y, groupExtraLabel(selectedGroup));
@@ -2111,18 +2186,23 @@ void drawTurnStats() {
   drawHeader("SO LAN DAO", false);
   lcd.setFont(u8g2_font_6x12_tf);
 
+  // Cac dong nay chua so dem co the rat dai (turnCountBatch la uint32) - di
+  // qua drawLeftFit de du du lieu bat thuong cung khong tran ra ngoai man.
   snprintf(text, sizeof(text), "HOM NAY: %u LAN",
            currentRuntime.turnCountToday);
-  lcd.drawStr(6, 29, text);
+  drawLeftFit(6, 29, text, u8g2_font_6x12_tf, u8g2_font_5x8_tf,
+              u8g2_font_5x8_tf);
 
   snprintf(text, sizeof(text), "TONG ME: %lu LAN",
            static_cast<unsigned long>(currentRuntime.turnCountBatch));
-  lcd.drawStr(6, 43, text);
+  drawLeftFit(6, 43, text, u8g2_font_6x12_tf, u8g2_font_5x8_tf,
+              u8g2_font_5x8_tf);
+
   if (currentRuntime.turningLockdown) snprintf(text, sizeof(text), "DAO TIEP: KHOA");
   else if (currentRuntime.nextTurnScheduled) snprintf(text, sizeof(text), "DAO TIEP: %u PH", currentRuntime.nextTurnMinutes);
   else snprintf(text, sizeof(text), "DAO TIEP: --");
-  lcd.setFont(u8g2_font_5x8_tf);
-  lcd.drawStr(6, 58, text);
+  drawLeftFit(6, 58, text, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+              u8g2_font_5x8_tf);
 }
 
 void drawEditSetting() {
@@ -2132,9 +2212,8 @@ void drawEditSetting() {
   // vuot gioi han cat chuoi 13 ky tu cua drawHeader() nen bi rung mat chu
   // "O" cuoi cung ("...THONG S"), day chinh la loi nguoi dung bao.
   drawHeader("SUA THONG SO", false);
-  lcd.setFont(u8g2_font_6x12_tf);
-  const int16_t labelX = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(item.label))) / 2);
-  lcd.drawStr(labelX, 23, item.label);
+  drawCenteredFit(23, item.label, u8g2_font_6x12_tf, u8g2_font_5x8_tf,
+                  u8g2_font_5x8_tf);
   formatSettingValue(item, editValue, value, sizeof(value));
 
   // "Ap lai" (autoResumeOnPowerLoss) KHONG dung cong tac do hoa nhu cac muc
@@ -2159,13 +2238,11 @@ void drawEditSetting() {
     lcd.drawDisc(knobX, knobY, knobR);
     lcd.setDrawColor(1);
 
-    lcd.setFont(u8g2_font_helvB12_tf);
-    const int16_t vx = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(value))) / 2);
-    lcd.drawStr(vx, 61, value);
+    drawCenteredFit(61, value, u8g2_font_helvB12_tf, u8g2_font_6x12_tf,
+                    u8g2_font_5x8_tf);
   } else {
-    lcd.setFont(u8g2_font_helvB14_tf);
-    const int16_t x = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(value))) / 2);
-    lcd.drawStr(x, 48, value);
+    drawCenteredFit(48, value, u8g2_font_helvB14_tf, u8g2_font_helvB12_tf,
+                    u8g2_font_6x12_tf);
   }
 }
 
@@ -2181,13 +2258,9 @@ const char *autoTuneStateText(AutoTuneState state) {
 void drawAutoTune() {
   char text[28];
   drawHeader("TU CHINH PID", false);
-  lcd.setFont(u8g2_font_helvB12_tf);
-  const char *state = autoTuneStateText(currentRuntime.autoTuneState);
-  const int16_t stateX = max(
-      0, (128 - static_cast<int16_t>(lcd.getStrWidth(state))) / 2);
-  lcd.drawStr(stateX, 29, state);
+  drawCenteredFit(29, autoTuneStateText(currentRuntime.autoTuneState),
+                  u8g2_font_helvB12_tf, u8g2_font_6x12_tf, u8g2_font_5x8_tf);
 
-  lcd.setFont(u8g2_font_6x12_tf);
   if (currentRuntime.autoTuneState == AutoTuneState::Running) {
     snprintf(text, sizeof(text), "TIEN DO %u%%",
              currentRuntime.autoTuneProgress);
@@ -2198,9 +2271,8 @@ void drawAutoTune() {
   } else {
     snprintf(text, sizeof(text), "MAY SE TU TIM PID");
   }
-  const int16_t textX = max(
-      0, (128 - static_cast<int16_t>(lcd.getStrWidth(text))) / 2);
-  lcd.drawStr(textX, 46, text);
+  drawCenteredFit(46, text, u8g2_font_6x12_tf, u8g2_font_5x8_tf,
+                  u8g2_font_5x8_tf);
 }
 
 const char *testOutputLabel(uint8_t index) {
@@ -2235,31 +2307,39 @@ const char *testResultTag(TestResult result) {
 }
 
 // 2 nut lon dung chung cho moi man xac nhan Co/Khong tren HMI (dung lai o
-// day va drawConfirmScreen() ben duoi) - chu nhan to, ro rang ngay trong o,
-// vuong vuc (khong bo vien cong) cho don gian, de nhan dien nhanh.
+// day va drawConfirmScreen() ben duoi) - chu nhan nam gon giua o, o bo goc
+// tron cho mem mat, de nhan dien nhanh.
 void drawYesNoButtons(bool yesSelected, const char *yesLabel, const char *noLabel) {
-  constexpr int16_t btnY = 40, btnH = 20, margin = 4, gap = 6;
+  constexpr int16_t btnY = 40, btnH = 20, margin = 4, gap = 6, radius = 4;
   constexpr int16_t btnW = (128 - 2 * margin - gap) / 2;
+  static_assert(btnW >= 2 * radius + 1 && btnH >= 2 * radius + 1,
+                "Nut qua nho so voi ban kinh bo goc (drawRBox se ve sai)");
   const int16_t yesX = margin;
   const int16_t noX = margin + btnW + gap;
 
-  lcd.setFont(u8g2_font_helvB12_tf);
+  // Font nho hon truoc (helvB10 thay helvB12) va can giua CA HAI CHIEU trong
+  // o: baseline tinh theo getAscent() cua chinh font dang dung thay vi hang
+  // so btnY+15 co dinh - doi font sau nay van tu can dung, khong bi lech.
+  lcd.setFont(u8g2_font_helvB10_tf);
+  const int16_t ascent = static_cast<int16_t>(lcd.getAscent());
+  const int16_t baseline = btnY + (btnH + ascent) / 2;
+
   lcd.setDrawColor(1);
-  if (yesSelected) lcd.drawBox(yesX, btnY, btnW, btnH);
-  else lcd.drawFrame(yesX, btnY, btnW, btnH);
+  if (yesSelected) lcd.drawRBox(yesX, btnY, btnW, btnH, radius);
+  else lcd.drawRFrame(yesX, btnY, btnW, btnH, radius);
   lcd.setDrawColor(yesSelected ? 0 : 1);
   {
     const int16_t tw = static_cast<int16_t>(lcd.getStrWidth(yesLabel));
-    lcd.drawStr(yesX + max(0, (btnW - tw) / 2), btnY + 15, yesLabel);
+    lcd.drawStr(yesX + max(0, (btnW - tw) / 2), baseline, yesLabel);
   }
 
   lcd.setDrawColor(1);
-  if (!yesSelected) lcd.drawBox(noX, btnY, btnW, btnH);
-  else lcd.drawFrame(noX, btnY, btnW, btnH);
+  if (!yesSelected) lcd.drawRBox(noX, btnY, btnW, btnH, radius);
+  else lcd.drawRFrame(noX, btnY, btnW, btnH, radius);
   lcd.setDrawColor(yesSelected ? 1 : 0);
   {
     const int16_t tw = static_cast<int16_t>(lcd.getStrWidth(noLabel));
-    lcd.drawStr(noX + max(0, (btnW - tw) / 2), btnY + 15, noLabel);
+    lcd.drawStr(noX + max(0, (btnW - tw) / 2), baseline, noLabel);
   }
   lcd.setDrawColor(1);
 }
@@ -2340,24 +2420,34 @@ void drawWifiChange() {
   lcd.setFont(u8g2_font_6x12_tf);
   const WifiPortalState state = currentRuntime.wifiPortalState;
   const char *title = "DANG MO CONG...";
-  if (state == WifiPortalState::ApActive) title = "HAY KET NOI VA DOI WIFI";
+  if (state == WifiPortalState::ApActive) title = "KET NOI VA DOI WIFI";
   else if (state == WifiPortalState::Testing) title = "DANG THU KET NOI...";
   else if (state == WifiPortalState::Success) title = "DA KET NOI!";
   else if (state == WifiPortalState::Failed) title = "KHONG THE KET NOI";
-  const int16_t titleX = max(0, (128 - static_cast<int16_t>(lcd.getStrWidth(title))) / 2);
-  lcd.drawStr(titleX, 24, title);
+  drawCenteredFit(24, title, u8g2_font_6x12_tf, u8g2_font_5x8_tf,
+                  u8g2_font_5x8_tf);
 
-  lcd.setFont(u8g2_font_5x8_tf);
-  char line[32];
+  // Cac dong huong dan ben duoi truoc day ve thang bang drawStr() o font
+  // 6x12/5x8 co dinh, mot so cau dai toi ~170px (vd "Hay thu lai voi mang/
+  // mat khau khac") nen bi cat cut o mep phai. Gio tach thanh 2 dong ngan va
+  // van di qua drawCenteredFit() de chac chan khong bao gio tran.
+  char line[40];
   if (state == WifiPortalState::ApActive || state == WifiPortalState::Testing) {
-    snprintf(line, sizeof(line), "Ket noi dien thoai toi:");
-    lcd.drawStr(6, 38, line);
+    drawCenteredFit(38, "Ket noi dien thoai toi:", u8g2_font_5x8_tf,
+                    u8g2_font_5x8_tf, u8g2_font_5x8_tf);
     snprintf(line, sizeof(line), "%s (192.168.4.1)", currentRuntime.wifiPortalApName);
-    lcd.drawStr(6, 50, line);
+    drawCenteredFit(50, line, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+                    u8g2_font_5x8_tf);
   } else if (state == WifiPortalState::Failed) {
-    lcd.drawStr(6, 40, "Hay thu lai voi mang/mat khau khac");
+    drawCenteredFit(38, "Hay thu lai voi mang", u8g2_font_5x8_tf,
+                    u8g2_font_5x8_tf, u8g2_font_5x8_tf);
+    drawCenteredFit(50, "hoac mat khau khac", u8g2_font_5x8_tf,
+                    u8g2_font_5x8_tf, u8g2_font_5x8_tf);
   } else if (state == WifiPortalState::Success) {
-    lcd.drawStr(6, 40, "May da chuyen sang Wi-Fi moi");
+    drawCenteredFit(38, "May da chuyen sang", u8g2_font_5x8_tf,
+                    u8g2_font_5x8_tf, u8g2_font_5x8_tf);
+    drawCenteredFit(50, "Wi-Fi moi", u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+                    u8g2_font_5x8_tf);
   }
 }
 
@@ -2540,10 +2630,13 @@ void drawEventLog() {
   snprintf(top, sizeof(top), "#%04lu %s",
            static_cast<unsigned long>(e.sequence % 10000UL), timestamp);
   lcd.drawStr(1, 20, top);
-  lcd.setFont(u8g2_font_6x12_tf);
-  lcd.drawStr(1, 34, title);
+  // Tieu de su kien loi co dang "E113 NHIET DO BIEN THIEN NHANH" - dai hon
+  // han 128px o font 6x12, truoc day bi cat mat duoi. Tu ha co font cho vua.
+  drawLeftFit(1, 34, title, u8g2_font_6x12_tf, u8g2_font_5x8_tf,
+              u8g2_font_5x8_tf);
+  drawLeftFit(1, 46, detail, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+              u8g2_font_5x8_tf);
   lcd.setFont(u8g2_font_5x8_tf);
-  lcd.drawStr(1, 46, detail);
   snprintf(footer, sizeof(footer), "%u/%u  %s",
            eventLogIndex + 1U, currentEventLog.totalInWindow, age);
   lcd.drawStr(1, 59, footer);
@@ -2569,13 +2662,12 @@ void drawConfirmScreen() {
     line1 = "BAT DAU ME AP MOI?";
   }
 
-  lcd.setFont(u8g2_font_6x12_tf);
   const int16_t y1 = line2[0] ? 24 : 28;
-  const int16_t w1 = static_cast<int16_t>(lcd.getStrWidth(line1));
-  lcd.drawStr(max(1, (128 - w1) / 2), y1, line1);
+  drawCenteredFit(y1, line1, u8g2_font_6x12_tf, u8g2_font_5x8_tf,
+                  u8g2_font_5x8_tf);
   if (line2[0]) {
-    const int16_t w2 = static_cast<int16_t>(lcd.getStrWidth(line2));
-    lcd.drawStr(max(1, (128 - w2) / 2), y1 + 13, line2);
+    drawCenteredFit(static_cast<int16_t>(y1 + 13), line2, u8g2_font_6x12_tf,
+                    u8g2_font_5x8_tf, u8g2_font_5x8_tf);
   }
 
   drawYesNoButtons(confirmYes, "CO", "HUY");
@@ -2587,8 +2679,14 @@ void drawToast(uint32_t now) {
   lcd.drawBox(0, 55, 128, 9);
   lcd.setDrawColor(0);
   lcd.setFont(u8g2_font_5x8_tf);
-  char line[27];
+  char line[32];
   snprintf(line, sizeof(line), "%s%s", toastError ? "! " : "", toastLine);
+  // 5x8 la font nho nhat dang co nen khong the ha co them - cat bot duoi chuoi
+  // cho vua 126px. showToast() da cat theo SO KY TU, nhung them tien to "! "
+  // luc bao loi van co the day chuoi vuot qua be rong man hinh.
+  while (line[0] && static_cast<int16_t>(lcd.getStrWidth(line)) > 126) {
+    line[strlen(line) - 1U] = '\0';
+  }
   const int16_t x = max(1, (128 - static_cast<int16_t>(lcd.getStrWidth(line))) / 2);
   lcd.drawStr(x, 63, line);
   lcd.setDrawColor(1);
@@ -2604,7 +2702,22 @@ void render(uint32_t now) {
                                  timeReached(now, uiNextVerifyDrawAt);
   const bool consumeVerifyFrame = uiVerifyFramesRemaining == 2U ||
                                   verificationFrame;
-  const bool periodic = periodicHome || periodicAlarm || verificationFrame;
+
+  // Man khoi dong: tu ve lai deu (khong ai set dirty ho) va tu thoat khi da
+  // co du du lieu that. Xu ly TRUOC moi thu khac de khong bi cac view khac
+  // (ke ca man canh bao/xac nhan) chen vao giua luc dang khoi dong.
+  if (splashActive) {
+    if (splashStartedAt == 0U) splashStartedAt = now;
+    const uint32_t elapsed = now - splashStartedAt;
+    const bool dataReady = splashHadRuntime && splashHadConfig;
+    if ((dataReady && elapsed >= SPLASH_MIN_MS) || elapsed >= SPLASH_MAX_MS) {
+      splashActive = false;
+      dirty = true;
+    }
+  }
+  const bool periodicSplash = splashActive;
+  const bool periodic = periodicHome || periodicAlarm || verificationFrame ||
+                        periodicSplash;
   if (!dirty && !periodic) return;
   if (now - lastDrawAt < DISPLAY_MIN_DRAW_MS) return;
 
@@ -2615,8 +2728,11 @@ void render(uint32_t now) {
   lcd.setFontMode(0);
   lcd.setFontDirection(0);
   lcd.clearBuffer();
-  const bool showConfirmScreen = confirmationActive() && view != View::Alarm;
-  if (showConfirmScreen) {
+  const bool showConfirmScreen = !splashActive && confirmationActive() &&
+                                 view != View::Alarm;
+  if (splashActive) {
+    drawSplash();
+  } else if (showConfirmScreen) {
     // Man xac nhan thay HAN cho view hien tai (khong ve chong len) - xem
     // drawConfirmScreen() de biet ly do doi tu dai 9px cuoi man sang ca man.
     drawConfirmScreen();
@@ -2753,6 +2869,11 @@ void hmiBegin() {
   lastCommandPollAt = now;
   lastLcdRetryAt = now;
   lastLcdHealthCheckAt = now;
+  // Moc thoi gian man khoi dong tinh tu luc BAT MAY, khong phai tu frame ve
+  // dau tien: neu LCD chua nhan duoc luc khoi dong (dang tu do tim lai), den
+  // khi no phuc hoi thi SPLASH_MAX_MS da qua tu lau va may vao thang man
+  // chinh - khong bat nguoi dung xem lai man khoi dong giua chung.
+  splashStartedAt = now;
   dirty = true;
 #if MAYAP_DIAGNOSTIC_SERIAL
   mayapSerialPrintf(false, "[HMI] LCD=%s profile=%u contrast=%u\n", lcdReady ? "OK" : "FAIL",
@@ -3136,6 +3257,10 @@ void serviceApiMailboxes() {
   if (hasConfigAck) processConfigAck(configAck);
   if (hasConfig) applyHostConfig(config);
   if (hasRuntime) applyRuntime(runtime);
+  // Danh dau da co so lieu that de man khoi dong biet luc nao duoc thoat
+  // (xem splashActive trong render()) - chi can moi loai den it nhat 1 lan.
+  if (hasConfig) splashHadConfig = true;
+  if (hasRuntime) splashHadRuntime = true;
   if (hasEventLog) {
     currentEventLog = eventLog;
     if (eventLogIndex >= currentEventLog.count) eventLogIndex = 0U;

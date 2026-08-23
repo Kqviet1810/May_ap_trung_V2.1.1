@@ -422,9 +422,13 @@ async function checkDeviceConnectivity(env) {
 
   const recoveredDevices = await getRecoveredOfflineDevices(env.DB, staleBefore);
   for (const device of recoveredDevices) {
+    // Noi ro may da song lai, khong bao chung chung. Chi tiet "me ap co tu
+    // chay tiep hay dang cho xac nhan" do chinh ESP32 gui rieng ngay khi no
+    // khoi dong lai (POWER_RESTORED trong cloud_alert_link.h) - o day Worker
+    // chi biet den muc "da thay heartbeat tro lai".
     await sendDeviceLifecycleAlarm(env, device, {
       state: 'resolved',
-      message: 'Đã kết nối lại bình thường.',
+      message: 'Đã hết: máy đã có điện/mạng trở lại.',
     });
   }
 }

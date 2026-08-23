@@ -300,6 +300,13 @@ constexpr uint32_t BUTTON_DEBOUNCE_MS = 30UL;
 constexpr uint32_t BUTTON_LONG_PRESS_MS = 900UL;
 constexpr uint32_t DISPLAY_MIN_DRAW_MS = 110UL;
 constexpr uint32_t HOME_REFRESH_MS = 5000UL;
+// Man hinh khoi dong (splash): hien toi thieu ngan nay roi moi vao man chinh,
+// va chi vao khi da nhan du du lieu that (runtime + config) de nguoi dung
+// khong bao gio thay man chinh voi cac o con trong/gia tri mac dinh.
+constexpr uint32_t SPLASH_MIN_MS = 1500UL;
+// Chan tren: du chua nhan duoc du lieu (cam bien/EEPROM loi) cung khong ket o
+// man khoi dong mai - sau moc nay luon vao man chinh de con thao tac duoc.
+constexpr uint32_t SPLASH_MAX_MS = 6000UL;
 constexpr uint32_t ALARM_REFRESH_MS = 5000UL;
 constexpr uint32_t HMI_COMMAND_POLL_MS = 100UL;
 constexpr uint32_t MENU_IDLE_TIMEOUT_MS = 60000UL;
@@ -786,6 +793,11 @@ struct MachineRuntime {
   uint16_t relayTransitionsHour = 0;
   bool sensorStartupGrace = true;
   bool resumeConfirmationRequired = false;
+  // Lan khoi dong nay la khoi dong lai SAU KHI MAT DIEN giua mot me dang ap
+  // (khong phai bat may binh thuong). Chi nam trong RAM (MachineRuntime khong
+  // luu EEPROM) va giu nguyen suot phien chay - cloud_alert_link.h dung de
+  // gui dung MOT thong bao "da co dien lai" ve dien thoai.
+  bool powerLossRecovery = false;
   bool timeValid = false;
   ConnectivityMode connectivityMode = ConnectivityMode::Offline;
   NetworkStateCode networkState = NetworkStateCode::Offline;
