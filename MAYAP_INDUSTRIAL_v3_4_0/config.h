@@ -381,7 +381,12 @@ constexpr uint32_t HEAT_MASTER_DROP_DELAY_MS = 120UL; // tat SSR truoc, roi nha 
 // Khong bao gio tri hoan thao tac OFF vi an toan.
 constexpr uint32_t HEAT_MASTER_MIN_OFF_MS = 3000UL;
 constexpr uint32_t HEAT_RESTART_LOCKOUT_MS = 30000UL;
-constexpr uint32_t POST_COOL_MS = 60000UL;
+// Thoi gian quat tuan hoan chay them sau khi het nhu cau nhiet (vd. vua ket
+// thuc me luc dang gia nhiet) de tan het nhiet du tren thanh nhiet. 60 s
+// truoc day khien nguoi dung tuong may bi "ket quat" khi kiem tra ngay sau
+// khi bam KET THUC ME - rut xuong 10 s, van du tan nhiet du cho phan tu
+// nhiet tro thuong, nhung ngan de khong gay hieu lam la loi.
+constexpr uint32_t POST_COOL_MS = 10000UL;
 constexpr uint32_t TURN_DIRECTION_DEADTIME_MS = 500UL;
 constexpr uint32_t TURN_LIMIT_RELEASE_TIMEOUT_MS = 2500UL;
 constexpr uint32_t TURN_INPUT_CONFLICT_MS = 500UL;

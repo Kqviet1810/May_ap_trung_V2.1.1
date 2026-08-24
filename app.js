@@ -1495,6 +1495,23 @@
     $('turningForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!validateTurningForm()) return;
+      const device = currentDevice();
+      const enabling = $('turningEnabled').checked;
+      const turningChanged = device?.config && enabling !== Boolean(device.config.turningEnabled);
+      if (turningChanged) {
+        const ok = await confirmAction({
+          title: enabling ? 'Bật đảo tự động?' : 'Tắt đảo tự động?',
+          message: enabling
+            ? 'ESP32 sẽ tự động đảo trứng theo chu kỳ và công tắc hành trình.'
+            : 'Máy sẽ ngừng tự động đảo trứng cho tới khi bật lại - kiểm tra kỹ nếu đang có mẻ ấp.',
+          accept: enabling ? 'Bật đảo tự động' : 'Tắt đảo tự động',
+          danger: !enabling
+        });
+        if (!ok) {
+          $('turningEnabled').checked = Boolean(device.config.turningEnabled);
+          return;
+        }
+      }
       $('quickTurn').value = $('turnInterval').value;
       updateSettingSummaries();
       await sendConfig('turningForm', 'turning');
