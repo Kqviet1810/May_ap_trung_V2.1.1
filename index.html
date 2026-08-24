@@ -69,7 +69,7 @@
 <div class="batchActions"><button class="primary" type="submit">Lưu</button><button aria-label="Bắt đầu mẻ ấp" class="primary dark" id="batchAction" type="button">Bắt đầu</button></div>
 </form>
 <section aria-labelledby="batchLogTitle" class="panel batchLogPanel">
-<div class="panelHead"><div><p class="eyebrow">NHẬT KÝ MẺ ẤP</p><h2 id="batchLogTitle">Máy vừa thực hiện</h2></div><span class="logHint">6 mục gần nhất</span></div>
+<div class="panelHead"><div><p class="eyebrow">NHẬT KÝ MẺ ẤP</p><h2 id="batchLogTitle">Máy vừa thực hiện</h2></div><span class="logHint">30 mục gần nhất</span></div>
 <div class="currentActivity"><span class="activityPulse idle" id="activityPulse"></span><div><strong id="currentActivityText">Sẵn sàng</strong><small id="currentActivityMeta">Không có tác vụ đang chạy</small></div></div>
 <div aria-live="polite" class="batchLogList" id="batchLogList"></div>
 </section>
@@ -78,7 +78,7 @@
 <div class="settingsStack">
 <details class="settingCard" id="wifiSetting">
 <summary><span class="settingIcon">⌁</span><span class="settingSummary"><strong>Đổi Wi‑Fi</strong><small id="wifiSettingSummary">Đang kết nối: Phòng 301</small></span><span aria-hidden="true" class="disclosure"></span></summary>
-<form class="settingBody" id="wifiForm"><p class="settingFootnote">Trình duyệt không cho phép trang web này (HTTPS) nói chuyện thẳng với máy ấp khi máy chưa có mạng - cần đổi Wi‑Fi ngay trên máy qua 1 bước chuyển mạng tạm thời. Mật khẩu Wi‑Fi không đi qua MQTT hay Internet.</p><div class="wifiGuide"><strong>4 bước</strong><small>1. Giữ nút BOOT 3 giây trên máy ấp (đèn báo cấu hình sẽ sáng).<br/>2. Trên điện thoại, vào Cài đặt Wi‑Fi và kết nối vào mạng <b>MAYAP-XXXX</b>.<br/>3. Bấm nút bên dưới - trang đổi Wi‑Fi của máy ấp sẽ tự mở, chọn mạng nhà bạn và nhập mật khẩu.<br/>4. Sau khi lưu, kết nối điện thoại trở lại Wi‑Fi nhà bạn - quay lại đây, máy sẽ tự online lại trong ít phút.</small></div><button class="primary full" id="openWifiPortal" type="button">Mở trang đổi Wi‑Fi (bước 3)</button></form>
+<form class="settingBody" id="wifiForm"><div class="wifiGuide"><strong>4 bước</strong><small>1. Giữ nút BOOT 3 giây trên máy ấp (đèn báo cấu hình sẽ sáng).<br/>2. Trên điện thoại, vào Cài đặt Wi‑Fi và kết nối vào mạng <b>MAYAP-XXXX</b>.<br/>3. Bấm nút bên dưới - trang đổi Wi‑Fi của máy ấp sẽ tự mở, chọn mạng nhà bạn và nhập mật khẩu.<br/>4. Sau khi lưu, kết nối điện thoại trở lại Wi‑Fi nhà bạn - quay lại đây, máy sẽ tự online lại trong ít phút.</small></div><button class="primary full" id="openWifiPortal" type="button">Mở trang đổi Wi‑Fi (bước 3)</button></form>
 </details>
 <details class="settingCard">
 <summary><span class="settingIcon">♢</span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>
@@ -117,7 +117,7 @@
 </div>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon">°</span><span class="settingSummary"><strong>Nhiệt độ và bảo vệ</strong><small id="temperatureSummary">Đặt 37,5°C · ngắt khẩn 39,0°C</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon">°C</span><span class="settingSummary"><strong>Nhiệt độ và bảo vệ</strong><small id="temperatureSummary">Đặt 37,5°C · ngắt khẩn 39,0°C</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody temperatureFormCompact" id="temperatureForm">
 <div class="tempGrid">
 <label class="compactTile"><span>Nhiệt độ đặt</span><div class="unit"><input id="targetTemp" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>

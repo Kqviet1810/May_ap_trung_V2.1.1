@@ -91,7 +91,7 @@
     .currentActivity{display:grid;grid-template-columns:12px minmax(0,1fr);gap:10px;align-items:center;margin-top:12px;padding:11px 12px;border-radius:13px;background:#eaf6f3;border:1px solid #cfe5e0;min-width:0}
     .activityPulse{width:10px;height:10px;border-radius:50%;background:#2da36c;box-shadow:0 0 0 5px #2da36c1b}.activityPulse.idle{background:#94a6a2;box-shadow:none}.activityPulse.warning{background:#e29b1d;box-shadow:0 0 0 5px #e29b1d1b}
     .currentActivity strong,.currentActivity small{display:block;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.currentActivity strong{font-size:11px}.currentActivity small{margin-top:3px;color:var(--muted);font-size:8.5px}
-    .batchLogList{display:grid;margin-top:8px}.batchLogRow{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:8px;align-items:center;min-height:33px;border-top:1px solid #e5eeec;min-width:0}.batchLogRow:first-child{border-top:0}.batchLogRow time{font-size:8.5px;color:#78908b;font-variant-numeric:tabular-nums}.batchLogRow .logMessage{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9.5px;font-weight:750}.batchLogRow .logDuration{font-size:8px;color:#607a74;white-space:nowrap}.batchLogEmpty{padding:14px 4px;color:var(--muted);font-size:9.5px;text-align:center}
+    .batchLogList{display:grid;margin-top:8px;max-height:340px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.batchLogRow{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:8px;align-items:center;min-height:33px;border-top:1px solid #e5eeec;min-width:0}.batchLogRow:first-child{border-top:0}.batchLogRow time{font-size:8.5px;color:#78908b;font-variant-numeric:tabular-nums}.batchLogRow .logMessage{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9.5px;font-weight:750}.batchLogRow .logDuration{font-size:8px;color:#607a74;white-space:nowrap}.batchLogEmpty{padding:14px 4px;color:var(--muted);font-size:9.5px;text-align:center}
 
     .confirmBody{padding:20px;display:grid;gap:13px}.confirmBody h2{margin:0;font-size:19px}.confirmBody p{margin:0;color:var(--muted);font-size:11px;line-height:1.55}.confirmActions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dangerButton{border:0;background:var(--danger);color:#fff;min-height:46px;border-radius:13px;font-size:11px;font-weight:850;cursor:pointer}
 
@@ -130,7 +130,8 @@ noscript{display:block;padding:14px;background:#fff1e8;color:#8d4c1f;text-align:
     display:flex;flex-direction:column;
   }
   body[data-page="batch"] .batchLogList{
-    flex:1 1 auto;min-height:0;overflow:hidden;align-content:start;
+    flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;align-content:start;
+    overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
   }
   body[data-page="batch"] .batchLogEmpty{
     height:100%;min-height:42px;display:grid;place-items:center;padding:8px 4px;
@@ -149,7 +150,6 @@ noscript{display:block;padding:14px;background:#fff1e8;color:#8d4c1f;text-align:
   body[data-page="batch"] .batchLogPanel .panelHead{display:none}
   body[data-page="batch"] .currentActivity{margin-top:0;padding:8px 10px}
   body[data-page="batch"] .batchLogRow{min-height:27px}
-  body[data-page="batch"] .batchLogRow:nth-child(n+5){display:none}
 }
 
 @media(min-width:801px){

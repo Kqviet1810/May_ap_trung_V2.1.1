@@ -1064,7 +1064,7 @@
   function renderBatchLogs() {
     const root = $('batchLogList');
     if (!root) return;
-    const logs = currentDevice()?.logs?.slice(0, 6) || [];
+    const logs = currentDevice()?.logs?.slice(0, 30) || [];
     root.replaceChildren();
     root.classList.toggle('empty', !logs.length);
     if (!logs.length) {
@@ -1314,7 +1314,6 @@
 
     $('addDeviceBtn').addEventListener('click', () => {
       $('newDeviceId').value = '';
-      $('newDeviceName').value = '';
       $('deviceDialog').showModal();
       setTimeout(() => $('newDeviceId').focus(), 60);
     });
