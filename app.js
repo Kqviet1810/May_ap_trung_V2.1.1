@@ -446,6 +446,7 @@
     if (!element) return;
     element.textContent = on ? onText : offText;
     element.classList.toggle('on', Boolean(on));
+    element.parentElement?.classList.toggle('on', Boolean(on));
   }
 
   function clearBatchActionPending(device) {
@@ -530,6 +531,7 @@
     const outputTurn = $('outputTurn');
     outputTurn.textContent = turnMap[turn] || '—';
     outputTurn.classList.toggle('on', turn === 1 || turn === 2);
+    outputTurn.parentElement?.classList.toggle('on', turn === 1 || turn === 2);
 
     $('batchPill').textContent = runtime.batchRunning ? `NGÀY ${runtime.currentDay || 1}` : 'CHƯA BẮT ĐẦU';
     $('batchPill').className = runtime.batchRunning ? 'pill online' : 'pill soft';

@@ -118,15 +118,28 @@ input:disabled,select:disabled{opacity:.6;cursor:not-allowed;background:var(--ti
 .quickField>div,.unit{display:flex;align-items:center}
 .quickField input,.unit input{border:0;border-radius:0;background:transparent;padding:0;box-shadow:none;min-height:44px;font-weight:800;font-size:26px}
 .quickField b,.unit b{font-size:var(--fs-lg);font-weight:700;color:var(--muted);white-space:nowrap;margin-right:4px}
+/* Dong bo co chu cua "Thong so van hanh" (trang Thiet bi) voi cac o
+   compactTile ben trang Me ap - cung 1 kieu chu/co so cho nhat quan giua
+   2 trang, dong thoi gon hon de vua 1 man tren mobile. */
+.quickField{padding:13px}
+.quickField>span{font-size:var(--fs-xs)}
+.quickField input{font-size:20px;min-height:36px}
+.quickField b{font-size:var(--fs-md)}
 
 .outputStrip{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0}
-.outputStrip>div{padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile)}
+.outputStrip>div{padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);transition:background var(--ease),border-color var(--ease)}
 .outputStrip span,.outputStrip strong{display:block}
 .outputStrip span{color:var(--muted);font-size:var(--fs-2xs);font-weight:700;letter-spacing:.4px;text-transform:uppercase}
 .outputStrip strong{font-size:var(--fs-md);font-weight:700;margin-top:6px}
 .outputStrip strong.on{color:#087b51}
 .outputStrip strong:not(.on){color:var(--faint)}
 #outputSiren.on{color:var(--danger)}
+/* Thiet bi dang bat: sang ca o (nen + vien mau) thay vi chi doi mau chu,
+   de trang thai ON noi bat, de nhan biet tu xa hon la doc tung chu nho. */
+.outputStrip>div.on{background:var(--primarySoft);border-color:#8fd3c4}
+.outputStrip>div.on span{color:#0f6b52}
+.outputStrip>div.on:has(#outputSiren){background:var(--dangerSoft);border-color:#eeb3b6}
+.outputStrip>div.on:has(#outputSiren) span{color:#9c3b40}
 
 .primary,.ghost{min-height:50px;border-radius:var(--radius-md);padding:0 18px;font-weight:700;font-size:var(--fs-sm);cursor:pointer;transition:filter var(--ease),transform var(--ease),background var(--ease),border-color var(--ease),box-shadow var(--ease)}
 .primary{border:0;background:var(--primary);color:#fff;box-shadow:0 8px 18px #0d827522}
@@ -332,7 +345,14 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .deviceIdentity h2{font-size:20px}
   .devicePickerRow{margin-top:14px}
   .addDevice{height:52px;flex-basis:52px}
-  .quickGrid,.grid2{grid-template-columns:1fr}
+  .grid2{grid-template-columns:1fr}
+  /* Giu 2 cot cho "Thong so van hanh" (giong batchGrid) - nhan ngan, gop
+     2 cot tren mobile giup trang Thiet bi thap hon, de vua 1 man hon. */
+  .quickGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
+  .quickField{padding:11px}
+  .quickField input{font-size:18px}
+  .quickField b{font-size:15px}
+  .outputStrip{margin:12px 0}
   .batchGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .tempGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
   .compactTile{padding:11px;min-height:80px}
@@ -359,6 +379,8 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .compactTile>span,.compactTile .tileLabel{font-size:var(--fs-2xs)}
   .compactTile input{font-size:17px}
   .compactTile .unit b{font-size:14px}
+  .quickField input{font-size:17px}
+  .quickField b{font-size:14px}
   .batchActions button{font-size:var(--fs-2xs)}
   .topbar{grid-template-columns:minmax(82px,1fr) repeat(3,64px)}
   .title h1{font-size:22px}
@@ -401,6 +423,49 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   body[data-page="batch"] .batchLogEmpty{
     height:100%;min-height:42px;display:grid;place-items:center;padding:8px 4px;
   }
+}
+
+/* Trang Thiet bi toan man hinh tren mobile, giong bo cuc trang Me ap, de
+   khong phai cuon trang tren cac man hinh dien thoai thong thuong. .main
+   van giu overflow-y:auto (thay vi hidden nhu trang Me ap) vi trang nay
+   khong co 1 vung cuon rieng nhu nhat ky - phong khi may qua thap/co chu
+   to (accessibility) van con du gon 1 chut thay vi cat mat noi dung. */
+@media(max-width:800px),(max-height:500px){
+  body[data-page="device"]{height:100dvh;min-height:0;overflow:hidden}
+  body[data-page="device"] .appShell{height:100dvh;min-height:0;overflow:hidden}
+  body[data-page="device"] .main{
+    height:100dvh;min-height:0;overflow-y:auto;
+    display:flex;flex-direction:column;
+  }
+  body[data-page="device"] .topbar{flex:0 0 auto}
+  body[data-page="device"] #page-device.active{
+    flex:1 1 auto;min-height:0;width:100%;
+    display:flex;flex-direction:column;gap:12px;
+    justify-content:center;
+  }
+  body[data-page="device"] .deviceCompact,
+  body[data-page="device"] .quickForm{flex:0 0 auto}
+}
+@media(max-height:760px){
+  body[data-page="device"] .topbar{min-height:74px;padding:calc(6px + env(safe-area-inset-top)) 0 6px}
+  body[data-page="device"] .deviceCompact{padding:14px}
+  body[data-page="device"] .quickForm{padding:14px}
+  body[data-page="device"] .devicePickerRow{margin-top:11px}
+  body[data-page="device"] .quickGrid{margin-top:11px}
+  body[data-page="device"] .outputStrip{margin:11px 0}
+  body[data-page="device"] .outputStrip>div{padding:9px 10px}
+}
+@media(max-height:600px){
+  body[data-page="device"] #page-device.active{gap:9px}
+  body[data-page="device"] .deviceCompact{padding:12px}
+  body[data-page="device"] .quickForm{padding:12px}
+  body[data-page="device"] .devicePickerRow{margin-top:9px}
+  body[data-page="device"] .quickField{padding:9px}
+  body[data-page="device"] .quickGrid{margin-top:9px;gap:8px}
+  body[data-page="device"] .outputStrip{margin:9px 0;gap:8px}
+  body[data-page="device"] .outputStrip>div{padding:8px 9px}
+  body[data-page="device"] .outputStrip strong{margin-top:4px}
+  body[data-page="device"] .quickForm .primary{min-height:42px}
 }
 @media(max-height:760px){
   body[data-page="batch"] .topbar{min-height:74px;padding:calc(6px + env(safe-area-inset-top)) 0 6px}

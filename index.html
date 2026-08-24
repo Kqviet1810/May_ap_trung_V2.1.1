@@ -41,7 +41,7 @@
 <div class="panelHead"><div><p class="eyebrow">ĐIỀU CHỈNH NHANH</p><h2>Thông số vận hành</h2></div><span class="pill soft">Đồng bộ ESP32</span></div>
 <div class="quickGrid">
 <label class="quickField"><span>Nhiệt độ đặt</span><div><input id="quickTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
-<label class="quickField"><span>Chu kỳ đảo</span><div><input id="quickTurn" max="720" min="15" type="number" value="120"/><b>phút</b></div></label>
+<label class="quickField"><span>Chu kỳ đảo</span><div><input id="quickTurn" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
 </div>
 <div class="outputStrip">
 <div><span>Thanh nhiệt</span><strong class="on" id="outputHeater">ON</strong></div>
@@ -60,7 +60,7 @@
 <div class="batchGrid">
 <label class="compactTile"><span>Tên mẻ ấp</span><input id="batchName" maxlength="32" value="Mẻ ấp 01"/></label>
 <label class="compactTile"><span>Ngày bắt đầu</span><input id="startDate" type="date" value="2026-07-29"/></label>
-<label class="compactTile"><span>Tổng số ngày ấp</span><div class="unit"><input id="totalDays" max="40" min="1" type="number" value="21"/><b>ngày</b></div></label>
+<label class="compactTile"><span>Tổng số ngày ấp</span><div class="unit"><input id="totalDays" max="40" min="1" type="number" value="21"/><b>Ngày</b></div></label>
 <label class="compactTile"><span>Nhiệt độ đặt</span><div class="unit"><input id="batchTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
 <label class="compactTile"><span>Độ ẩm tham khảo</span><div class="unit"><input id="targetHumidity" max="95" min="20" type="number" value="58"/><b>%RH</b></div></label>
 <div class="compactTile compactToggle"><div><span class="tileLabel">Khôi phục sau mất điện</span><small>Tự tiếp tục mẻ đang chạy.</small></div><label aria-label="Tự tiếp tục mẻ sau mất điện" class="toggle"><input checked="" id="resumeAfterPowerLoss" type="checkbox"/><i></i></label></div>
@@ -144,8 +144,8 @@
 <form class="settingBody" id="turningForm">
 <div class="notificationLine"><div><strong>Đảo tự động</strong><small>ESP32 thực hiện theo chu kỳ và công tắc hành trình.</small></div><label class="toggle"><input checked="" id="turningEnabled" type="checkbox"/><i></i></label></div>
 <div class="grid2">
-<label class="field"><span>Khoảng thời gian giữa hai lần đảo</span><div class="unit"><input id="turnInterval" max="720" min="15" type="number" value="120"/><b>phút</b></div></label>
-<label class="field"><span>Thời gian chờ hành trình</span><div class="unit"><input id="limitAlarmTime" max="120" min="3" type="number" value="20"/><b>giây</b></div></label>
+<label class="field"><span>Khoảng thời gian giữa hai lần đảo</span><div class="unit"><input id="turnInterval" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
+<label class="field"><span>Thời gian chờ hành trình</span><div class="unit"><input id="limitAlarmTime" max="120" min="3" type="number" value="20"/><b>Giây</b></div></label>
 <label class="field"><span>Hướng đảo kế tiếp</span><select id="nextDirection"><option value="left">Trái</option><option value="right">Phải</option></select></label>
 </div>
 <button class="primary full" type="submit">Lưu cài đặt đảo</button>
@@ -157,7 +157,7 @@
 <div class="grid2">
 <label class="field"><span>Bù nhiệt độ</span><div class="unit"><input id="tempOffset" max="10" min="-10" step="0.1" type="number" value="0"/><b>°C</b></div></label>
 <label class="field"><span>Bù độ ẩm</span><div class="unit"><input id="humidityOffset" max="20" min="-20" step="0.1" type="number" value="0"/><b>%RH</b></div></label>
-<label class="field"><span>Timeout cảm biến</span><div class="unit"><input id="sensorTimeout" max="120" min="2" type="number" value="10"/><b>giây</b></div></label>
+<label class="field"><span>Timeout cảm biến</span><div class="unit"><input id="sensorTimeout" max="120" min="2" type="number" value="10"/><b>Giây</b></div></label>
 </div>
 <button class="primary full" type="submit">Lưu hiệu chỉnh cảm biến</button>
 </form>
