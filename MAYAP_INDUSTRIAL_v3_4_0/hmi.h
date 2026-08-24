@@ -480,7 +480,7 @@ enum class View : uint8_t {
   EventLog, Alarm, TestMode, TestSummary, WifiChange
 };
 
-enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch };
+enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle };
 
 // Prototype thu cong: Arduino IDE tu sinh prototype cho ham trong .ino.
 // Neu ham dung enum/struct tuy chinh, prototype tu dong co the bi chen
@@ -542,6 +542,9 @@ uint8_t editSettingIndex = 0;
 ConfirmAction confirmAction = ConfirmAction::None;
 View confirmReturnView = View::Home;
 bool confirmYes = true;
+// Cau hinh dang cho xac nhan CO/HUY cho ConfirmAction::TurningToggle (bat/tat
+// dao tu dong) - chi ap dung khi thao tac nay, khong dung cho cac truong khac.
+MachineConfig pendingTurningConfig;
 bool resumeDecisionSubmitted = false;
 View alarmReturnView = View::Home;
 uint8_t alarmIndex = 0;
@@ -674,15 +677,17 @@ const char *groupExtraLabel(uint8_t group) {
 }
 bool settingLockedDuringBatch(uint8_t settingIndex) {
   if (!currentRuntime.batchRunning) return false;
-  // Khoa cac tham so lam thay doi lich/chuyen dong dao khi me da bat dau.
-  // So sanh theo offset field (khong phai chi so cung trong mang SETTINGS[])
-  // de khong vo tinh khoa nham muc khac neu sau nay them/xoa/doi cho thong
-  // so trong bang (da tung la loi thuc te khi them "Bu nhiet do").
+  // Chi con khoa so ngay ap tong (thay doi giua chung se lam sai lich/ngay
+  // du kien no). Cac tham so dao (bat/tat dao tu dong, chu ky, thoi gian
+  // hanh trinh) KHONG con bi khoa khi dang ap nua - cho phep chinh nhu binh
+  // thuong, rieng bat/tat dao tu dong se hoi CO/HUY truoc khi ap dung (xem
+  // openTurningToggleConfirm()) vi day la thay doi anh huong truc tiep den
+  // dao trung dang chay. So sanh theo offset field (khong phai chi so cung
+  // trong mang SETTINGS[]) de khong vo tinh khoa nham muc khac neu sau nay
+  // them/xoa/doi cho thong so trong bang (da tung la loi thuc te khi them
+  // "Bu nhiet do").
   const uint16_t offset = SETTINGS[settingIndex].offset;
-  return offset == offsetof(MachineConfig, totalIncubationDays) ||
-         offset == offsetof(MachineConfig, turningEnabled) ||
-         offset == offsetof(MachineConfig, turnIntervalMin) ||
-         offset == offsetof(MachineConfig, turnMaxRunSec);
+  return offset == offsetof(MachineConfig, totalIncubationDays);
 }
 
 uint8_t settingListItemCount(uint8_t group) {
@@ -998,6 +1003,22 @@ void openBatchConfirm(View returnView) {
   // Bat dau: mac dinh DONG Y de thao tac nhanh.
   // Dung me: mac dinh HUY de tranh dung nham chu trinh dang chay.
   confirmYes = !currentRuntime.batchRunning;
+  clearToast();
+  armInputGuard();
+  dirty = true;
+}
+
+// Bat/tat "Dao tu dong" gio hoi CO/HUY truoc khi ap dung, giong het thao tac
+// BAT DAU/DUNG ME - vi day la thay doi anh huong truc tiep den viec dao
+// trung dang chay, khong nen ap ngay chi tu 1 lan xoay/bam nham. `candidate`
+// da duoc tinh san (gia tri turningEnabled moi) boi commitSetting().
+void openTurningToggleConfirm(const MachineConfig &candidate, View returnView) {
+  pendingTurningConfig = candidate;
+  confirmAction = ConfirmAction::TurningToggle;
+  confirmReturnView = returnView;
+  // Bat dao: mac dinh DONG Y. Tat dao giua luc dang co the dang ap: mac dinh
+  // HUY de tranh vo tinh tat mat dao trung.
+  confirmYes = candidate.turningEnabled;
   clearToast();
   armInputGuard();
   dirty = true;
@@ -1434,6 +1455,13 @@ void commitSetting() {
   // Gia tri khong doi thi thoat lang le, khong can bao gi ca - nguoi dung
   // chi xem/luot qua thong so thi khong nen bi lam phien bang 1 dong toast.
   if (fabsf(oldValue - newValue) < 0.0001f) return;
+  // Bat/tat "Dao tu dong" hoi CO/HUY truoc khi ap dung (giong Bat dau/Dung
+  // me) thay vi luu ngay - danh gia sai lech co the lam mat dao trung giua
+  // luc dang ap ma khong ai de y.
+  if (item.offset == offsetof(MachineConfig, turningEnabled)) {
+    openTurningToggleConfirm(candidate, View::SettingList);
+    return;
+  }
   if (!startConfigSave(candidate)) return;
   currentConfig = candidate;
   showToast("DANG LUU...");
@@ -1550,6 +1578,12 @@ void executeConfirmation(bool accepted) {
       }
       view = View::Home;
       homePage = 0;
+    } else if (action == ConfirmAction::TurningToggle) {
+      if (startConfigSave(pendingTurningConfig)) {
+        currentConfig = pendingTurningConfig;
+        showToast("DANG LUU...");
+      }
+      view = returnView;
     }
   } else {
     if (action == ConfirmAction::ResumeBatch) {
@@ -2714,6 +2748,8 @@ void drawConfirmScreen() {
     line2 = "ME DANG AP?";
   } else if (confirmAction == ConfirmAction::AutoTuneStart) {
     line1 = "CHAY AUTO TUNE PID?";
+  } else if (confirmAction == ConfirmAction::TurningToggle) {
+    line1 = pendingTurningConfig.turningEnabled ? "BAT DAO TU DONG?" : "TAT DAO TU DONG?";
   } else if (currentRuntime.batchRunning) {
     line1 = "DUNG ME DANG CHAY?";
   } else {

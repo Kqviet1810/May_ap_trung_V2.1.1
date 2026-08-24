@@ -69,11 +69,14 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .live span,.live strong{display:block}
 .live span{color:var(--muted);font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
 .live strong{font-size:22px;font-weight:800;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
-/* "Trang thai" co the la chuoi dai ("Dang gia nhiet", "Dang dong bo"...)
-   khac han Nhiet do/Do am luon ngan gon - cung 1 co width/font nhu 2 o
-   kia se bi cat mat chu ("SAN SA..."). Cho rieng o nay xuong dong thay
-   vi cat, dam bao nguoi dung luon doc duoc trang thai day du. */
-#liveState{white-space:normal;overflow:visible;text-overflow:clip;font-size:var(--fs-md);line-height:1.3}
+/* "Trang thai" co the la chuoi dai ("Dang gia nhiet", "San sang AUTO"...)
+   khac han Nhiet do/Do am luon ngan gon. Cho xuong dong (khong cat 1 dong
+   nhu truoc, gay mat chu "SAN SA..."), nhung GIOI HAN toi da 2 dong va
+   KHONG tu dat font-size rieng (truoc day lon hon 2 o kia tren mobile) -
+   ke thua dung font-size cua .live strong o moi breakpoint, tranh o nay
+   cao vong len bat thuong so voi 2 o ben canh khi gap chuoi dai 3 tu tro len. */
+#liveState{white-space:normal;text-overflow:clip;line-height:1.22;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 
 /* ================================= Panels ==================================== */
 .page{display:none;min-width:0;width:100%}
@@ -199,6 +202,10 @@ input:disabled,select:disabled{opacity:.6;cursor:not-allowed;background:var(--ti
 .settingCard summary:hover{background:var(--wash)}
 .settingCard summary:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:0}
 .settingIcon{width:44px;height:44px;border-radius:13px;background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center;font-size:21px;font-weight:900}
+/* "°C" la 2 ky tu, o font-size 21px tran ra ngoai o vuong 44px - phan chu
+   tran nam tren nen trang cua the (khong con nam trong o mau), nhin nhu o
+   mau bi "trung" voi nen. Rieng icon nay giam font de chu nam gon trong o. */
+.settingIconWide{font-size:15px;letter-spacing:-.5px}
 .settingSummary{min-width:0}
 .settingSummary strong,.settingSummary small{display:block}
 .settingSummary strong{font-size:var(--fs-base);font-weight:700}
@@ -364,6 +371,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .actions .dark{grid-column:1/-1}
   .settingCard summary{min-height:76px;padding:13px}
   .settingIcon{width:40px;height:40px;border-radius:12px;font-size:19px}
+  .settingIconWide{font-size:14px}
   .settingSummary strong{font-size:var(--fs-sm)}
   .settingSummary small{font-size:var(--fs-2xs)}
   .settingBody{padding:16px}
