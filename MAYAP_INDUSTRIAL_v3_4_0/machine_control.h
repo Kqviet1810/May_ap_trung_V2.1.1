@@ -4267,8 +4267,11 @@ class MachineController {
     previousAutoMode_ = autoMode;
     stopTurn(false);
     manualTurnRearmRequired_ = true;
+    // Chi xet heaterSsr, khong xet heatMaster (cung ly do nhu trong
+    // updateHeatingAndOutputs() - heatMaster co the BAT chi vi cong tac vat
+    // ly, khong dam bao dang thuc su cap nhiet).
     if (!autoMode && !inputs_.state().circulationFan &&
-        (outputs_.state().heatMaster || outputs_.state().heaterSsr)) {
+        outputs_.state().heaterSsr) {
       postCoolUntil_ = now + POST_COOL_MS;
     }
     if (autoMode) {
