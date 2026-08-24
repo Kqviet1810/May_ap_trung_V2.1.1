@@ -568,11 +568,11 @@
     } else if (turn === 1 || turn === 2) {
       setCurrentActivity(`Đang đảo trứng sang ${turn === 1 ? 'trái' : 'phải'}`, 'Đang chờ công tắc hành trình', 'active');
     } else if (runtime.ventFanOn) {
-      setCurrentActivity('Quạt thông gió đang chạy', `Nhiệt độ ${numberVi(runtime.temperature)} °C`, 'active');
+      setCurrentActivity('Quạt thông gió đang chạy', `Nhiệt độ ${numberVi(runtime.temperature)}°C`, 'active');
     } else if (heaterActive) {
-      setCurrentActivity(`Đang gia nhiệt ${numberVi(runtime.temperature)} °C`, `Công suất ${numberVi(runtime.heaterPower, 0)}%`, 'active');
+      setCurrentActivity(`Đang gia nhiệt ${numberVi(runtime.temperature)}°C`, `Công suất ${numberVi(runtime.heaterPower, 0)}%`, 'active');
     } else if (runtime.batchRunning) {
-      setCurrentActivity(`Đang giữ nhiệt ${numberVi(runtime.temperature)} °C`, `Còn ${runtime.nextTurnMinutes || 0} phút tới lần đảo`, 'active');
+      setCurrentActivity(`Đang giữ nhiệt ${numberVi(runtime.temperature)}°C`, `Còn ${runtime.nextTurnMinutes || 0} phút tới lần đảo`, 'active');
     } else {
       setCurrentActivity('Sẵn sàng', runtime.machineState || 'Không có tác vụ đang chạy', 'idle');
     }
@@ -1238,7 +1238,7 @@
     clearInvalid('quickForm');
     const target = Number($('quickTarget').value);
     const interval = Number($('quickTurn').value);
-    if (!(target >= 30 && target <= 40)) return invalidate('quickForm', 'quickTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0 °C.');
+    if (!(target >= 30 && target <= 40)) return invalidate('quickForm', 'quickTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
     if (!(interval >= 15 && interval <= 720)) return invalidate('quickForm', 'quickTurn', 'Chu kỳ đảo phải từ 15 đến 720 phút.');
     return true;
   }
@@ -1251,8 +1251,8 @@
     const temperature = Number($('batchTarget').value);
     const humidity = Number($('targetHumidity').value);
     if (!(days >= 1 && days <= 40)) return invalidate('batchForm', 'totalDays', 'Tổng số ngày ấp phải từ 1 đến 40 ngày.');
-    if (!(temperature >= 30 && temperature <= 40)) return invalidate('batchForm', 'batchTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0 °C.');
-    if (!(humidity >= 20 && humidity <= 95)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm tham khảo phải từ 20 đến 95 %RH.');
+    if (!(temperature >= 30 && temperature <= 40)) return invalidate('batchForm', 'batchTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
+    if (!(humidity >= 20 && humidity <= 95)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm tham khảo phải từ 20 đến 95%RH.');
     return true;
   }
 
@@ -1264,7 +1264,7 @@
     const emergency = Number($('emergencyTemp').value);
     const ventOn = Number($('ventOn').value);
     const ventOff = Number($('ventOff').value);
-    if (!(target >= 30 && target <= 40)) return invalidate('temperatureForm', 'targetTemp', 'Nhiệt độ đặt phải từ 30,0 đến 40,0 °C.');
+    if (!(target >= 30 && target <= 40)) return invalidate('temperatureForm', 'targetTemp', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
     if (!(low < target)) return invalidate('temperatureForm', 'lowAlarm', 'Cảnh báo thấp phải nhỏ hơn nhiệt độ đặt.');
     if (!(high > target)) return invalidate('temperatureForm', 'highAlarm', 'Cảnh báo cao phải lớn hơn nhiệt độ đặt.');
     if (!(emergency > high)) return invalidate('temperatureForm', 'emergencyTemp', 'Ngắt khẩn cấp phải cao hơn cảnh báo cao.');
@@ -1286,8 +1286,8 @@
     const temperature = Number($('tempOffset').value);
     const humidity = Number($('humidityOffset').value);
     const timeout = Number($('sensorTimeout').value);
-    if (!(temperature >= -10 && temperature <= 10)) return invalidate('sensorForm', 'tempOffset', 'Bù nhiệt độ phải từ −10,0 đến 10,0 °C.');
-    if (!(humidity >= -20 && humidity <= 20)) return invalidate('sensorForm', 'humidityOffset', 'Bù độ ẩm phải từ −20 đến 20 %RH.');
+    if (!(temperature >= -10 && temperature <= 10)) return invalidate('sensorForm', 'tempOffset', 'Bù nhiệt độ phải từ −10,0 đến 10,0°C.');
+    if (!(humidity >= -20 && humidity <= 20)) return invalidate('sensorForm', 'humidityOffset', 'Bù độ ẩm phải từ −20 đến 20%RH.');
     if (!(timeout >= 2 && timeout <= 120)) return invalidate('sensorForm', 'sensorTimeout', 'Timeout cảm biến phải từ 2 đến 120 giây.');
     return true;
   }
@@ -1528,7 +1528,7 @@
     $('openWifiPortal').addEventListener('click', async () => {
       const ok = await confirmAction({
         title: 'Đã kết nối vào MAYAP-XXXX chưa?',
-        message: 'Bấm "Mở trang đổi Wi‑Fi" chỉ hoạt động khi điện thoại ĐANG kết nối vào mạng MAYAP-XXXX của máy ấp (bước 1-2 trong hướng dẫn). Nếu chưa, hãy thoát ra làm 2 bước đó trước.',
+        message: 'Bấm "Mở trang đổi Wi‑Fi" chỉ hoạt động khi điện thoại đang kết nối vào mạng MAYAP-XXXX của máy ấp (bước 1-2 trong hướng dẫn). Nếu chưa, hãy thoát ra làm 2 bước đó trước.',
         accept: 'Mở trang đổi Wi‑Fi'
       });
       if (ok) window.location.href = 'http://192.168.4.1/';
