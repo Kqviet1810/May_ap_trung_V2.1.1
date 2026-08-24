@@ -2308,34 +2308,11 @@ void drawEditSetting() {
                   u8g2_font_5x8_tf);
   formatSettingValue(item, editValue, value, sizeof(value));
 
-  // "Ap lai" (autoResumeOnPowerLoss) KHONG dung cong tac do hoa nhu cac muc
-  // Bool khac - day la lua chon giua 2 CHE DO (tu dong / hoi xac nhan), khong
-  // phai bat-tat 1 tinh nang don, nen cong tac ON/OFF gay hieu lam. Giu chu
-  // to ro rang nhu truoc day, dung chung nhanh "else" ben duoi voi cac muc
-  // khong phai Bool.
-  const bool isAutoResumeItem = item.offset == offsetof(MachineConfig, autoResumeOnPowerLoss);
-  if (item.type == SettingType::Bool && !isAutoResumeItem) {
-    // Cong tac BAT/TAT ve dang do hoa (giong toggle switch cac app dien
-    // thoai) thay vi chi chu "BAT"/"TAT" tho - nhin trang thai ngay khong
-    // can doc chu, khoi bam nham chieu.
-    const bool on = editValue >= 0.5f;
-    constexpr int16_t trackW = 52, trackH = 22, trackY = 30, knobR = 8, knobInset = 11;
-    const int16_t trackX = (128 - trackW) / 2;
-    lcd.setDrawColor(1);
-    if (on) lcd.drawRBox(trackX, trackY, trackW, trackH, trackH / 2);
-    else lcd.drawRFrame(trackX, trackY, trackW, trackH, trackH / 2);
-    const int16_t knobY = trackY + trackH / 2;
-    const int16_t knobX = on ? (trackX + trackW - knobInset) : (trackX + knobInset);
-    lcd.setDrawColor(on ? 0 : 1);
-    lcd.drawDisc(knobX, knobY, knobR);
-    lcd.setDrawColor(1);
-
-    drawCenteredFit(61, value, u8g2_font_helvB12_tf, u8g2_font_6x12_tf,
-                    u8g2_font_5x8_tf);
-  } else {
-    drawCenteredFit(48, value, u8g2_font_helvB14_tf, u8g2_font_helvB12_tf,
-                    u8g2_font_6x12_tf);
-  }
+  // Bo icon cong tac do hoa (toggle switch) khoi toan bo HMI - moi muc Bool
+  // (ke ca "Ap lai") deu chi hien chu "BAT"/"TAT" to, ro rang, dong nhat
+  // cach hien thi voi cac loai gia tri khac (khong con nhanh rieng).
+  drawCenteredFit(48, value, u8g2_font_helvB14_tf, u8g2_font_helvB12_tf,
+                  u8g2_font_6x12_tf);
 }
 
 const char *autoTuneStateText(AutoTuneState state) {
