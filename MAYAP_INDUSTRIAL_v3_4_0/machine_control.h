@@ -4608,18 +4608,22 @@ class MachineController {
       baseCirculation = in.circulationFan;
     }
     // Khong cho quat tat cung luc voi bo gia nhiet: giu hau lam mat.
-    if (!baseCirculation &&
-        (outputs_.state().heatMaster || outputs_.state().heaterSsr)) {
+    // CHI xet heaterSsr (dong nhiet THAT su qua D1/PID, van doi hoi batch/
+    // autotune dang chay - xem heaterPidConditions ben duoi), KHONG xet
+    // heatMaster: tu khi relay tong bam theo cong tac vat ly, no co the BAT
+    // ca khi khong co me (cong tac de nguyen) - xet heatMaster o day se lam
+    // quat hau lam mat bi kich hoat lai lien tuc, khong bao gio tat duoc.
+    if (!baseCirculation && outputs_.state().heaterSsr) {
       postCoolUntil_ = now + POST_COOL_MS;
     }
     const bool postCooling = !timeReached(now, postCoolUntil_);
     const bool sensorStartupGraceActive =
         !timeReached(now, sensorStartupGraceUntil_);
     // Khong bat quat hut chi vi cam bien chua khoi tao xong. Chi lam mat khi
-    // loi cam bien da duoc xac nhan va may dang/da co nhiet can xa.
+    // loi cam bien da duoc xac nhan va may dang/da co nhiet can xa. (Cung
+    // chi xet heaterSsr, ly do nhu tren - khong xet heatMaster.)
     const bool sensorFaultNeedsFan = !sensorUsable_ && !sensorStartupGraceActive &&
-        (batchRunning_ || outputs_.state().heatMaster ||
-         outputs_.state().heaterSsr || postCooling);
+        (batchRunning_ || outputs_.state().heaterSsr || postCooling);
     const bool safetyForcesCirculation = faults_.circulationForced() ||
         ventTemperatureActive_ || sensorFaultNeedsFan || postCooling;
     const bool circulation = baseCirculation || safetyForcesCirculation;
@@ -5106,7 +5110,12 @@ class MachineController {
     runtime_.autoMode = inputs_.state().autoMode;
     runtime_.turningLockdown = turningLockdownActive(now);
     runtime_.batchLogAvailable = false;
-    runtime_.heaterOn = outputs_.state().heaterSsr;
+    // "OUT" ben canh SSR% tren HMI la trang thai relay NHIET TONG (contactor,
+    // heatMaster) - khac voi SSR% (cong suat D1/PID). Tu khi relay tong bam
+    // theo cong tac vat ly (khong con phu thuoc me/PID), heaterSsr co the OFF
+    // trong khi relay tong dang BAT (vd: cong tac bat nhung chua co me) - phai
+    // doc dung heatMaster, khong doc heaterSsr, de "OUT" khop voi relay that.
+    runtime_.heaterOn = outputs_.state().heatMaster;
     runtime_.circulationFanOn = outputs_.state().circulationFan;
     runtime_.ventFanOn = outputs_.state().ventFan;
     runtime_.lightOn = outputs_.state().light;
