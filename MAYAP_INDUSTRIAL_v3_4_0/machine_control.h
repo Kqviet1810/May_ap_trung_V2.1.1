@@ -4652,15 +4652,21 @@ class MachineController {
                                    !safetyJournalFaultLatched_ &&
         !storageFaultLatched_ && (!storageDegraded_ || batchRunning_);
 
-    // RELAY NHIET TONG (contactor) theo dung yeu cau nguoi lap dat: cong tac
-    // nhiet vat ly (in.heaterEnable) la quyen dieu khien CAO NHAT cho relay
-    // nay - BAT cong tac la relay BAT ngay, khong con cho me/cam bien/quat/
-    // thoi gian nghi nua (cac dieu kien "thuong quy" nay CHI con duoc phep
-    // canh bao qua fault code, khong con duoc phep ngat relay). CHI GIU LAI
-    // 1 ngoai le duy nhat: qua nhiet KHAN CAP (emergencyActive_) - lop du
-    // phong an toan doc lap cho truong hop chinh SSR D1 bi ket/chay o trang
-    // thai BAT (loi phan cung SSR thuc te hay gap), khong lien quan cong tac.
-    const bool normalMasterPermit = in.heaterEnable && !emergencyActive_;
+    // RELAY NHIET TONG (contactor) theo dung yeu cau nguoi lap dat: KHI DANG
+    // CO NHU CAU NHIET (co me dang ap HOAC dang Auto Tune), cong tac nhiet
+    // vat ly (in.heaterEnable) la quyen dieu khien CAO NHAT cho relay nay -
+    // BAT cong tac la relay BAT ngay, khong con cho cam bien/quat/thoi gian
+    // nghi nua (cac dieu kien "thuong quy" nay CHI con duoc phep canh bao qua
+    // fault code, khong con duoc phep ngat relay trong luc dang ap). NGOAI ME
+    // (khong ap, khong Auto Tune) thi phan mem tu dong TAT relay bat ke vi tri
+    // cong tac - de nguyen cong tac BAT khi khong dung cung khong giu dien
+    // relay treo vo ich. CHI GIU LAI 1 ngoai le duy nhat trong luc dang ap:
+    // qua nhiet KHAN CAP (emergencyActive_) - lop du phong an toan doc lap
+    // cho truong hop chinh SSR D1 bi ket/chay o trang thai BAT (loi phan cung
+    // SSR thuc te hay gap), khong lien quan cong tac.
+    const bool heatDemandContext = batchRunning_ || autotune_.running();
+    const bool normalMasterPermit =
+        in.heaterEnable && !emergencyActive_ && heatDemandContext;
     // D1 SSR/PID (dong nhiet THAT su) van giu NGUYEN VEN toan bo cac dieu
     // kien an toan nhu truoc gio - chi RIENG relay tong o tren la doi theo
     // yeu cau, khong lam long cac dieu kien cho dong dien nhiet thuc te.
