@@ -466,3 +466,130 @@ completeness (F-02, F-03), or audible-alert timing (F-06), not the underlying cu
 logic itself. That is a materially different risk class from "unsafe to release," but it
 is also not yet "ready" given F-01 (confirmed, easy to fix — one boolean condition) and
 the open F-08 unknown.
+
+---
+
+## REMEDIATION LOG (post-review pass, same session, branch `main` + `test/tat-bao-loi-thanh-nhiet-khong-len`)
+
+This section is appended after the original review above; the original findings are left
+unmodified as the historical record of what was found. Evidence level for this log is
+STATIC (source re-read after each edit, brace/paren balance checked, no compile/execution
+performed — same tooling limitation stated in Section VIII still applies).
+
+```text
+F-01 (CONFIRMED BUG, HIGH) — FIXED.
+  processHmiTransactions()'s protectedBatchChange no longer includes turningEnabled/
+  turnIntervalMin/turnMaxRunSec; only totalIncubationDays (+ the pre-existing
+  connectivityMode-online guard) remains locked mid-batch. UI and persistence layer are
+  now consistent.
+
+F-02 (MISSING FEATURE, HIGH) — FIXED.
+  Added turnFaultStreak_ counter, incremented in latchTurnFault() only for
+  TurnTimeout/TurnLimitStuck (the two "movement did not complete" codes), reset to 0 on
+  any completeTurn() (proof the mechanism works). At TURN_FAULT_STREAK_LIMIT (3)
+  consecutive occurrences, raises new FaultCode::TurnMechanicalCheckRequired (Stop,
+  inhibitsTurning=true, non-latching) which normal AlarmAck cannot clear — the aggregate
+  faults_.turningInhibited() check already used everywhere in updateTurning() blocks all
+  further auto/manual turning while it is active, with zero new call sites needed.
+  Clears only when both limit switches have registered a TestLimitPhase::Success in Test
+  Mode (updateTestMode()) since the check was raised — this deliberately requires
+  stopping the batch to enter Test Mode (enterTestMode() already refuses while
+  batchRunning_), treated as an acceptable, conservative tradeoff: a mechanism suspected
+  broken 3 times in a row during a live batch should require a deliberate maintenance
+  pause to clear, not another silent auto-retry.
+
+F-03 (MISSING FEATURE, MEDIUM) — FIXED.
+  Added resumeConfirmPromptAt_ timestamp (set once when resumeConfirmationRequired_
+  first becomes true in begin()). processResume() now raises new
+  FaultCode::ResumeConfirmationPending (Warning, non-blocking, no inhibit flags) once
+  RESUME_CONFIRM_ALERT_MS (15 min) elapses with no operator decision. Does not
+  auto-resume or auto-cancel — purely a visibility escalation, preserving the original
+  safety intent of the confirmation screen.
+
+F-04 (DESIGN RISK, LOW) — FIXED (mechanism).
+  stopTurn() now sets trayPosition_ = TrayPosition::Unknown and needHome_ = true
+  whenever it is called while turnPhase_ is MovingLeft/MovingRight (i.e. an abrupt
+  interruption mid-travel, not a clean stop at Idle). Forces a re-home before the next
+  AUTO turn instead of trusting a stale pre-move position. Note: latchTurnFault()'s own
+  path (TurnTimeout/TurnLimitStuck) was already independently correct — clearTurnFault()
+  re-derives trayPosition_ from live limit-switch state at clear time, not from the
+  stale value; that path needed no change.
+
+F-05 (DESIGN RISK, LOW) — FIXED.
+  updateAlarms()'s HeaterNotHeating (E115) tracking no longer resets to zero on a brief
+  !sensorUsable_ blip — it now only fully resets on !heaterCommandedOn || !batchRunning_,
+  and simply pauses (no advance, no reset) while the sensor is transiently unusable.
+  Sustained sensor loss still resets naturally within one further tick once SensorLost
+  drops heaterSsr (heaterCommandedOn becomes false).
+
+F-06 (DESIGN RISK, MEDIUM) — FIXED (tuning, not logic).
+  SIREN_TEMPORARY_MUTE_MS reduced 300000 → 60000 (5 min → 1 min). The underlying cutoff
+  (emergencyActive_ → dropHeatMaster/inhibitSsr) was already, and remains, completely
+  independent of this mute timer — confirmed again on re-read, no change needed there.
+
+F-07 (DESIGN RISK, LOW, was itself a correction of the original review) — FIXED, AND
+  a real CONFIRMED BUG was found and fixed while implementing this item:
+  runtime_.currentDay was computed as
+  min(config_.totalIncubationDays, dayIndex+1) in TWO places (updateBatchTime(),
+  copyRuntimeToHmi()) — meaning it could structurally never exceed totalIncubationDays.
+  cloud_alert_link.h::checkBatchSchedule()'s existing "BATCH_OVERDUE" push-notification
+  branch reads exactly this clamped value and compares `current > total` — a condition
+  that could NEVER become true given the clamp. This is a CONFIRMED BUG (STATIC,
+  HIGH confidence, direct trace) in code that predates this session and was missed in
+  the original review pass (which only checked that the cloud-side code existed, not
+  that its trigger condition was reachable). Fixed by removing the totalIncubationDays
+  clamp (still capped at 255 for the uint8_t field) in both computation sites. This also
+  fixes the new local FaultCode::BatchOverdue (Warning, non-blocking) added in this same
+  pass, which deliberately computes its own day count from elapsedBatchSec()/86400
+  rather than reading the (now-fixed, but kept independent for clarity) runtime_.currentDay,
+  so the HMI/web-local alarm does not depend on cloud_alert_link.h at all — it fires even
+  with no network/push subscription, which was F-07's original point.
+
+F-08 (UNKNOWN) — RESOLVED, upgraded to CONFIRMED SAFE.
+  PersistentStore::saveBatch()/loadBatch()/refreshBatchCache() were read in full this
+  pass (previously not read). Confirmed: identical double-buffer (EEPROM_ADDR_BATCH_A/B)
+  + CRC32 + magic + schema + monotonic sequence + write-then-read-back verification
+  pattern as the already-reviewed config store, plus a graceful legacy-schema (v2)
+  fallback path. A torn write during checkpointBatch() leaves the untouched opposite
+  slot as the valid record on next boot; refreshBatchCache() picks the higher-sequence,
+  CRC-valid slot. No bug found. STATIC, HIGH confidence.
+  → This removes the "VERDICT LIMITED BY UNKNOWN" blocker from the original Section
+    XIII verdict above.
+
+F-09 (POTENTIAL BUG, LOW) — FIXED.
+  Added a new ResumeBlockReason::TurningDisabled and a
+  `if (!config_.turningEnabled) { setResumeBlockReason(...); return; }` check in
+  processResume(), mirroring startBatch()'s existing precondition. This was deliberately
+  NOT done until F-01 was fixed first: before F-01, turningEnabled was locked whenever
+  resumePending_ was true (protectedBatchChange included resumePending_ in its guard
+  condition), so gating resume on turningEnabled would have created a genuine deadlock
+  (can't resume because turning is disabled, can't enable turning because resume-pending
+  locks the config). With F-01 already removing turningEnabled from that lock, the
+  operator can always fix it via HMI/web regardless of resumePending_/batchRunning_
+  state, so this gate is now safe to add.
+
+New FaultCode entries added (enum + faultDescriptor table + hmi.h faultTitle()/
+faultDetail()/alarmBitForFaultCode() + app.js FAULT_TITLES):
+  135 ResumeConfirmationPending (Warning, AlarmSystem, non-latching, no inhibit flags)
+  136 BatchOverdue (Warning, AlarmSystem, non-latching, no inhibit flags)
+  205 TurnMechanicalCheckRequired (Stop, AlarmTurning, non-latching, inhibitsTurning=true)
+
+Known pre-existing staleness NOT fixed in this pass (out of the requested scope, noted
+for future work): app.js's FAULT_TITLES map is missing entries for several FaultCodes
+that already exist in the current firmware (113, 114, 115, 121, 130, 132, 133, 134, 313,
+314, 315) and carries entries for codes that no longer exist in the current FaultCode
+enum (104, 307-312, 401, 402 — likely leftover from an earlier firmware revision). This
+does not cause incorrect behavior (unmapped codes just show a numeric fallback) but is a
+documentation/consistency gap worth a dedicated cleanup pass.
+
+Updated verdict after remediation:
+  CRITICAL = 0, HIGH = 0 (both F-01 and F-02 fixed), MEDIUM = 0 (F-03, F-06 fixed),
+  LOW = 0 (F-04, F-05, F-07 fixed), UNKNOWN = 0 (F-08 resolved safe), POTENTIAL BUG = 0
+  (F-09 fixed).
+  PRODUCTION STATUS: PRODUCTION READY WITH RISKS — none of the original findings remain
+  open, but this upgrade is based on STATIC review only (no compile, no runtime, no
+  hardware-in-loop test of any of the new logic paths — Test Mode dual-verify clear
+  path for F-02 in particular has not been exercised against real limit-switch hardware).
+  Recommend a supervised real-hardware test cycle (deliberately fault a limit switch 3x,
+  confirm TurnMechanicalCheckRequired latches and blocks turning, confirm Test Mode
+  dual-verify clears it) before relying on this in an unattended production batch.

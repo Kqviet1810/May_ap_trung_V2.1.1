@@ -1920,7 +1920,8 @@ uint32_t alarmBitForFaultCode(uint16_t code) {
     case 130: case 131: case 132: return AlarmSystem;
     case 133: return AlarmAutoMode;
     case 134: return AlarmTurning;
-    case 201: case 202: case 203: case 204: return AlarmTurning;
+    case 135: case 136: return AlarmSystem;
+    case 201: case 202: case 203: case 204: case 205: return AlarmTurning;
     case 301: case 302: case 303: case 304: case 305: case 306:
     case 313: case 314: case 315: return AlarmSystem;
     default: return AlarmSystem;
@@ -1945,10 +1946,13 @@ const char *faultTitle(uint16_t code) {
     case 132: return "CAN CHUYEN SANG AUTO";
     case 133: return "AUTO BI TAT GIUA ME";
     case 134: return "TU DONG DAO BI TAT";
+    case 135: return "CHO XAC NHAN AP LAI";
+    case 136: return "ME QUA HAN AP";
     case 201: return "LOI 2 HANH TRINH";
     case 202: return "DAO QUA THOI GIAN";
     case 203: return "HANH TRINH BI KET";
     case 204: return "XUNG DOT LENH DAO";
+    case 205: return "CAN KIEM TRA CO KHI DAO";
     case 301: return "MAT EEPROM";
     case 302: return "EEPROM SUY GIAM";
     case 303: return "RESET BAT THUONG";
@@ -1985,10 +1989,13 @@ void faultDetail(const HmiFaultItem &fault, char *out, size_t size) {
     case 132: snprintf(out, size, "PHUC HOI ME DANG CHO"); break;
     case 133: snprintf(out, size, "BAT LAI AUTO - DAO DANG KHOA"); break;
     case 134: snprintf(out, size, "DAO TU DONG PHAI LUON ON"); break;
+    case 135: snprintf(out, size, "%d PHUT CHUA XAC NHAN", fault.detail); break;
+    case 136: snprintf(out, size, "QUA %d NGAY", fault.detail); break;
     case 201: snprintf(out, size, "HAI CTHT CUNG TAC DONG"); break;
     case 202: snprintf(out, size, "CHUA CHAM CTHT DICH"); break;
     case 203: snprintf(out, size, "CTHT GOC KHONG NHA"); break;
     case 204: snprintf(out, size, "TRAI VA PHAI CUNG ON"); break;
+    case 205: snprintf(out, size, "%d LAN LOI - VAO TEST MODE", fault.detail); break;
     case 301: snprintf(out, size, "KHONG DOC/GHI DUOC"); break;
     case 302: snprintf(out, size, "DANG CHAY BANG RAM"); break;
     case 303: snprintf(out, size, "KIEM TRA RESET/WDT"); break;
