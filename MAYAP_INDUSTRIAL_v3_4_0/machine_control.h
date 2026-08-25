@@ -375,10 +375,20 @@ enum class FaultCode : uint16_t {
   ResumeRequiresAuto = 132,
   AutoModeOffDuringBatch = 133,
   AutoTurningDisabledDuringBatch = 134,
+  // Man hinh "Ap lai me cu" sau mat dien cho xac nhan qua lau khong ai thao tac.
+  ResumeConfirmationPending = 135,
+  // Me da qua so ngay ap du kien (config.totalIncubationDays) ma chua ket
+  // thuc - canh bao tai cho tren HMI/web, doc lap voi thong bao Cloud Push
+  // (cloud_alert_link.h) de van thay duoc ke ca khi may khong co mang.
+  BatchOverdue = 136,
   TurnLimitConflict = 201,
   TurnTimeout = 202,
   TurnLimitStuck = 203,
   TurnCommandConflict = 204,
+  // Loi dao lap lai qua TURN_FAULT_STREAK_LIMIT lan lien tiep khong co lan
+  // dao thanh cong xen giua - nghi ngo hong co khi, khoa dao hoan toan cho
+  // toi khi xac nhan lai qua Test Mode (ca 2 cong tac hanh trinh deu Success).
+  TurnMechanicalCheckRequired = 205,
   StorageUnavailable = 301,
   StorageDegraded = 302,
   AbnormalReset = 303,
@@ -430,6 +440,13 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // Mat mot chuc nang thiet yeu trong luc me dang chay phai bao ngay.
     {FaultCode::HeaterSwitchOffDuringBatch, FaultSeverity::Stop, 222U, AlarmSystem, false, true, true, false, false, false, "HEATER SWITCH OFF"},
     {FaultCode::ResumeRequiresAuto, FaultSeverity::Warning, 180U, AlarmSystem, false, false, false, false, false, false, "RESUME NEEDS AUTO"},
+    // Cho xac nhan "Ap lai me cu" qua lau khong ai thao tac - chi canh bao,
+    // KHONG tu dong lam gi thay nguoi dung (van cho dung y do an toan cua
+    // resumeConfirmationRequired_). Tu het khi da xac nhan CO/HUY.
+    {FaultCode::ResumeConfirmationPending, FaultSeverity::Warning, 175U, AlarmSystem, false, false, false, false, false, false, "RESUME PENDING TOO LONG"},
+    // Qua so ngay ap du kien - chi canh bao (khong khoa gi), doc lap voi
+    // thong bao Cloud Push tuong ung trong cloud_alert_link.h.
+    {FaultCode::BatchOverdue, FaultSeverity::Warning, 50U, AlarmSystem, false, false, false, false, false, false, "BATCH OVERDUE"},
     // AUTO bi tat giua me: van giu dieu khien nhiet, nhung khoa moi lenh dao.
     {FaultCode::AutoModeOffDuringBatch, FaultSeverity::Stop, 220U, AlarmAutoMode, false, false, false, true, false, false, "AUTO OFF DURING BATCH"},
     {FaultCode::AutoTurningDisabledDuringBatch, FaultSeverity::Stop, 219U, AlarmTurning, false, false, false, true, false, false, "AUTO TURN DISABLED"},
@@ -437,6 +454,12 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     {FaultCode::TurnTimeout, FaultSeverity::Stop, 150U, AlarmTurning, true, false, false, true, false, false, "TURN TIMEOUT"},
     {FaultCode::TurnLimitStuck, FaultSeverity::Stop, 155U, AlarmTurning, true, false, false, true, false, false, "LIMIT STUCK"},
     {FaultCode::TurnCommandConflict, FaultSeverity::Stop, 145U, AlarmTurning, true, false, false, true, false, false, "TURN CMD CONFLICT"},
+    // Loi dao lap lai >= TURN_FAULT_STREAK_LIMIT lan lien tiep (xem
+    // latchTurnFault()) - khoa dao HOAN TOAN, khong tu clear qua ACK thuong
+    // (latching=false NHUNG dieu kien chi tat khi turnMechanicalCheckRequired_
+    // tat, ma bien do chi tat trong updateTestMode() khi ca 2 CTHT deu xac
+    // nhan Success trong Test Mode - xem ghi chu tai latchTurnFault()).
+    {FaultCode::TurnMechanicalCheckRequired, FaultSeverity::Stop, 165U, AlarmTurning, false, false, false, true, false, false, "TURN MECHANICAL CHECK"},
     {FaultCode::StorageUnavailable, FaultSeverity::Stop, 205U, AlarmSystem, true, true, true, false, false, false, "EEPROM UNAVAILABLE"},
     {FaultCode::StorageDegraded, FaultSeverity::Warning, 90U, AlarmSystem, false, false, false, false, false, false, "EEPROM DEGRADED"},
     {FaultCode::AbnormalReset, FaultSeverity::Stop, 210U, AlarmSystem, true, true, true, false, false, false, "ABNORMAL RESET"},
@@ -3102,6 +3125,7 @@ class MachineController {
       // nhiet, cam bien, RTC...) duoc dap ung trong processResume().
       resumeConfirmationRequired_ = resetReasonIsPowerInterruption(resetReason_) &&
                                     !config_.autoResumeOnPowerLoss;
+      resumeConfirmPromptAt_ = bootAt_;
       // Ghi nhan "vua co dien lai giua me ap" DOC LAP voi viec co phai hoi
       // xac nhan hay khong (autoResumeOnPowerLoss BAT thi khong hoi, nhung
       // van la mat dien that) - cloud_alert_link.h can co nay de bao ve dien
@@ -3206,7 +3230,8 @@ class MachineController {
   enum class BatchPhase : uint8_t { Stopped, Prestart, Homing, Running };
   enum class ResumeBlockReason : uint8_t {
     None = 0, Confirmation, BatchClear, Storage, ResetAck, AutoMode,
-    HeaterSwitch, Sensor, Rtc, TurnFault, LimitConflict, Temperature, Delay
+    HeaterSwitch, Sensor, Rtc, TurnFault, LimitConflict, Temperature, Delay,
+    TurningDisabled
   };
 
   // ------------------------- I2C device recovery -----------------------------
@@ -3524,11 +3549,15 @@ class MachineController {
       sanitizeMachineConfig(requested);
       // nextDirection la trang thai scheduler noi bo, HMI khong duoc ghi de.
       requested.nextDirection = config_.nextDirection;
+      // turningEnabled/turnIntervalMin/turnMaxRunSec KHONG con bi khoa khi
+      // dang co me nua (theo dung UI HMI/web da mo khoa cho "phan dao" -
+      // xem settingLockedDuringBatch() trong hmi.h va man xac nhan CO/HUY
+      // ConfirmAction::TurningToggle) - truoc day 2 tang khoa (UI va luu
+      // thuc te o day) khong khop nhau, khien thao tac bi am tham tu choi
+      // du da qua xac nhan. Chi con totalIncubationDays bi khoa (doi giua
+      // me se lam sai lich/ngay du kien no, khong lien quan phan dao).
       const bool protectedBatchChange = (batchRunning_ || resumePending_) &&
-          (requested.turningEnabled != config_.turningEnabled ||
-           requested.turnIntervalMin != config_.turnIntervalMin ||
-           requested.turnMaxRunSec != config_.turnMaxRunSec ||
-           requested.totalIncubationDays != config_.totalIncubationDays ||
+          (requested.totalIncubationDays != config_.totalIncubationDays ||
            (requested.connectivityMode == ConnectivityMode::Online &&
             config_.connectivityMode != ConnectivityMode::Online));
       MachineConfig readback{};
@@ -3892,6 +3921,7 @@ class MachineController {
       case ResumeBlockReason::LimitConflict: return "LIMIT_CONFLICT";
       case ResumeBlockReason::Temperature: return "TEMP_HIGH";
       case ResumeBlockReason::Delay: return "RESTORE_DELAY";
+      case ResumeBlockReason::TurningDisabled: return "TURNING_DISABLED";
       default: return "UNKNOWN";
     }
   }
@@ -3906,12 +3936,21 @@ class MachineController {
   void processResume(uint32_t now) {
     if (!resumePending_) {
       setResumeBlockReason(ResumeBlockReason::None);
+      faults_.set(FaultCode::ResumeConfirmationPending, false, now);
       return;
     }
     if (resumeConfirmationRequired_) {
       setResumeBlockReason(ResumeBlockReason::Confirmation);
+      // Chi canh bao "cho qua lau", KHONG tu lam gi thay nguoi dung - van
+      // giu dung y do an toan cua man hinh xac nhan (phai co nguoi quyet
+      // dinh CO/HUY, khong tu dong ap lai/huy khi qua thoi gian).
+      faults_.set(FaultCode::ResumeConfirmationPending,
+                  elapsedMs(now, resumeConfirmPromptAt_) >= RESUME_CONFIRM_ALERT_MS,
+                  now, static_cast<int16_t>(std::min<uint32_t>(
+                      elapsedMs(now, resumeConfirmPromptAt_) / 60000UL, INT16_MAX)));
       return;
     }
+    faults_.set(FaultCode::ResumeConfirmationPending, false, now);
 
     const InputState &in = inputs_.state();
     if (batchClearPending_) {
@@ -3940,6 +3979,17 @@ class MachineController {
     }
     if (in.limitLeft && in.limitRight) {
       setResumeBlockReason(ResumeBlockReason::LimitConflict); return;
+    }
+    // Dong bo voi startBatch(): khong duoc phuc hoi neu "Tu dong dao" dang
+    // tat - truoc day thieu dieu kien nay (khac voi startBatch), che do tu
+    // phuc hoi co the chay tiep voi dao tat ma khong bi chan truoc, chi duoc
+    // AutoTurningDisabledDuringBatch bat lai 1 chu ky sau. Nay chan som nhu
+    // startBatch() cho nhat quan; an toan de them vi turningEnabled gio da
+    // sua duoc ngay ca khi dang cho phuc hoi (protectedBatchChange da bo
+    // khoa truong nay - xem processHmiTransactions()), nen khong tao ra bi
+    // ket "khong sua duoc, khong phuc hoi duoc".
+    if (!config_.turningEnabled) {
+      setResumeBlockReason(ResumeBlockReason::TurningDisabled); return;
     }
     if (highTemperatureActive_ || emergencyActive_) {
       setResumeBlockReason(ResumeBlockReason::Temperature); return;
@@ -4130,9 +4180,17 @@ class MachineController {
     // heatMaster/inhibit SSR - xem FaultDescriptor trong bang faultTable_),
     // nen tat no khong anh huong an toan nhiet thuc te.
     const bool heaterCommandedOn = outputs_.state().heaterSsr;
-    if (!heaterCommandedOn || !batchRunning_ || !sensorUsable_) {
+    if (!heaterCommandedOn || !batchRunning_) {
       heaterStuckTracking_ = false;
       heaterNotHeatingActive_ = false;
+    } else if (!sensorUsable_) {
+      // Cam bien mat CHOANG QUA (vai giay/vai chu ky) khong duoc xoa het
+      // tien do da dem - se phai doi lai du HEATER_STUCK_DURATION_MS tu dau
+      // moi lan chop tat, lam cham phat hien that su. Chi TAM DUNG (khong
+      // dem tiep, khong reset) trong luc mat cam bien; SensorLost/Invalid da
+      // co canh bao rieng cho khoang nay. Neu cam bien mat that su keo dai,
+      // SensorLost se cat SSR (dropHeatMaster) va heaterCommandedOn tu OFF
+      // ngay sau do, tu dong reset tracking qua nhanh o tren.
     } else if (!heaterStuckTracking_) {
       heaterStuckTracking_ = true;
       heaterStuckSinceAt_ = now;
@@ -4169,6 +4227,23 @@ class MachineController {
     faults_.set(FaultCode::HeaterNotHeating, heaterNotHeatingActive_, now,
                 (isfinite(heaterStuckStartTemp_) && isfinite(temperature_))
                     ? static_cast<int16_t>(lroundf((temperature_ - heaterStuckStartTemp_) * 10.0f)) : 0);
+    // Phan anh dung trang thai turnMechanicalCheckRequired_ (bat trong
+    // latchTurnFault() khi loi dao lap lai qua nguong, tat trong
+    // updateTestMode() khi da xac nhan lai ca 2 CTHT).
+    faults_.set(FaultCode::TurnMechanicalCheckRequired,
+                turnMechanicalCheckRequired_, now,
+                static_cast<int16_t>(turnFaultStreak_));
+    // Qua so ngay ap du kien - canh bao tai cho, doc lap voi Cloud Push
+    // tuong ung trong cloud_alert_link.h (khong dung runtime_.currentDay vi
+    // gia tri do bi gioi han khong vuot qua totalIncubationDays, xem
+    // updateBatchTime()/copyRuntimeToHmi()).
+    const uint32_t batchOverdueDays = batchRunning_ && config_.totalIncubationDays > 0U
+        ? elapsedBatchSec(now) / 86400UL
+        : 0U;
+    faults_.set(FaultCode::BatchOverdue,
+                batchRunning_ && config_.totalIncubationDays > 0U &&
+                batchOverdueDays >= static_cast<uint32_t>(config_.totalIncubationDays),
+                now, static_cast<int16_t>(std::min<uint32_t>(batchOverdueDays, INT16_MAX)));
     const InputState &in = inputs_.state();
     const bool recoveryExecuting = resumePending_ && !resumeConfirmationRequired_;
     const bool heatFunctionRequired = batchRunning_ || recoveryExecuting;
@@ -4526,6 +4601,11 @@ class MachineController {
 
   void completeTurn(uint32_t now, TrayPosition position) {
     stopTurn(false);
+    // Bat ky chuyen dong nao toi duoc CTHT (homing hay dao thuong) deu chung
+    // minh co khi/cong tac hanh trinh dang hoat dong tot - xoa chuoi loi dao
+    // lien tiep (xem latchTurnFault()) de khong bi cong don voi lan loi khac
+    // nhau ve nguyen nhan.
+    turnFaultStreak_ = 0U;
     trayPosition_ = position;
     if (moveIsHoming_) {
       finishHoming(now);
@@ -4555,6 +4635,15 @@ class MachineController {
 
   void stopTurn(bool fault) {
     (void)fault;
+    // Bi ngat DUNG LUC dang di chuyen (chua cham CTHT dich) - trayPosition_
+    // dang giu vi tri XUAT PHAT cua lan di nay (moveOrigin_), KHONG PHAI vi
+    // tri vat ly thuc te (khay dang o giua). Danh dau Unknown va bat needHome_
+    // de lan dao AUTO ke tiep phai ve lai CTHT da biet truoc, thay vi ngam
+    // dinh sai rang khay van con o vi tri cu.
+    if (turnPhase_ == TurnPhase::MovingLeft || turnPhase_ == TurnPhase::MovingRight) {
+      trayPosition_ = TrayPosition::Unknown;
+      needHome_ = true;
+    }
     if (turnPhase_ != TurnPhase::Fault) turnPhase_ = TurnPhase::Idle;
     moveStartedAt_ = 0;
   }
@@ -4563,7 +4652,25 @@ class MachineController {
     if (!turnFaultLatched_) mayapSerialPrintf(false, "[TURN] FAULT: %s\n", reason ? reason : "UNKNOWN");
     turnFaultLatched_ = true;
     turnFaultCode_ = code;
-    faults_.set(code, true, millis());
+    const uint32_t now = millis();
+    faults_.set(code, true, now);
+    // Dem chuoi loi "khong hoan tat duoc chuyen dong" (timeout/CTHT khong nha)
+    // lien tiep - day la dau hieu nghi ngo hong co khi/day CTHT, khac voi
+    // TurnLimitConflict (2 CTHT cung ON, thuong la loi day/ngan mach) hay
+    // TurnCommandConflict (loi thao tac 2 lenh tay cung luc).
+    if (code == FaultCode::TurnTimeout || code == FaultCode::TurnLimitStuck) {
+      if (turnFaultStreak_ < UINT8_MAX) ++turnFaultStreak_;
+      if (!turnMechanicalCheckRequired_ &&
+          turnFaultStreak_ >= TURN_FAULT_STREAK_LIMIT) {
+        turnMechanicalCheckRequired_ = true;
+        testLimitVerifiedLeft_ = false;
+        testLimitVerifiedRight_ = false;
+        faults_.set(FaultCode::TurnMechanicalCheckRequired, true, now);
+        mayapSerialPrintf(false,
+            "[TURN] MECHANICAL CHECK REQUIRED sau %u loi lien tiep\n",
+            static_cast<unsigned>(turnFaultStreak_));
+      }
+    }
     turnPhase_ = TurnPhase::Fault;
     moveStartedAt_ = 0;
   }
@@ -4832,6 +4939,18 @@ class MachineController {
         testLimitPhase_ = TestLimitPhase::Success;
         testLimitBuzzUntil_ = now + TEST_LIMIT_CONFIRM_BUZZ_MS;
         testModeLastActivityAt_ = now;
+        // Xac nhan co khi (xem latchTurnFault()): can CA 2 CTHT deu tung
+        // Success trong Test Mode moi duoc mo khoa dao lai.
+        if (turnMechanicalCheckRequired_) {
+          if (testLimitTarget_ == TestLimitId::Left) testLimitVerifiedLeft_ = true;
+          else testLimitVerifiedRight_ = true;
+          if (testLimitVerifiedLeft_ && testLimitVerifiedRight_) {
+            turnMechanicalCheckRequired_ = false;
+            turnFaultStreak_ = 0U;
+            mayapSerialPrintf(false,
+                "[TURN] MECHANICAL CHECK OK - da xac nhan ca 2 CTHT\n");
+          }
+        }
       } else if (timeReached(now, testLimitDeadline_)) {
         testLimitPhase_ = TestLimitPhase::Timeout;
       }
@@ -4899,8 +5018,13 @@ class MachineController {
     if (!batchRunning_) return;
     const uint32_t totalSec = elapsedBatchSec(now);
     const uint32_t dayIndex = totalSec / 86400UL;
-    runtime_.currentDay = static_cast<uint8_t>(std::min<uint32_t>(
-        static_cast<uint32_t>(config_.totalIncubationDays), dayIndex + 1U));
+    // KHONG gioi han theo totalIncubationDays nua - "NGAY X/Y" voi X > Y la
+    // tin hieu quan trong (me qua han), can hien thi dung thay vi ke bang
+    // Y mai. Gia tri nay cung la dau vao cho canh bao BatchOverdue cuc bo
+    // (updateAlarms()) va nhac "qua han" qua Cloud Push (cloud_alert_link.h) -
+    // truoc day bi ke bang totalIncubationDays nen dieu kien "qua han" cua
+    // ca 2 noi khong bao gio dung duoc (loi da phat hien khi vien).
+    runtime_.currentDay = static_cast<uint8_t>(std::min<uint32_t>(255U, dayIndex + 1U));
     const uint32_t dayNumber = dayIndex + 1U;
     if (lastTurnCounterDay_ == 0U) lastTurnCounterDay_ = dayNumber;
     if (dayNumber != lastTurnCounterDay_) {
@@ -5113,8 +5237,7 @@ class MachineController {
     runtime_.batchRunning = batchRunning_ || resumePending_;
     if (resumePending_ && !batchRunning_) {
       const uint32_t dayIndex = elapsedBeforeStartSec_ / 86400UL;
-      runtime_.currentDay = static_cast<uint8_t>(std::min<uint32_t>(
-          static_cast<uint32_t>(config_.totalIncubationDays), dayIndex + 1U));
+      runtime_.currentDay = static_cast<uint8_t>(std::min<uint32_t>(255U, dayIndex + 1U));
     } else if (!batchRunning_) {
       runtime_.currentDay = 0;
     }
@@ -5202,6 +5325,7 @@ class MachineController {
         case ResumeBlockReason::LimitConflict: state = "LOI HANH TRINH"; break;
         case ResumeBlockReason::Temperature: state = "CHO HA NHIET"; break;
         case ResumeBlockReason::Delay: state = "CHO TRE PHUC HOI"; break;
+        case ResumeBlockReason::TurningDisabled: state = "HAY BAT TU DONG DAO"; break;
         default: state = "CHO PHUC HOI"; break;
       }
       stateCode = MachineStateCode::ResumeWait;
@@ -5621,6 +5745,7 @@ class MachineController {
   bool batchRunning_ = false;
   bool resumePending_ = false;
   bool resumeConfirmationRequired_ = false;
+  uint32_t resumeConfirmPromptAt_ = 0U;
   bool automaticResetRecovery_ = false;
   // Dat 1 lan trong begin() khi phat hien khoi dong lai sau mat dien giua me
   // ap; giu nguyen suot phien chay (khong tu xoa) de cloud_alert_link.h doc.
@@ -5654,6 +5779,14 @@ class MachineController {
   bool needHome_ = false;
   bool turnFaultLatched_ = false;
   FaultCode turnFaultCode_ = FaultCode::None;
+  // So lan TurnTimeout/TurnLimitStuck lien tiep KHONG co lan dao thanh cong
+  // xen giua (xem latchTurnFault()/completeTurn()). Vuot TURN_FAULT_STREAK_LIMIT
+  // thi bat TurnMechanicalCheckRequired, khoa dao hoan toan cho toi khi xac
+  // nhan lai qua Test Mode (ca 2 CTHT deu Success - xem updateTestMode()).
+  uint8_t turnFaultStreak_ = 0U;
+  bool turnMechanicalCheckRequired_ = false;
+  bool testLimitVerifiedLeft_ = false;
+  bool testLimitVerifiedRight_ = false;
   uint32_t moveStartedAt_ = 0;
   uint32_t deadtimeUntil_ = 0;
   uint32_t nextTurnAt_ = 0;

@@ -404,8 +404,24 @@ constexpr float HIGH_TEMP_CLEAR_HYSTERESIS_C = 0.2f;
 constexpr uint32_t HIGH_TEMP_CLEAR_CONFIRM_MS = 10000UL;
 constexpr float EMERGENCY_CLEAR_HYSTERESIS_C = 0.3f;
 constexpr uint32_t EMERGENCY_CLEAR_CONFIRM_MS = 30000UL;
-constexpr uint32_t SIREN_TEMPORARY_MUTE_MS = 300000UL;
+// Tam tat coi khan cap khi ACK. Truoc la 5 phut - qua dai cho muc "khan cap"
+// neu khong co ai o gan may luc do; rut xuong 1 phut, coi se tu keu lai neu
+// dieu kien qua nhiet khan cap van con (khong lien quan viec cat nhiet - cat
+// nhiet luon doc lap voi ACK, xem emergencyActive_/masterDropRequired()).
+constexpr uint32_t SIREN_TEMPORARY_MUTE_MS = 60000UL;
 constexpr uint32_t BATCH_CHECKPOINT_MS = 300000UL;
+// Loi dao (TurnTimeout/TurnLimitStuck) lap lai lien tiep du da ACK, khong co
+// lan dao thanh cong nao xen giua - nghi ngo hong co khi (cong tac hanh
+// trinh) chu khong phai loi thoang qua. Vuot nguong nay thi khoa dao hoan
+// toan (TurnMechanicalCheckRequired), bat buoc vao Test Mode xac nhan lai ca
+// 2 cong tac hanh trinh (Trai va Phai deu bao Success) moi duoc mo khoa -
+// khong con tu dong thu lai vo han qua ACK thuong.
+constexpr uint8_t TURN_FAULT_STREAK_LIMIT = 3U;
+// Man hinh cho xac nhan "Ap lai me cu" sau mat dien (resumeConfirmationRequired_)
+// khong co timeout tu dong ap lai (dung y do an toan - phai co nguoi quyet
+// dinh) nhung neu khong ai thao tac qua lau thi can canh bao rieng de nguoi
+// dung/quan tri biet may dang treo cho, khong phai dang hoat dong binh thuong.
+constexpr uint32_t RESUME_CONFIRM_ALERT_MS = 900000UL; // 15 phut
 // Trend trong me: 5 phut/mau. Event quan trong duoc ghi ngay khi xay ra.
 constexpr uint32_t BATCH_LOG_SAMPLE_MS = 300000UL;
 constexpr size_t BATCH_LOG_MIN_FREE_BYTES = 256U * 1024U;
