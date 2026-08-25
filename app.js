@@ -40,9 +40,9 @@
   });
 
   const pageMeta = {
-    device: ['Thiết bị', 'Theo dõi máy đang chọn và chỉnh nhanh thông số chính.'],
-    batch: ['Mẻ ấp', 'Cấu hình mẻ trực tiếp và bắt đầu khi đã sẵn sàng.'],
-    settings: ['Cài đặt', 'Chỉ mở nhóm cần thay đổi, các thông số còn lại được giữ gọn.']
+    device: ['Thiết bị', 'Giám sát thời gian thực và điều chỉnh nhanh máy đang chọn.'],
+    batch: ['Mẻ ấp', 'Thiết lập và quản lý mẻ ấp đang vận hành.'],
+    settings: ['Cài đặt', 'Toàn bộ thông số vận hành, an toàn và kết nối của máy.']
   };
 
   const state = {
@@ -369,6 +369,55 @@
     renderDeviceList();
     syncSelectedDevice(true);
     renderPushStatus();
+    syncDeviceSelectorUi();
+  }
+
+  function closeDeviceSelectorPanel() {
+    const panel = $('deviceSelectorPanel');
+    const trigger = $('deviceSelectorTrigger');
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    trigger?.setAttribute('aria-expanded', 'false');
+  }
+
+  function openDeviceSelectorPanel() {
+    const panel = $('deviceSelectorPanel');
+    const trigger = $('deviceSelectorTrigger');
+    if (!panel || !trigger || trigger.disabled) return;
+    panel.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    panel.querySelector('[aria-selected="true"]')?.focus();
+  }
+
+  function syncDeviceSelectorUi() {
+    const select = $('deviceSelector');
+    const trigger = $('deviceSelectorTrigger');
+    const label = $('deviceSelectorLabel');
+    const panel = $('deviceSelectorPanel');
+    if (!select || !trigger || !label || !panel) return;
+    trigger.disabled = select.disabled;
+    const current = select.options[select.selectedIndex];
+    label.textContent = current ? current.textContent : 'Chưa có thiết bị';
+    panel.replaceChildren();
+    Array.from(select.options).forEach((opt) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'customSelectOption';
+      btn.setAttribute('role', 'option');
+      btn.textContent = opt.textContent;
+      btn.dataset.value = opt.value;
+      const selected = opt.value === select.value;
+      btn.setAttribute('aria-selected', selected ? 'true' : 'false');
+      btn.addEventListener('click', () => {
+        if (select.value !== opt.value) {
+          select.value = opt.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        closeDeviceSelectorPanel();
+        trigger.focus();
+      });
+      panel.append(btn);
+    });
   }
 
   function renderDevice() {
@@ -1314,6 +1363,18 @@
       saveDevices();
       syncSelectedDevice(true);
       toast(`Đã chọn ${currentDevice()?.name || 'thiết bị'}`);
+    });
+
+    $('deviceSelectorTrigger').addEventListener('click', () => {
+      const panel = $('deviceSelectorPanel');
+      if (panel.hidden) openDeviceSelectorPanel(); else closeDeviceSelectorPanel();
+    });
+    document.addEventListener('click', (event) => {
+      const field = $('deviceSelectorField');
+      if (field && !field.contains(event.target)) closeDeviceSelectorPanel();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeDeviceSelectorPanel();
     });
 
     $('addDeviceBtn').addEventListener('click', () => {

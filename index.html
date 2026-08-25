@@ -33,7 +33,12 @@
 <div class="statusBlock"><span class="pill online" id="onlinePill">ONLINE</span><small id="wifiConnectionText">Wi‑Fi đã kết nối</small></div>
 </div>
 <div class="devicePickerRow">
-<label class="field grow"><span>Thiết bị</span><select aria-label="Chọn thiết bị" id="deviceSelector"></select></label>
+<div class="field grow customSelect" id="deviceSelectorField">
+<span id="deviceSelectorFieldLabel">Thiết bị</span>
+<button aria-expanded="false" aria-haspopup="listbox" aria-labelledby="deviceSelectorFieldLabel deviceSelectorLabel" class="customSelectTrigger" id="deviceSelectorTrigger" type="button"><span id="deviceSelectorLabel">Chưa có thiết bị</span></button>
+<select aria-hidden="true" class="customSelectNative" id="deviceSelector" tabindex="-1"></select>
+<div class="customSelectPanel" hidden id="deviceSelectorPanel" role="listbox" tabindex="-1"></div>
+</div>
 <button aria-label="Thêm thiết bị" class="addDevice" id="addDeviceBtn" type="button">+</button>
 </div>
 </section>
@@ -78,14 +83,14 @@
 <div class="settingsStack">
 <details class="settingCard" id="wifiSetting">
 <summary><span class="settingIcon">⌁</span><span class="settingSummary"><strong>Đổi Wi‑Fi</strong><small id="wifiSettingSummary">Đang kết nối: Phòng 301</small></span><span aria-hidden="true" class="disclosure"></span></summary>
-<form class="settingBody" id="wifiForm"><div class="wifiGuide"><strong>4 bước</strong><small>1. Giữ nút BOOT 3 giây trên máy ấp (đèn báo cấu hình sẽ sáng).<br/>2. Trên điện thoại, vào Cài đặt Wi‑Fi và kết nối vào mạng <b>MAYAP-XXXX</b>.<br/>3. Bấm nút bên dưới - trang đổi Wi‑Fi của máy ấp sẽ tự mở, chọn mạng nhà bạn và nhập mật khẩu.<br/>4. Sau khi lưu, kết nối điện thoại trở lại Wi‑Fi nhà bạn - quay lại đây, máy sẽ tự online lại trong ít phút.</small></div><button class="primary full" id="openWifiPortal" type="button">Mở trang đổi Wi‑Fi (bước 3)</button></form>
+<form class="settingBody" id="wifiForm"><div class="wifiGuide"><strong>2 bước</strong><small>1. Giữ nút BOOT 3 giây trên máy ấp (đèn báo cấu hình sẽ sáng).<br/>2. Trên điện thoại, vào Cài đặt Wi‑Fi và kết nối vào mạng <b>MAYAP-XXXX</b>.</small></div><button class="primary full" id="openWifiPortal" type="button">Mở trang đổi Wi‑Fi</button></form>
 </details>
 <details class="settingCard">
 <summary><span class="settingIcon">♢</span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
 <div class="notificationLine"><div><strong>Nhận cảnh báo trên điện thoại</strong><small>Áp dụng cho tất cả thiết bị trên dashboard này, kể cả khi không mở trang.</small></div><span class="pill soft" id="pushStatusPill">…</span></div>
 <div class="formError" id="pushZeroDevicesBanner" role="alert">⚠️ Chưa có điện thoại nào nhận thông báo cho máy này - mất điện hay lỗi sẽ không ai biết. Bấm "Bật thông báo" bên dưới.</div>
-<div class="wifiGuide" id="pushIosGuide" hidden><strong>iPhone/iPad: thêm vào Màn hình chính trước</strong><small>Bước 1: Nhấn nút Chia sẻ trên Safari.<br/>Bước 2: Chọn "Thêm vào Màn hình chính".<br/>Bước 3: Mở MAYAP từ biểu tượng vừa tạo trên Màn hình chính.<br/>Bước 4: Bấm "Bật thông báo" lại trong trang vừa mở.</small></div>
+<p class="settingFootnote" id="pushIosGuide" hidden>iPhone/iPad: nhấn nút Chia sẻ trên Safari → "Thêm vào Màn hình chính" → mở lại MAYAP từ biểu tượng đó rồi bật thông báo.</p>
 <p class="settingFootnote" id="pushErrorText" hidden></p>
 <button class="primary full" id="enablePushBtn" type="button">Bật thông báo</button>
 <button class="ghost full" id="testPushBtn" type="button" hidden>Kiểm tra thông báo</button>
