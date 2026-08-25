@@ -173,6 +173,15 @@
     return value === true;
   }
 
+  // Firmware tra ve machineState toan chu HOA khong dau (vd "DANG AP AUTO")
+  // de hien tren HMI. Tren web giu nguyen toan hoa se lam chu rong hon binh
+  // thuong, de bi tran o nen chuyen ve dang Cau (chi hoa chu dau) cho gon.
+  function sentenceCase(text) {
+    if (!text) return text;
+    const lower = text.toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  }
+
   // Firmware WEB_REQUEST_ID_CAPACITY = 40 byte KE CA null terminator (xem
   // config.h + mayap_web_adapter.h::readString trong firmware RC2), nen chuoi
   // request Id toi da dung duoc la 39 ky tu. crypto.randomUUID() co dau gach
@@ -562,7 +571,7 @@
 
     $('liveTemp').textContent = `${numberVi(runtime.temperature)}°C`;
     $('liveHumidity').textContent = `${numberVi(runtime.humidity, 0)}%`;
-    $('liveState').textContent = runtime.machineState || (runtime.batchRunning ? 'Đang ấp' : 'Sẵn sàng');
+    $('liveState').textContent = sentenceCase(runtime.machineState) || (runtime.batchRunning ? 'Đang ấp' : 'Sẵn sàng');
     // Thanh nhiet dong cat theo chu ky PID (mac dinh 10s) nen trang thai SSR
     // tuc thoi (heaterOn) nhap nhay rat nhanh - snapshot 400ms-6s de bat trung
     // luc OFF giua 2 xung, nguoi dung thay "may dang nong" nhung wed bao OFF.
