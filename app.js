@@ -1371,6 +1371,7 @@
       deactivateSession(previous);
       saveDevices();
       syncSelectedDevice(true);
+      syncDeviceSelectorUi();
       toast(`Đã chọn ${currentDevice()?.name || 'thiết bị'}`);
     });
 
