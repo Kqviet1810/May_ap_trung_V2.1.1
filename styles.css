@@ -62,21 +62,18 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .sideState small{margin-top:2px;color:#a8c5c0;font-size:var(--fs-2xs)}
 
 .main{grid-column:2;padding:0 28px 44px;max-width:1320px;width:100%;min-width:0;margin:0 auto}
-.topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:minmax(240px,1fr) repeat(3,148px);gap:12px;align-items:center;padding:calc(20px + env(safe-area-inset-top)) 0 16px;background:#f1f6f4ee;backdrop-filter:blur(12px)}
+.topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:minmax(240px,1fr) repeat(3,minmax(0,148px));gap:12px;align-items:center;padding:calc(20px + env(safe-area-inset-top)) 0 16px;background:#f1f6f4ee;backdrop-filter:blur(12px)}
 .title h1{margin:0;font-size:var(--fs-3xl);font-weight:800;letter-spacing:-.9px}
 .title p{margin:6px 0 0;color:var(--muted);font-size:var(--fs-base);line-height:1.5}
 .live{padding:13px 15px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadowSm);min-width:0}
 .live span,.live strong{display:block}
 .live span{color:var(--muted);font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
 .live strong{font-size:22px;font-weight:800;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
-/* "Trang thai" co the la chuoi dai ("Dang gia nhiet", "San sang AUTO"...)
-   khac han Nhiet do/Do am luon ngan gon (chi 1 so ngan). Truoc day dung
-   chung font-size lon nhu 2 o kia roi cat bot (line-clamp) - vua xau vua
-   MAT NOI DUNG that su can biet. Thay bang: co chu NHO lai gan bang nhan
-   "TRANG THAI" phia tren (thay vi to nhu con so), nhung DAM de van de doc,
-   cho xuong dong tu do KHONG GIOI HAN so dong - o se cao ra neu can nhung
-   khong bao gio cat mat chu. */
-#liveState{white-space:normal;text-overflow:clip;line-height:1.3;
+/* JS (liveStatusLabel) chi con tra ve dung 3 cum ngan: "Dang ap", "Offline",
+   "San sang" - luon vua o mot dong, nen giu 1 dong + chu nho gan bang nhan
+   "TRANG THAI" phia tren, DAM de de doc. Ellipsis chi la luoi an toan, thuc
+   te khong con kich hoat vi noi dung da duoc gioi han ngan gon o nguon. */
+#liveState{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3;
   font-size:var(--fs-xs);font-weight:800}
 
 /* ================================= Panels ==================================== */
@@ -336,7 +333,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .appShell{grid-template-columns:208px minmax(0,1fr)}
   .sidebar{width:208px;padding:20px 15px}
   .main{padding:0 20px 38px}
-  .topbar{grid-template-columns:minmax(170px,1fr) repeat(3,minmax(88px,1fr));gap:8px}
+  .topbar{grid-template-columns:minmax(170px,1fr) repeat(3,minmax(0,1fr));gap:8px}
   .live{padding:11px}
   .live strong{font-size:18px}
   .title h1{font-size:29px}
@@ -356,7 +353,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .nav button span{width:auto;font-size:20px;line-height:1}
   .nav button b{font-size:var(--fs-2xs)}
   .main{width:100%;max-width:100%;min-height:100dvh;padding:0 10px calc(var(--navH) + env(safe-area-inset-bottom) + 10px);overflow-x:clip}
-  .topbar{grid-template-columns:minmax(88px,1fr) repeat(3,minmax(64px,80px));gap:6px;padding:calc(10px + env(safe-area-inset-top)) 0 10px;min-height:86px}
+  .topbar{grid-template-columns:minmax(88px,1fr) repeat(3,minmax(0,80px));gap:6px;padding:calc(10px + env(safe-area-inset-top)) 0 10px;min-height:86px}
   .title h1{font-size:24px;white-space:nowrap}
   /* Khong con line-clamp cat bot - truoc day co the lam mat noi dung mo ta
      trang. Cau chu da rut gon o app.js (pageMeta) nen hiem khi xuong qua 1
@@ -408,7 +405,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .quickField input{font-size:17px}
   .quickField b{font-size:14px}
   .batchActions button{font-size:var(--fs-2xs)}
-  .topbar{grid-template-columns:minmax(82px,1fr) repeat(3,64px)}
+  .topbar{grid-template-columns:minmax(82px,1fr) repeat(3,minmax(0,64px))}
   .title h1{font-size:22px}
   .live strong{font-size:13px}
   .deviceTop{gap:8px}
