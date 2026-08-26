@@ -173,13 +173,13 @@
     return value === true;
   }
 
-  // Firmware tra ve machineState toan chu HOA khong dau (vd "DANG AP AUTO")
-  // de hien tren HMI. Tren web giu nguyen toan hoa se lam chu rong hon binh
-  // thuong, de bi tran o nen chuyen ve dang Cau (chi hoa chu dau) cho gon.
-  function sentenceCase(text) {
-    if (!text) return text;
-    const lower = text.toLowerCase();
-    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  // Firmware tra ve machineState chi tiet (vd "DANG AP AUTO", "DANG GIA
+  // NHIET"...) qua dai/da dang de hien gon trong 1 o nho tren web. Chi giu
+  // dung 3 trang thai ngan gon, du de nguoi dung nam tinh trang chung.
+  function liveStatusLabel(device, runtime) {
+    if (connectionStatus(device) !== 'online') return 'Offline';
+    if (runtime?.batchRunning) return 'Đang ấp';
+    return 'Sẵn sàng';
   }
 
   // Firmware WEB_REQUEST_ID_CAPACITY = 40 byte KE CA null terminator (xem
@@ -557,7 +557,7 @@
     if (!runtime) {
       $('liveTemp').textContent = '—';
       $('liveHumidity').textContent = '—';
-      $('liveState').textContent = connectionStatus(device) === 'online' ? 'Đang đồng bộ' : 'Offline';
+      $('liveState').textContent = liveStatusLabel(device, null);
       updateOutput('outputHeater', false);
       updateOutput('outputCirculation', false);
       updateOutput('outputVent', false);
@@ -571,7 +571,7 @@
 
     $('liveTemp').textContent = `${numberVi(runtime.temperature)}°C`;
     $('liveHumidity').textContent = `${numberVi(runtime.humidity, 0)}%`;
-    $('liveState').textContent = sentenceCase(runtime.machineState) || (runtime.batchRunning ? 'Đang ấp' : 'Sẵn sàng');
+    $('liveState').textContent = liveStatusLabel(device, runtime);
     // Thanh nhiet dong cat theo chu ky PID (mac dinh 10s) nen trang thai SSR
     // tuc thoi (heaterOn) nhap nhay rat nhanh - snapshot 400ms-6s de bat trung
     // luc OFF giua 2 xung, nguoi dung thay "may dang nong" nhung wed bao OFF.
