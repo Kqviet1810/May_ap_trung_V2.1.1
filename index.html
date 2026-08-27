@@ -24,7 +24,12 @@
 <div class="title"><h1 id="pageTitle">Thiết bị</h1><p id="pageSubtitle">Theo dõi máy đang chọn và chỉnh nhanh thông số chính.</p></div>
 <div class="live"><span>Nhiệt độ</span><strong id="liveTemp">37,5°C</strong></div>
 <div class="live"><span>Độ ẩm</span><strong id="liveHumidity">58%</strong></div>
-<div class="live"><span>Trạng thái</span><strong id="liveState">Sẵn sàng</strong></div>
+<div class="live" id="liveStateTile"><span>Trạng thái</span><strong id="liveState">Sẵn sàng</strong>
+<div class="faultPopup" hidden id="faultPopup" role="dialog">
+<div class="faultPopupHead"><span class="faultPopupCode" id="faultPopupCode">E000</span><span id="faultPopupTitle">—</span></div>
+<p id="faultPopupDesc"></p>
+</div>
+</div>
 </header>
 <section class="page active" id="page-device">
 <section class="panel deviceCompact">

@@ -270,6 +270,15 @@ inline void publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
   r["autoTuneState"] = static_cast<uint8_t>(rt.autoTuneState);
   r["autoTuneProgress"] = rt.autoTuneProgress;
   r["resumeConfirmationRequired"] = rt.resumeConfirmationRequired;
+  // Danh sach loi dang active, da sap xep theo displayPriority giam dan boi
+  // FaultManager::copyActiveForHmi() - phan tu [0] la loi quan trong nhat.
+  // Web dung de to mau o Trang thai + hien popup chi tiet khi bam vao.
+  JsonArray faults = r["activeFaults"].to<JsonArray>();
+  for (uint8_t i = 0U; i < rt.activeFaultDisplayCount; ++i) {
+    JsonObject f = faults.add<JsonObject>();
+    f["code"] = rt.activeFaults[i].code;
+    f["severity"] = rt.activeFaults[i].severity;
+  }
   publishJson("snapshot", doc, false);
 }
 

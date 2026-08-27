@@ -7,6 +7,7 @@
   --primary:#0d8275;--primary2:#095f56;--primarySoft:#dff3ef;
   --danger:#be4147;--dangerSoft:#fff0f1;
   --warning:#e29b1d;--warningDark:#8a5a0a;--warningSoft:#fdf1de;
+  --emergency:#7a1f1f;--emergencySoft:#f6dede;
   --faint:#647772;
   --ring:#2f8f82;
   --shadow:0 10px 28px rgba(9,46,40,.08);--shadowSm:0 3px 10px rgba(9,46,40,.06);
@@ -69,12 +70,30 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .live span,.live strong{display:block}
 .live span{color:var(--muted);font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
 .live strong{font-size:22px;font-weight:800;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
-/* JS (liveStatusLabel) chi con tra ve dung 3 cum ngan: "Dang ap", "Offline",
-   "San sang" - luon vua o mot dong, nen giu 1 dong + chu nho gan bang nhan
-   "TRANG THAI" phia tren, DAM de de doc. Ellipsis chi la luoi an toan, thuc
-   te khong con kich hoat vi noi dung da duoc gioi han ngan gon o nguon. */
+/* JS (renderLiveState) chi tra ve cum ngan: "Dang ap"/"San sang"/"Offline",
+   co the them " !" (loi nhe, may van ap duoc) hoac thay hoan toan bang
+   "Loi E<ma>" (loi nang - khong con ap duoc) - luon vua 1 dong, giu chu nho
+   gan bang nhan "TRANG THAI" phia tren, DAM de de doc. Ellipsis chi la luoi
+   an toan. */
 #liveState{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3;
   font-size:var(--fs-xs);font-weight:800}
+#liveStateTile{position:relative;transition:background var(--ease),border-color var(--ease)}
+#liveStateTile.tile-clickable{cursor:pointer}
+#liveStateTile.tile-warn{background:var(--warningSoft);border-color:#eecf9e}
+#liveStateTile.tile-warn #liveState{color:var(--warningDark)}
+#liveStateTile.tile-stop{background:var(--dangerSoft);border-color:#eeb3b6}
+#liveStateTile.tile-stop #liveState{color:var(--danger)}
+#liveStateTile.tile-emergency{background:var(--emergencySoft);border-color:#d59a9a}
+#liveStateTile.tile-emergency #liveState{color:var(--emergency)}
+.faultMark{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:var(--warningDark);color:#fff;font-size:10px;font-weight:800;line-height:1;vertical-align:middle;margin-left:2px}
+.faultPopup{position:absolute;top:calc(100% + 8px);right:0;z-index:50;width:min(78vw,260px);background:#fff;border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:12px 14px;text-align:left;cursor:default;white-space:normal}
+.faultPopupHead{display:flex;align-items:baseline;gap:6px;margin-bottom:4px}
+.faultPopupCode{font-size:var(--fs-lg);font-weight:800;color:var(--ink)}
+.faultPopupCode.sev-warn{color:var(--warningDark)}
+.faultPopupCode.sev-stop{color:var(--danger)}
+.faultPopupCode.sev-emergency{color:var(--emergency)}
+#faultPopupTitle{font-size:var(--fs-sm);font-weight:700;color:var(--ink)}
+.faultPopup p{margin:0;font-size:var(--fs-xs);color:var(--muted);line-height:1.5}
 
 /* ================================= Panels ==================================== */
 .page{display:none;min-width:0;width:100%}
