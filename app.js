@@ -173,13 +173,94 @@
     return value === true;
   }
 
-  // Firmware tra ve machineState chi tiet (vd "DANG AP AUTO", "DANG GIA
-  // NHIET"...) qua dai/da dang de hien gon trong 1 o nho tren web. Chi giu
-  // dung 3 trang thai ngan gon, du de nguoi dung nam tinh trang chung.
-  function liveStatusLabel(device, runtime) {
-    if (connectionStatus(device) !== 'online') return 'Offline';
-    if (runtime?.batchRunning) return 'Đang ấp';
-    return 'Sẵn sàng';
+  // runtime.activeFaults[] do firmware gui, da sap xep uu tien cao nhat
+  // truoc (FaultManager::copyActiveForHmi() trong machine_control.h) - phan
+  // tu dau tien la loi quan trong nhat dang active.
+  function topActiveFault(runtime) {
+    const list = Array.isArray(runtime?.activeFaults) ? runtime.activeFaults : [];
+    return list.length ? list[0] : null;
+  }
+
+  let faultPopupTimer = null;
+  function closeFaultPopup() {
+    const popup = $('faultPopup');
+    if (popup) popup.hidden = true;
+    if (faultPopupTimer) { clearTimeout(faultPopupTimer); faultPopupTimer = null; }
+  }
+  // Chi cap nhat NOI DUNG popup (khi co snapshot moi trong luc popup dang
+  // mo) - KHONG dung timer dong tu dong, tranh vong lap "cu 5s refresh lai
+  // 1 lan lam popup khong bao gio tu dong tat" (renderDevice() co
+  // setInterval refresh 5000 ms doc lap voi popup).
+  function refreshFaultPopupContent(device) {
+    const fault = device?.activeFault;
+    const popup = $('faultPopup');
+    if (!fault || !popup) return;
+    const code = Number(fault.code);
+    const severity = Number(fault.severity || 0);
+    const sevClass = severity >= 3 ? 'sev-emergency' : severity >= 2 ? 'sev-stop' : 'sev-warn';
+    $('faultPopupCode').textContent = `E${code}`;
+    $('faultPopupCode').className = `faultPopupCode ${sevClass}`;
+    $('faultPopupTitle').textContent = FAULT_TITLES[code] || `Mã lỗi ${code}`;
+    $('faultPopupDesc').textContent = FAULT_DESCRIPTIONS[code] || FAULT_TITLES[code] || '';
+  }
+  function openFaultPopup(device) {
+    if (!device?.activeFault) return;
+    refreshFaultPopupContent(device);
+    $('faultPopup').hidden = false;
+    if (faultPopupTimer) clearTimeout(faultPopupTimer);
+    faultPopupTimer = setTimeout(closeFaultPopup, 6000);
+  }
+
+  // Cap nhat o "Trang thai": binh thuong hien 3 trang thai ngan gon (Dang
+  // ap/San sang/Offline). Neu co loi dang active: loi nhe (Warning) chi gan
+  // dau "!" vao trang thai hien tai (may van ap duoc); loi nang (Stop/
+  // Emergency - khong con ap duoc nua) thay HOAN TOAN bang "Loi E<ma>". O
+  // duoc to mau theo muc do, bam vao se hien popup chi tiet (xem
+  // openFaultPopup/closeFaultPopup, gan trong bindUi()).
+  function renderLiveState(device, runtime) {
+    const tile = $('liveStateTile');
+    const el = $('liveState');
+    if (!tile || !el) return;
+    if (!device) {
+      el.textContent = 'Offline';
+      tile.classList.remove('tile-warn', 'tile-stop', 'tile-emergency', 'tile-clickable');
+      closeFaultPopup();
+      return;
+    }
+    const online = connectionStatus(device) === 'online';
+    const fault = online ? topActiveFault(runtime) : null;
+    device.activeFault = fault;
+
+    tile.classList.remove('tile-warn', 'tile-stop', 'tile-emergency');
+    tile.classList.toggle('tile-clickable', !!fault);
+
+    if (!online) {
+      el.textContent = 'Offline';
+      closeFaultPopup();
+      return;
+    }
+    const base = runtime?.batchRunning ? 'Đang ấp' : 'Sẵn sàng';
+    if (!fault) {
+      el.textContent = base;
+      closeFaultPopup();
+      return;
+    }
+    const severity = Number(fault.severity || 0);
+    if (faultBlocksBatch(severity)) {
+      tile.classList.add(severity >= 3 ? 'tile-emergency' : 'tile-stop');
+      el.textContent = `Lỗi E${Number(fault.code)}`;
+    } else {
+      tile.classList.add('tile-warn');
+      el.textContent = '';
+      el.append(document.createTextNode(base + ' '));
+      const mark = document.createElement('span');
+      mark.className = 'faultMark';
+      mark.textContent = '!';
+      el.append(mark);
+    }
+    // Neu popup dang mo cho dung loi nay, cap nhat lai noi dung (vd severity
+    // doi) thay vi dong mo lai gay nhap nhay.
+    if (!$('faultPopup')?.hidden) refreshFaultPopupContent(device);
   }
 
   // Firmware WEB_REQUEST_ID_CAPACITY = 40 byte KE CA null terminator (xem
@@ -557,7 +638,7 @@
     if (!runtime) {
       $('liveTemp').textContent = '—';
       $('liveHumidity').textContent = '—';
-      $('liveState').textContent = liveStatusLabel(device, null);
+      renderLiveState(device, null);
       updateOutput('outputHeater', false);
       updateOutput('outputCirculation', false);
       updateOutput('outputVent', false);
@@ -571,7 +652,7 @@
 
     $('liveTemp').textContent = `${numberVi(runtime.temperature)}°C`;
     $('liveHumidity').textContent = `${numberVi(runtime.humidity, 0)}%`;
-    $('liveState').textContent = liveStatusLabel(device, runtime);
+    renderLiveState(device, runtime);
     // Thanh nhiet dong cat theo chu ky PID (mac dinh 10s) nen trang thai SSR
     // tuc thoi (heaterOn) nhap nhay rat nhanh - snapshot 400ms-6s de bat trung
     // luc OFF giua 2 xung, nguoi dung thay "may dang nong" nhung wed bao OFF.
@@ -1038,20 +1119,67 @@
   };
 
   // event.code - 1000 = FaultCode, doi chieu bang loi faultDescriptor() trong
-  // config.h. CAP NHAT DONG BO khi firmware them ma loi moi vao FaultCode.
+  // machine_control.h. CAP NHAT DONG BO khi firmware them ma loi moi vao
+  // FaultCode (danh sach nay khop dung 31 ma dang co trong enum FaultCode -
+  // xem audit/OPERATION_RECOVERY_MANUAL.md va audit/manual/manual.html).
   const FAULT_TITLES = {
     101: 'Mất cảm biến', 102: 'Cảm biến sai', 103: 'Cảm biến bất thường',
-    104: 'Cảm biến đứng yên', 110: 'Nhiệt độ thấp', 111: 'Nhiệt độ cao',
-    112: 'Quá nhiệt khẩn cấp', 120: 'Độ ẩm thấp - hết nước',
+    110: 'Nhiệt độ thấp', 111: 'Nhiệt độ cao', 112: 'Quá nhiệt khẩn cấp',
+    113: 'Nhiệt độ biến thiên nhanh', 114: 'Nhiệt độ không ổn định',
+    115: 'Thanh nhiệt không nóng', 120: 'Độ ẩm thấp', 121: 'Độ ẩm cao',
+    130: 'Tắt công tắc nhiệt', 132: 'Cần chuyển sang AUTO',
+    133: 'AUTO bị tắt giữa mẻ', 134: 'Tự động đảo bị tắt',
     135: 'Chờ xác nhận áp lại quá lâu', 136: 'Mẻ ấp quá hạn',
     201: 'Lỗi 2 hành trình', 202: 'Đảo quá thời gian', 203: 'Hành trình bị kẹt',
-    204: 'Xung đột lệnh đảo', 205: 'Cần kiểm tra cơ khí đảo (vào Test Mode)',
+    204: 'Xung đột lệnh đảo', 205: 'Cần kiểm tra cơ khí đảo',
     301: 'Mất EEPROM', 302: 'EEPROM suy giảm',
     303: 'Reset bất thường', 304: 'Xung đột output', 305: 'Relay đóng cắt nhiều',
-    306: 'Lỗi đồng hồ RTC', 307: 'Vòng điều khiển chậm', 308: 'Stack sắp cạn',
-    309: 'Thiếu bộ nhớ', 310: 'Lỗi bộ nhớ RAM', 311: 'Lỗi bus I2C',
-    312: 'Hàng đợi lưu đầy', 401: 'Nhiệt tăng khi đã tắt', 402: 'Thanh nhiệt không lên'
+    306: 'Lỗi đồng hồ RTC', 313: 'Chưa xoá dữ liệu mẻ',
+    314: 'Lỗi nhật ký an toàn', 315: 'Mất nhật ký mẻ'
   };
+
+  // Mô tả ngắn dùng cho popup chi tiết khi bấm vào ô Trạng thái (Phần "Ý
+  // nghĩa" trong Fault Card - audit/manual/manual.html). Không có trong bản
+  // đồ này = dùng lại FAULT_TITLES làm mô tả rút gọn.
+  const FAULT_DESCRIPTIONS = {
+    101: 'Không nhận được tín hiệu hợp lệ từ đầu dò nhiệt/ẩm trong thời gian dài.',
+    102: 'Có dữ liệu từ cảm biến nhưng giá trị vượt ngoài dải vật lý cho phép.',
+    103: 'Nhiệt độ tụt đột ngột, đang chờ xác nhận có thật hay không.',
+    110: 'Nhiệt độ đang dưới ngưỡng cấu hình.',
+    111: 'Nhiệt độ vượt ngưỡng cao, đã cắt thanh nhiệt và ép quạt.',
+    112: 'Nhiệt độ vượt ngưỡng khẩn cấp — mức nghiêm trọng nhất.',
+    113: 'Tốc độ thay đổi nhiệt độ vượt ngưỡng bình thường.',
+    114: 'Nhiệt độ dao động vượt biên độ cho phép quanh mức đặt.',
+    115: 'Thanh nhiệt đang bật nhưng nhiệt độ không tăng đủ.',
+    120: 'Độ ẩm đang dưới ngưỡng cấu hình.',
+    121: 'Độ ẩm đang vượt ngưỡng cấu hình.',
+    130: 'Công tắc vật lý cho phép nhiệt đang tắt trong lúc mẻ chạy.',
+    132: 'Đang chờ áp lại mẻ cũ nhưng công tắc AUTO chưa bật.',
+    133: 'Công tắc AUTO bị gạt sang MANUAL trong lúc đang chạy mẻ.',
+    134: 'Cấu hình tự động đảo bị tắt trong lúc mẻ đang chạy.',
+    135: 'Màn hình "Áp lại mẻ cũ?" đã hiện quá lâu chưa ai xác nhận.',
+    136: 'Số ngày ấp thực tế đã vượt số ngày cấu hình.',
+    201: 'Cả 2 công tắc hành trình cùng báo tích cực — xung đột vật lý.',
+    202: 'Động cơ đảo chạy quá thời gian tối đa mà chưa chạm công tắc hành trình.',
+    203: 'Công tắc hành trình không nhả ra sau khi lệnh đảo đã dừng.',
+    204: 'Lệnh đảo trái và đảo phải xung đột nhau cùng lúc.',
+    205: 'Lỗi đảo lặp lại nhiều lần — cần vào Test Mode xác nhận cơ khí.',
+    301: 'Module lưu cấu hình mất kết nối/lỗi nhiều lần liên tiếp.',
+    302: 'EEPROM lỗi tạm thời, đang tự thử kết nối lại.',
+    303: 'Bộ điều khiển vừa khởi động lại do lỗi phần mềm/nguồn.',
+    304: 'Phát hiện 2 đầu ra loại trừ nhau cùng bật.',
+    305: 'Relay đóng/cắt vượt tần suất cho phép.',
+    306: 'Đồng hồ thời gian thực mất kết nối hoặc dữ liệu không hợp lệ.',
+    313: 'Đã dừng/huỷ mẻ nhưng bộ nhớ chưa xác nhận ghi xong.',
+    314: 'Bộ nhớ nội bộ đảm bảo an toàn khi mất điện bị lỗi ghi.',
+    315: 'Log chi tiết mẻ ấp không ghi được (không ảnh hưởng an toàn).'
+  };
+
+  // severity: 0=Info,1=Warning,2=Stop,3=Emergency (khop enum FaultSeverity
+  // trong machine_control.h). >=2 la muc "khong cho phep ap duoc nua".
+  function faultBlocksBatch(severity) {
+    return Number(severity) >= 2;
+  }
 
   function eventText(event) {
     const code = Number(event.code || 0);
@@ -1386,6 +1514,16 @@
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') closeDeviceSelectorPanel();
     });
+
+    $('liveStateTile').addEventListener('click', (event) => {
+      const device = currentDevice();
+      if (!device?.activeFault) return;
+      event.stopPropagation();
+      const popup = $('faultPopup');
+      if (popup && !popup.hidden) closeFaultPopup();
+      else openFaultPopup(device);
+    });
+    document.addEventListener('click', () => closeFaultPopup());
 
     $('addDeviceBtn').addEventListener('click', () => {
       $('newDeviceId').value = '';
