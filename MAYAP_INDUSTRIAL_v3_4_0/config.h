@@ -198,13 +198,19 @@ constexpr uint8_t PIN_OUT_HEATER_SSR   = 1;   // KAO3400 - SSR thanh nhiet
 // Chan 2 truoc day du phong (PULSE_SPARE), nay gan LED xanh bao "dang co me
 // ap" (ON khi batchRunning_, xem updateHeatingAndOutputs()).
 constexpr uint8_t PIN_OUT_BATCH_LED    = 2;   // KAO3400 - LED bao dang ap me
-// Pinmap thuc te da doi lai theo dung board dang lap (xem anh pinmap):
-// TRAI <-> QUAT, PHAI <-> NHIET van giu nguyen tu v3.2.8.
+// Pinmap thuc te theo anh pinmap: chi doi cap QUAT TUAN HOAN / DAO TRAI
+// (CIRC_FAN=21, TURN_LEFT=10). Cap NHIET TONG / DAO PHAI DA THU DOI theo anh
+// (HEAT_MASTER=14, TURN_RIGHT=11) nhung thuc te gay loi cheo: bat cong tac
+// nhiet khong an, nhung rele lai nhay dung theo lich dao phai, con dao phai
+// khong quay - tuc la 2 chan nay dang dieu khien NGUOC nhau ngoai phan cung.
+// -> Doi lai HEAT_MASTER/TURN_RIGHT ve gia tri goc truoc khi sua theo anh
+// (tu v3.2.8). Day la suy luan tu trieu chung, CAN kiem tra thuc te lai
+// cong tac nhiet va dao phai sau khi nap firmware moi.
 constexpr uint8_t PIN_OUT_CIRC_FAN     = 21;
-constexpr uint8_t PIN_OUT_HEAT_MASTER  = 14;
+constexpr uint8_t PIN_OUT_HEAT_MASTER  = 11;
 constexpr uint8_t PIN_OUT_LIGHT        = 12;
 constexpr uint8_t PIN_OUT_VENT_FAN     = 13;
-constexpr uint8_t PIN_OUT_TURN_RIGHT   = 11;
+constexpr uint8_t PIN_OUT_TURN_RIGHT   = 14;
 constexpr uint8_t PIN_OUT_TURN_LEFT    = 10;
 constexpr uint8_t PIN_OUT_SIREN        = 47;
 constexpr uint8_t PIN_OUT_RELAY_SPARE  = 48;  // rele du, chua gan chuc nang
