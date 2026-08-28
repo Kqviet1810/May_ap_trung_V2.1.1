@@ -377,6 +377,13 @@ constexpr uint32_t ESSENTIAL_INPUT_RESTORE_CONFIRM_MS = 1000UL;
 constexpr uint32_t LIMIT_DEBOUNCE_MS = 20UL;
 constexpr uint32_t FAN_PRESTART_MS = 5000UL;
 constexpr uint32_t HEAT_MASTER_PICKUP_MS = 500UL;
+// Luc bat dau me, contactor nhiet tong dong TUC THI cung cong tac (bat
+// buoc, xem normalMasterPermit trong machine_control.h). De tranh 2 relay
+// (quat tuan hoan + contactor nhiet tong) dong dien CUNG 1 thoi diem (yeu
+// cau rieng ve dien tu nguoi lap dat), chi tri hoan rieng ngo ra QUAT mot
+// khoang ngan nay - KHONG anh huong toi thoi diem nhiet SSR thuc su bat
+// dau (van doi FAN_PRESTART_MS nhu cu qua fanAllowsHeat).
+constexpr uint32_t CIRC_FAN_BATCH_START_STAGGER_MS = 400UL;
 constexpr uint32_t HEAT_MASTER_DROP_DELAY_MS = 120UL; // tat SSR truoc, roi nha contactor
 // Bao ve contactor tong nhiet: sau khi nha output master, doi toi thieu truoc khi dong lai.
 // Khong bao gio tri hoan thao tac OFF vi an toan.

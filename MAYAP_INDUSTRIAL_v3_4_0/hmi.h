@@ -52,6 +52,12 @@ struct BuzzerState {
   uint8_t emergencyPhase = 0;
   uint8_t transientPulsesLeft = 0;
   BuzzerPattern transientPattern{0, 0, 0};
+  // Giai dieu ngan phat 1 lan luc khoi dong (xem buzzerPlayStartupChime()).
+  // Coi la loai active (chi ON/OFF, khong doi duoc cao do) nen "giai dieu"
+  // o day la mot nhip do dai/khoang lang khac nhau, khong phai cac not nhac
+  // that su - xem chu thich STARTUP_CHIME_MS.
+  bool startupActive = false;
+  uint8_t startupPhase = 0;
   // "Coi thong minh" cho AlarmTempHigh (xem buzzerUpdate()): thay vi keu lai
   // theo 1 hen gio co dinh (CRITICAL_RESOUND_MS) bat ke nhiet do dang lam gi,
   // theo doi xu huong nhiet tu luc ACK - con dang GIAM thi giu im (ma loi van
@@ -66,6 +72,7 @@ void buzzerBegin();
 void buzzerUpdate(uint32_t now);
 void buzzerPlayCue(BuzzerCue cue);
 void buzzerAcknowledge(uint32_t alarmMask);
+void buzzerPlayStartupChime();
 BuzzerPattern buzzerCuePattern(BuzzerCue cue);
 BuzzerPattern alarmPattern(uint32_t bit);
 
@@ -1083,6 +1090,23 @@ void buzzerBegin() {
   buzzerWrite(false);
 }
 
+// "Giai dieu" khoi dong: coi la loai active (xem ghi chu tren) nen KHONG the
+// doi cao do - "giai dieu" o day la mot NHIP rieng (do dai bip/khoang lang
+// tang dan) de nghe khac han moi tin hieu coi khac (Key/Save/Ok/Error/canh
+// bao), phat DUNG 1 LAN luc bat may. Ngan (~800ms) theo dung yeu cau.
+constexpr uint8_t STARTUP_CHIME_STEPS = 7U;
+constexpr bool STARTUP_CHIME_ON[STARTUP_CHIME_STEPS] =
+    {true, false, true, false, true, false, true};
+constexpr uint16_t STARTUP_CHIME_MS[STARTUP_CHIME_STEPS] =
+    {70, 70, 70, 70, 140, 90, 280};
+
+void buzzerPlayStartupChime() {
+  buzzer.startupActive = true;
+  buzzer.startupPhase = 0U;
+  buzzerWrite(true);
+  buzzer.deadline = millis() + STARTUP_CHIME_MS[0];
+}
+
 BuzzerPattern buzzerCuePattern(BuzzerCue cue) {
   switch (cue) {
     // Coi la loai active (tu dao dong, khong chinh duoc cao do/am luong qua
@@ -1195,6 +1219,27 @@ uint32_t alarmRepeatMs(uint32_t bit) {
 }
 
 void buzzerUpdate(uint32_t now) {
+  // Giai dieu khoi dong duoc uu tien tuyet doi trong luc con hieu luc, NHUNG
+  // luon dung ngay khi roi man khoi dong (vao View::Home / SPLASH_MAX_MS ep
+  // thoat som) - khong bao gio de no lan sang canh bao that hoac coi thao
+  // tac binh thuong.
+  if (buzzer.startupActive) {
+    if (!splashActive) {
+      buzzer.startupActive = false;
+      buzzerWrite(false);
+    } else if (static_cast<int32_t>(now - buzzer.deadline) >= 0) {
+      const uint8_t next = static_cast<uint8_t>(buzzer.startupPhase + 1U);
+      if (next >= STARTUP_CHIME_STEPS) {
+        buzzer.startupActive = false;
+        buzzerWrite(false);
+      } else {
+        buzzer.startupPhase = next;
+        buzzerWrite(STARTUP_CHIME_ON[next]);
+        buzzer.deadline = now + STARTUP_CHIME_MS[next];
+      }
+    }
+    return;
+  }
   // Bit da het loi tu dong mat ACK. Loi tai xuat hien se keu lai.
   buzzer.acknowledgedAlarmMask &= currentRuntime.alarmMask;
   if (!(buzzer.acknowledgedAlarmMask & AlarmTempHigh)) {
@@ -1987,7 +2032,7 @@ void faultDetail(const HmiFaultItem &fault, char *out, size_t size) {
     case 130: snprintf(out, size, "NHIET DA BI KHOA"); break;
     case 131: snprintf(out, size, "MANUAL: HAY BAT QUAT"); break;
     case 132: snprintf(out, size, "PHUC HOI ME DANG CHO"); break;
-    case 133: snprintf(out, size, "BAT LAI AUTO - DAO DANG KHOA"); break;
+    case 133: snprintf(out, size, "HAY BAT LAI AUTO"); break;
     case 134: snprintf(out, size, "DAO TU DONG PHAI LUON ON"); break;
     case 135: snprintf(out, size, "%d PHUT CHUA XAC NHAN", fault.detail); break;
     case 136: snprintf(out, size, "QUA %d NGAY", fault.detail); break;
@@ -2787,7 +2832,17 @@ void render(uint32_t now) {
   if (splashActive) {
     if (splashStartedAt == 0U) splashStartedAt = now;
     const uint32_t elapsed = now - splashStartedAt;
-    const bool dataReady = splashHadRuntime && splashHadConfig;
+    // Truoc day dataReady chi doi CO snapshot runtime/config (co the la
+    // snapshot dau tien luc cam bien CHUA doc xong - man chinh vua vao da
+    // hien "--.-" cho nhiet do/do am, giong nhu con "loading" lo ra sau
+    // man khoi dong). Man khoi dong la noi setup, nen phai doi luon ca cam
+    // bien that su da co so lieu (currentRuntime.sensorOnline) truoc khi
+    // thoat - man chinh hien ra la co du lieu ngay, khong con khoang trong
+    // "--.-" nao nua. SPLASH_MAX_MS (6 s) van la tran an toan neu cam bien
+    // that su cham/mat: khong bao gio giu man khoi dong vo han.
+    const bool sensorReady = currentRuntime.sensorOnline &&
+                             isfinite(currentRuntime.temperature);
+    const bool dataReady = splashHadRuntime && splashHadConfig && sensorReady;
     if ((dataReady && elapsed >= SPLASH_MIN_MS) || elapsed >= SPLASH_MAX_MS) {
       splashActive = false;
       dirty = true;
@@ -2940,6 +2995,7 @@ void serviceLcd(uint32_t now) {
 
 void hmiBegin() {
   buzzerBegin();
+  buzzerPlayStartupChime();
   beginRotary();
   lcdReady = beginLcd();
   const uint32_t now = millis();
