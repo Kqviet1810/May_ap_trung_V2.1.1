@@ -195,16 +195,17 @@ constexpr uint8_t CLOUD_ACTIVE_TRACK_SIZE = 16U;
 // ----------------------------- GPIO ------------------------------------------
 // Output HIGH = ON.
 constexpr uint8_t PIN_OUT_HEATER_SSR   = 1;   // KAO3400 - SSR thanh nhiet
-constexpr uint8_t PIN_OUT_PULSE_SPARE  = 2;   // KAO3400 du phong
-// Pinmap thuc te v3.2.8:
-// - Doi cap relay dao trai/phai voi cap quat tuan hoan/contactor nhiet.
-// - Ghep theo thu tu yeu cau: TRAI <-> QUAT, PHAI <-> NHIET.
-constexpr uint8_t PIN_OUT_CIRC_FAN     = 10;  // truoc day: DAO TRAI
-constexpr uint8_t PIN_OUT_HEAT_MASTER  = 11;  // truoc day: DAO PHAI
+// Chan 2 truoc day du phong (PULSE_SPARE), nay gan LED xanh bao "dang co me
+// ap" (ON khi batchRunning_, xem updateHeatingAndOutputs()).
+constexpr uint8_t PIN_OUT_BATCH_LED    = 2;   // KAO3400 - LED bao dang ap me
+// Pinmap thuc te da doi lai theo dung board dang lap (xem anh pinmap):
+// TRAI <-> QUAT, PHAI <-> NHIET van giu nguyen tu v3.2.8.
+constexpr uint8_t PIN_OUT_CIRC_FAN     = 21;
+constexpr uint8_t PIN_OUT_HEAT_MASTER  = 14;
 constexpr uint8_t PIN_OUT_LIGHT        = 12;
 constexpr uint8_t PIN_OUT_VENT_FAN     = 13;
-constexpr uint8_t PIN_OUT_TURN_RIGHT   = 14;  // truoc day: NHIET TONG
-constexpr uint8_t PIN_OUT_TURN_LEFT    = 21;  // truoc day: QUAT TUAN HOAN
+constexpr uint8_t PIN_OUT_TURN_RIGHT   = 11;
+constexpr uint8_t PIN_OUT_TURN_LEFT    = 10;
 constexpr uint8_t PIN_OUT_SIREN        = 47;
 constexpr uint8_t PIN_OUT_RELAY_SPARE  = 48;  // rele du, chua gan chuc nang
 constexpr uint8_t PIN_STATUS_RGB       = 42;  // SK6812MINI-C
@@ -241,7 +242,7 @@ constexpr bool BUZZER_ACTIVE_HIGH = true;
 
 // Kiem tra toan bo GPIO tai compile-time.
 constexpr uint8_t MAYAP_USED_PINS[] = {
-  PIN_OUT_HEATER_SSR, PIN_OUT_PULSE_SPARE, PIN_OUT_TURN_RIGHT,
+  PIN_OUT_HEATER_SSR, PIN_OUT_BATCH_LED, PIN_OUT_TURN_RIGHT,
   PIN_OUT_TURN_LEFT, PIN_OUT_VENT_FAN, PIN_OUT_LIGHT,
   PIN_OUT_HEAT_MASTER, PIN_OUT_CIRC_FAN, PIN_OUT_SIREN,
   PIN_OUT_RELAY_SPARE, PIN_STATUS_RGB,
