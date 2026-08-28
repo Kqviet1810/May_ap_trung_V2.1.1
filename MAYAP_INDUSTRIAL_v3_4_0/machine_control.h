@@ -447,8 +447,13 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // Qua so ngay ap du kien - chi canh bao (khong khoa gi), doc lap voi
     // thong bao Cloud Push tuong ung trong cloud_alert_link.h.
     {FaultCode::BatchOverdue, FaultSeverity::Warning, 50U, AlarmSystem, false, false, false, false, false, false, "BATCH OVERDUE"},
-    // AUTO bi tat giua me: van giu dieu khien nhiet, nhung khoa moi lenh dao.
-    {FaultCode::AutoModeOffDuringBatch, FaultSeverity::Stop, 220U, AlarmAutoMode, false, false, false, true, false, false, "AUTO OFF DURING BATCH"},
+    // AUTO bi tat giua me dang chay: van giu dieu khien nhiet nhu cu. Theo
+    // yeu cau nguoi lap dat, KHONG con khoa dao tay nua (inhibitsTurning=
+    // false) - cong tac dao trai/phai hoat dong binh thuong nhu ngoai me,
+    // ma nay chi con la CANH BAO nhac gat lai AUTO (xem updateTurning() -
+    // block khoa dao rieng cho truong hop nay da bo, chi con giu khoa cho
+    // resumePending_ khi CHUA xac nhan ap lai).
+    {FaultCode::AutoModeOffDuringBatch, FaultSeverity::Stop, 220U, AlarmAutoMode, false, false, false, false, false, false, "AUTO OFF DURING BATCH"},
     {FaultCode::AutoTurningDisabledDuringBatch, FaultSeverity::Stop, 219U, AlarmTurning, false, false, false, true, false, false, "AUTO TURN DISABLED"},
     {FaultCode::TurnLimitConflict, FaultSeverity::Stop, 160U, AlarmTurning, true, false, false, true, false, false, "LIMIT CONFLICT"},
     {FaultCode::TurnTimeout, FaultSeverity::Stop, 150U, AlarmTurning, true, false, false, true, false, false, "TURN TIMEOUT"},
@@ -4474,13 +4479,26 @@ class MachineController {
       beginPhysicalMove(now, TurnDirection::Right);
     }
 
-    // Neu me da bat dau (ke ca dang cho phuc hoi), AUTO bi tat thi TUYET DOI
-    // khong roi xuong MANUAL turning. Motor dao dung va cho AUTO phuc hoi.
-    if ((batchRunning_ || resumePending_) && !in.autoMode) {
+    // resumePending_ (dang cho nguoi dung xac nhan Ap lai/Huy - CHUA phai
+    // dang ap that su) van khoa dao tay khi AUTO tat, giu nguyen y dinh an
+    // toan cu cho giai doan chua xac nhan nay.
+    if (resumePending_ && !batchRunning_ && !in.autoMode) {
       stopTurn(false);
       manualTurnRearmRequired_ = true;
       return;
     }
+    // Theo yeu cau nguoi lap dat: me DANG CHAY that su (batchRunning_) ma
+    // AUTO bi tat thi KHONG con khoa dao tay nua - roi xuong MANUAL turning
+    // binh thuong nhu ngoai me (cong tac dao trai/phai dang giu huong nao
+    // quay ngay huong do, khong bi buoc nha-bam lai vi khong con set
+    // manualTurnRearmRequired_ o day). Nhiet van duoc dieu khien doc lap
+    // (xem updateHeatingAndOutputs()), khong bi anh huong. AUTO OFF vi the
+    // chi con la CANH BAO (E133, xem faultDescriptor()) nhac gat lai AUTO
+    // sau AUTO_LOST_ALARM_DELAY_MS, khong con cat dao. Vi tri khay (trayPosition_)
+    // van duoc cap nhat dung tu cong tac hanh trinh trong luc dao tay (xem
+    // completeTurn(), dung chung cho ca dao AUTO va MANUAL) nen khi gat lai
+    // AUTO, logic tim goc/tiep tuc lich (needHome_/batchPhase_ Homing) hoat
+    // dong y het truoc gio, khong can thay doi gi them.
     if (!in.autoMode) {
       updateManualTurning(now, in);
       return;
@@ -4708,13 +4726,26 @@ class MachineController {
       return;
     }
 
+    // Canh me vua bat dau (chuyen tu khong chay -> dang chay): dat mot moc
+    // tri hoan ngan cho rieng ngo ra quat, de khong dong dien cung luc voi
+    // contactor nhiet tong (yeu cau rieng ve dien, xem CIRC_FAN_BATCH_START_
+    // STAGGER_MS). Contactor nhiet KHONG bi anh huong - van dong tuc thi.
+    if (batchRunning_ && !prevBatchRunningForOutputs_) {
+      circFanStaggerUntil_ = now + CIRC_FAN_BATCH_START_STAGGER_MS;
+    }
+    prevBatchRunningForOutputs_ = batchRunning_;
+    const bool circFanStaggerActive = !timeReached(now, circFanStaggerUntil_);
+
     bool baseCirculation = false;
     const bool protectedBatchControl = batchRunning_;
     if (in.autoMode || protectedBatchControl) {
       // Dang co me: ke ca mat cong tac AUTO, giu PID/quat theo che do bao ve
       // me; AUTO OFF chi khoa dao va sinh E133 sau 120 s. Ngoai me, MANUAL
-      // van ton trong quyen dieu khien quat tay nhu cu.
-      baseCirculation = batchRunning_ || autotune_.running();
+      // van ton trong quyen dieu khien quat tay nhu cu. circFanStaggerActive
+      // chi giu quat cham lai vai tram ms dung luc me vua bat dau - cac
+      // dieu kien an toan ben duoi (safetyForcesCirculation) van doc lap va
+      // KHONG bi tri hoan.
+      baseCirculation = (batchRunning_ && !circFanStaggerActive) || autotune_.running();
     } else {
       baseCirculation = in.circulationFan;
     }
@@ -5306,7 +5337,9 @@ class MachineController {
     } else if (faults_.active(FaultCode::HeaterSwitchOffDuringBatch)) {
       state = "TAT CONG TAC NHIET"; stateCode = MachineStateCode::SystemFault;
     } else if (batchRunning_ && !in.autoMode) {
-      state = "AUTO OFF - DAO KHOA"; stateCode = MachineStateCode::SystemFault;
+      // Dao tay van hoat dong binh thuong trong trang thai nay (xem
+      // updateTurning()) - nhan chi con mang tinh nhac nho gat lai AUTO.
+      state = "AUTO OFF - DAO TAY"; stateCode = MachineStateCode::SystemFault;
     } else if (turnFaultLatched_) {
       state = "LOI DAO"; stateCode = MachineStateCode::TurningFault;
     } else if (autotune_.running()) {
@@ -5849,6 +5882,14 @@ class MachineController {
   uint32_t ssrWindowStartedAt_ = 0;
   bool previousFanCommand_ = false;
   uint32_t fanOnSince_ = 0;
+  // Contactor nhiet tong PHAI dong tuc thi cung cong tac (yeu cau nguoi lap
+  // dat, xem comment tai normalMasterPermit) nen KHONG duoc tri hoan no. De
+  // 2 relay (quat tuan hoan + contactor) khong dong DIEN CUNG 1 thoi diem
+  // luc bat dau me (yeu cau rieng ve dien), chi tri hoan NGO RA QUAT mot
+  // khoang rat ngan tai dung thoi diem me bat dau - khong anh huong nhiet
+  // that su vi SSR van doi fanStable (FAN_PRESTART_MS) nhu cu.
+  bool prevBatchRunningForOutputs_ = false;
+  uint32_t circFanStaggerUntil_ = 0;
 
   PeriodicGate runtimeGate_{RUNTIME_TO_HMI_MS};
   PeriodicGate checkpointGate_{BATCH_CHECKPOINT_MS};
