@@ -4351,7 +4351,9 @@ class MachineController {
     if (autoMode == previousAutoMode_) return;
     previousAutoMode_ = autoMode;
     stopTurn(false);
-    manualTurnRearmRequired_ = true;
+    // KHONG dat manualTurnRearmRequired_ = true o day: cong tac dao vat ly
+    // la quyen cao nhat, gat sang MANUAL ma cong tac dang giu huong nao thi
+    // quay ngay huong do, khong bat buoc nha-bam lai (yeu cau nguoi lap dat).
     // Chi xet heaterSsr, khong xet heatMaster (cung ly do nhu trong
     // updateHeatingAndOutputs() - heatMaster co the BAT chi vi cong tac vat
     // ly, khong dam bao dang thuc su cap nhiet).
@@ -5829,7 +5831,14 @@ class MachineController {
   uint32_t nextTurnAt_ = 0;
   uint32_t manualConflictSince_ = 0;
   bool previousAutoMode_ = false;
-  bool manualTurnRearmRequired_ = true;
+  // Theo yeu cau nguoi lap dat: cong tac dao vat ly la QUYEN CAO NHAT, ke ca
+  // ngay luc may vua khoi dong - dang giu huong nao la quay huong do ngay,
+  // khong bat buoc nha-bam lai. Vi vay mac dinh la false (KHONG doi rearm),
+  // khac voi truoc day (= true) tung khien lan dau tien sau khi bat may bo
+  // qua vi tri cong tac hien tai. Cac diem con lai van dat true co chu dich
+  // rieng (loi turningInhibited/qua nhiet vua het, mat cam bien) - KHONG bi
+  // anh huong boi thay doi nay.
+  bool manualTurnRearmRequired_ = false;
 
   bool testModeActive_ = false;
   uint8_t testOutputMaskActive_ = 0U;
