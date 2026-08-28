@@ -2566,7 +2566,7 @@ struct OutputRequest {
   bool light = false;
   bool circulationFan = false;
   bool siren = false;
-  bool pulseSpare = false;
+  bool batchLed = false;
   bool relaySpare = false;
   bool immediateMasterDrop = false;
   bool forceAllSafe = false;
@@ -2580,13 +2580,13 @@ struct OutputState {
   bool light = false;
   bool circulationFan = false;
   bool siren = false;
-  bool pulseSpare = false;
+  bool batchLed = false;
   bool relaySpare = false;
 };
 
 enum class OutputChannel : uint8_t {
   HeaterSsr = 0, HeatMaster, TurnLeft, TurnRight, VentFan, Light,
-  CirculationFan, Siren, PulseSpare, RelaySpare, Count
+  CirculationFan, Siren, BatchLed, RelaySpare, Count
 };
 
 struct OutputEvent {
@@ -2605,7 +2605,7 @@ inline const char *outputName(OutputChannel channel) {
     case OutputChannel::Light: return "LIGHT";
     case OutputChannel::CirculationFan: return "CIRC_FAN";
     case OutputChannel::Siren: return "SIREN";
-    case OutputChannel::PulseSpare: return "PULSE_SPARE";
+    case OutputChannel::BatchLed: return "BATCH_LED";
     case OutputChannel::RelaySpare: return "RELAY_SPARE";
     default: return "UNKNOWN";
   }
@@ -2617,7 +2617,7 @@ inline void writeLogical(uint8_t pin, bool on) {
 
 inline void mayapSafeOutputsEarly() {
   const uint8_t pins[] = {
-    PIN_OUT_HEATER_SSR, PIN_OUT_PULSE_SPARE, PIN_OUT_TURN_RIGHT,
+    PIN_OUT_HEATER_SSR, PIN_OUT_BATCH_LED, PIN_OUT_TURN_RIGHT,
     PIN_OUT_TURN_LEFT, PIN_OUT_VENT_FAN, PIN_OUT_LIGHT,
     PIN_OUT_HEAT_MASTER, PIN_OUT_CIRC_FAN, PIN_OUT_SIREN,
     PIN_OUT_RELAY_SPARE
@@ -2678,8 +2678,8 @@ class OutputArbiter {
                    false, state_.circulationFan, now);
       setImmediate(PIN_OUT_SIREN, OutputChannel::Siren,
                    false, state_.siren, now);
-      setImmediate(PIN_OUT_PULSE_SPARE, OutputChannel::PulseSpare,
-                   false, state_.pulseSpare, now);
+      setImmediate(PIN_OUT_BATCH_LED, OutputChannel::BatchLed,
+                   false, state_.batchLed, now);
       setImmediate(PIN_OUT_RELAY_SPARE, OutputChannel::RelaySpare,
                    false, state_.relaySpare, now);
       return;
@@ -2732,8 +2732,8 @@ class OutputArbiter {
                    request.heaterSsr && pickupDone, state_.heaterSsr, now);
     }
 
-    setMinSwitch(PIN_OUT_PULSE_SPARE, OutputChannel::PulseSpare,
-                 request.pulseSpare, state_.pulseSpare, now,
+    setMinSwitch(PIN_OUT_BATCH_LED, OutputChannel::BatchLed,
+                 request.batchLed, state_.batchLed, now,
                  RELAY_GENERAL_MIN_SWITCH_MS);
     setMinSwitch(PIN_OUT_RELAY_SPARE, OutputChannel::RelaySpare,
                  request.relaySpare, state_.relaySpare, now,
@@ -3377,8 +3377,9 @@ class MachineController {
                             static_cast<uint8_t>(event.channel);
       // Khong dua xung SSR vao nhat ky HMI: PID co the doi moi vai giay va
       // se day mat cac lenh/loi quan trong. Serial van co the xem khi debug.
+      // BatchLed doi rat hiem (chi luc bat dau/ket thuc me) nen VAN duoc ghi
+      // nhat ky binh thuong, khong bi loai nhu SSR/RelaySpare.
       if (event.channel != OutputChannel::HeaterSsr &&
-          event.channel != OutputChannel::PulseSpare &&
           event.channel != OutputChannel::RelaySpare) {
         eventLog_.push(now, EventType::OutputChanged, code,
                        event.active ? 1 : 0);
@@ -4826,6 +4827,9 @@ class MachineController {
     req.turnLeft = turnPhase_ == TurnPhase::MovingLeft;
     req.turnRight = turnPhase_ == TurnPhase::MovingRight;
     req.siren = emergencyActive_ && timeReached(now, sirenMutedUntil_);
+    // LED chan 2 (truoc day PULSE_SPARE): sang khi dang co me ap, doc lap
+    // AUTO/MANUAL - chi phan anh dung batchRunning_.
+    req.batchLed = batchRunning_;
 
     outputs_.update(now, req);
     runtime_.heaterPower = commandedPower;
@@ -5682,12 +5686,12 @@ class MachineController {
       PIN_OUT_TURN_LEFT, PIN_OUT_TURN_RIGHT, PIN_OUT_CIRC_FAN,
       PIN_OUT_HEAT_MASTER, PIN_OUT_LIGHT, PIN_OUT_VENT_FAN,
       PIN_OUT_HEATER_SSR);
-    mayapSerialPrintf(false, "[STATUS] OUT ssr=%u master=%u fan=%u vent=%u light=%u left=%u right=%u siren=%u spareP=%u spareR=%u PID=%.1f alarm=0x%08lX\n",
+    mayapSerialPrintf(false, "[STATUS] OUT ssr=%u master=%u fan=%u vent=%u light=%u left=%u right=%u siren=%u batchLed=%u spareR=%u PID=%.1f alarm=0x%08lX\n",
       outputs_.state().heaterSsr, outputs_.state().heatMaster,
       outputs_.state().circulationFan, outputs_.state().ventFan,
       outputs_.state().light, outputs_.state().turnLeft,
       outputs_.state().turnRight, outputs_.state().siren,
-      outputs_.state().pulseSpare, outputs_.state().relaySpare,
+      outputs_.state().batchLed, outputs_.state().relaySpare,
       runtime_.heaterPower, static_cast<unsigned long>(runtime_.alarmMask));
     mayapSerialPrintf(false, "[KERNEL] fault=%u count=%u events=%lu relay/h=%u inDrop=%lu outDrop=%lu\n",
       static_cast<unsigned>(faults_.primary()), faults_.activeCount(),

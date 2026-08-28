@@ -19,7 +19,7 @@
   --fs-lg:18px;--fs-xl:22px;--fs-2xl:26px;--fs-3xl:34px
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;width:100%;max-width:100%;overflow-x:clip}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%;width:100%;max-width:100%;overflow-x:clip}
 body{width:100%;max-width:100%;overflow-x:clip}
 /* Cam bam giu/sao chep chu de tao cam giac ung dung, khong phai trang wed - giu lai cho o nhap lieu de con go/dan duoc. */
 html,body{-webkit-user-select:none;-moz-user-select:none;user-select:none;-webkit-touch-callout:none}
@@ -66,7 +66,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:minmax(240px,1fr) repeat(3,minmax(0,148px));gap:12px;align-items:center;padding:calc(20px + env(safe-area-inset-top)) 0 16px;background:#f1f6f4ee;backdrop-filter:blur(12px)}
 .title h1{margin:0;font-size:var(--fs-3xl);font-weight:800;letter-spacing:-.9px}
 .title p{margin:6px 0 0;color:var(--muted);font-size:var(--fs-base);line-height:1.5}
-.live{padding:13px 15px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadowSm);min-width:0}
+.live{padding:13px 15px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadowSm);min-width:0;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .live span,.live strong{display:block}
 .live span{color:var(--muted);font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
 .live strong{font-size:22px;font-weight:800;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
@@ -74,9 +74,16 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
    co the them " !" (loi nhe, may van ap duoc) hoac thay hoan toan bang
    "Loi E<ma>" (loi nang - khong con ap duoc) - luon vua 1 dong, giu chu nho
    gan bang nhan "TRANG THAI" phia tren, DAM de de doc. Ellipsis chi la luoi
-   an toan. */
+   an toan.
+   text-size-adjust:100% BAT BUOC o ca .live LAN #liveState: Chrome/Safari
+   tren dien thoai co "font boosting" (TextAutosizer) tu dong PHONG TO chu
+   ngan/dam trong khung hep - day chinh la ly do ĐIEN THOAI hien to hon MAY
+   TINH du CUNG mot font-size khai bao, khong lien quan gi den media query
+   hay bien --fs-xs (ca hai deu dung chung 1 gia tri). Chi khai bao tren
+   html{} (xem dau file) la CHUA DU vi TextAutosizer danh gia tung "cum" o
+   khung hep rieng le - phai khai bao lai truc tiep tai day. */
 #liveState{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3;
-  font-size:var(--fs-xs);font-weight:800}
+  font-size:var(--fs-xs);font-weight:800;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 #liveStateTile{position:relative;transition:background var(--ease),border-color var(--ease)}
 #liveStateTile.tile-clickable{cursor:pointer}
 #liveStateTile.tile-warn{background:var(--warningSoft);border-color:#eecf9e}
