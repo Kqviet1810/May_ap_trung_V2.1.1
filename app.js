@@ -39,10 +39,12 @@
     targetHumidity: 58
   });
 
-  const pageMeta = {
-    device: ['Thiết bị', 'Theo dõi và điều khiển máy đang chọn.'],
-    batch: ['Mẻ ấp', 'Thiết lập và quản lý mẻ ấp đang vận hành.'],
-    settings: ['Cài đặt', 'Toàn bộ thông số vận hành, an toàn và kết nối của máy.']
+  // Chi con tieu de: dong chu thich duoi tieu de da bo hoan toan o ca 3 trang
+  // (yeu cau nguoi dung), tieu de tu can giua khoang trong do.
+  const pageTitles = {
+    device: 'Thiết bị',
+    batch: 'Mẻ ấp',
+    settings: 'Cài đặt'
   };
 
   const state = {
@@ -419,8 +421,7 @@
     document.querySelectorAll('.nav button').forEach((element) => {
       element.classList.toggle('active', element.dataset.page === name);
     });
-    $('pageTitle').textContent = pageMeta[name][0];
-    $('pageSubtitle').textContent = pageMeta[name][1];
+    $('pageTitle').textContent = pageTitles[name];
     if (name === 'batch') renderBatchLogs();
     window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   }
