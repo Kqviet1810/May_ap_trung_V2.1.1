@@ -87,11 +87,13 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .live strong{font-size:22px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums}
 /* JS (renderLiveState) chi tra ve cum ngan: "Dang ap"/"San sang"/"Offline",
    co the them " !" (loi nhe, may van ap duoc) hoac thay hoan toan bang
-   "Loi E<ma>" (loi nang - khong con ap duoc). font-size KHONG tu dat rieng
-   o day (truoc day dat co dinh 12px moi kich thuoc man hinh, lam o nay
-   luon nho hon han 2 o ben canh - vd 22px vs 12px tren may tinh) - de ke
-   thua dung .live strong, tu dong bang 2 o ben canh o MOI breakpoint. */
-#liveState{line-height:1.3}
+   "Loi E<ma>" (loi nang - khong con ap duoc). KHONG tu dat font-size hay
+   line-height rieng o day (truoc day dat font-size:12px co dinh VA
+   line-height:1.3 rieng, lam o nay vua nho hon vua THAP hon han 2 o ben
+   canh - .live strong dung line-height mac dinh 1.4 ke thua tu body, lech
+   nho nhung du de 3 o khong cao bang nhau, ro nhat khi thu nho tren dien
+   thoai) - de ke thua dung tu .live strong, cao bang tuyet doi 2 o ben
+   canh o MOI breakpoint. */
 #liveStateTile{position:relative;transition:background var(--ease),border-color var(--ease)}
 #liveStateTile.tile-clickable{cursor:pointer}
 #liveStateTile.tile-warn{background:var(--warningSoft);border-color:#eecf9e}
