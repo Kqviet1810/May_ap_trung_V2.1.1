@@ -73,18 +73,19 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .title h1{margin:0;font-size:var(--fs-3xl);font-weight:800;letter-spacing:-.9px}
 .title p{margin:6px 0 0;color:var(--muted);font-size:var(--fs-base);line-height:1.5}
 .live{padding:13px 15px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadowSm);min-width:0}
-/* nowrap/ellipsis khai bao CHUNG cho ca span (nhan "NHIET DO"/"DO AM"/
-   "TRANG THAI") LAN strong (gia tri) - truoc day chi strong co, rieng span
-   (nhan) khong co gi ca. "TRANG THAI" dai hon han 2 nhan ben canh nen la
-   nhan DUY NHAT du xuong dong tren o dien thoai hep (~80px): 1 dong len
-   thanh 2 dong lam rieng o nay cao hon, "phinh" ra khac 2 o ben canh du
-   cung .live. Khai bao chung o day de ca nhan LAN gia tri cua CA 3 o (hien
-   tai va sau nay) luon dong bo 1 kieu voi nhau: 1 dong duy nhat, qua dai
-   thi "…", khong bao gio xuong dong - khong con phai vao tung o vay tung
-   thuoc tinh rieng le nua. */
-.live span,.live strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.live span{color:var(--muted);font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
-.live strong{font-size:22px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums}
+/* nowrap/ellipsis khai bao CHUNG cho ca nhan ("NHIET DO"/"DO AM"/"TRANG
+   THAI") LAN gia tri - truoc day chi gia tri co, rieng nhan khong co gi ca.
+   "TRANG THAI" dai hon han 2 nhan ben canh nen la nhan DUY NHAT du xuong
+   dong tren o dien thoai hep (~80px), lam rieng o nay cao hon, "phinh" ra.
+   BAT BUOC dung dau ">" (con TRUC TIEP), khong dung bo chon hau due
+   ".live span": ben trong o Trang thai con co cac span KHAC do JS/HTML sinh
+   ra - dau "!" canh bao (.faultMark, nam trong chinh <strong id=liveState>)
+   va 2 span trong bang thong tin loi (.faultPopup). Bo chon hau due bat
+   trung ca chung, ep .faultMark thanh display:block khien dau "!" nhay
+   xuong dong rieng va lam o Trang thai cao vong len (loi da tung xay ra). */
+.live>span,.live>strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live>span{color:var(--muted);font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
+.live>strong{font-size:22px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums}
 /* JS (renderLiveState) chi tra ve cum ngan: "Dang ap"/"San sang"/"Offline",
    co the them " !" (loi nhe, may van ap duoc) hoac thay hoan toan bang
    "Loi E<ma>" (loi nang - khong con ap duoc). KHONG tu dat font-size hay
@@ -371,7 +372,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .main{padding:0 20px 38px}
   .topbar{grid-template-columns:minmax(170px,1fr) repeat(3,minmax(0,1fr));gap:8px}
   .live{padding:11px}
-  .live strong{font-size:18px}
+  .live>strong{font-size:18px}
   .title h1{font-size:29px}
 }
 /* Dien thoai xoay ngang (vd 844x390, 926x428...) thuong RONG hon 800px nen
@@ -397,8 +398,8 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
      theo, khong bi tran/cat. */
   .title p{font-size:var(--fs-2xs);line-height:1.3}
   .live{padding:8px;border-radius:11px}
-  .live span{font-size:9px}
-  .live strong{font-size:15px}
+  .live>span{font-size:9px}
+  .live>strong{font-size:15px}
   .panel{padding:18px;border-radius:16px}
   .deviceIdentity h2{font-size:20px}
   .devicePickerRow{margin-top:14px}
@@ -443,7 +444,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .batchActions button{font-size:var(--fs-2xs)}
   .topbar{grid-template-columns:minmax(82px,1fr) repeat(3,minmax(0,64px))}
   .title h1{font-size:22px}
-  .live strong{font-size:13px}
+  .live>strong{font-size:13px}
   .deviceTop{gap:8px}
   .statusBlock{min-width:78px}
   .devicePickerRow{gap:7px}
