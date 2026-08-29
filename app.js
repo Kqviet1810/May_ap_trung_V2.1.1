@@ -39,12 +39,14 @@
     targetHumidity: 58
   });
 
-  // Chi con tieu de: dong chu thich duoi tieu de da bo hoan toan o ca 3 trang
-  // (yeu cau nguoi dung), tieu de tu can giua khoang trong do.
-  const pageTitles = {
-    device: 'Thiết bị',
-    batch: 'Mẻ ấp',
-    settings: 'Cài đặt'
+  // Chu thich giu NGAN (~30 ky tu) de luon vua DUNG 1 DONG - CSS con chan
+  // cung bang white-space:nowrap + ellipsis nen khong bao gio xuong dong 2.
+  // Chuoi o day la nguon DUY NHAT: init() goi showPage('device') nen ban
+  // trong index.html chi la cho dat tam, khong con nguy co lech 2 noi.
+  const pageMeta = {
+    device: ['Thiết bị', 'Theo dõi và điều khiển máy.'],
+    batch: ['Mẻ ấp', 'Thiết lập và quản lý mẻ ấp.'],
+    settings: ['Cài đặt', 'Thông số vận hành và kết nối.']
   };
 
   const state = {
@@ -421,7 +423,8 @@
     document.querySelectorAll('.nav button').forEach((element) => {
       element.classList.toggle('active', element.dataset.page === name);
     });
-    $('pageTitle').textContent = pageTitles[name];
+    $('pageTitle').textContent = pageMeta[name][0];
+    $('pageSubtitle').textContent = pageMeta[name][1];
     if (name === 'batch') renderBatchLogs();
     window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   }
@@ -1913,7 +1916,11 @@
   }
 
   function init() {
-    document.body.dataset.page = 'device';
+    // Goi showPage() thay vi chi dat dataset.page: truoc day tieu de va chu
+    // thich luc moi mo trang lay tu chuoi VIET CUNG trong index.html (vi
+    // showPage chi chay khi bam nut chuyen trang), nen moi lan doi chu trong
+    // pageMeta ma quen sua index.html la nguoi dung van thay chuoi cu.
+    showPage('device');
     applyDeepLinkDevice();
     bindUi();
     renderSelector();
