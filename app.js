@@ -40,7 +40,7 @@
   });
 
   const pageMeta = {
-    device: ['Thiết bị', 'Giám sát thời gian thực và điều chỉnh nhanh máy đang chọn.'],
+    device: ['Thiết bị', 'Theo dõi và điều khiển máy đang chọn.'],
     batch: ['Mẻ ấp', 'Thiết lập và quản lý mẻ ấp đang vận hành.'],
     settings: ['Cài đặt', 'Toàn bộ thông số vận hành, an toàn và kết nối của máy.']
   };
