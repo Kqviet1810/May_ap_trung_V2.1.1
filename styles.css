@@ -78,11 +78,19 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .live strong{font-size:22px;font-weight:800;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
 /* JS (renderLiveState) chi tra ve cum ngan: "Dang ap"/"San sang"/"Offline",
    co the them " !" (loi nhe, may van ap duoc) hoac thay hoan toan bang
-   "Loi E<ma>" (loi nang - khong con ap duoc) - luon vua 1 dong, giu chu nho
-   gan bang nhan "TRANG THAI" phia tren, DAM de de doc. Ellipsis chi la luoi
-   an toan. (Font-boosting dien thoai: xem quy tac * o dau file.) */
-#liveState{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3;
-  font-size:var(--fs-xs);font-weight:800}
+   "Loi E<ma>" (loi nang - khong con ap duoc) - luon vua 1 dong. Ellipsis la
+   luoi an toan cho truong hop hiem gap qua dai.
+   KHONG tu dat font-size rieng o day: truoc day co dat font-size:var(--fs-xs)
+   (12px co dinh moi kich thuoc man hinh) de "chac an vua dong", trong khi
+   .live strong (2 o Nhiet do/Do am ben canh) co font-size GIAM DAN theo
+   media query (22px -> 18px -> 15px -> 13px). Vi #liveState la id-selector
+   nen luon THANG the .live strong, lam o Trang thai nho hon han 2 o kia o
+   MOI kich thuoc man hinh (chi nho gan bang nhau khi man rat nho, 13px vs
+   12px) - day moi la nguyen nhan that su khien o nay "nhin be hon" bao cao
+   nhieu lan truoc, khong lien quan gi font-boosting dien thoai. Bo font-size
+   o day de ke thua dung .live strong, tu dong bang 2 o ben canh o moi
+   breakpoint, khong con phai dong bo tay 2 noi. */
+#liveState{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
 #liveStateTile{position:relative;transition:background var(--ease),border-color var(--ease)}
 #liveStateTile.tile-clickable{cursor:pointer}
 #liveStateTile.tile-warn{background:var(--warningSoft);border-color:#eecf9e}
