@@ -73,24 +73,25 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .title h1{margin:0;font-size:var(--fs-3xl);font-weight:800;letter-spacing:-.9px}
 .title p{margin:6px 0 0;color:var(--muted);font-size:var(--fs-base);line-height:1.5}
 .live{padding:13px 15px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadowSm);min-width:0}
-.live span,.live strong{display:block}
+/* nowrap/ellipsis khai bao CHUNG cho ca span (nhan "NHIET DO"/"DO AM"/
+   "TRANG THAI") LAN strong (gia tri) - truoc day chi strong co, rieng span
+   (nhan) khong co gi ca. "TRANG THAI" dai hon han 2 nhan ben canh nen la
+   nhan DUY NHAT du xuong dong tren o dien thoai hep (~80px): 1 dong len
+   thanh 2 dong lam rieng o nay cao hon, "phinh" ra khac 2 o ben canh du
+   cung .live. Khai bao chung o day de ca nhan LAN gia tri cua CA 3 o (hien
+   tai va sau nay) luon dong bo 1 kieu voi nhau: 1 dong duy nhat, qua dai
+   thi "…", khong bao gio xuong dong - khong con phai vao tung o vay tung
+   thuoc tinh rieng le nua. */
+.live span,.live strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .live span{color:var(--muted);font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
-.live strong{font-size:22px;font-weight:800;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.live strong{font-size:22px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums}
 /* JS (renderLiveState) chi tra ve cum ngan: "Dang ap"/"San sang"/"Offline",
    co the them " !" (loi nhe, may van ap duoc) hoac thay hoan toan bang
-   "Loi E<ma>" (loi nang - khong con ap duoc) - luon vua 1 dong. Ellipsis la
-   luoi an toan cho truong hop hiem gap qua dai.
-   KHONG tu dat font-size rieng o day: truoc day co dat font-size:var(--fs-xs)
-   (12px co dinh moi kich thuoc man hinh) de "chac an vua dong", trong khi
-   .live strong (2 o Nhiet do/Do am ben canh) co font-size GIAM DAN theo
-   media query (22px -> 18px -> 15px -> 13px). Vi #liveState la id-selector
-   nen luon THANG the .live strong, lam o Trang thai nho hon han 2 o kia o
-   MOI kich thuoc man hinh (chi nho gan bang nhau khi man rat nho, 13px vs
-   12px) - day moi la nguyen nhan that su khien o nay "nhin be hon" bao cao
-   nhieu lan truoc, khong lien quan gi font-boosting dien thoai. Bo font-size
-   o day de ke thua dung .live strong, tu dong bang 2 o ben canh o moi
-   breakpoint, khong con phai dong bo tay 2 noi. */
-#liveState{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
+   "Loi E<ma>" (loi nang - khong con ap duoc). font-size KHONG tu dat rieng
+   o day (truoc day dat co dinh 12px moi kich thuoc man hinh, lam o nay
+   luon nho hon han 2 o ben canh - vd 22px vs 12px tren may tinh) - de ke
+   thua dung .live strong, tu dong bang 2 o ben canh o MOI breakpoint. */
+#liveState{line-height:1.3}
 #liveStateTile{position:relative;transition:background var(--ease),border-color var(--ease)}
 #liveStateTile.tile-clickable{cursor:pointer}
 #liveStateTile.tile-warn{background:var(--warningSoft);border-color:#eecf9e}
