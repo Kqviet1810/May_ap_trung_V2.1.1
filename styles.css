@@ -156,6 +156,16 @@ input:hover,select:hover,.customSelectTrigger:hover{border-color:#a9c2bc}
 input:focus,select:focus,.customSelectTrigger:focus-visible{border-color:var(--ring);box-shadow:0 0 0 3px #2f8f8220}
 input::placeholder{color:var(--faint)}
 input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:not-allowed;background:var(--tile)}
+
+.fieldWithAction{display:flex;gap:8px}
+.fieldWithAction input{flex:1;min-width:0}
+.scanBtn{flex:0 0 52px;width:52px;height:52px;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--primarySoft);color:var(--primary2);font-size:22px;line-height:1;cursor:pointer;transition:filter var(--ease)}
+.scanBtn:hover{filter:brightness(.97)}
+/* Khung quet QR: video chiem toan bo be rong hop thoai, ty le vuong (may
+   anh sau QR de nam gon khung hinh), bo goc dong bo voi cac panel khac. */
+.qrScanner{display:flex;flex-direction:column;gap:10px;margin-top:-4px}
+.qrScanner video{width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--radius-md);background:#0c211d;border:1px solid var(--line)}
+.qrScannerHint{margin:0;text-align:center;color:var(--muted);font-size:var(--fs-xs)}
 /* Dropdown "Thiet bi" thay the <select> mac dinh (khong the bo goc/tao kieu
    phan list xo xuong tren hau het trinh duyet, dac biet iOS Safari) bang 1
    nut + panel tu ve, bo goc/do bong dong bo voi he thong thiet ke. <select>

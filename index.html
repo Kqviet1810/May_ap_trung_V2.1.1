@@ -179,9 +179,19 @@
 <dialog id="deviceDialog">
 <form class="dialogBody" id="addDeviceForm">
 <div class="dialogHead"><div><p class="eyebrow">THÊM THIẾT BỊ</p><h2>Kết nối bằng ID ESP32</h2></div><button aria-label="Đóng" class="iconButton" id="closeDeviceDialog" type="button">×</button></div>
-<label class="field"><span>ID thiết bị</span><input autocomplete="off" id="newDeviceId" maxlength="20" placeholder="MAP-A1B2C3D4E5F6" required=""/></label>
+<label class="field"><span>ID thiết bị</span>
+<div class="fieldWithAction">
+<input autocomplete="off" id="newDeviceId" maxlength="20" placeholder="MAP-A1B2C3D4E5F6" required=""/>
+<button aria-label="Quét mã QR trên máy" class="scanBtn" id="scanQrBtn" type="button">▣</button>
+</div>
+</label>
+<div class="qrScanner" hidden id="qrScanner">
+<video autoplay="" id="qrVideo" muted="" playsinline=""></video>
+<p class="qrScannerHint" id="qrScannerHint">Đưa camera vào mã QR dán trên máy</p>
+<button class="ghost full" id="qrScannerCancel" type="button">Huỷ quét</button>
+</div>
 <label class="field"><span>Mã PIN thiết bị</span><input autocomplete="off" id="newDevicePin" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Mặc định 1111" required="" type="password"/></label>
-<p class="dialogNote">Nhập đúng Device ID hiển thị trên ESP32 và mã PIN của máy (mặc định xuất xưởng là <b>1111</b>, đổi được trong Cài đặt). Tên hiển thị lấy theo tên đã đặt cho máy này - đổi trong Cài đặt sau khi thêm.</p>
+<p class="dialogNote">Quét mã QR dán trên máy để tự điền ID, hoặc nhập tay Device ID hiển thị trên ESP32, kèm mã PIN của máy (mặc định xuất xưởng là <b>1111</b>, đổi được trong Cài đặt). Tên hiển thị lấy theo tên đã đặt cho máy này - đổi trong Cài đặt sau khi thêm.</p>
 <button class="primary full" type="submit">Thêm và chọn thiết bị</button>
 <div class="deviceList" id="deviceList"></div>
 </form>

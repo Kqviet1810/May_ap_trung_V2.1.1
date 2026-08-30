@@ -323,11 +323,37 @@ static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) =
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
 
 // Dong phu (khong phai setting gia tri) duoc gan them vao cuoi mot so nhom.
-enum class GroupExtra : uint8_t { None, TurnStats, WifiChange };
-GroupExtra groupExtra(uint8_t group) {
-  if (group == 3) return GroupExtra::TurnStats;   // DAO TRUNG -> "So lan dao"
-  if (group == 4) return GroupExtra::WifiChange;   // KET NOI -> "Doi wifi"
+// Moi nhom co toi da 2 dong phu (hien tai chi KET NOI dung ca 2) - liet ke
+// theo THU TU CO DINH qua groupExtraSlot(), roi loc bot dong dang AN (vd
+// "Doi wifi" chi hien khi Online) qua visibleGroupExtraAt() de ra danh sach
+// LIEN TUC hien thi tren man hinh.
+enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo };
+GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
+  if (group == 3 && slot == 0) return GroupExtra::TurnStats;      // DAO TRUNG -> "So lan dao"
+  if (group == 4 && slot == 0) return GroupExtra::ConnectionInfo; // KET NOI -> "Thong tin ket noi"
+  if (group == 4 && slot == 1) return GroupExtra::WifiChange;     // KET NOI -> "Doi wifi"
   return GroupExtra::None;
+}
+bool groupExtraSlotVisible(GroupExtra extra) {
+  if (extra == GroupExtra::WifiChange) {
+    return currentConfig.connectivityMode == ConnectivityMode::Online;
+  }
+  return extra != GroupExtra::None;
+}
+GroupExtra visibleGroupExtraAt(uint8_t group, uint8_t visibleIdx) {
+  uint8_t seen = 0;
+  for (uint8_t slot = 0; slot < 2U; ++slot) {
+    const GroupExtra extra = groupExtraSlot(group, slot);
+    if (!groupExtraSlotVisible(extra)) continue;
+    if (seen == visibleIdx) return extra;
+    ++seen;
+  }
+  return GroupExtra::None;
+}
+uint8_t groupVisibleExtraCount(uint8_t group) {
+  uint8_t count = 0;
+  while (visibleGroupExtraAt(group, count) != GroupExtra::None) ++count;
+  return count;
 }
 
 float readSetting(const MachineConfig &cfg, const SettingItem &item) {
@@ -484,7 +510,7 @@ void formatSettingValue(const SettingItem &item, float value, char *out, size_t 
 // ============================================================
 enum class View : uint8_t {
   Home, MainMenu, ChungMenu, SettingList, EditSetting, TurnStats, AutoTune,
-  EventLog, Alarm, TestMode, TestSummary, WifiChange
+  EventLog, Alarm, TestMode, TestSummary, WifiChange, ConnectionInfo
 };
 
 enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle };
@@ -667,18 +693,11 @@ const char *chungItemLabel(uint8_t index) {
   return "THOAT";
 }
 
-bool groupHasExtraRow(uint8_t group) {
-  const GroupExtra extra = groupExtra(group);
-  if (extra == GroupExtra::None) return false;
-  if (extra == GroupExtra::WifiChange) {
-    return currentConfig.connectivityMode == ConnectivityMode::Online;
-  }
-  return true;
-}
-const char *groupExtraLabel(uint8_t group) {
-  switch (groupExtra(group)) {
+const char *groupExtraLabelFor(GroupExtra extra) {
+  switch (extra) {
     case GroupExtra::TurnStats: return "So lan dao";
     case GroupExtra::WifiChange: return "Doi wifi";
+    case GroupExtra::ConnectionInfo: return "Thong tin ket noi";
     default: return "";
   }
 }
@@ -699,12 +718,12 @@ bool settingLockedDuringBatch(uint8_t settingIndex) {
 
 uint8_t settingListItemCount(uint8_t group) {
   return static_cast<uint8_t>(
-      GROUPS[group].count + (groupHasExtraRow(group) ? 1U : 0U) + 1U);
+      GROUPS[group].count + groupVisibleExtraCount(group) + 1U);
 }
 
 uint8_t settingListExitIndex(uint8_t group) {
   return static_cast<uint8_t>(
-      GROUPS[group].count + (groupHasExtraRow(group) ? 1U : 0U));
+      GROUPS[group].count + groupVisibleExtraCount(group));
 }
 
 bool timeReached(uint32_t now, uint32_t deadline) {
@@ -890,6 +909,13 @@ void goBack() {
       break;
     case View::WifiChange:
       queueCommand(HmiCommandType::WifiPortalCancel);
+      view = View::SettingList;
+      selectedGroup = 4U;  // KET NOI
+      // "Doi wifi" la dong phu CUOI cung cua nhom (sau "Thong tin ket noi").
+      setListSelection(static_cast<int>(GROUPS[4U].count + groupVisibleExtraCount(4U)) - 1,
+                        settingListItemCount(4U));
+      break;
+    case View::ConnectionInfo:
       view = View::SettingList;
       selectedGroup = 4U;  // KET NOI
       setListSelection(GROUPS[4U].count, settingListItemCount(4U));
@@ -1733,15 +1759,20 @@ void handleInput() {
       }
       if (rotary.button == ButtonEvent::ShortPress) {
         const SettingGroup &group = GROUPS[selectedGroup];
+        const uint8_t extraCount = groupVisibleExtraCount(selectedGroup);
         if (listIndex < group.count) {
           openSetting();
-        } else if (groupHasExtraRow(selectedGroup) && listIndex == group.count) {
-          const GroupExtra extra = groupExtra(selectedGroup);
+        } else if (listIndex < group.count + extraCount) {
+          const GroupExtra extra = visibleGroupExtraAt(selectedGroup,
+              static_cast<uint8_t>(listIndex - group.count));
           if (extra == GroupExtra::TurnStats) {
             view = View::TurnStats;
             dirty = true;
           } else if (extra == GroupExtra::WifiChange) {
             openWifiChange();
+          } else if (extra == GroupExtra::ConnectionInfo) {
+            view = View::ConnectionInfo;
+            dirty = true;
           }
         } else {
           exitSettingGroup();
@@ -1774,6 +1805,10 @@ void handleInput() {
     }
 
     case View::TurnStats:
+      if (rotary.button == ButtonEvent::ShortPress) goBack();
+      break;
+
+    case View::ConnectionInfo:
       if (rotary.button == ButtonEvent::ShortPress) goBack();
       break;
 
@@ -2313,9 +2348,12 @@ void drawSettingList() {
       lcd.drawStr(valueX, y, value);
       drawLeftFit2(2, y, item.label, static_cast<int16_t>(valueX - 4),
                    u8g2_font_6x12_tf, u8g2_font_5x8_tf);
-    } else if (groupHasExtraRow(selectedGroup) && local == group.count) {
-      // Dong muc phu (thong ke dao/doi wifi) can trai dong bo voi cac muc cai dat.
-      lcd.drawStr(2, y, groupExtraLabel(selectedGroup));
+    } else if (local >= group.count && local < group.count + groupVisibleExtraCount(selectedGroup)) {
+      // Dong muc phu (thong tin ket noi/doi wifi/thong ke dao) can trai dong
+      // bo voi cac muc cai dat.
+      const GroupExtra extra = visibleGroupExtraAt(selectedGroup,
+          static_cast<uint8_t>(local - group.count));
+      lcd.drawStr(2, y, groupExtraLabelFor(extra));
     } else if (local == exitIndex) {
       // Nut thoat cuon xuong cuoi danh sach, can trai nhu cac dong con lai.
       lcd.drawStr(2, y, "Thoat");
@@ -2323,6 +2361,51 @@ void drawSettingList() {
 
     if (selected) lcd.setDrawColor(1);
   }
+}
+
+// Chuyen do manh Wi-Fi (dBm) thanh so vach de nguoi dung khong quen thang do
+// dBm van doc duoc nhanh: 4 vach = rat manh, 1 vach = rat yeu, 0 = mat song.
+uint8_t rssiToBars(int8_t dbm) {
+  if (dbm <= -90) return 0U;
+  if (dbm <= -80) return 1U;
+  if (dbm <= -70) return 2U;
+  if (dbm <= -60) return 3U;
+  return 4U;
+}
+
+void drawConnectionInfo() {
+  char text[28];
+  drawHeader("KET NOI", false);
+  lcd.setFont(u8g2_font_6x12_tf);
+
+  // ID may: dung chung ham voi network_service.h (mayapDeviceIdText())
+  // thay vi doc lai bien deviceId cua realtime_link.h - file nay duoc
+  // include TRUOC realtime_link.h trong .ino nen bien do chua khai bao
+  // luc bien dich hmi.h (xem comment tai mayapDeviceIdText()).
+  snprintf(text, sizeof(text), "ID: %s", mayapDeviceIdText().c_str());
+  drawLeftFit(6, 27, text, u8g2_font_6x12_tf, u8g2_font_5x8_tf,
+              u8g2_font_5x8_tf);
+
+  if (currentRuntime.networkConnected) {
+    snprintf(text, sizeof(text), "WIFI: %s", WiFi.SSID().c_str());
+  } else {
+    snprintf(text, sizeof(text), "WIFI: CHUA KET NOI");
+  }
+  drawLeftFit(6, 41, text, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+              u8g2_font_5x8_tf);
+
+  if (currentRuntime.networkConnected) {
+    char bars[5];
+    const uint8_t filled = rssiToBars(currentRuntime.networkRssiDbm);
+    for (uint8_t i = 0; i < 4U; ++i) bars[i] = (i < filled) ? '#' : '.';
+    bars[4] = '\0';
+    snprintf(text, sizeof(text), "SONG: %s (%d dBm)", bars,
+             currentRuntime.networkRssiDbm);
+  } else {
+    snprintf(text, sizeof(text), "SONG: --");
+  }
+  drawLeftFit(6, 55, text, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+              u8g2_font_5x8_tf);
 }
 
 void drawTurnStats() {
@@ -2877,6 +2960,7 @@ void render(uint32_t now) {
       case View::SettingList: drawSettingList(); break;
       case View::EditSetting: drawEditSetting(); break;
       case View::TurnStats: drawTurnStats(); break;
+      case View::ConnectionInfo: drawConnectionInfo(); break;
       case View::AutoTune: drawAutoTune(); break;
       case View::TestMode: drawTestMode(); break;
       case View::TestSummary: drawTestSummary(); break;
@@ -3134,6 +3218,10 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
              before.nextTurnMinutes != after.nextTurnMinutes ||
              before.nextTurnScheduled != after.nextTurnScheduled ||
              before.turningLockdown != after.turningLockdown;
+
+    case View::ConnectionInfo:
+      return before.networkConnected != after.networkConnected ||
+             before.networkRssiDbm != after.networkRssiDbm;
 
     case View::AutoTune:
       return before.autoTuneState != after.autoTuneState ||
