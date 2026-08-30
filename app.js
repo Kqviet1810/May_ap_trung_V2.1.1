@@ -125,6 +125,80 @@
     return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
   }
 
+  // Quet QR bang API BarcodeDetector co san cua trinh duyet (Chrome/Edge/
+  // WebView Android tu ban 83) thay vi tu viet/nhung mot thu vien giai ma QR
+  // rieng - do co san, chay bang phan cung, khong can bao tri. Trinh duyet
+  // chua ho tro (hau het Safari/iOS hien tai) se rot ve nhap ID bang tay o
+  // dung o input da co san, khong chan luong dung.
+  let qrStream = null;
+  let qrDetector = null;
+  let qrScanRaf = 0;
+
+  function qrScanSupported() {
+    return typeof window.BarcodeDetector === 'function';
+  }
+
+  async function startQrScan() {
+    if (!qrScanSupported()) {
+      toast('Trình duyệt này chưa hỗ trợ quét QR, hãy nhập ID thủ công.');
+      return;
+    }
+    try {
+      qrStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false,
+      });
+    } catch (_) {
+      toast('Không mở được camera - kiểm tra quyền truy cập camera cho trang này.');
+      return;
+    }
+    // Khong "await video.play()" truoc khi hien UI/bat dau vong lap detect:
+    // video da co attribute autoplay + muted + playsinline nen tu phat khi
+    // co srcObject, con promise cua play() co the treo lau (hoac khong bao
+    // gio resolve) tren mot so thiet bi/camera - cho no se lam ca khung
+    // quet bi "im", nguoi dung tuong nhu khong bam duoc gi.
+    const video = $('qrVideo');
+    video.srcObject = qrStream;
+    video.play().catch(() => {});
+    $('qrScanner').hidden = false;
+    qrDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+
+    const tick = async () => {
+      if (!qrStream) return;
+      try {
+        const codes = await qrDetector.detect(video);
+        for (const code of codes) {
+          const id = normalizeDeviceId(code.rawValue);
+          if (DEVICE_ID_RE.test(id)) {
+            $('newDeviceId').value = id;
+            stopQrScan();
+            toast('Đã quét được ID thiết bị, nhập mã PIN để hoàn tất.');
+            setTimeout(() => $('newDevicePin').focus(), 60);
+            return;
+          }
+        }
+      } catch (_) {
+        // Frame loi (video chua san sang v.v.) - bo qua, thu lai frame sau.
+      }
+      qrScanRaf = requestAnimationFrame(tick);
+    };
+    qrScanRaf = requestAnimationFrame(tick);
+  }
+
+  function stopQrScan() {
+    if (qrScanRaf) cancelAnimationFrame(qrScanRaf);
+    qrScanRaf = 0;
+    qrDetector = null;
+    if (qrStream) {
+      qrStream.getTracks().forEach((track) => track.stop());
+      qrStream = null;
+    }
+    const video = $('qrVideo');
+    if (video) video.srcObject = null;
+    const panel = $('qrScanner');
+    if (panel) panel.hidden = true;
+  }
+
   // Goi thang Cloudflare Worker cho nhom "danh tinh thiet bi" (PIN/ten hien
   // thi) - tach rieng voi push.js vi khong lien quan gi den Web Push, chi
   // dung chung 1 config cloudApiBase.
@@ -1538,6 +1612,13 @@
     $('deviceDialog').addEventListener('click', (event) => {
       if (event.target === $('deviceDialog')) $('deviceDialog').close();
     });
+    // Dung 1 su kien 'close' chung cho MOI cach dong hop thoai (nut X, bam ra
+    // ngoai, phim Esc, hay them thanh cong) thay vi rai stopQrScan() vao tung
+    // handler rieng - dam bao camera luon tat, khong bao gio bi "quen" chay
+    // ngam sau khi hop thoai da dong.
+    $('deviceDialog').addEventListener('close', () => stopQrScan());
+    $('scanQrBtn').addEventListener('click', () => startQrScan());
+    $('qrScannerCancel').addEventListener('click', () => stopQrScan());
     $('addDeviceForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const id = normalizeDeviceId($('newDeviceId').value);
