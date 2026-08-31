@@ -29,6 +29,200 @@ U8G2_ST7567_JLX12864_F_HW_I2C lcd(U8G2_R0, U8X8_PIN_NONE);
 #error "LCD_PROFILE khong hop le"
 #endif
 
+// ============================================================================
+// QR CODE (Version 1, EC level Q, che do Alphanumeric, mask co dinh = 0) -
+// CHI ma hoa dung dinh dang Device ID "MAP-XXXXXXXXXXXX" (16 ky tu), khong
+// phai bo ma hoa QR tong quat. Man LCD 128x64 mono qua nho de ve QR "day du"
+// (nhieu phien ban/muc do loi hon) van con doc duoc - Version 1 la kich
+// thuoc NHO NHAT chuan QR cho phep (21x21 o), toi da hoa so pixel/o tren
+// man hinh chat hep nay. EC level Q (30% du thua, khong phai muc cao nhat
+// H) la muc CAO NHAT van du cho du 16 ky tu ID nam trong 1 Version 1 -
+// dung H se buoc phai nhay len Version 2 (25x25), lam pixel/o NHO DI, phan
+// tac dung. Mask co dinh = 0 (bo qua buoc "chon mask toi uu" ma cac bo ma
+// hoa QR day du hay lam) vi ket qua van hop chuan/quet duoc binh thuong,
+// chi khac ve tham my phan bo diem den/trang, doi lai giam dang ke code
+// (khong can tinh diem phat 8 mask).
+//
+// Thuat toan da duoc KIEM CHUNG rieng bang Python + pyzbar (thu vien giai
+// ma doc lap, khong lien quan gi code o day) truoc khi dich sang C++: 34
+// ID ngau nhien (gom ca bien MAP-000000000000/MAP-FFFFFFFFFFFF) deu quet
+// ra dung chuoi goc. Sai du chi 1 bit o day la QR khong quet duoc ma
+// khong co canh bao gi khi bien dich hay chay thu - nen giu dung cong thuc
+// da kiem chung, KHONG "toi uu lai" cho gon hon neu khong kiem chung lai.
+namespace QrMapId {
+constexpr uint8_t SIZE = 21;
+constexpr const char *ALPHANUM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
+// Format info 15-bit (EC=Q, mask=0) la HANG SO co dinh, khong phu thuoc du
+// lieu - tinh san bang BCH thay vi tinh lai moi lan.
+constexpr uint16_t FORMAT_BITS = 0b011010101011111;
+// Da thuc sinh (generator polynomial) cho 13 codeword sua loi - CO DINH cho
+// moi truong hop 13 EC codeword, khong phu thuoc du lieu dau vao.
+constexpr uint8_t GEN_POLY[14] = {1, 137, 73, 227, 17, 177, 17, 52, 13, 46, 43, 83, 132, 120};
+
+// Bang GF(256) cho phep nhan Reed-Solomon (da thuc nguyen thuy QR chuan
+// x^8+x^4+x^3+x^2+1 = 0x11D) - tinh san luc build thay vi tinh runtime.
+constexpr uint8_t GF_EXP[256] = {
+  1,2,4,8,16,32,64,128,29,58,116,232,205,135,19,38,76,152,45,90,180,117,234,201,
+  143,3,6,12,24,48,96,192,157,39,78,156,37,74,148,53,106,212,181,119,238,193,
+  159,35,70,140,5,10,20,40,80,160,93,186,105,210,185,111,222,161,95,190,97,194,
+  153,47,94,188,101,202,137,15,30,60,120,240,253,231,211,187,107,214,177,127,
+  254,225,223,163,91,182,113,226,217,175,67,134,17,34,68,136,13,26,52,104,208,
+  189,103,206,129,31,62,124,248,237,199,147,59,118,236,197,151,51,102,204,133,
+  23,46,92,184,109,218,169,79,158,33,66,132,21,42,84,168,77,154,41,82,164,85,
+  170,73,146,57,114,228,213,183,115,230,209,191,99,198,145,63,126,252,229,215,
+  179,123,246,241,255,227,219,171,75,150,49,98,196,149,55,110,220,165,87,174,
+  65,130,25,50,100,200,141,7,14,28,56,112,224,221,167,83,166,81,162,89,178,121,
+  242,249,239,195,155,43,86,172,69,138,9,18,36,72,144,61,122,244,245,247,243,
+  251,235,203,139,11,22,44,88,176,125,250,233,207,131,27,54,108,216,173,71,142,1
+};
+constexpr uint8_t GF_LOG[256] = {
+  0,0,1,25,2,50,26,198,3,223,51,238,27,104,199,75,4,100,224,14,52,141,239,129,
+  28,193,105,248,200,8,76,113,5,138,101,47,225,36,15,33,53,147,142,218,240,18,
+  130,69,29,181,194,125,106,39,249,185,201,154,9,120,77,228,114,166,6,191,139,
+  98,102,221,48,253,226,152,37,179,16,145,34,136,54,208,148,206,143,150,219,
+  189,241,210,19,92,131,56,70,64,30,66,182,163,195,72,126,110,107,58,40,84,250,
+  133,186,61,202,94,155,159,10,21,121,43,78,212,229,172,115,243,167,87,7,112,
+  192,247,140,128,99,13,103,74,222,237,49,197,254,24,227,165,153,119,38,184,
+  180,124,17,68,146,217,35,32,137,46,55,63,209,91,149,188,207,205,144,135,151,
+  178,220,252,190,97,242,86,211,171,20,42,93,158,132,60,57,83,71,109,65,162,31,
+  45,67,216,183,123,164,118,196,23,73,236,127,12,111,246,108,161,59,82,41,157,
+  85,170,251,96,134,177,187,204,62,90,203,89,95,176,156,169,160,81,11,245,22,
+  235,122,117,44,215,79,174,213,233,230,231,173,232,116,214,244,234,168,80,88,175
+};
+
+uint8_t gfMul(uint8_t a, uint8_t b) {
+  if (a == 0 || b == 0) return 0;
+  const uint16_t sum = static_cast<uint16_t>(GF_LOG[a]) + GF_LOG[b];
+  return GF_EXP[sum % 255];
+}
+
+int8_t alphanumericValue(char c) {
+  const char *p = strchr(ALPHANUM, c);
+  return p ? static_cast<int8_t>(p - ALPHANUM) : -1;
+}
+
+// text PHAI dung 16 ky tu alphanumeric hop le (dinh dang Device ID). Tra ve
+// false neu khong dung dinh dang - goi noi dung KHONG duoc ve QR sai.
+bool buildDataCodewords(const char *text, uint8_t out[13]) {
+  if (!text || strlen(text) != 16U) return false;
+  bool bits[104] = {false};
+  int pos = 0;
+  auto pushBits = [&](uint32_t value, int count) {
+    for (int i = count - 1; i >= 0; --i) bits[pos++] = (value >> i) & 1U;
+  };
+  pushBits(0b0010U, 4);   // mode indicator: Alphanumeric
+  pushBits(16U, 9);       // character count indicator (V1, alphanumeric = 9 bit)
+  for (int i = 0; i < 16; i += 2) {
+    const int8_t v1 = alphanumericValue(text[i]);
+    const int8_t v2 = alphanumericValue(text[i + 1]);
+    if (v1 < 0 || v2 < 0) return false;
+    pushBits(static_cast<uint32_t>(v1) * 45U + static_cast<uint32_t>(v2), 11);
+  }
+  // 4+9+8*11 = 101 bit dung 16 ky tu; 3 bit terminator con lai da la 0 san
+  // trong mang (khoi tao {false}) - vua khop 104 bit = 13 byte, khong can
+  // pad codeword them.
+  if (pos != 101) return false;
+  for (int i = 0; i < 13; ++i) {
+    uint8_t byte = 0;
+    for (int b = 0; b < 8; ++b) byte = static_cast<uint8_t>((byte << 1) | (bits[i * 8 + b] ? 1 : 0));
+    out[i] = byte;
+  }
+  return true;
+}
+
+void rsEcCodewords(const uint8_t data[13], uint8_t out[13]) {
+  uint8_t remainder[26] = {0};
+  for (int i = 0; i < 13; ++i) remainder[i] = data[i];
+  for (int i = 0; i < 13; ++i) {
+    const uint8_t coeff = remainder[i];
+    if (coeff == 0) continue;
+    for (int j = 0; j < 14; ++j) {
+      remainder[i + j] ^= gfMul(GEN_POLY[j], coeff);
+    }
+  }
+  for (int i = 0; i < 13; ++i) out[i] = remainder[13 + i];
+}
+
+bool isFunctionModule(int8_t r, int8_t c) {
+  if (r < 9 && c < 9) return true;
+  if (r < 9 && c >= SIZE - 8) return true;
+  if (r >= SIZE - 8 && c < 9) return true;
+  if (r == 6 || c == 6) return true;
+  return false;
+}
+
+void setFinder(bool m[SIZE][SIZE], int8_t top, int8_t left) {
+  for (int8_t r = -1; r <= 7; ++r) {
+    for (int8_t c = -1; c <= 7; ++c) {
+      const int rr = top + r, cc = left + c;
+      if (rr < 0 || rr >= SIZE || cc < 0 || cc >= SIZE) continue;
+      if (r >= 0 && r <= 6 && c >= 0 && c <= 6) {
+        m[rr][cc] = (r == 0 || r == 6 || c == 0 || c == 6 ||
+                     (r >= 2 && r <= 4 && c >= 2 && c <= 4));
+      } else {
+        m[rr][cc] = false;  // vanh trang (separator) quanh finder
+      }
+    }
+  }
+}
+
+void buildMatrix(const uint8_t data[13], const uint8_t ec[13], bool m[SIZE][SIZE]) {
+  setFinder(m, 0, 0);
+  setFinder(m, 0, SIZE - 7);
+  setFinder(m, SIZE - 7, 0);
+  for (int8_t i = 8; i < SIZE - 8; ++i) {
+    m[6][i] = (i % 2 == 0);
+    m[i][6] = (i % 2 == 0);
+  }
+  m[SIZE - 8][8] = true;  // dark module co dinh cua V1
+
+  bool allBits[208];
+  int bi = 0;
+  for (int k = 0; k < 13; ++k) for (int b = 7; b >= 0; --b) allBits[bi++] = (data[k] >> b) & 1U;
+  for (int k = 0; k < 13; ++k) for (int b = 7; b >= 0; --b) allBits[bi++] = (ec[k] >> b) & 1U;
+
+  int bitI = 0;
+  int8_t col = SIZE - 1;
+  bool goingUp = true;
+  while (col > 0) {
+    if (col == 6) col -= 1;
+    for (int8_t i = 0; i < SIZE; ++i) {
+      const int8_t row = goingUp ? static_cast<int8_t>(SIZE - 1 - i) : i;
+      for (int8_t cc = col; cc >= col - 1; --cc) {
+        if (isFunctionModule(row, cc)) continue;
+        const bool bit = (bitI < 208) ? allBits[bitI] : false;
+        ++bitI;
+        m[row][cc] = bit ^ ((row + cc) % 2 == 0);  // mask 0
+      }
+    }
+    goingUp = !goingUp;
+    col -= 2;
+  }
+
+  // Format info (co dinh EC=Q/mask=0) - 2 ban sao theo dung vi tri chuan QR.
+  static const int8_t FA_R[15] = {8,8,8,8,8,8,8,8,7,5,4,3,2,1,0};
+  static const int8_t FA_C[15] = {0,1,2,3,4,5,7,8,8,8,8,8,8,8,8};
+  static const int8_t FB_R[15] = {20,19,18,17,16,15,14,8,8,8,8,8,8,8,8};
+  static const int8_t FB_C[15] = {8,8,8,8,8,8,8,13,14,15,16,17,18,19,20};
+  for (int i = 0; i < 15; ++i) {
+    const bool bit = (FORMAT_BITS >> (14 - i)) & 1U;
+    m[FA_R[i]][FA_C[i]] = bit;
+    m[FB_R[i]][FB_C[i]] = bit;
+  }
+}
+
+// Ma hoa "text" (PHAI dung 16 ky tu, dinh dang Device ID) vao "m". Tra ve
+// false (khong dung "m") neu text sai dinh dang - nguoi goi phai tu kiem
+// tra gia tri tra ve, TRANH ve QR rong/sai neu deviceId chua san sang.
+bool encode(const char *text, bool m[SIZE][SIZE]) {
+  uint8_t data[13], ec[13];
+  if (!buildDataCodewords(text, data)) return false;
+  rsEcCodewords(data, ec);
+  buildMatrix(data, ec, m);
+  return true;
+}
+}  // namespace QrMapId
+
 // Coi active chi dieu khien ON/OFF qua transistor/MOSFET.
 // "Nhe/to" duoc tao bang do dai va nhip keu, khong PWM relay.
 struct BuzzerPattern {
@@ -323,16 +517,17 @@ static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) =
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
 
 // Dong phu (khong phai setting gia tri) duoc gan them vao cuoi mot so nhom.
-// Moi nhom co toi da 2 dong phu (hien tai chi KET NOI dung ca 2) - liet ke
+// Moi nhom co toi da 3 dong phu (hien tai chi KET NOI dung ca 3) - liet ke
 // theo THU TU CO DINH qua groupExtraSlot(), roi loc bot dong dang AN (vd
 // "Doi wifi" chi hien khi Online) qua visibleGroupExtraAt() de ra danh sach
 // LIEN TUC hien thi tren man hinh. (groupExtraSlotVisible/visibleGroupExtraAt/
 // groupVisibleExtraCount dat o DUOI, sau khai bao currentConfig - xem do.)
-enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo };
+enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode };
 GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
   if (group == 3 && slot == 0) return GroupExtra::TurnStats;      // DAO TRUNG -> "So lan dao"
   if (group == 4 && slot == 0) return GroupExtra::ConnectionInfo; // KET NOI -> "Thong tin ket noi"
-  if (group == 4 && slot == 1) return GroupExtra::WifiChange;     // KET NOI -> "Doi wifi"
+  if (group == 4 && slot == 1) return GroupExtra::QrCode;         // KET NOI -> "Ma QR ID"
+  if (group == 4 && slot == 2) return GroupExtra::WifiChange;     // KET NOI -> "Doi wifi"
   return GroupExtra::None;
 }
 
@@ -490,7 +685,7 @@ void formatSettingValue(const SettingItem &item, float value, char *out, size_t 
 // ============================================================
 enum class View : uint8_t {
   Home, MainMenu, ChungMenu, SettingList, EditSetting, TurnStats, AutoTune,
-  EventLog, Alarm, TestMode, TestSummary, WifiChange, ConnectionInfo
+  EventLog, Alarm, TestMode, TestSummary, WifiChange, ConnectionInfo, QrCode
 };
 
 enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle };
@@ -516,7 +711,7 @@ bool groupExtraSlotVisible(GroupExtra extra) {
 }
 GroupExtra visibleGroupExtraAt(uint8_t group, uint8_t visibleIdx) {
   uint8_t seen = 0;
-  for (uint8_t slot = 0; slot < 2U; ++slot) {
+  for (uint8_t slot = 0; slot < 3U; ++slot) {
     const GroupExtra extra = groupExtraSlot(group, slot);
     if (!groupExtraSlotVisible(extra)) continue;
     if (seen == visibleIdx) return extra;
@@ -702,6 +897,7 @@ const char *groupExtraLabelFor(GroupExtra extra) {
     case GroupExtra::TurnStats: return "So lan dao";
     case GroupExtra::WifiChange: return "Doi wifi";
     case GroupExtra::ConnectionInfo: return "Thong tin ket noi";
+    case GroupExtra::QrCode: return "Ma QR ID";
     default: return "";
   }
 }
@@ -923,6 +1119,12 @@ void goBack() {
       view = View::SettingList;
       selectedGroup = 4U;  // KET NOI
       setListSelection(GROUPS[4U].count, settingListItemCount(4U));
+      break;
+    case View::QrCode:
+      view = View::SettingList;
+      selectedGroup = 4U;  // KET NOI
+      // "Ma QR ID" la dong phu THU 2 (sau "Thong tin ket noi", truoc "Doi wifi").
+      setListSelection(static_cast<int>(GROUPS[4U].count) + 1, settingListItemCount(4U));
       break;
     case View::Alarm: view = alarmReturnView; break;
   }
@@ -1777,6 +1979,9 @@ void handleInput() {
           } else if (extra == GroupExtra::ConnectionInfo) {
             view = View::ConnectionInfo;
             dirty = true;
+          } else if (extra == GroupExtra::QrCode) {
+            view = View::QrCode;
+            dirty = true;
           }
         } else {
           exitSettingGroup();
@@ -1813,6 +2018,10 @@ void handleInput() {
       break;
 
     case View::ConnectionInfo:
+      if (rotary.button == ButtonEvent::ShortPress) goBack();
+      break;
+
+    case View::QrCode:
       if (rotary.button == ButtonEvent::ShortPress) goBack();
       break;
 
@@ -2412,6 +2621,47 @@ void drawConnectionInfo() {
               u8g2_font_5x8_tf);
 }
 
+void drawQrCode() {
+  // Device ID khong doi trong suot phien chay (tinh 1 lan tu MAC luc khoi
+  // dong) nen chi ma hoa QR MOT LAN duy nhat, khong lam lai moi khung hinh.
+  static bool matrix[QrMapId::SIZE][QrMapId::SIZE];
+  static bool ok = false;
+  static bool computed = false;
+  if (!computed) {
+    ok = QrMapId::encode(mayapDeviceIdText().c_str(), matrix);
+    computed = true;
+  }
+  if (!ok) {
+    drawHeader("MA QR ID", false);
+    drawCenteredFit(36, "LOI TAO MA QR", u8g2_font_6x12_tf, u8g2_font_5x8_tf,
+                    u8g2_font_5x8_tf);
+    return;
+  }
+
+  // Danh TRON man hinh 128x64 cho QR, KHONG tieu de/chu thich gi ca: man
+  // LCD nay qua nho de ve QR (xem giai thich chi tiet tai namespace
+  // QrMapId dau file), nen tung pixel deu quan trong - bo tieu de doi lai
+  // duoc pxSize=2 (toi da co the tren man 64px cao voi vanh trang chuan
+  // 4-module bat buoc de dau doc dinh vi duoc). Thoat man hinh van bang
+  // short-press nhu moi man phu khac, khong can nut/chu rieng chiem cho.
+  constexpr uint8_t QUIET = 4;   // vanh trang toi thieu theo chuan QR
+  constexpr uint8_t PX = 2;      // pixel LCD / 1 o QR
+  constexpr uint8_t TOTAL_MODULES = QrMapId::SIZE + QUIET * 2;
+  constexpr uint8_t TOTAL_PX = TOTAL_MODULES * PX;
+  constexpr int16_t OFFSET_X = (128 - TOTAL_PX) / 2;
+  constexpr int16_t OFFSET_Y = (64 - TOTAL_PX) / 2;
+
+  lcd.setDrawColor(1);
+  for (uint8_t r = 0; r < QrMapId::SIZE; ++r) {
+    for (uint8_t c = 0; c < QrMapId::SIZE; ++c) {
+      if (!matrix[r][c]) continue;
+      const int16_t x = OFFSET_X + (QUIET + c) * PX;
+      const int16_t y = OFFSET_Y + (QUIET + r) * PX;
+      lcd.drawBox(x, y, PX, PX);
+    }
+  }
+}
+
 void drawTurnStats() {
   char text[28];
   drawHeader("SO LAN DAO", false);
@@ -2965,6 +3215,7 @@ void render(uint32_t now) {
       case View::EditSetting: drawEditSetting(); break;
       case View::TurnStats: drawTurnStats(); break;
       case View::ConnectionInfo: drawConnectionInfo(); break;
+      case View::QrCode: drawQrCode(); break;
       case View::AutoTune: drawAutoTune(); break;
       case View::TestMode: drawTestMode(); break;
       case View::TestSummary: drawTestSummary(); break;
@@ -3226,6 +3477,11 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
     case View::ConnectionInfo:
       return before.networkConnected != after.networkConnected ||
              before.networkRssiDbm != after.networkRssiDbm;
+
+    // QR ma hoa ID may - hang so trong suot phien chay, khong bao gio can
+    // ve lai vi runtime thay doi.
+    case View::QrCode:
+      return false;
 
     case View::AutoTune:
       return before.autoTuneState != after.autoTuneState ||
