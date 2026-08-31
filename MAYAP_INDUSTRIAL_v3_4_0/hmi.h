@@ -326,34 +326,14 @@ static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) =
 // Moi nhom co toi da 2 dong phu (hien tai chi KET NOI dung ca 2) - liet ke
 // theo THU TU CO DINH qua groupExtraSlot(), roi loc bot dong dang AN (vd
 // "Doi wifi" chi hien khi Online) qua visibleGroupExtraAt() de ra danh sach
-// LIEN TUC hien thi tren man hinh.
+// LIEN TUC hien thi tren man hinh. (groupExtraSlotVisible/visibleGroupExtraAt/
+// groupVisibleExtraCount dat o DUOI, sau khai bao currentConfig - xem do.)
 enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo };
 GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
   if (group == 3 && slot == 0) return GroupExtra::TurnStats;      // DAO TRUNG -> "So lan dao"
   if (group == 4 && slot == 0) return GroupExtra::ConnectionInfo; // KET NOI -> "Thong tin ket noi"
   if (group == 4 && slot == 1) return GroupExtra::WifiChange;     // KET NOI -> "Doi wifi"
   return GroupExtra::None;
-}
-bool groupExtraSlotVisible(GroupExtra extra) {
-  if (extra == GroupExtra::WifiChange) {
-    return currentConfig.connectivityMode == ConnectivityMode::Online;
-  }
-  return extra != GroupExtra::None;
-}
-GroupExtra visibleGroupExtraAt(uint8_t group, uint8_t visibleIdx) {
-  uint8_t seen = 0;
-  for (uint8_t slot = 0; slot < 2U; ++slot) {
-    const GroupExtra extra = groupExtraSlot(group, slot);
-    if (!groupExtraSlotVisible(extra)) continue;
-    if (seen == visibleIdx) return extra;
-    ++seen;
-  }
-  return GroupExtra::None;
-}
-uint8_t groupVisibleExtraCount(uint8_t group) {
-  uint8_t count = 0;
-  while (visibleGroupExtraAt(group, count) != GroupExtra::None) ++count;
-  return count;
 }
 
 float readSetting(const MachineConfig &cfg, const SettingItem &item) {
@@ -525,6 +505,30 @@ void openAlarmView(View returnView);
 MachineConfig currentConfig;
 MachineRuntime currentRuntime;
 HmiEventSnapshot currentEventLog;
+
+// Tiep tuc dinh nghia GroupExtra (xem groupExtraSlot() o tren) - 3 ham nay
+// doc currentConfig nen phai dat SAU khai bao no.
+bool groupExtraSlotVisible(GroupExtra extra) {
+  if (extra == GroupExtra::WifiChange) {
+    return currentConfig.connectivityMode == ConnectivityMode::Online;
+  }
+  return extra != GroupExtra::None;
+}
+GroupExtra visibleGroupExtraAt(uint8_t group, uint8_t visibleIdx) {
+  uint8_t seen = 0;
+  for (uint8_t slot = 0; slot < 2U; ++slot) {
+    const GroupExtra extra = groupExtraSlot(group, slot);
+    if (!groupExtraSlotVisible(extra)) continue;
+    if (seen == visibleIdx) return extra;
+    ++seen;
+  }
+  return GroupExtra::None;
+}
+uint8_t groupVisibleExtraCount(uint8_t group) {
+  uint8_t count = 0;
+  while (visibleGroupExtraAt(group, count) != GroupExtra::None) ++count;
+  return count;
+}
 
 bool lcdReady = false;
 bool dirty = true;
