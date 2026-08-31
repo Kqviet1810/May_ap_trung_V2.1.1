@@ -2638,18 +2638,20 @@ void drawQrCode() {
     return;
   }
 
-  // Danh TRON man hinh 128x64 cho QR, KHONG tieu de/chu thich gi ca: man
-  // LCD nay qua nho de ve QR (xem giai thich chi tiet tai namespace
-  // QrMapId dau file), nen tung pixel deu quan trong - bo tieu de doi lai
-  // duoc pxSize=2 (toi da co the tren man 64px cao voi vanh trang chuan
-  // 4-module bat buoc de dau doc dinh vi duoc). Thoat man hinh van bang
-  // short-press nhu moi man phu khac, khong can nut/chu rieng chiem cho.
+  // QR sat canh PHAI, chiem tron chieu cao 64px (khong con le tren/duoi -
+  // du thua cua phep chia nguyen don het xuong duoi thay vi chia deu 2 ben,
+  // de canh tren QR cham dinh man hinh). Cot con lai ben TRAI danh rieng
+  // cho chu huong dan "HAY / QUET / MA QR", giup nguoi dung biet ngay man
+  // nay dung de lam gi ma khong can dua camera vao thu. pxSize=2 la toi da
+  // co the tren man 64px cao voi vanh trang chuan 4-module bat buoc de dau
+  // doc dinh vi duoc (xem giai thich chi tiet tai namespace QrMapId dau
+  // file). Thoat man hinh van bang short-press nhu moi man phu khac.
   constexpr uint8_t QUIET = 4;   // vanh trang toi thieu theo chuan QR
   constexpr uint8_t PX = 2;      // pixel LCD / 1 o QR
   constexpr uint8_t TOTAL_MODULES = QrMapId::SIZE + QUIET * 2;
-  constexpr uint8_t TOTAL_PX = TOTAL_MODULES * PX;
-  constexpr int16_t OFFSET_X = (128 - TOTAL_PX) / 2;
-  constexpr int16_t OFFSET_Y = (64 - TOTAL_PX) / 2;
+  constexpr uint8_t TOTAL_PX = TOTAL_MODULES * PX;  // 58
+  constexpr int16_t OFFSET_X = 128 - TOTAL_PX;      // sat canh phai (x=128)
+  constexpr int16_t OFFSET_Y = 0;                   // sat canh tren
 
   lcd.setDrawColor(1);
   for (uint8_t r = 0; r < QrMapId::SIZE; ++r) {
@@ -2659,6 +2661,18 @@ void drawQrCode() {
       const int16_t y = OFFSET_Y + (QUIET + r) * PX;
       lcd.drawBox(x, y, PX, PX);
     }
+  }
+
+  // Chu huong dan trong cot trai (rong OFFSET_X = 70px) - can giua theo
+  // chieu ngang CUA RIENG COT DO (khong phai giua man 128px nhu
+  // drawCenteredFit() mac dinh), 3 dong ngan xep doc cho du cho o cot hep.
+  const int16_t labelMaxWidth = static_cast<int16_t>(OFFSET_X - 4);
+  const char *lines[3] = {"HAY", "QUET", "MA QR"};
+  const int16_t ys[3] = {24, 38, 52};
+  for (uint8_t i = 0; i < 3U; ++i) {
+    const int16_t w = fitFontWidth(lines[i], labelMaxWidth, u8g2_font_6x12_tf,
+                                   u8g2_font_6x12_tf, u8g2_font_5x8_tf);
+    lcd.drawStr(max(0, (OFFSET_X - w) / 2), ys[i], lines[i]);
   }
 }
 
