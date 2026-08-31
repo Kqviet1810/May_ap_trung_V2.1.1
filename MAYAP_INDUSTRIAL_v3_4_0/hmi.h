@@ -2640,9 +2640,10 @@ void drawQrCode() {
 
   // QR sat canh PHAI, chiem tron chieu cao 64px (khong con le tren/duoi -
   // du thua cua phep chia nguyen don het xuong duoi thay vi chia deu 2 ben,
-  // de canh tren QR cham dinh man hinh). Cot con lai ben TRAI danh rieng
-  // cho chu huong dan "HAY / QUET / MA QR", giup nguoi dung biet ngay man
-  // nay dung de lam gi ma khong can dua camera vao thu. pxSize=2 la toi da
+  // de canh tren QR cham dinh man hinh). Cot con lai ben TRAI danh cho
+  // tieu de + ID may (giong nhan thiet bi that: 1 dong huong dan, gach
+  // phan cach, roi ma so) - vua giup nguoi dung biet man nay dung de lam
+  // gi, vua cho doi chieu bang mat khi khong tien quet. pxSize=2 la toi da
   // co the tren man 64px cao voi vanh trang chuan 4-module bat buoc de dau
   // doc dinh vi duoc (xem giai thich chi tiet tai namespace QrMapId dau
   // file). Thoat man hinh van bang short-press nhu moi man phu khac.
@@ -2663,17 +2664,29 @@ void drawQrCode() {
     }
   }
 
-  // Chu huong dan trong cot trai (rong OFFSET_X = 70px) - can giua theo
-  // chieu ngang CUA RIENG COT DO (khong phai giua man 128px nhu
-  // drawCenteredFit() mac dinh), 3 dong ngan xep doc cho du cho o cot hep.
+  // Cot trai (rong OFFSET_X = 70px): tieu de 1 dong NGANG, gach phan cach,
+  // roi ID may chia 2 dong 8 ky tu (vua khop font 6x12 trong 70px, de doc
+  // hon xep doc tung chu roi rac truoc day). Can giua CUA RIENG COT DO
+  // (khong phai giua ca man 128px nhu drawCenteredFit() mac dinh).
   const int16_t labelMaxWidth = static_cast<int16_t>(OFFSET_X - 4);
-  const char *lines[3] = {"HAY", "QUET", "MA QR"};
-  const int16_t ys[3] = {24, 38, 52};
-  for (uint8_t i = 0; i < 3U; ++i) {
-    const int16_t w = fitFontWidth(lines[i], labelMaxWidth, u8g2_font_6x12_tf,
+  const auto drawColCentered = [&](int16_t y, const char *text) {
+    const int16_t w = fitFontWidth(text, labelMaxWidth, u8g2_font_6x12_tf,
                                    u8g2_font_6x12_tf, u8g2_font_5x8_tf);
-    lcd.drawStr(max(0, (OFFSET_X - w) / 2), ys[i], lines[i]);
-  }
+    lcd.drawStr(max(0, (OFFSET_X - w) / 2), y, text);
+  };
+
+  drawColCentered(14, "QUET MA QR");
+  lcd.drawHLine(6, 19, OFFSET_X - 12);
+
+  // Device ID luon dung 16 ky tu hop le tai day (QrMapId::encode() da tra
+  // ve true o tren, nen khong can kiem tra lai) - chia doi 8+8 de vua font.
+  const String idStr = mayapDeviceIdText();
+  char idLine1[9];
+  char idLine2[9];
+  snprintf(idLine1, sizeof(idLine1), "%.8s", idStr.c_str());
+  snprintf(idLine2, sizeof(idLine2), "%.8s", idStr.c_str() + 8);
+  drawColCentered(38, idLine1);
+  drawColCentered(52, idLine2);
 }
 
 void drawTurnStats() {
