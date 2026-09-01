@@ -87,14 +87,14 @@
 <section class="page" id="page-settings">
 <div class="settingsStack">
 <details class="settingCard" id="wifiSetting">
-<summary><span class="settingIcon">⌁</span><span class="settingSummary"><strong>Đổi Wi‑Fi</strong><small id="wifiSettingSummary">Đang kết nối: Phòng 301</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M5 12.5a11 11 0 0 1 14 0"/><path d="M8.5 16a6 6 0 0 1 7 0"/><line x1="12" x2="12" y1="19.5" y2="19.51"/></svg></span><span class="settingSummary"><strong>Đổi Wi‑Fi</strong><small id="wifiSettingSummary">Đang kết nối: Phòng 301</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody" id="wifiForm"><div class="wifiGuide"><strong>2 bước</strong><small>1. Giữ nút BOOT 3 giây trên máy ấp (đèn báo cấu hình sẽ sáng).<br/>2. Trên điện thoại, vào Cài đặt Wi‑Fi và kết nối vào mạng <b>MAYAP-XXXX</b>.</small></div><button class="primary full" id="openWifiPortal" type="button">Mở trang đổi Wi‑Fi</button></form>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon">♢</span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
-<div class="notificationLine"><div><strong>Nhận cảnh báo trên điện thoại</strong><small>Áp dụng cho tất cả thiết bị trên dashboard này, kể cả khi không mở trang.</small></div><span class="pill soft" id="pushStatusPill">…</span></div>
-<div class="formError" id="pushZeroDevicesBanner" role="alert">⚠️ Chưa có điện thoại nào nhận thông báo cho máy này - mất điện hay lỗi sẽ không ai biết. Bấm "Bật thông báo" bên dưới.</div>
+<div class="notificationLine"><div><strong>Nhận cảnh báo trên điện thoại</strong><small>Nhận được kể cả khi không mở trang.</small></div><span class="pill soft" id="pushStatusPill">…</span></div>
+<div class="formError" id="pushZeroDevicesBanner" role="alert">⚠️ Chưa có điện thoại nào nhận thông báo cho máy này.</div>
 <p class="settingFootnote" id="pushIosGuide" hidden>iPhone/iPad: nhấn nút Chia sẻ trên Safari → "Thêm vào Màn hình chính" → mở lại MAYAP từ biểu tượng đó rồi bật thông báo.</p>
 <p class="settingFootnote" id="pushErrorText" hidden></p>
 <button class="primary full" id="enablePushBtn" type="button">Bật thông báo</button>
@@ -106,7 +106,7 @@
 </div>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon">✎</span><span class="settingSummary"><strong>Tên máy &amp; mã PIN</strong><small id="deviceIdentitySummary">Đổi tên hiển thị và mã PIN của máy đang chọn</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></span><span class="settingSummary"><strong>Tên máy &amp; mã PIN</strong><small id="deviceIdentitySummary">Đổi tên hiển thị và mã PIN của máy đang chọn</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
 <form class="stackForm" id="renameDeviceForm">
 <p class="settingFootnote">Áp dụng cho mọi người xem máy này, kể cả trên thông báo đẩy.</p>
@@ -127,7 +127,7 @@
 </div>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon settingIconWide">°C</span><span class="settingSummary"><strong>Nhiệt độ và bảo vệ</strong><small id="temperatureSummary">Đặt 37,5°C · ngắt khẩn 39,0°C</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M14 4v10.5a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></svg></span><span class="settingSummary"><strong>Nhiệt độ và bảo vệ</strong><small id="temperatureSummary">Đặt 37,5°C · ngắt khẩn 39,0°C</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody temperatureFormCompact" id="temperatureForm">
 <div class="tempGrid">
 <label class="compactTile"><span>Nhiệt độ đặt</span><div class="unit"><input id="targetTemp" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
@@ -142,7 +142,7 @@
 </form>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon">∿</span><span class="settingSummary"><strong>PID Auto Tune</strong><small id="pidSummary">ESP32 tự tìm và lưu thông số</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="1" x2="7" y1="14" y2="14"/><line x1="9" x2="15" y1="8" y2="8"/><line x1="17" x2="23" y1="16" y2="16"/></svg></span><span class="settingSummary"><strong>PID Auto Tune</strong><small id="pidSummary">ESP32 tự tìm và lưu thông số</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
 <p class="settingFootnote">Không cần nhập Kp, Ki, Kd. Chỉ chạy khi máy không có mẻ đang hoạt động.</p>
 <div class="tuneState"><span id="tuneText">Sẵn sàng</span><div><i id="tuneBar"></i></div></div>
@@ -150,7 +150,7 @@
 </div>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon">↻</span><span class="settingSummary"><strong>Đảo trứng</strong><small id="turningSummary">Tự động · mỗi 120 phút</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 8 8 8"/></svg></span><span class="settingSummary"><strong>Đảo trứng</strong><small id="turningSummary">Tự động · mỗi 120 phút</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody" id="turningForm">
 <div class="notificationLine"><div><strong>Đảo tự động</strong><small>ESP32 thực hiện theo chu kỳ và công tắc hành trình.</small></div><label class="toggle"><input checked="" id="turningEnabled" type="checkbox"/><i></i></label></div>
 <div class="grid2">
@@ -162,7 +162,7 @@
 </form>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon">◌</span><span class="settingSummary"><strong>Cảm biến</strong><small id="sensorSummary">Bù 0,0°C · timeout 10 giây</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 2.7s6 6.5 6 11a6 6 0 1 1-12 0c0-4.5 6-11 6-11Z"/></svg></span><span class="settingSummary"><strong>Cảm biến</strong><small id="sensorSummary">Bù 0,0°C · timeout 10 giây</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody" id="sensorForm">
 <div class="grid2">
 <label class="field"><span>Bù nhiệt độ</span><div class="unit"><input id="tempOffset" max="10" min="-10" step="0.1" type="number" value="0"/><b>°C</b></div></label>
@@ -182,7 +182,7 @@
 <label class="field"><span>ID thiết bị</span>
 <div class="fieldWithAction">
 <input autocomplete="off" id="newDeviceId" maxlength="20" placeholder="MAP-A1B2C3D4E5F6" required=""/>
-<button aria-label="Quét mã QR trên máy" class="scanBtn" id="scanQrBtn" type="button">▣</button>
+<button aria-label="Quét mã QR trên máy" class="scanBtn" id="scanQrBtn" type="button"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M7 3H5a2 2 0 0 0-2 2v2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect height="6" rx="1" width="6" x="9" y="9"/></svg></button>
 </div>
 </label>
 <label class="field"><span>Mã PIN thiết bị</span><input autocomplete="off" id="newDevicePin" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Nhập mật khẩu" required="" type="password"/></label>

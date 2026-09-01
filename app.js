@@ -1862,7 +1862,10 @@
   const PUSH_STATUS_TEXT = {
     unsupported: ['Không hỗ trợ', 'pill offline', 'Trình duyệt này không hỗ trợ thông báo đẩy.'],
     'not-configured': ['Chưa cấu hình', 'pill offline', 'Trang web chưa cấu hình máy chủ thông báo (cloudApiBase).'],
-    'ios-needs-install': ['Cần thêm vào Màn hình chính', 'pill soft', 'Làm theo hướng dẫn bên dưới rồi bấm lại.'],
+    // Khong con mo ta rieng ("Lam theo huong dan ben duoi roi bam lai.") -
+    // thua va SAI HUONG (huong dan iOS nam TREN dong nay, khong phai duoi),
+    // vi #pushIosGuide da tu hien dung luc can (xem duoi) roi.
+    'ios-needs-install': ['Cần thêm vào Màn hình chính', 'pill soft', ''],
     denied: ['Bị chặn', 'pill offline', 'Trình duyệt đang chặn thông báo - vào cài đặt trình duyệt để cho phép lại.'],
     'not-enabled': ['Chưa cấp quyền', 'pill soft', ''],
     enabled: ['Đã bật', 'pill online', ''],

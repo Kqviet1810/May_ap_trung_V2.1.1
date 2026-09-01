@@ -3669,6 +3669,13 @@ class MachineController {
           mayapCancelWifiPortal();
           ok = true; message = "DA DONG CONG WIFI";
           break;
+        case HmiCommandType::CloudPinReset:
+          // Chi dat co hieu cho networkTask (mayapCloudAlertUpdate() trong
+          // cloud_alert_link.h) - khong tu goi HTTPS tai day, controlTask
+          // khong duoc phep block.
+          mayapRequestCloudPinReset();
+          ok = true; message = "DA GUI YEU CAU DAT LAI PIN";
+          break;
         case HmiCommandType::AutoTuneStart:
           ok = startAutoTune(now, message); break;
         case HmiCommandType::ResumeYes:

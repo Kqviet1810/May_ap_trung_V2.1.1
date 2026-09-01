@@ -517,17 +517,18 @@ static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) =
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
 
 // Dong phu (khong phai setting gia tri) duoc gan them vao cuoi mot so nhom.
-// Moi nhom co toi da 3 dong phu (hien tai chi KET NOI dung ca 3) - liet ke
+// Moi nhom co toi da 4 dong phu (hien tai chi KET NOI dung ca 4) - liet ke
 // theo THU TU CO DINH qua groupExtraSlot(), roi loc bot dong dang AN (vd
 // "Doi wifi" chi hien khi Online) qua visibleGroupExtraAt() de ra danh sach
 // LIEN TUC hien thi tren man hinh. (groupExtraSlotVisible/visibleGroupExtraAt/
 // groupVisibleExtraCount dat o DUOI, sau khai bao currentConfig - xem do.)
-enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode };
+enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode, CloudPinReset };
 GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
   if (group == 3 && slot == 0) return GroupExtra::TurnStats;      // DAO TRUNG -> "So lan dao"
   if (group == 4 && slot == 0) return GroupExtra::ConnectionInfo; // KET NOI -> "Thong tin ket noi"
   if (group == 4 && slot == 1) return GroupExtra::QrCode;         // KET NOI -> "Ma QR ID"
   if (group == 4 && slot == 2) return GroupExtra::WifiChange;     // KET NOI -> "Doi wifi"
+  if (group == 4 && slot == 3) return GroupExtra::CloudPinReset;  // KET NOI -> "Dat lai ma PIN"
   return GroupExtra::None;
 }
 
@@ -688,7 +689,7 @@ enum class View : uint8_t {
   EventLog, Alarm, TestMode, TestSummary, WifiChange, ConnectionInfo, QrCode
 };
 
-enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle };
+enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset };
 
 // Prototype thu cong: Arduino IDE tu sinh prototype cho ham trong .ino.
 // Neu ham dung enum/struct tuy chinh, prototype tu dong co the bi chen
@@ -704,14 +705,17 @@ HmiEventSnapshot currentEventLog;
 // Tiep tuc dinh nghia GroupExtra (xem groupExtraSlot() o tren) - 3 ham nay
 // doc currentConfig nen phai dat SAU khai bao no.
 bool groupExtraSlotVisible(GroupExtra extra) {
-  if (extra == GroupExtra::WifiChange) {
+  // Ca 2 hanh dong can Cloud (Doi wifi/Dat lai PIN) deu chi hien khi dang
+  // Online - offline thi bam vao cung khong lam duoc gi (khong ket noi toi
+  // Worker), an di do tranh nguoi dung bam nham roi thac mac sao khong chay.
+  if (extra == GroupExtra::WifiChange || extra == GroupExtra::CloudPinReset) {
     return currentConfig.connectivityMode == ConnectivityMode::Online;
   }
   return extra != GroupExtra::None;
 }
 GroupExtra visibleGroupExtraAt(uint8_t group, uint8_t visibleIdx) {
   uint8_t seen = 0;
-  for (uint8_t slot = 0; slot < 3U; ++slot) {
+  for (uint8_t slot = 0; slot < 4U; ++slot) {
     const GroupExtra extra = groupExtraSlot(group, slot);
     if (!groupExtraSlotVisible(extra)) continue;
     if (seen == visibleIdx) return extra;
@@ -898,6 +902,7 @@ const char *groupExtraLabelFor(GroupExtra extra) {
     case GroupExtra::WifiChange: return "Doi wifi";
     case GroupExtra::ConnectionInfo: return "Thong tin ket noi";
     case GroupExtra::QrCode: return "Ma QR ID";
+    case GroupExtra::CloudPinReset: return "Dat lai ma PIN";
     default: return "";
   }
 }
@@ -1295,6 +1300,23 @@ void openAutoTuneConfirm() {
   }
   confirmAction = ConfirmAction::AutoTuneStart;
   confirmReturnView = View::AutoTune;
+  confirmYes = false;
+  clearToast();
+  armInputGuard();
+  dirty = true;
+}
+
+// Dat lai ma PIN web (dung khi them thiet bi/doi ten may tren dashboard)
+// ve mac dinh xuat xuong "1111". Day la duong duy nhat de khoi phuc quyen
+// truy cap neu nguoi dung da doi PIN roi quen - co mat vat ly tai HMI (bam
+// nut xac nhan CO) la dieu kien duy nhat, khong can biet PIN cu.
+void openCloudPinResetConfirm() {
+  if (currentConfig.connectivityMode != ConnectivityMode::Online) {
+    showToast("CHI DUNG DUOC KHI ONLINE", true);
+    return;
+  }
+  confirmAction = ConfirmAction::CloudPinReset;
+  confirmReturnView = View::SettingList;
   confirmYes = false;
   clearToast();
   armInputGuard();
@@ -1861,6 +1883,11 @@ void executeConfirmation(bool accepted) {
         showToast("DANG LUU...");
       }
       view = returnView;
+    } else if (action == ConfirmAction::CloudPinReset) {
+      if (queueCommand(HmiCommandType::CloudPinReset)) {
+        showToast("DA GUI YEU CAU DAT LAI PIN");
+      }
+      view = returnView;
     }
   } else {
     if (action == ConfirmAction::ResumeBatch) {
@@ -1982,6 +2009,8 @@ void handleInput() {
           } else if (extra == GroupExtra::QrCode) {
             view = View::QrCode;
             dirty = true;
+          } else if (extra == GroupExtra::CloudPinReset) {
+            openCloudPinResetConfirm();
           }
         } else {
           exitSettingGroup();
@@ -3143,6 +3172,9 @@ void drawConfirmScreen() {
     line1 = "CHAY AUTO TUNE PID?";
   } else if (confirmAction == ConfirmAction::TurningToggle) {
     line1 = pendingTurningConfig.turningEnabled ? "BAT DAO TU DONG?" : "TAT DAO TU DONG?";
+  } else if (confirmAction == ConfirmAction::CloudPinReset) {
+    line1 = "DAT LAI MA PIN WEB";
+    line2 = "VE MAC DINH 1111?";
   } else if (currentRuntime.batchRunning) {
     line1 = "DUNG ME DANG CHAY?";
   } else {
