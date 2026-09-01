@@ -107,6 +107,27 @@ async function handleHeartbeat(request, env) {
   return json(env, { success: true });
 }
 
+// -------------------------- Endpoint: dat lai PIN web ve mac dinh --------------------------
+// Xac thuc bang device_key (bi mat cua FIRMWARE, khac hoan toan web_pin cua
+// nguoi dung) - giong het handleHeartbeat/handleAlarm, KHONG dung
+// verifyDevicePin(). Day la chu dich: chi thiet bi that (ESP32 goi tu HMI,
+// xem cloud_alert_link.h::sendResetPin) moi kich hoat duoc, dam bao "co mat
+// vat ly tai may" la dieu kien duy nhat de khoi phuc PIN da quen - khong ai
+// tu web goi duoc lenh nay du co biet ca device_id lan web_pin cu.
+async function handleResetPin(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const deviceKey = String(body?.device_key || '');
+
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
+  const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, device.device_key_hash);
+  if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
+
+  await setDevicePinHash(env.DB, deviceId, null);
+  return json(env, { success: true });
+}
+
 // -------------------------- Endpoint: bao dong / canh bao --------------------------
 async function handleAlarm(request, env) {
   const body = await readJson(request);
@@ -453,6 +474,9 @@ export default {
       }
       if (url.pathname === '/api/device/heartbeat' && request.method === 'POST') {
         return await handleHeartbeat(request, env);
+      }
+      if (url.pathname === '/api/device/reset-pin' && request.method === 'POST') {
+        return await handleResetPin(request, env);
       }
       if (url.pathname === '/api/device/alarm' && request.method === 'POST') {
         return await handleAlarm(request, env);

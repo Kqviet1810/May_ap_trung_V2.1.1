@@ -159,7 +159,7 @@ input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:n
 
 .fieldWithAction{display:flex;gap:8px}
 .fieldWithAction input{flex:1;min-width:0}
-.scanBtn{flex:0 0 52px;width:52px;height:52px;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--primarySoft);color:var(--primary2);font-size:22px;line-height:1;cursor:pointer;transition:filter var(--ease)}
+.scanBtn{flex:0 0 52px;width:52px;height:52px;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center;cursor:pointer;transition:filter var(--ease)}
 .scanBtn:hover{filter:brightness(.97)}
 /* Man quet QR toan man hinh (kieu Google Lens) - dat NGOAI <dialog>, tu no
    la 1 lop phu rieng nen hop thoai "Them thiet bi" phia sau van giu nguyen
@@ -295,11 +295,10 @@ input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:n
 .settingCard summary::-webkit-details-marker{display:none}
 .settingCard summary:hover{background:var(--wash)}
 .settingCard summary:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:0}
-.settingIcon{width:44px;height:44px;border-radius:13px;background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center;font-size:21px;font-weight:900}
-/* "°C" la 2 ky tu, o font-size 21px tran ra ngoai o vuong 44px - phan chu
-   tran nam tren nen trang cua the (khong con nam trong o mau), nhin nhu o
-   mau bi "trung" voi nen. Rieng icon nay giam font de chu nam gon trong o. */
-.settingIconWide{font-size:15px;letter-spacing:-.5px}
+/* Icon la SVG net mong (khong phai ky tu unicode nhu truoc) - dat width/
+   height thang tren the <svg> nen o day chi can can giua, khong con phai lo
+   font-size/letter-spacing rieng tung icon nhu khi con la text. */
+.settingIcon{width:44px;height:44px;border-radius:13px;background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center}
 .settingSummary{min-width:0}
 .settingSummary strong,.settingSummary small{display:block}
 .settingSummary strong{font-size:var(--fs-base);font-weight:700}
@@ -470,8 +469,8 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .actions{display:grid;grid-template-columns:1fr 1fr}
   .actions .dark{grid-column:1/-1}
   .settingCard summary{min-height:76px;padding:13px}
-  .settingIcon{width:40px;height:40px;border-radius:12px;font-size:19px}
-  .settingIconWide{font-size:14px}
+  .settingIcon{width:40px;height:40px;border-radius:12px}
+  .settingIcon svg{width:19px;height:19px}
   .settingSummary strong{font-size:var(--fs-sm)}
   .settingSummary small{font-size:var(--fs-2xs)}
   .settingBody{padding:16px}

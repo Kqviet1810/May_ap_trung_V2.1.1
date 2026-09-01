@@ -90,6 +90,15 @@ static MachineConfig processingConfig{};
 static BackoffTimer cloudBackoff{};
 static bool registered = false;
 
+// Co hieu "dat lai ma PIN web ve mac dinh" phat tu HMI (controlTask) toi
+// networkTask - dung chung idiom voi portalRequestFlag cua network_service.h
+// (volatile + __atomic_*, khong can mutex vi chi 1 writer/1 reader moi
+// chieu). Nguoi lap dat co mat vat ly tai HMI la dieu kien DUY NHAT de kich
+// hoat - khong co duong nao tu web tu goi duoc lenh nay (endpoint /api/
+// device/reset-pin chi chap nhan device_key bi mat cua firmware, khong
+// phai PIN web, xem cloudflare/src/index.js::handleResetPin).
+static volatile uint8_t pinResetRequestFlag = 0U;
+
 // -------------------------------- Hang doi gui ----------------------------------
 // Chi networkTask dung (ca ghi lan doc) - moi logic quyet dinh gui gi cung
 // chay trong mayapCloudAlertUpdate(), khong co task nao khac cham vao.
@@ -542,6 +551,18 @@ inline bool sendRegister() {
   return postJson("/api/device/register", doc, "register");
 }
 
+// Dat lai ma PIN web (danh cho "them thiet bi"/"doi ten may" tren web) ve
+// mac dinh xuat xuong "1111" - xac thuc bang device_key (bi mat cua firmware,
+// KHONG PHAI PIN web dang muon dat lai), nen chi thiet bi that (qua nut bam
+// vat ly tren HMI) moi kich hoat duoc, khong ai tu web goi duoc lenh nay du
+// co biet device_id. Xem cloudflare/src/index.js::handleResetPin.
+inline bool sendResetPin() {
+  JsonDocument doc;
+  doc["device_id"] = mayapDeviceIdText();
+  doc["device_key"] = CLOUD_DEVICE_SECRET;
+  return postJson("/api/device/reset-pin", doc, "reset-pin");
+}
+
 inline bool sendHeartbeat() {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
@@ -629,6 +650,14 @@ inline void mayapCloudAlertBegin() {
   // Khong can khoi tao gi truoc: moi client HTTPS la ngan han, tao khi can goi.
 }
 
+// Goi tu controlTask (qua HmiCommandType::CloudPinReset, xem
+// machine_control.h) khi nguoi lap dat xac nhan "Dat lai ma PIN" tren HMI.
+// Chi dat co hieu cho networkTask - KHONG tu goi HTTPS o day (controlTask
+// khong duoc phep block).
+inline void mayapRequestCloudPinReset() {
+  __atomic_store_n(&MayapCloudInternal::pinResetRequestFlag, 1U, __ATOMIC_RELEASE);
+}
+
 // Chi duoc goi tu networkTask (khong blocking task khac; ban than no CO the
 // block chinh networkTask vai giay khi thuc su goi HTTPS, xem ghi chu dau file).
 inline void mayapCloudAlertUpdate(uint32_t now) {
@@ -680,6 +709,20 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
   if (registered) {
     serviceHeartbeat(now);
     drainOutbox(now);
+  }
+
+  // Dat lai PIN: fire-and-forget giong register/heartbeat (khong co man
+  // hinh rieng theo doi tien do tren HMI nhu "Doi Wi-Fi" - day chi la 1
+  // hanh dong don, ket qua xem qua log serial). Chi thu khi dang online,
+  // tranh HTTPClient.begin() bi treo lau luc mat mang.
+  if (__atomic_load_n(&pinResetRequestFlag, __ATOMIC_ACQUIRE)) {
+    __atomic_store_n(&pinResetRequestFlag, 0U, __ATOMIC_RELEASE);
+    const NetworkStatus netStatus = mayapGetNetworkStatus();
+    if (netStatus.requestedMode == ConnectivityMode::Online && netStatus.connected) {
+      sendResetPin();
+    } else {
+      mayapSerialPrintf(false, "[CLOUD] reset-pin bi huy: khong online luc yeu cau\n");
+    }
   }
 }
 
