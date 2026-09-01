@@ -185,16 +185,29 @@
 <button aria-label="Quét mã QR trên máy" class="scanBtn" id="scanQrBtn" type="button">▣</button>
 </div>
 </label>
-<div class="qrScanner" hidden id="qrScanner">
-<video autoplay="" id="qrVideo" muted="" playsinline=""></video>
-<p class="qrScannerHint" id="qrScannerHint">Đưa camera vào mã QR dán trên máy</p>
-<button class="ghost full" id="qrScannerCancel" type="button">Huỷ quét</button>
-</div>
 <label class="field"><span>Mã PIN thiết bị</span><input autocomplete="off" id="newDevicePin" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Mặc định 1111" required="" type="password"/></label>
 <p class="dialogNote">Quét mã QR dán trên máy để tự điền ID, hoặc nhập tay Device ID hiển thị trên ESP32, kèm mã PIN của máy (mặc định xuất xưởng là <b>1111</b>, đổi được trong Cài đặt). Tên hiển thị lấy theo tên đã đặt cho máy này - đổi trong Cài đặt sau khi thêm.</p>
 <button class="primary full" type="submit">Thêm và chọn thiết bị</button>
 <div class="deviceList" id="deviceList"></div>
 </form>
+<!-- Nam BEN TRONG <dialog>, khong phai ben ngoai: <dialog> mo bang
+     showModal() duoc trinh duyet day len "top layer", LUON nam tren moi
+     phan tu khac trong DOM thuong bat ke z-index - dat overlay ben ngoai
+     se khong bao gio hien len tren duoc (da xac nhan qua Playwright: nut
+     dong overlay bi chinh <dialog> chan click). -->
+<div class="qrScanOverlay" hidden="" id="qrScanOverlay" role="dialog">
+<video autoplay="" id="qrVideo" muted="" playsinline=""></video>
+<div class="qrScanTop"><button aria-label="Đóng quét mã" class="qrScanClose" id="qrScannerCancel" type="button">×</button></div>
+<div class="qrViewfinder">
+<span class="qrCorner qrCornerTl"></span><span class="qrCorner qrCornerTr"></span>
+<span class="qrCorner qrCornerBl"></span><span class="qrCorner qrCornerBr"></span>
+<span class="qrScanLine"></span>
+</div>
+<div class="qrScanFooter">
+<p>Đưa camera vào mã QR dán trên máy</p>
+<small>Máy tự nhận diện ngay khi mã lọt vào khung, không cần chụp.</small>
+</div>
+</div>
 </dialog>
 <dialog id="confirmDialog">
 <div class="confirmBody">

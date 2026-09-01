@@ -160,7 +160,7 @@
     const video = $('qrVideo');
     video.srcObject = qrStream;
     video.play().catch(() => {});
-    $('qrScanner').hidden = false;
+    $('qrScanOverlay').hidden = false;
     qrDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
 
     const tick = async () => {
@@ -195,8 +195,8 @@
     }
     const video = $('qrVideo');
     if (video) video.srcObject = null;
-    const panel = $('qrScanner');
-    if (panel) panel.hidden = true;
+    const overlay = $('qrScanOverlay');
+    if (overlay) overlay.hidden = true;
   }
 
   // Goi thang Cloudflare Worker cho nhom "danh tinh thiet bi" (PIN/ten hien
