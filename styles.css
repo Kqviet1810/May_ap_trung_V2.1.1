@@ -161,11 +161,40 @@ input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:n
 .fieldWithAction input{flex:1;min-width:0}
 .scanBtn{flex:0 0 52px;width:52px;height:52px;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--primarySoft);color:var(--primary2);font-size:22px;line-height:1;cursor:pointer;transition:filter var(--ease)}
 .scanBtn:hover{filter:brightness(.97)}
-/* Khung quet QR: video chiem toan bo be rong hop thoai, ty le vuong (may
-   anh sau QR de nam gon khung hinh), bo goc dong bo voi cac panel khac. */
-.qrScanner{display:flex;flex-direction:column;gap:10px;margin-top:-4px}
-.qrScanner video{width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--radius-md);background:#0c211d;border:1px solid var(--line)}
-.qrScannerHint{margin:0;text-align:center;color:var(--muted);font-size:var(--fs-xs)}
+/* Man quet QR toan man hinh (kieu Google Lens) - dat NGOAI <dialog>, tu no
+   la 1 lop phu rieng nen hop thoai "Them thiet bi" phia sau van giu nguyen
+   dang cu (chi them nut may anh canh o ID), khong bi bien dang khi bat
+   dau quet. Camera phu kin man hinh cho cam giac hien dai/"nhap vai" thay
+   vi 1 khung nho gian trong hop thoai; khung ngam 4 goc + vet quet dong
+   cho biet ro day la may quet dang hoat dong (khong phai man den do loi),
+   ghi chu duoi cung tranh cam giac trong rong o phan khong co gi de nhin. */
+.qrScanOverlay{position:fixed;inset:0;z-index:200;background:#0a1815;display:flex;flex-direction:column}
+/* .qrScanOverlay tu dat display:flex nen DE LEN hanh vi an mac dinh cua
+   thuoc tinh hidden (quy tac tac gia luon thang UA stylesheet trong CSS
+   cascade) - phai khai bao lai display:none tuong minh khi co [hidden],
+   neu khong element van "an" ve mat hinh anh (khong, thuc ra van HIEN vi
+   display:flex thang the) va van chan click xuyen qua no. Loi nay tung bi
+   phat hien qua Playwright: nut "+" bi che du overlay dang [hidden]. */
+.qrScanOverlay[hidden]{display:none}
+.qrScanOverlay video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.qrScanTop{position:relative;z-index:2;display:flex;justify-content:flex-end;padding:calc(14px + env(safe-area-inset-top)) 14px 0}
+.qrScanClose{width:40px;height:40px;border:0;border-radius:50%;background:#00000066;color:#fff;font-size:22px;line-height:1;cursor:pointer;backdrop-filter:blur(4px)}
+.qrScanClose:hover{background:#00000088}
+/* Khung ngam vuong o giua man, ty le theo min(vw,vh) de luon vuong du man
+   doc/ngang; 4 goc bo (giong may quet chuyen nghiep) thay vi 1 khung vien
+   lien tuc - de mat nguoi dung tu nhien don vao vung giua khung. */
+.qrViewfinder{position:relative;z-index:2;flex:1;margin:0 auto;width:min(72vw,72vh,320px);aspect-ratio:1;align-self:center}
+.qrCorner{position:absolute;width:34px;height:34px;border:3px solid #4be3c8}
+.qrCornerTl{top:0;left:0;border-right:0;border-bottom:0;border-top-left-radius:10px}
+.qrCornerTr{top:0;right:0;border-left:0;border-bottom:0;border-top-right-radius:10px}
+.qrCornerBl{bottom:0;left:0;border-right:0;border-top:0;border-bottom-left-radius:10px}
+.qrCornerBr{bottom:0;right:0;border-left:0;border-top:0;border-bottom-right-radius:10px}
+.qrScanLine{position:absolute;left:6%;right:6%;top:0;height:2px;background:linear-gradient(90deg,transparent,#4be3c8,transparent);box-shadow:0 0 8px #4be3c8;animation:qrScanMove 2.2s ease-in-out infinite}
+@keyframes qrScanMove{0%,100%{top:4%}50%{top:94%}}
+.qrScanFooter{position:relative;z-index:2;padding:18px 24px calc(28px + env(safe-area-inset-bottom));text-align:center;background:linear-gradient(180deg,transparent,#0a1815cc 40%)}
+.qrScanFooter p{margin:0;color:#fff;font-size:var(--fs-sm);font-weight:700}
+.qrScanFooter small{display:block;margin-top:6px;color:#b7ccc6;font-size:var(--fs-xs)}
+@media(prefers-reduced-motion:reduce){.qrScanLine{animation:none;top:50%}}
 /* Dropdown "Thiet bi" thay the <select> mac dinh (khong the bo goc/tao kieu
    phan list xo xuong tren hau het trinh duyet, dac biet iOS Safari) bang 1
    nut + panel tu ve, bo goc/do bong dong bo voi he thong thiet ke. <select>
