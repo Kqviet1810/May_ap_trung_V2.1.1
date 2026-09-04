@@ -125,17 +125,21 @@
     return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
   }
 
-  // Quet QR bang API BarcodeDetector co san cua trinh duyet (Chrome/Edge/
-  // WebView Android tu ban 83) thay vi tu viet/nhung mot thu vien giai ma QR
-  // rieng - do co san, chay bang phan cung, khong can bao tri. Trinh duyet
-  // chua ho tro (hau het Safari/iOS hien tai) se rot ve nhap ID bang tay o
-  // dung o input da co san, khong chan luong dung.
+  // Quet QR: uu tien API BarcodeDetector co san cua trinh duyet (Chrome/Edge/
+  // WebView Android tu ban 83) vi chay bang phan cung, khong can bao tri.
+  // Safari/iOS (moi phien ban trinh duyet tren iOS deu dung engine WebKit)
+  // khong co BarcodeDetector, nen fallback sang jsQR - thu vien JS thuan,
+  // nhung san (vendor/jsQR.min.js, khong qua CDN ngoai) - doc tung khung
+  // hinh video qua canvas roi tu giai ma. Chi khi ca hai deu khong dung duoc
+  // moi rot ve nhap ID bang tay o dung o input da co san.
   let qrStream = null;
   let qrDetector = null;
   let qrScanRaf = 0;
+  let qrCanvas = null;
+  let qrCanvasCtx = null;
 
   function qrScanSupported() {
-    return typeof window.BarcodeDetector === 'function';
+    return typeof window.BarcodeDetector === 'function' || typeof window.jsQR === 'function';
   }
 
   async function startQrScan() {
@@ -161,14 +165,32 @@
     video.srcObject = qrStream;
     video.play().catch(() => {});
     $('qrScanOverlay').hidden = false;
-    qrDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+
+    const useNative = typeof window.BarcodeDetector === 'function';
+    if (useNative) {
+      qrDetector = new window.BarcodeDetector({ formats: ['qr_code'] });
+    } else {
+      qrCanvas = document.createElement('canvas');
+      qrCanvasCtx = qrCanvas.getContext('2d', { willReadFrequently: true });
+    }
 
     const tick = async () => {
       if (!qrStream) return;
       try {
-        const codes = await qrDetector.detect(video);
-        for (const code of codes) {
-          const id = normalizeDeviceId(code.rawValue);
+        let rawValue = null;
+        if (useNative) {
+          const codes = await qrDetector.detect(video);
+          if (codes.length) rawValue = codes[0].rawValue;
+        } else if (video.videoWidth && video.videoHeight) {
+          qrCanvas.width = video.videoWidth;
+          qrCanvas.height = video.videoHeight;
+          qrCanvasCtx.drawImage(video, 0, 0, qrCanvas.width, qrCanvas.height);
+          const frame = qrCanvasCtx.getImageData(0, 0, qrCanvas.width, qrCanvas.height);
+          const result = window.jsQR(frame.data, frame.width, frame.height);
+          if (result) rawValue = result.data;
+        }
+        if (rawValue) {
+          const id = normalizeDeviceId(rawValue);
           if (DEVICE_ID_RE.test(id)) {
             $('newDeviceId').value = id;
             stopQrScan();
@@ -189,6 +211,8 @@
     if (qrScanRaf) cancelAnimationFrame(qrScanRaf);
     qrScanRaf = 0;
     qrDetector = null;
+    qrCanvas = null;
+    qrCanvasCtx = null;
     if (qrStream) {
       qrStream.getTracks().forEach((track) => track.stop());
       qrStream = null;
