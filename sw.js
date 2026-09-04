@@ -1,7 +1,8 @@
 'use strict';
-const CACHE = 'mayap-web-v11.3.0';
+const CACHE = 'mayap-web-v11.4.0';
 const APP_SHELL = [
   './', './index.html', './styles.css', './app.js', './push.js', './manifest.webmanifest',
+  './vendor/jsQR.min.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/badge-72.png'
 ];
 self.addEventListener('install', (event) => {
