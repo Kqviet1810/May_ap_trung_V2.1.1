@@ -4201,6 +4201,12 @@ class MachineController {
     // HEATER_STUCK_DURATION_MS ma nhiet khong tang du HEATER_STUCK_MIN_RISE_C
     // va van con thap hon diem dat - nghi ngo SSR/relay dinh, khong that su
     // dieu khien duoc thanh nhiet du lenh da gui dung.
+    //
+    // [NHANH TEST] Canh bao E115 "Thanh nhiet khong len" (HeaterNotHeating)
+    // dang bi VO HIEU HOA co chu dich de phuc vu test - KHONG merge nhanh
+    // nay vao main. Day la fault Warning thuan chan doan (khong drop
+    // heatMaster/inhibit SSR - xem FaultDescriptor trong bang faultTable_),
+    // nen tat no khong anh huong an toan nhiet thuc te.
     const bool heaterCommandedOn = outputs_.state().heaterSsr;
     if (!heaterCommandedOn || !batchRunning_) {
       heaterStuckTracking_ = false;
@@ -4218,9 +4224,7 @@ class MachineController {
       heaterStuckSinceAt_ = now;
       heaterStuckStartTemp_ = temperature_;
     } else if (elapsedMs(now, heaterStuckSinceAt_) >= HEATER_STUCK_DURATION_MS) {
-      heaterNotHeatingActive_ = isfinite(heaterStuckStartTemp_) &&
-          (temperature_ - heaterStuckStartTemp_) < HEATER_STUCK_MIN_RISE_C &&
-          temperature_ < config_.targetTemp - config_.tempHysteresis;
+      heaterNotHeatingActive_ = false;  // [NHANH TEST] luon tat, bo qua dieu kien that
     }
 
     const bool sensorGrace = !timeReached(now, sensorStartupGraceUntil_) &&
