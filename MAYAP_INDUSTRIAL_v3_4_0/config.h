@@ -486,7 +486,14 @@ constexpr uint32_t OTA_TASK_PERIOD_MS = 30UL;
 constexpr size_t CONTROL_TASK_STACK_BYTES = 8192U;
 constexpr size_t HMI_TASK_STACK_BYTES = 10240U;
 constexpr size_t SUPERVISOR_TASK_STACK_BYTES = 4096U;
-constexpr size_t OTA_TASK_STACK_BYTES = 6144U;
+// Tang tu 6144 len 12288: luc dat 6144, otaTask moi chi chay ArduinoOTA (nap
+// qua Arduino IDE). Sau khi them ota_web_update.h (cap nhat firmware tu xa),
+// task nay CON chay them WiFiClientSecure+HTTPClient (TLS toi Cloudflare) +
+// buffer 1KB doc firmware + mbedtls_sha256_context cung luc voi ArduinoOTA -
+// tuong duong hoac nang hon networkTask nhung truoc do chi duoc 1 nua stack
+// cua no. Dat bang networkTask de du du phong, tranh tran stack (co the la
+// nguyen nhan gay treo/khoi dong lai lien tuc da gap thuc te).
+constexpr size_t OTA_TASK_STACK_BYTES = 12288U;
 // Tang tu 6144 len 12288: networkTask gio con chay them MQTT client
 // (PubSubClient) + ArduinoJson cho lop web realtime (realtime_link.h), dung
 // buffer JSON tren stack toi da ~1.5KB (khop config/set - payload lon nhat,
