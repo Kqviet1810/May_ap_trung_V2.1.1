@@ -29,7 +29,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.4.0";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.5.0";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
 constexpr char HMI_FIRMWARE_VERSION[] = "3.6.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
