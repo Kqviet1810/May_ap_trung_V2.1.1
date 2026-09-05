@@ -522,13 +522,14 @@ static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) =
 // "Doi wifi" chi hien khi Online) qua visibleGroupExtraAt() de ra danh sach
 // LIEN TUC hien thi tren man hinh. (groupExtraSlotVisible/visibleGroupExtraAt/
 // groupVisibleExtraCount dat o DUOI, sau khai bao currentConfig - xem do.)
-enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode, CloudPinReset };
+enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode, CloudPinReset, FirmwareWebUpdate };
 GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
   if (group == 3 && slot == 0) return GroupExtra::TurnStats;      // DAO TRUNG -> "So lan dao"
   if (group == 4 && slot == 0) return GroupExtra::ConnectionInfo; // KET NOI -> "Thong tin ket noi"
   if (group == 4 && slot == 1) return GroupExtra::QrCode;         // KET NOI -> "Ma QR ID"
   if (group == 4 && slot == 2) return GroupExtra::WifiChange;     // KET NOI -> "Doi wifi"
   if (group == 4 && slot == 3) return GroupExtra::CloudPinReset;  // KET NOI -> "Dat lai ma PIN"
+  if (group == 4 && slot == 4) return GroupExtra::FirmwareWebUpdate; // KET NOI -> "Cap nhat firmware" (chi hien khi co ban moi)
   return GroupExtra::None;
 }
 
@@ -689,7 +690,7 @@ enum class View : uint8_t {
   EventLog, Alarm, TestMode, TestSummary, WifiChange, ConnectionInfo, QrCode
 };
 
-enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset };
+enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset, FirmwareWebApply };
 
 // Prototype thu cong: Arduino IDE tu sinh prototype cho ham trong .ino.
 // Neu ham dung enum/struct tuy chinh, prototype tu dong co the bi chen
@@ -711,11 +712,18 @@ bool groupExtraSlotVisible(GroupExtra extra) {
   if (extra == GroupExtra::WifiChange || extra == GroupExtra::CloudPinReset) {
     return currentConfig.connectivityMode == ConnectivityMode::Online;
   }
+  // Chi hien dong nay khi THAT SU co ban moi hon dang cho xac nhan - tranh
+  // choan cho danh sach cai dat luc binh thuong (da kiem tra dinh ky ngam,
+  // xem mayapFirmwareWebUpdate() trong ota_web_update.h).
+  if (extra == GroupExtra::FirmwareWebUpdate) {
+    return currentConfig.connectivityMode == ConnectivityMode::Online &&
+           mayapFirmwareWebStatus().available;
+  }
   return extra != GroupExtra::None;
 }
 GroupExtra visibleGroupExtraAt(uint8_t group, uint8_t visibleIdx) {
   uint8_t seen = 0;
-  for (uint8_t slot = 0; slot < 4U; ++slot) {
+  for (uint8_t slot = 0; slot < 5U; ++slot) {
     const GroupExtra extra = groupExtraSlot(group, slot);
     if (!groupExtraSlotVisible(extra)) continue;
     if (seen == visibleIdx) return extra;
@@ -903,6 +911,7 @@ const char *groupExtraLabelFor(GroupExtra extra) {
     case GroupExtra::ConnectionInfo: return "Thong tin ket noi";
     case GroupExtra::QrCode: return "Ma QR ID";
     case GroupExtra::CloudPinReset: return "Dat lai ma PIN";
+    case GroupExtra::FirmwareWebUpdate: return "Cap nhat firmware";
     default: return "";
   }
 }
@@ -1316,6 +1325,27 @@ void openCloudPinResetConfirm() {
     return;
   }
   confirmAction = ConfirmAction::CloudPinReset;
+  confirmReturnView = View::SettingList;
+  confirmYes = false;
+  clearToast();
+  armInputGuard();
+  dirty = true;
+}
+
+// Cap nhat firmware TU XA (ota_web_update.h) - CHI mo duoc khi da thuc su co
+// ban moi dang cho (dong nay cung chi hien tren danh sach khi co, xem
+// groupExtraSlotVisible()). Bam CO moi thuc su tai ve/flash - xem
+// executeConfirmation().
+void openFirmwareWebConfirm() {
+  if (currentConfig.connectivityMode != ConnectivityMode::Online) {
+    showToast("CHI DUNG DUOC KHI ONLINE", true);
+    return;
+  }
+  if (!mayapFirmwareWebStatus().available) {
+    showToast("CHUA CO BAN CAP NHAT MOI", true);
+    return;
+  }
+  confirmAction = ConfirmAction::FirmwareWebApply;
   confirmReturnView = View::SettingList;
   confirmYes = false;
   clearToast();
@@ -1888,6 +1918,11 @@ void executeConfirmation(bool accepted) {
         showToast("DA GUI YEU CAU DAT LAI PIN");
       }
       view = returnView;
+    } else if (action == ConfirmAction::FirmwareWebApply) {
+      if (queueCommand(HmiCommandType::FirmwareWebApply)) {
+        showToast("DANG TAI FIRMWARE...");
+      }
+      view = returnView;
     }
   } else {
     if (action == ConfirmAction::ResumeBatch) {
@@ -2011,6 +2046,8 @@ void handleInput() {
             dirty = true;
           } else if (extra == GroupExtra::CloudPinReset) {
             openCloudPinResetConfirm();
+          } else if (extra == GroupExtra::FirmwareWebUpdate) {
+            openFirmwareWebConfirm();
           }
         } else {
           exitSettingGroup();
@@ -3175,6 +3212,11 @@ void drawConfirmScreen() {
   } else if (confirmAction == ConfirmAction::CloudPinReset) {
     line1 = "DAT LAI MA PIN WEB";
     line2 = "VE MAC DINH 1111?";
+  } else if (confirmAction == ConfirmAction::FirmwareWebApply) {
+    static char fwVerLine[24];
+    snprintf(fwVerLine, sizeof(fwVerLine), "LEN v%s?", mayapFirmwareWebStatus().version);
+    line1 = "CAP NHAT FIRMWARE";
+    line2 = fwVerLine;
   } else if (currentRuntime.batchRunning) {
     line1 = "DUNG ME DANG CHAY?";
   } else {

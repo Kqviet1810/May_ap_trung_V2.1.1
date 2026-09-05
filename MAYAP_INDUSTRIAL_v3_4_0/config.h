@@ -138,6 +138,10 @@ constexpr uint32_t CLOUD_CHECK_INTERVAL_MS = 500UL;
 constexpr uint32_t CLOUD_MIN_SEND_GAP_MS = 3000UL;
 constexpr uint32_t CLOUD_HTTP_TIMEOUT_MS = 8000UL;
 constexpr uint32_t CLOUD_HTTP_CONNECT_TIMEOUT_MS = 5000UL;
+// Cap nhat firmware TU XA qua Cloudflare (ota_web_update.h) - nhip tu kiem
+// tra ban moi khi dang ONLINE. Khong can nhanh: nguoi van hanh van phai tu
+// tay xac nhan tren HMI moi thuc su tai ve/nap, day chi la "co gi moi khong".
+constexpr uint32_t FIRMWARE_CHECK_INTERVAL_MS = 6UL * 60UL * 60UL * 1000UL;  // 6 gio
 // Nhip bao "con song" len Worker (cap nhat last_seen/status trong D1). Ngoai
 // hien thi trang thai lien ket tren web, day cung la co so de Worker phat
 // hien mat dien/mat mang (xem cloudflare/src/index.js::checkDeviceConnectivity,
@@ -894,7 +898,7 @@ enum class HmiCommandType : uint8_t {
   None, BatchStart, BatchStop,
   AlarmAck, AutoTuneStart, ResumeYes, ResumeNo,
   TestModeEnter, TestModeExit, TestOutputPulse, TestOutputStop, TestLimitStart, TestLimitCancel,
-  WifiPortalStart, WifiPortalCancel, CloudPinReset
+  WifiPortalStart, WifiPortalCancel, CloudPinReset, FirmwareWebApply
 };
 struct HmiCommand {
   uint32_t id = 0;

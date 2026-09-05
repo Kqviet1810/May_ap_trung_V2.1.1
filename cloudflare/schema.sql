@@ -78,3 +78,21 @@ CREATE TABLE IF NOT EXISTS alarm_log (
   created_at          INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_alarm_log_device ON alarm_log(device_id, created_at DESC);
+
+-- Cap nhat firmware TU XA (ESP32 tu tai qua HTTPS, khac han nap qua Arduino
+-- IDE cung mang LAN) - xem ota_web_update.h. File .bin THUC SU luu trong R2
+-- (binding FIRMWARE_BUCKET trong wrangler.toml), bang nay chi luu METADATA.
+-- published=0 luc moi upload (ban nhap, thiet bi chua thay) - admin phai
+-- goi rieng /api/admin/firmware/publish de "cong bo" 1 phien ban lam ban
+-- moi nhat (chi 1 phien ban duoc published=1 tai 1 thoi diem).
+CREATE TABLE IF NOT EXISTS firmware_releases (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  version       TEXT NOT NULL UNIQUE,
+  r2_key        TEXT NOT NULL,
+  sha256        TEXT NOT NULL,
+  size          INTEGER NOT NULL,
+  notes         TEXT NOT NULL DEFAULT '',
+  published     INTEGER NOT NULL DEFAULT 0,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_firmware_releases_published ON firmware_releases(published, created_at DESC);

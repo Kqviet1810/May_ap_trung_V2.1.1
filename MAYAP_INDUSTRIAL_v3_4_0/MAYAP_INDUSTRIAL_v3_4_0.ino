@@ -26,6 +26,7 @@ void mayapI2cUnlock() {
 
 #include "network_service.h"
 #include "ota_update.h"
+#include "ota_web_update.h"
 #include "hmi.h"
 #include "realtime_link.h"
 #include "cloud_alert_link.h"
@@ -173,7 +174,11 @@ void otaTask(void *parameter) {
   // dang blocking bao lau boi HTTP(S)/MQTT.
   TickType_t lastWake = xTaskGetTickCount();
   for (;;) {
-    mayapOtaUpdate(millis());
+    const uint32_t now = millis();
+    mayapOtaUpdate(now);
+    // Cap nhat firmware TU XA qua Cloudflare (ota_web_update.h) - cung task
+    // vi ca hai deu la "dang ghi flash", tu nhien loai tru lan nhau.
+    mayapFirmwareWebUpdate(now);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }
 }
