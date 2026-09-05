@@ -8,8 +8,11 @@
 // hien qua mDNS thay vi cong USB) - tien loi khi may da lap dat kin, kho thao
 // vo de cam lai cap USB moi lan can cap nhat. Chi mo dich vu khi dang ONLINE
 // va da ket noi Wi-Fi that (dua vao mayapGetNetworkStatus() cua network_
-// service.h, KHONG tu mo Wi-Fi rieng) - goi mayapOtaUpdate() moi chu ky tu
-// networkTask, cung mot vi tri voi mayapWebLinkUpdate/mayapCloudAlertUpdate.
+// service.h, KHONG tu mo Wi-Fi rieng) - goi mayapOtaUpdate() tu otaTask
+// RIENG (xem .ino), KHONG chung voi networkTask: networkTask co the blocking
+// toi vai giay moi lan MQTT/Cloud Push lam viec, neu OTA nam chung vong lap
+// se co luc khong duoc ArduinoOTA.handle() phan hoi kip, gay loi "No response
+// from device" phia Arduino IDE (da gap thuc te, xem lich su sua doi).
 //
 // Bat buoc mat khau (OTA_PASSWORD trong config.h, dat qua build flag
 // MAYAP_OTA_PASSWORD): de trong se TU DONG TAT ca tinh nang nay, tranh mo mot
