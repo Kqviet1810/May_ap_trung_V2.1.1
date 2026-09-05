@@ -53,6 +53,11 @@ static StackType_t networkTaskStack[
     (NETWORK_TASK_STACK_BYTES + sizeof(StackType_t) - 1U) / sizeof(StackType_t)];
 static TaskHandle_t networkTaskHandle = nullptr;
 
+static StaticTask_t otaTaskTcb;
+static StackType_t otaTaskStack[
+    (OTA_TASK_STACK_BYTES + sizeof(StackType_t) - 1U) / sizeof(StackType_t)];
+static TaskHandle_t otaTaskHandle = nullptr;
+
 static volatile uint32_t controlHeartbeatMs = 0U;
 static volatile uint32_t hmiHeartbeatMs = 0U;
 static volatile uint32_t controlLastCycleUs = 0U;
@@ -67,6 +72,8 @@ static_assert(sizeof(supervisorTaskStack) >= SUPERVISOR_TASK_STACK_BYTES,
               "Supervisor stack buffer qua nho");
 static_assert(sizeof(networkTaskStack) >= NETWORK_TASK_STACK_BYTES,
               "Network stack buffer qua nho");
+static_assert(sizeof(otaTaskStack) >= OTA_TASK_STACK_BYTES,
+              "OTA stack buffer qua nho");
 
  static void fatalRestart(const char *stage, esp_err_t error) {
   mayapLatchSystemTrip();
@@ -149,19 +156,25 @@ void networkTask(void *parameter) {
   for (;;) {
     const uint32_t now = millis();
     mayapNetworkUpdate(now);
-    // OTA duoc kiem tra TRUOC MQTT web/Cloud Push: hai lop kia goi HTTP(S)
-    // blocking (cloud_alert_link.h co the treo toi CLOUD_HTTP_TIMEOUT_MS=8s
-    // moi lan heartbeat/canh bao) - neu OTA xep hang SAU, loi moi OTA gui
-    // dung luc do se khong duoc ArduinoOTA.handle() phan hoi kip, host bao
-    // "No response from device". Dat OTA len dau dam bao no duoc phuc vu it
-    // nhat 1 lan moi NETWORK_TASK_PERIOD_MS, khong phu thuoc cac lop sau.
-    mayapOtaUpdate(now);
     // Lop web realtime (MQTT) va lop Cloud Push chi duoc phep hoat dong tren
     // networkTask (I/O mang); xem ghi chu dau realtime_link.h/cloud_alert_link.h.
     // Hai lop nay hoan toan doc lap voi nhau - mot ben loi khong lam hong ben kia.
     mayapWebLinkUpdate(now);
     mayapCloudAlertUpdate(now);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(NETWORK_TASK_PERIOD_MS));
+  }
+}
+
+void otaTask(void *parameter) {
+  (void)parameter;
+  // Task RIENG, KHONG dung chung networkTask - xem giai thich day du tai
+  // dinh nghia OTA_TASK_PERIOD_MS trong config.h. Nhip nhanh (30ms) de
+  // ArduinoOTA.handle() luon san sang phan hoi dung gio bat ke networkTask
+  // dang blocking bao lau boi HTTP(S)/MQTT.
+  TickType_t lastWake = xTaskGetTickCount();
+  for (;;) {
+    mayapOtaUpdate(millis());
+    vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }
 }
 
@@ -275,7 +288,14 @@ void setup() {
       networkTask, "mayap_network", sizeof(networkTaskStack), nullptr, 1,
       networkTaskStack, &networkTaskTcb, 0);
 
+  // Cung core 0 voi hmi/network (core 1 danh rieng cho dieu khien an toan) -
+  // xem giai thich tai OTA_TASK_PERIOD_MS/otaTask ve ly do can task rieng.
+  otaTaskHandle = xTaskCreateStaticPinnedToCore(
+      otaTask, "mayap_ota", sizeof(otaTaskStack), nullptr, 1,
+      otaTaskStack, &otaTaskTcb, 0);
+
   if (!controlTaskHandle || !hmiTaskHandle || !supervisorTaskHandle ||
+      !otaTaskHandle ||
       !networkTaskHandle) {
     fatalRestart("TASK CREATE", ESP_ERR_NO_MEM);
   }

@@ -469,10 +469,20 @@ constexpr uint32_t CONTROL_TASK_PERIOD_MS = 5UL;
 constexpr uint32_t HMI_TASK_PERIOD_MS = 5UL;
 constexpr uint32_t SUPERVISOR_TASK_PERIOD_MS = 50UL;
 constexpr uint32_t NETWORK_TASK_PERIOD_MS = 250UL;
+// OTA can task RIENG, KHONG dung chung networkTask: cloud_alert_link.h goi
+// HTTP(S) blocking (toi CLOUD_HTTP_TIMEOUT_MS=8s moi lan) tren networkTask -
+// neu ArduinoOTA.handle() nam chung vong lap, loi moi OTA den dung luc do se
+// khong duoc phan hoi kip (da gap thuc te: "No response from device"). Task
+// rieng chay nhip nhanh (30ms) dam bao OTA luon duoc phuc vu dung gio bat ke
+// networkTask dang lam gi - HTTPClient khi cho phan hoi mang van nhuong CPU
+// cho task khac (khong "chiem cung"), nen cach nay loai bo hoan toan rui ro
+// tranh chap, khong chi giam xac suat nhu xep OTA dau vong lap networkTask.
+constexpr uint32_t OTA_TASK_PERIOD_MS = 30UL;
 // ESP-IDF tinh stack task theo byte. Tat ca buffer cap phat tinh, khong phan manh heap.
 constexpr size_t CONTROL_TASK_STACK_BYTES = 8192U;
 constexpr size_t HMI_TASK_STACK_BYTES = 10240U;
 constexpr size_t SUPERVISOR_TASK_STACK_BYTES = 4096U;
+constexpr size_t OTA_TASK_STACK_BYTES = 6144U;
 // Tang tu 6144 len 12288: networkTask gio con chay them MQTT client
 // (PubSubClient) + ArduinoJson cho lop web realtime (realtime_link.h), dung
 // buffer JSON tren stack toi da ~1.5KB (khop config/set - payload lon nhat,
