@@ -37,6 +37,15 @@ on:
       - 'v*.*.*'
   workflow_dispatch: {}
 
+# Bat buoc phai co contents: write thi buoc "Tao GitHub Release" (softprops/
+# action-gh-release) moi tao duoc Release - mac dinh GITHUB_TOKEN cua repo
+# nay chi co quyen doc (Settings > Actions > Workflow permissions), thieu
+# khai bao nay se bi GitHub tra ve loi 403 "Resource not accessible by
+# integration" ngay khi vua goi tao Release (da gap thuc te o lan chay tag
+# v3.5.0 dau tien).
+permissions:
+  contents: write
+
 env:
   MAYAP_FQBN: esp32:esp32:esp32s3:PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
 
