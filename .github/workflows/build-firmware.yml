@@ -57,6 +57,9 @@ jobs:
       - name: Cai thu vien (U8g2, PubSubClient, ArduinoJson)
         run: arduino-cli lib install U8g2 PubSubClient ArduinoJson
 
+      - name: (Chan doan) Liet ke toan bo tuy chon board hop le
+        run: arduino-cli board details -b esp32:esp32:esp32s3 --full
+
       - name: Bien dich firmware
         run: |
           arduino-cli compile \
