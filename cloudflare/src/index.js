@@ -1,4 +1,4 @@
-import { hashDeviceKey, verifyDeviceKey, randomToken, isValidDeviceId } from './auth.js';
+import { hashDeviceKey, verifyDeviceKey, timingSafeEqual, randomToken, isValidDeviceId } from './auth.js';
 import {
   getDeviceByDeviceId,
   insertDevice,
@@ -16,6 +16,11 @@ import {
   getAlarmState,
   upsertAlarmState,
   insertAlarmLog,
+  insertFirmwareRelease,
+  getFirmwareReleaseByVersion,
+  listFirmwareReleases,
+  getLatestPublishedFirmware,
+  setFirmwarePublished,
 } from './db.js';
 import { sendWebPush, buildNotificationPayload } from './push.js';
 
@@ -36,7 +41,9 @@ function corsHeaders(env) {
   return {
     'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    // Authorization: trang admin-firmware.html gui Bearer token qua header nay
+    // khi upload/publish firmware - xem handleFirmwareUpload/handleFirmwarePublish.
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -359,6 +366,157 @@ async function handleChangePin(request, env) {
   return json(env, { success: true });
 }
 
+// ==================== Cap nhat firmware tu xa (xem ota_web_update.h) ====================
+// Nhom admin/* CHI danh cho ban (chu he thong) qua trang rieng khong cong khai
+// admin-firmware.html - xac thuc bang 1 token bi mat (ADMIN_UPLOAD_TOKEN, dat
+// qua `wrangler secret put`), KHAC HAN device_key/web_pin cua tung thiet bi.
+// Ai co token nay day duoc firmware len MOI thiet bi dang chay, nen tuyet
+// doi khong chia se/commit gia tri that cua no.
+
+function isAdminAuthorized(request, env) {
+  const auth = request.headers.get('Authorization') || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  return Boolean(env.ADMIN_UPLOAD_TOKEN) && timingSafeEqual(token, env.ADMIN_UPLOAD_TOKEN);
+}
+
+function isValidFirmwareVersion(version) {
+  return typeof version === 'string' && /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(version);
+}
+
+function toHexDigest(buffer) {
+  return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// So sanh 2 phien ban dang "X.Y.Z" - duong neu 'a' MOI HON 'b' (giong ham
+// cung ten phia firmware, xem mayapFirmwareVersionNewer trong ota_web_update.h).
+function isFirmwareVersionNewer(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i += 1) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return false;
+}
+
+// -------------------------- Endpoint (admin): tai firmware moi len R2 --------------------------
+// Body la BYTE THO cua file .bin (khong phai JSON) - version/notes truyen qua query string.
+async function handleFirmwareUpload(request, env) {
+  if (!isAdminAuthorized(request, env)) {
+    return json(env, { success: false, error: 'khong co quyen' }, 401);
+  }
+  const url = new URL(request.url);
+  const version = String(url.searchParams.get('version') || '').trim();
+  const notes = String(url.searchParams.get('notes') || '').slice(0, 500);
+  if (!isValidFirmwareVersion(version)) {
+    return json(env, { success: false, error: 'version phai dang X.Y.Z (vi du 3.5.0)' }, 400);
+  }
+  const existing = await getFirmwareReleaseByVersion(env.DB, version);
+  if (existing) {
+    return json(env, { success: false, error: 'phien ban nay da ton tai' }, 409);
+  }
+
+  const body = await request.arrayBuffer();
+  if (!body || body.byteLength === 0) {
+    return json(env, { success: false, error: 'thieu du lieu file .bin' }, 400);
+  }
+  // Tran an toan hop ly: firmware ESP32-S3 thuc te ~1-3MB, gioi han rong 8MB
+  // (dung 1 vung flash toi da) de tranh upload nham file sai/qua lon.
+  if (body.byteLength > 8 * 1024 * 1024) {
+    return json(env, { success: false, error: 'file qua lon (toi da 8MB)' }, 400);
+  }
+
+  const digest = await crypto.subtle.digest('SHA-256', body);
+  const sha256 = toHexDigest(digest);
+  const r2Key = `firmware/${version}.bin`;
+  await env.FIRMWARE_BUCKET.put(r2Key, body);
+  await insertFirmwareRelease(env.DB, {
+    version, r2Key, sha256, size: body.byteLength, notes, now: Date.now(),
+  });
+  return json(env, { success: true, version, sha256, size: body.byteLength });
+}
+
+// -------------------------- Endpoint (admin): danh sach cac ban da upload --------------------------
+async function handleFirmwareList(request, env) {
+  if (!isAdminAuthorized(request, env)) {
+    return json(env, { success: false, error: 'khong co quyen' }, 401);
+  }
+  const releases = await listFirmwareReleases(env.DB);
+  return json(env, { success: true, releases });
+}
+
+// -------------------------- Endpoint (admin): cong bo 1 ban lam "moi nhat" --------------------------
+async function handleFirmwarePublish(request, env) {
+  if (!isAdminAuthorized(request, env)) {
+    return json(env, { success: false, error: 'khong co quyen' }, 401);
+  }
+  const body = await readJson(request);
+  const version = String(body?.version || '').trim();
+  const release = await getFirmwareReleaseByVersion(env.DB, version);
+  if (!release) return json(env, { success: false, error: 'khong tim thay phien ban nay' }, 404);
+  await setFirmwarePublished(env.DB, version);
+  return json(env, { success: true, version });
+}
+
+// -------------------------- Endpoint (thiet bi): kiem tra ban moi --------------------------
+async function handleFirmwareCheck(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const deviceKey = String(body?.device_key || '');
+  const currentVersion = String(body?.current_version || '');
+  if (!isValidDeviceId(deviceId)) return json(env, { success: false, error: 'device_id khong hop le' }, 400);
+
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
+  const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, device.device_key_hash);
+  if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
+
+  const latest = await getLatestPublishedFirmware(env.DB);
+  if (!latest || !isFirmwareVersionNewer(latest.version, currentVersion)) {
+    return json(env, { success: true, update_available: false });
+  }
+  return json(env, {
+    success: true,
+    update_available: true,
+    version: latest.version,
+    sha256: latest.sha256,
+    size: latest.size,
+    notes: latest.notes,
+  });
+}
+
+// -------------------------- Endpoint (thiet bi): tai file firmware --------------------------
+// Xac thuc qua HEADER (khong phai query string) de device_key khong lo qua
+// access log/URL history - X-Device-Id/X-Device-Key, xem ota_web_update.h.
+async function handleFirmwareDownload(env, version, request) {
+  const deviceId = String(request.headers.get('X-Device-Id') || '').trim();
+  const deviceKey = String(request.headers.get('X-Device-Key') || '');
+  if (!isValidDeviceId(deviceId)) return json(env, { success: false, error: 'device_id khong hop le' }, 400);
+
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
+  const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, device.device_key_hash);
+  if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
+
+  // Chi cho tai ban DA CONG BO (published=1) - ban nhap dang cho admin duyet
+  // khong duoc phat tan ra thiet bi that du biet dung version.
+  const release = await getFirmwareReleaseByVersion(env.DB, version);
+  if (!release || release.published !== 1) {
+    return json(env, { success: false, error: 'phien ban khong ton tai hoac chua cong bo' }, 404);
+  }
+  const object = await env.FIRMWARE_BUCKET.get(release.r2_key);
+  if (!object) return json(env, { success: false, error: 'thieu file tren kho luu tru' }, 500);
+
+  return new Response(object.body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(release.size),
+      'X-Firmware-Sha256': release.sha256,
+    },
+  });
+}
+
 // -------------------------- Endpoint: trang thai lien ket cua 1 thiet bi --------------------------
 async function handleDeviceStatus(env, deviceId) {
   const device = await getDeviceByDeviceId(env.DB, deviceId);
@@ -502,6 +660,24 @@ export default {
       const statusMatch = url.pathname.match(/^\/api\/device\/([A-Za-z0-9_-]{3,40})\/status$/);
       if (statusMatch && request.method === 'GET') {
         return await handleDeviceStatus(env, statusMatch[1]);
+      }
+
+      // ---- Cap nhat firmware tu xa (xem ota_web_update.h + admin-firmware.html) ----
+      if (url.pathname === '/api/admin/firmware/upload' && request.method === 'POST') {
+        return await handleFirmwareUpload(request, env);
+      }
+      if (url.pathname === '/api/admin/firmware/list' && request.method === 'GET') {
+        return await handleFirmwareList(request, env);
+      }
+      if (url.pathname === '/api/admin/firmware/publish' && request.method === 'POST') {
+        return await handleFirmwarePublish(request, env);
+      }
+      if (url.pathname === '/api/firmware/check' && request.method === 'POST') {
+        return await handleFirmwareCheck(request, env);
+      }
+      const firmwareDownloadMatch = url.pathname.match(/^\/api\/firmware\/download\/(\d{1,4}\.\d{1,4}\.\d{1,4})$/);
+      if (firmwareDownloadMatch && request.method === 'GET') {
+        return await handleFirmwareDownload(env, firmwareDownloadMatch[1], request);
       }
 
       return json(env, { success: false, error: 'not found' }, 404);

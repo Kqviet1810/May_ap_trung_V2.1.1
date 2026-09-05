@@ -62,10 +62,13 @@ Toàn bộ giao diện, log và tài liệu trong dự án đều bằng **tiế
 │   ├── hmi.h                         # Màn hình LCD + encoder (giao diện tại máy)
 │   ├── network_service.h             # WiFi + captive portal đổi mạng
 │   ├── realtime_link.h               # Đồng bộ MQTT với dashboard
-│   └── cloud_alert_link.h            # Gửi cảnh báo lên Cloudflare Worker
+│   ├── cloud_alert_link.h            # Gửi cảnh báo lên Cloudflare Worker
+│   ├── ota_update.h                  # Nạp firmware qua Wi-Fi bằng Arduino IDE (cùng mạng LAN)
+│   └── ota_web_update.h              # Cập nhật firmware từ xa qua Cloudflare (xem admin-firmware.html)
 │
 ├── index.html / app.js / styles.css  # Web Dashboard (PWA, chạy tĩnh trên GitHub Pages)
 ├── setup.html                        # Trang bật Web Push qua quét QR trên máy
+├── admin-firmware.html               # Trang riêng (không trong menu) để đẩy firmware mới qua Cloudflare
 ├── push.js / sw.js                   # Đăng ký Web Push + Service Worker
 ├── config.js                         # Cấu hình broker MQTT + Worker cho môi trường test
 ├── config.production.example.js      # Mẫu cấu hình cho triển khai thương mại
@@ -99,6 +102,10 @@ Firmware viết cho **Arduino IDE** (không dùng PlatformIO):
 2. Chuyển máy sang **ONLINE** và chờ kết nối Wi-Fi thành công (xem màn KẾT NỐI trên HMI).
 3. Mở lại Arduino IDE trên máy tính **cùng mạng LAN**: **Tools > Port** sẽ xuất hiện thêm mục mạng dạng `mayap-industrial at <IP> (ESP32S3 Dev Module)` (cần Bonjour/mDNS trên máy tính - Windows cài kèm iTunes/Bonjour Print Services, macOS/Linux có sẵn). Chọn cổng đó rồi bấm Upload như bình thường, IDE sẽ hỏi mật khẩu OTA.
 4. Khuyến nghị chỉ nạp OTA lúc máy **đang rảnh** (ngoài mẻ ấp): lúc ghi flash, cả hai lõi CPU tạm dừng vài mili giây mỗi lần - vô hại với máy rảnh, nhưng nên tránh trùng lúc đang kiểm soát nhiệt sát ngưỡng.
+
+**Cập nhật firmware TỪ XA qua Cloudflare (không cần cùng mạng LAN)** - xem `ota_web_update.h`:
+
+Khác với OTA-Arduino-IDE ở trên (bắt buộc cùng Wi-Fi), cách này đẩy firmware qua Internet - dùng khi máy đã lắp đặt ở xa, không tiện mang máy tính đến tận nơi. Máy tự kiểm tra bản mới mỗi vài giờ khi đang ONLINE, hiện mục **"Cập nhật firmware"** trên HMI (trong KẾT NỐI) khi có bản mới - người vận hành phải tự xác nhận trên máy mới thực sự tải về/nạp (không tự động). Thiết lập backend (tạo R2 bucket, đặt token quản trị) xem [`cloudflare/README.md`](cloudflare/README.md#cập-nhật-firmware-từ-xa-ota-qua-web); trang tải bản mới lên là [`admin-firmware.html`](admin-firmware.html).
 
 ### 2. Chạy Web Dashboard
 

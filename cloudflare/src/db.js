@@ -160,3 +160,39 @@ export async function insertAlarmLog(db, entry) {
     )
     .run();
 }
+
+// -------------------------- Cap nhat firmware tu xa (xem index.js) --------------------------
+
+export async function insertFirmwareRelease(db, { version, r2Key, sha256, size, notes, now }) {
+  await db
+    .prepare(
+      `INSERT INTO firmware_releases (version, r2_key, sha256, size, notes, published, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)`
+    )
+    .bind(version, r2Key, sha256, size, notes || '', now)
+    .run();
+}
+
+export async function getFirmwareReleaseByVersion(db, version) {
+  return db.prepare('SELECT * FROM firmware_releases WHERE version = ?1').bind(version).first();
+}
+
+export async function listFirmwareReleases(db) {
+  const { results } = await db
+    .prepare('SELECT * FROM firmware_releases ORDER BY created_at DESC LIMIT 50')
+    .all();
+  return results || [];
+}
+
+export async function getLatestPublishedFirmware(db) {
+  return db
+    .prepare('SELECT * FROM firmware_releases WHERE published = 1 ORDER BY created_at DESC LIMIT 1')
+    .first();
+}
+
+// Chi 1 phien ban duoc published=1 tai 1 thoi diem - xoa co cu truoc khi dat co moi
+// (2 cau lenh rieng, KHONG doi hoi giao dich - chay tuan tu, D1 xu ly tung cau mot).
+export async function setFirmwarePublished(db, version) {
+  await db.prepare('UPDATE firmware_releases SET published = 0 WHERE published = 1').run();
+  await db.prepare('UPDATE firmware_releases SET published = 1 WHERE version = ?1').bind(version).run();
+}

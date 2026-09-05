@@ -18,6 +18,12 @@ binding = "DB"
 database_name = "mayap_push"
 database_id = "e92a393c-8596-4254-b274-68e57a6de290"
 
+# Luu file .bin firmware cho tinh nang cap nhat tu xa (xem ota_web_update.h +
+# admin-firmware.html) - tao bucket bang: npx wrangler r2 bucket create mayap-firmware
+[[r2_buckets]]
+binding = "FIRMWARE_BUCKET"
+bucket_name = "mayap-firmware"
+
 # Chay doc lap voi ESP32 - phat hien khi thiet bi im lang bat thuong (mat
 # dien/mat mang) va tu gui push "mat ket noi", vi luc do chinh ESP32 da chet
 # nen khong the tu bao duoc. Xem scheduled() trong src/index.js.

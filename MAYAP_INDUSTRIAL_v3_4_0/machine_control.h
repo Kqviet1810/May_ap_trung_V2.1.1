@@ -3676,6 +3676,13 @@ class MachineController {
           mayapRequestCloudPinReset();
           ok = true; message = "DA GUI YEU CAU DAT LAI PIN";
           break;
+        case HmiCommandType::FirmwareWebApply:
+          // Chi dat co hieu cho otaTask (mayapFirmwareWebUpdate() trong
+          // ota_web_update.h) - viec tai ve/flash thuc su co the mat vai
+          // chuc giay, controlTask khong duoc phep block.
+          mayapRequestFirmwareWebApply();
+          ok = true; message = "DANG TAI FIRMWARE...";
+          break;
         case HmiCommandType::AutoTuneStart:
           ok = startAutoTune(now, message); break;
         case HmiCommandType::ResumeYes:
