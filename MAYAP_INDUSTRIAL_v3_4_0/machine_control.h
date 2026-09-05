@@ -3683,6 +3683,14 @@ class MachineController {
           mayapRequestFirmwareWebApply();
           ok = true; message = "DANG TAI FIRMWARE...";
           break;
+        case HmiCommandType::FirmwareWebCheckNow:
+          // Nut "Cap nhat" tren web dashboard - CHI yeu cau kiem tra ngay
+          // (bo qua nhip 6h dinh ky), KHONG tu tai ve/flash gi ca. Neu co
+          // ban moi, se hien tren HMI nhu binh thuong, van phai xac nhan
+          // vat ly tai may (xem ota_web_update.h).
+          mayapRequestFirmwareWebCheckNow();
+          ok = true; message = "DANG KIEM TRA BAN MOI";
+          break;
         case HmiCommandType::AutoTuneStart:
           ok = startAutoTune(now, message); break;
         case HmiCommandType::ResumeYes:

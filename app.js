@@ -248,6 +248,19 @@
     }
   }
 
+  async function getCloudJson(path) {
+    const url = cloudApiUrl(path);
+    if (!url) return { success: false, error: 'Trang web chưa cấu hình máy chủ (cloudApiBase)' };
+    try {
+      const res = await fetch(url);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.success) return { success: false, error: body.error || `Máy chủ từ chối (HTTP ${res.status})` };
+      return body;
+    } catch (error) {
+      return { success: false, error: String(error?.message || error) };
+    }
+  }
+
   function verifyDevicePin(deviceId, pin) {
     return postCloudJson('/api/device/verify-pin', { device_id: deviceId, pin });
   }
@@ -649,6 +662,68 @@
 
     applySnapshotToUi(device);
     renderBatchLogs();
+    renderFirmwareCard(device);
+  }
+
+  // Muc "Cap nhat firmware" trong Cai dat: lay phien ban dang chay tu truong
+  // "fw" da co san trong ban tin presence (MQTT, retained) - khong can them
+  // gi phia firmware. Phien ban MOI NHAT lay tu Cloudflare (Worker tu doc
+  // GitHub Releases cua repo nay, xem cloudflare/src/index.js). Chi hien nut
+  // "Cap nhat" khi THAT SU co ban moi hon; nguoc lai hien thong tin thiet bi.
+  let firmwareLatestCache = null;
+  let firmwareLatestFetchedAt = 0;
+  const FIRMWARE_LATEST_TTL_MS = 5 * 60 * 1000;
+
+  function isWebFirmwareNewer(a, b) {
+    if (!a || !b) return false;
+    const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+    const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < 3; i += 1) {
+      const diff = (pa[i] || 0) - (pb[i] || 0);
+      if (diff !== 0) return diff > 0;
+    }
+    return false;
+  }
+
+  async function refreshFirmwareLatestIfNeeded() {
+    const now = Date.now();
+    if (firmwareLatestFetchedAt && (now - firmwareLatestFetchedAt) < FIRMWARE_LATEST_TTL_MS) return;
+    firmwareLatestFetchedAt = now;
+    const result = await getCloudJson('/api/firmware/latest');
+    if (result.success) {
+      firmwareLatestCache = result.version ? { version: result.version, notes: result.notes || '' } : null;
+      renderFirmwareCard();
+    }
+  }
+
+  function renderFirmwareCard(deviceArg) {
+    const device = deviceArg || currentDevice();
+    const summaryEl = $('firmwareSummary');
+    const bodyEl = $('firmwareBody');
+    if (!summaryEl || !bodyEl) return;
+    if (!device) {
+      summaryEl.textContent = 'Chưa chọn thiết bị';
+      bodyEl.innerHTML = '';
+      return;
+    }
+
+    refreshFirmwareLatestIfNeeded();
+    const currentVersion = device.presence?.fw || '';
+    if (!currentVersion) {
+      summaryEl.textContent = 'Đang chờ đồng bộ từ máy…';
+      bodyEl.innerHTML = '<p class="settingFootnote">Chưa nhận được thông tin phiên bản từ thiết bị.</p>';
+      return;
+    }
+
+    const latest = firmwareLatestCache;
+    if (latest && isWebFirmwareNewer(latest.version, currentVersion)) {
+      summaryEl.textContent = `Có bản mới: v${latest.version}`;
+      bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy v${escapeHtml(currentVersion)} · có bản v${escapeHtml(latest.version)} mới hơn.</p><button class="primary full" id="firmwareUpdateBtn" type="button">Cập nhật lên v${escapeHtml(latest.version)}</button>`;
+      $('firmwareUpdateBtn')?.addEventListener('click', () => sendCommand('firmware_check_now'));
+    } else {
+      summaryEl.textContent = `Phiên bản v${currentVersion} · đã mới nhất`;
+      bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy phiên bản v${escapeHtml(currentVersion)} - đây đã là bản mới nhất.</p>`;
+    }
   }
 
   function renderDeviceList() {
@@ -1145,7 +1220,14 @@
 
     clearPending(String(ack.requestId));
     if (['accepted', 'applied'].includes(result)) {
-      toast(message);
+      // Tin nhan goc tu firmware cho lenh nay la chu HOA khong dau (quy uoc
+      // danh cho Serial/HMI, xem machine_control.h) - thay bang cau tieng
+      // Viet co dau cho web, dep hon.
+      if (pending.action === 'firmware_check_now') {
+        toast('Đã yêu cầu máy kiểm tra ngay - xem màn hình máy nếu có bản mới.');
+      } else {
+        toast(message);
+      }
     } else {
       if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
         clearBatchActionPending(device);

@@ -32,7 +32,7 @@ npx wrangler secret put VAPID_PUBLIC_KEY
 npx wrangler secret put VAPID_PRIVATE_KEY
 npx wrangler secret put VAPID_SUBJECT      # vi du: mailto:ban@example.com
 npx wrangler secret put DEVICE_KEY_PEPPER  # chuoi ngau nhien dai, tu sinh 1 lan
-npx wrangler secret put ADMIN_UPLOAD_TOKEN # chuoi ngau nhien dai - xem "Cap nhat firmware tu xa" ben duoi
+npx wrangler secret put GITHUB_TOKEN       # TUY CHON - xem "Cap nhat firmware tu xa" ben duoi
 ```
 
 ## Sua wrangler.toml
@@ -40,29 +40,39 @@ npx wrangler secret put ADMIN_UPLOAD_TOKEN # chuoi ngau nhien dai - xem "Cap nha
 - `ALLOWED_ORIGIN`: dung origin GitHub Pages cua ban (vi du `https://ten-user.github.io`).
 - `database_id`: id D1 vua tao o buoc tren.
 
-## Cap nhat firmware tu xa (OTA qua web)
+## Cap nhat firmware tu xa (qua GitHub Releases)
 
-Cho phep day firmware moi den moi thiet bi dang ONLINE tu 1 trang quan tri
-rieng (`admin-firmware.html` o repo goc), khong can cung mang LAN nhu OTA
-qua Arduino IDE - xem `ota_web_update.h` phia firmware.
+Cho phep thiet bi dang ONLINE tu kiem tra + tai firmware moi TU XA (khong
+can cung mang LAN nhu OTA qua Arduino IDE) - xem `ota_web_update.h` phia
+firmware va `.github/workflows/build-firmware.yml` o repo goc.
 
-1. Tao R2 bucket luu file `.bin`:
+Nguon duy nhat la GitHub Releases cua chinh repo nay - khong can trang quan
+tri/upload thu cong, khong can R2:
+
+1. Sua code nhu binh thuong, commit + push (Claude Code hoac ban tu lam).
+2. Khi san sang phat hanh 1 ban firmware moi, day 1 tag dang `vX.Y.Z` (khop
+   `MAYAP_FIRMWARE_VERSION` trong `config.h`):
    ```bash
-   npx wrangler r2 bucket create mayap-firmware
+   git tag v3.5.0
+   git push origin v3.5.0
    ```
-2. Dat `ADMIN_UPLOAD_TOKEN` (xem lenh `wrangler secret put` o tren) - chuoi
-   bi mat CHI MINH BAN biet, KHONG chia se/commit. Ai co token nay day duoc
-   firmware len MOI thiet bi.
-3. Mo `admin-firmware.html` (deploy cung noi voi dashboard chinh, hoac mo
-   thang tu may tinh ca nhan - trang khong nam trong menu, chi ban tu vao),
-   nhap dia chi Worker + token vua dat, tai file `.bin` len + dat phien ban
-   (dung dinh dang `X.Y.Z`, phai KHOP `MAYAP_FIRMWARE_VERSION` trong
-   `config.h` cua ban build do).
-4. Bam "Dat lam moi nhat" khi san sang phat hanh - CHI luc do thiet bi moi
-   thay va tai duoc (upload xong van la "ban nhap", chua anh huong gi).
-5. Thiet bi dang ONLINE se tu kiem tra moi vai gio, hien "Cap nhat firmware"
-   tren HMI (muc KET NOI) - nguoi van hanh phai tu xac nhan tren may moi
-   thuc su tai ve/nap, khong tu dong ngoai y muon.
+3. GitHub Actions tu dong bien dich (arduino-cli tren may chu GitHub, co
+   internet day du) va tao 1 GitHub Release moi voi file `.bin` dinh kem -
+   khong ai phai tu tay build/upload.
+4. Worker tu hoi GitHub Releases API khi co thiet bi/trinh duyet hoi phien
+   ban, TU TAI va TU BAM LAI SHA-256 that su cua file .bin (khong tin bat ky
+   checksum co san nao), cache ket qua trong D1 (bang `firmware_cache`,
+   lam moi moi 10 phut) de khong phai tai lai lien tuc.
+5. `GITHUB_TOKEN` (secret o tren) la TUY CHON - khong dat van hoat dong binh
+   thuong (goi GitHub API khong xac thuc, gioi han 60 request/gio - du dung
+   cho vai thiet bi); dat 1 Personal Access Token (khong can quyen gi dac
+   biet, chi doc public repo) neu co nhieu thiet bi de nang gioi han len
+   5000 request/gio.
+6. Thiet bi dang ONLINE tu kiem tra moi 6 gio; nguoi dung cung co the bam
+   nut "Cap nhat" trong dashboard web (yeu cau kiem tra ngay qua MQTT).
+   CA HAI truong hop deu chi hien "Cap nhat firmware" tren HMI (muc KET
+   NOI) - nguoi van hanh phai tu xac nhan tai may moi thuc su tai ve/nap,
+   khong bao gio tu dong ngoai y muon.
 
 ## Chay thu local
 

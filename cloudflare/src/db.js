@@ -162,37 +162,30 @@ export async function insertAlarmLog(db, entry) {
 }
 
 // -------------------------- Cap nhat firmware tu xa (xem index.js) --------------------------
+// Cache 1 DONG DUY NHAT (id=1) cua ban GitHub Release moi nhat da xac minh
+// (tai that su + tu bam SHA-256) - xem getFirmwareCache() trong index.js.
 
-export async function insertFirmwareRelease(db, { version, r2Key, sha256, size, notes, now }) {
+export async function getCachedFirmware(db) {
+  return db.prepare('SELECT * FROM firmware_cache WHERE id = 1').first();
+}
+
+export async function setFirmwareCache(db, { version, assetUrl, sha256, size, notes, fetchedAt }) {
   await db
     .prepare(
-      `INSERT INTO firmware_releases (version, r2_key, sha256, size, notes, published, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)`
+      `INSERT INTO firmware_cache (id, version, asset_url, sha256, size, notes, fetched_at)
+       VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(id) DO UPDATE SET
+         version = excluded.version,
+         asset_url = excluded.asset_url,
+         sha256 = excluded.sha256,
+         size = excluded.size,
+         notes = excluded.notes,
+         fetched_at = excluded.fetched_at`
     )
-    .bind(version, r2Key, sha256, size, notes || '', now)
+    .bind(version, assetUrl, sha256, size, notes || '', fetchedAt)
     .run();
 }
 
-export async function getFirmwareReleaseByVersion(db, version) {
-  return db.prepare('SELECT * FROM firmware_releases WHERE version = ?1').bind(version).first();
-}
-
-export async function listFirmwareReleases(db) {
-  const { results } = await db
-    .prepare('SELECT * FROM firmware_releases ORDER BY created_at DESC LIMIT 50')
-    .all();
-  return results || [];
-}
-
-export async function getLatestPublishedFirmware(db) {
-  return db
-    .prepare('SELECT * FROM firmware_releases WHERE published = 1 ORDER BY created_at DESC LIMIT 1')
-    .first();
-}
-
-// Chi 1 phien ban duoc published=1 tai 1 thoi diem - xoa co cu truoc khi dat co moi
-// (2 cau lenh rieng, KHONG doi hoi giao dich - chay tuan tu, D1 xu ly tung cau mot).
-export async function setFirmwarePublished(db, version) {
-  await db.prepare('UPDATE firmware_releases SET published = 0 WHERE published = 1').run();
-  await db.prepare('UPDATE firmware_releases SET published = 1 WHERE version = ?1').bind(version).run();
+export async function touchFirmwareCache(db, fetchedAt) {
+  await db.prepare('UPDATE firmware_cache SET fetched_at = ?1 WHERE id = 1').bind(fetchedAt).run();
 }

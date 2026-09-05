@@ -1,4 +1,4 @@
-import { hashDeviceKey, verifyDeviceKey, timingSafeEqual, randomToken, isValidDeviceId } from './auth.js';
+import { hashDeviceKey, verifyDeviceKey, randomToken, isValidDeviceId } from './auth.js';
 import {
   getDeviceByDeviceId,
   insertDevice,
@@ -16,11 +16,9 @@ import {
   getAlarmState,
   upsertAlarmState,
   insertAlarmLog,
-  insertFirmwareRelease,
-  getFirmwareReleaseByVersion,
-  listFirmwareReleases,
-  getLatestPublishedFirmware,
-  setFirmwarePublished,
+  getCachedFirmware,
+  setFirmwareCache,
+  touchFirmwareCache,
 } from './db.js';
 import { sendWebPush, buildNotificationPayload } from './push.js';
 
@@ -41,12 +39,20 @@ function corsHeaders(env) {
   return {
     'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    // Authorization: trang admin-firmware.html gui Bearer token qua header nay
-    // khi upload/publish firmware - xem handleFirmwareUpload/handleFirmwarePublish.
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
   };
 }
+
+// Repo GitHub luu ma nguon firmware - noi phat hanh cac ban ".bin" (xem
+// .github/workflows/build-firmware.yml: tu dong bien dich + tao GitHub
+// Release moi khi day tag "vX.Y.Z"). Day la NGUON DUY NHAT cho tinh nang
+// cap nhat firmware tu xa - khong con trang admin/upload thu cong.
+const GITHUB_OWNER = 'Kqviet1810';
+const GITHUB_REPO = 'May_ap_trung_V2.1.1';
+// Bao lau thi coi cache la "cu", can hoi lai GitHub xem tag co doi khong
+// (hoi nhe, khong tai file - chi tai+bam lai file khi THAT SU co tag moi).
+const FIRMWARE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
 
 function json(env, data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -367,17 +373,12 @@ async function handleChangePin(request, env) {
 }
 
 // ==================== Cap nhat firmware tu xa (xem ota_web_update.h) ====================
-// Nhom admin/* CHI danh cho ban (chu he thong) qua trang rieng khong cong khai
-// admin-firmware.html - xac thuc bang 1 token bi mat (ADMIN_UPLOAD_TOKEN, dat
-// qua `wrangler secret put`), KHAC HAN device_key/web_pin cua tung thiet bi.
-// Ai co token nay day duoc firmware len MOI thiet bi dang chay, nen tuyet
-// doi khong chia se/commit gia tri that cua no.
-
-function isAdminAuthorized(request, env) {
-  const auth = request.headers.get('Authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-  return Boolean(env.ADMIN_UPLOAD_TOKEN) && timingSafeEqual(token, env.ADMIN_UPLOAD_TOKEN);
-}
+// Nguon duy nhat: GitHub Releases cua chinh repo nay (xem .github/workflows/
+// build-firmware.yml - tu dong bien dich + tao Release moi khi day tag
+// "vX.Y.Z"). Khong con trang admin/token upload thu cong - Worker tu hoi
+// GitHub API, TU BAM LAI SHA-256 that su cua file .bin (khong tin bat ky
+// checksum co san nao tu GitHub) va cache ket qua trong D1 de khong phai
+// tai lai file .bin moi lan co thiet bi/trinh duyet hoi.
 
 function isValidFirmwareVersion(version) {
   return typeof version === 'string' && /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(version);
@@ -399,63 +400,73 @@ function isFirmwareVersionNewer(a, b) {
   return false;
 }
 
-// -------------------------- Endpoint (admin): tai firmware moi len R2 --------------------------
-// Body la BYTE THO cua file .bin (khong phai JSON) - version/notes truyen qua query string.
-async function handleFirmwareUpload(request, env) {
-  if (!isAdminAuthorized(request, env)) {
-    return json(env, { success: false, error: 'khong co quyen' }, 401);
-  }
-  const url = new URL(request.url);
-  const version = String(url.searchParams.get('version') || '').trim();
-  const notes = String(url.searchParams.get('notes') || '').slice(0, 500);
-  if (!isValidFirmwareVersion(version)) {
-    return json(env, { success: false, error: 'version phai dang X.Y.Z (vi du 3.5.0)' }, 400);
-  }
-  const existing = await getFirmwareReleaseByVersion(env.DB, version);
-  if (existing) {
-    return json(env, { success: false, error: 'phien ban nay da ton tai' }, 409);
-  }
+async function fetchGithubJson(env, path) {
+  const headers = {
+    'User-Agent': 'mayap-push-worker',
+    Accept: 'application/vnd.github+json',
+  };
+  if (env.GITHUB_TOKEN) headers.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
+  const res = await fetch(`https://api.github.com${path}`, { headers });
+  if (!res.ok) return null;
+  return res.json();
+}
 
-  const body = await request.arrayBuffer();
-  if (!body || body.byteLength === 0) {
-    return json(env, { success: false, error: 'thieu du lieu file .bin' }, 400);
-  }
-  // Tran an toan hop ly: firmware ESP32-S3 thuc te ~1-3MB, gioi han rong 8MB
-  // (dung 1 vung flash toi da) de tranh upload nham file sai/qua lon.
-  if (body.byteLength > 8 * 1024 * 1024) {
-    return json(env, { success: false, error: 'file qua lon (toi da 8MB)' }, 400);
-  }
+// Tai THAT SU file .bin tu GitHub roi tu bam SHA-256 - buoc TON KEM nhat nen
+// chi goi khi biet chac tag GitHub da doi so voi cache (xem getFirmwareCache).
+async function refreshFirmwareCache(env, release) {
+  const version = String(release.tag_name || '').replace(/^v/, '');
+  if (!isValidFirmwareVersion(version)) return null;
+  const asset = (release.assets || []).find((a) => a.name && a.name.endsWith('.bin'));
+  if (!asset || !asset.browser_download_url) return null;
 
-  const digest = await crypto.subtle.digest('SHA-256', body);
-  const sha256 = toHexDigest(digest);
-  const r2Key = `firmware/${version}.bin`;
-  await env.FIRMWARE_BUCKET.put(r2Key, body);
-  await insertFirmwareRelease(env.DB, {
-    version, r2Key, sha256, size: body.byteLength, notes, now: Date.now(),
+  const assetRes = await fetch(asset.browser_download_url, {
+    headers: { 'User-Agent': 'mayap-push-worker' },
   });
-  return json(env, { success: true, version, sha256, size: body.byteLength });
+  if (!assetRes.ok) return null;
+  const buffer = await assetRes.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
+
+  const cache = {
+    version,
+    assetUrl: asset.browser_download_url,
+    sha256: toHexDigest(digest),
+    size: buffer.byteLength,
+    notes: String(release.body || '').slice(0, 2000),
+    fetchedAt: Date.now(),
+  };
+  await setFirmwareCache(env.DB, cache);
+  return cache;
 }
 
-// -------------------------- Endpoint (admin): danh sach cac ban da upload --------------------------
-async function handleFirmwareList(request, env) {
-  if (!isAdminAuthorized(request, env)) {
-    return json(env, { success: false, error: 'khong co quyen' }, 401);
+// Cache 1 dong duy nhat trong D1 (firmware_cache). Chi hoi GitHub API nhe
+// (khong tai file) de biet tag co doi khong; CHI tai+bam lai file .bin khi
+// tag THAT SU khac cache hien co - tranh ton bang thong/CPU cho moi lan
+// thiet bi/trinh duyet hoi ma khong co gi moi.
+async function getFirmwareCache(env) {
+  const cached = await getCachedFirmware(env.DB);
+  const stale = !cached || (Date.now() - cached.fetched_at) > FIRMWARE_CACHE_MAX_AGE_MS;
+  if (!stale) return cached;
+
+  const release = await fetchGithubJson(env, `/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`);
+  if (!release || !release.tag_name) return cached;  // GitHub loi tam thoi - giu cache cu neu co
+
+  const latestVersion = String(release.tag_name).replace(/^v/, '');
+  if (cached && cached.version === latestVersion) {
+    await touchFirmwareCache(env.DB, Date.now());
+    return cached;
   }
-  const releases = await listFirmwareReleases(env.DB);
-  return json(env, { success: true, releases });
+  const fresh = await refreshFirmwareCache(env, release);
+  return fresh || cached;
 }
 
-// -------------------------- Endpoint (admin): cong bo 1 ban lam "moi nhat" --------------------------
-async function handleFirmwarePublish(request, env) {
-  if (!isAdminAuthorized(request, env)) {
-    return json(env, { success: false, error: 'khong co quyen' }, 401);
-  }
-  const body = await readJson(request);
-  const version = String(body?.version || '').trim();
-  const release = await getFirmwareReleaseByVersion(env.DB, version);
-  if (!release) return json(env, { success: false, error: 'khong tim thay phien ban nay' }, 404);
-  await setFirmwarePublished(env.DB, version);
-  return json(env, { success: true, version });
+// -------------------------- Endpoint (web, cong khai): phien ban moi nhat --------------------------
+// Khong can xac thuc device_key - chi la thong tin CONG KHAI "ban moi nhat
+// hien co la gi", dung de web quyet dinh hien nut "Cap nhat" hay thong tin
+// thiet bi (so sanh voi phien ban dang chay lay tu MQTT, xem app.js).
+async function handleFirmwareLatestPublic(env) {
+  const cache = await getFirmwareCache(env);
+  if (!cache) return json(env, { success: true, version: null });
+  return json(env, { success: true, version: cache.version, notes: cache.notes });
 }
 
 // -------------------------- Endpoint (thiet bi): kiem tra ban moi --------------------------
@@ -471,7 +482,7 @@ async function handleFirmwareCheck(request, env) {
   const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, device.device_key_hash);
   if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
 
-  const latest = await getLatestPublishedFirmware(env.DB);
+  const latest = await getFirmwareCache(env);
   if (!latest || !isFirmwareVersionNewer(latest.version, currentVersion)) {
     return json(env, { success: true, update_available: false });
   }
@@ -488,6 +499,8 @@ async function handleFirmwareCheck(request, env) {
 // -------------------------- Endpoint (thiet bi): tai file firmware --------------------------
 // Xac thuc qua HEADER (khong phai query string) de device_key khong lo qua
 // access log/URL history - X-Device-Id/X-Device-Key, xem ota_web_update.h.
+// Worker dong vai tro PROXY: thiet bi khong bao gio tu ket noi thang toi
+// GitHub, tat ca van di qua kenh HTTPS quen thuoc toi CLOUD_API_HOST.
 async function handleFirmwareDownload(env, version, request) {
   const deviceId = String(request.headers.get('X-Device-Id') || '').trim();
   const deviceKey = String(request.headers.get('X-Device-Key') || '');
@@ -498,21 +511,20 @@ async function handleFirmwareDownload(env, version, request) {
   const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, device.device_key_hash);
   if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
 
-  // Chi cho tai ban DA CONG BO (published=1) - ban nhap dang cho admin duyet
-  // khong duoc phat tan ra thiet bi that du biet dung version.
-  const release = await getFirmwareReleaseByVersion(env.DB, version);
-  if (!release || release.published !== 1) {
-    return json(env, { success: false, error: 'phien ban khong ton tai hoac chua cong bo' }, 404);
+  const cache = await getFirmwareCache(env);
+  if (!cache || cache.version !== version) {
+    return json(env, { success: false, error: 'phien ban khong ton tai hoac khong con la ban moi nhat' }, 404);
   }
-  const object = await env.FIRMWARE_BUCKET.get(release.r2_key);
-  if (!object) return json(env, { success: false, error: 'thieu file tren kho luu tru' }, 500);
-
-  return new Response(object.body, {
+  const assetRes = await fetch(cache.asset_url, { headers: { 'User-Agent': 'mayap-push-worker' } });
+  if (!assetRes.ok || !assetRes.body) {
+    return json(env, { success: false, error: 'khong tai duoc file tu GitHub' }, 502);
+  }
+  return new Response(assetRes.body, {
     status: 200,
     headers: {
       'Content-Type': 'application/octet-stream',
-      'Content-Length': String(release.size),
-      'X-Firmware-Sha256': release.sha256,
+      'Content-Length': String(cache.size),
+      'X-Firmware-Sha256': cache.sha256,
     },
   });
 }
@@ -662,15 +674,9 @@ export default {
         return await handleDeviceStatus(env, statusMatch[1]);
       }
 
-      // ---- Cap nhat firmware tu xa (xem ota_web_update.h + admin-firmware.html) ----
-      if (url.pathname === '/api/admin/firmware/upload' && request.method === 'POST') {
-        return await handleFirmwareUpload(request, env);
-      }
-      if (url.pathname === '/api/admin/firmware/list' && request.method === 'GET') {
-        return await handleFirmwareList(request, env);
-      }
-      if (url.pathname === '/api/admin/firmware/publish' && request.method === 'POST') {
-        return await handleFirmwarePublish(request, env);
+      // ---- Cap nhat firmware tu xa (nguon: GitHub Releases, xem ota_web_update.h) ----
+      if (url.pathname === '/api/firmware/latest' && request.method === 'GET') {
+        return await handleFirmwareLatestPublic(env);
       }
       if (url.pathname === '/api/firmware/check' && request.method === 'POST') {
         return await handleFirmwareCheck(request, env);
