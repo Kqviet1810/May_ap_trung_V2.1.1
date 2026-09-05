@@ -25,6 +25,7 @@ void mayapI2cUnlock() {
 }
 
 #include "network_service.h"
+#include "ota_update.h"
 #include "hmi.h"
 #include "realtime_link.h"
 #include "cloud_alert_link.h"
@@ -153,6 +154,7 @@ void networkTask(void *parameter) {
     // Hai lop nay hoan toan doc lap voi nhau - mot ben loi khong lam hong ben kia.
     mayapWebLinkUpdate(now);
     mayapCloudAlertUpdate(now);
+    mayapOtaUpdate(now);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(NETWORK_TASK_PERIOD_MS));
   }
 }
@@ -226,6 +228,7 @@ void setup() {
   // Dam bao radio tat truoc khi nap cau hinh EEPROM. Chi networkTask moi
   // duoc phep khoi dong Wi-Fi neu nguoi dung da chon ONLINE.
   mayapNetworkBegin();
+  mayapOtaBegin();
   mayapWebLinkBegin();
   mayapCloudAlertBegin();
 
