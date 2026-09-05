@@ -1724,7 +1724,7 @@
       const oldPin = $('changePinOld').value.trim();
       const newPin1 = $('changePinNew1').value.trim();
       const newPin2 = $('changePinNew2').value.trim();
-      if (!/^[0-9]{4,8}$/.test(newPin1)) return toast('Mã PIN mới phải là 4-8 chữ số');
+      if (!/^[0-9]{6}$/.test(newPin1)) return toast('Mã PIN mới phải là 6 chữ số');
       if (newPin1 !== newPin2) {
         errorEl.textContent = 'Mã PIN mới nhập lại không khớp';
         errorEl.classList.add('show');
