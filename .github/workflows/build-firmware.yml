@@ -1,0 +1,87 @@
+name: Build & release firmware
+
+# Tu dong bien dich MAYAP_INDUSTRIAL_v3_4_0.ino thanh file .bin bang
+# arduino-cli tren may chu GitHub (co internet day du, khac han moi may local
+# dung de phat trien) - khong ai phai tu tay bien dich + upload file .bin
+# nua. Chi can day 1 tag dang "vX.Y.Z" (khop MAYAP_FIRMWARE_VERSION trong
+# config.h) len GitHub la workflow nay tu bien dich + tao GitHub Release +
+# dinh kem file .bin vao do. Cloudflare Worker (xem cloudflare/src/index.js:
+# handleFirmwareCheck/handleFirmwareDownload) doc phien ban/tai file firmware
+# THANG tu GitHub Releases API - khong can trang admin upload thu cong.
+#
+# Cach phat hanh 1 ban moi:
+#   git tag v3.5.0
+#   git push origin v3.5.0
+#
+# QUAN TRONG - cau hinh board (FQBN) duoi day suy tu THUC TE nguoi dung da
+# bao cao (khong doan mo ho):
+#   - Board hien trong Arduino IDE: "ESP32S3 Dev Module" -> esp32:esp32:esp32s3
+#   - MCU la ESP32-S3-WROOM-1U-N8 (8 MB flash, KHONG PSRAM) -> FlashSize=8M,
+#     PSRAM=disabled
+#   - Log bien dich thuc te tren may nguoi dung: "Maximum is 3342336 bytes"
+#     (= 0x330000) khop CHINH XAC voi partition scheme "Huge APP (3MB No
+#     OTA/1MB SPIFFS)" cua arduino-esp32 -> PartitionScheme=huge_app
+# Neu lan chay dau tien (xem buoc "Bao cao kich thuoc") ra kich thuoc CHENH
+# LECH RO RET so voi kich thuoc Arduino IDE bao luc Upload tren may ban, sua
+# lai gia tri FQBN ben duoi cho khop truoc khi dung cho ban phat hanh that.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch: {}
+
+env:
+  MAYAP_FQBN: esp32:esp32:esp32s3:PartitionScheme=huge_app,FlashSize=8M,PSRAM=disabled
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ma nguon
+        uses: actions/checkout@v4
+
+      - name: Cai dat arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Cai loi ESP32 (Espressif)
+        run: |
+          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
+      - name: Cai thu vien (U8g2, PubSubClient, ArduinoJson)
+        run: arduino-cli lib install U8g2 PubSubClient ArduinoJson
+
+      - name: Bien dich firmware
+        run: |
+          arduino-cli compile \
+            --fqbn "${{ env.MAYAP_FQBN }}" \
+            --output-dir ./build \
+            --verbose \
+            MAYAP_INDUSTRIAL_v3_4_0
+
+      - name: Bao cao kich thuoc (doi chieu voi log Arduino IDE tren may ban)
+        run: ls -la ./build/*.bin
+
+      - name: Doi ten file .bin theo tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
+
+      # Chay tay (workflow_dispatch, khong co tag) chi de kiem tra bien dich
+      # con chay duoc khong - luu ket qua thanh artifact tai ve xem thu,
+      # KHONG tao Release/tag nao ca.
+      - name: Luu file .bin de kiem tra (chi khi chay tay)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-bin-test
+          path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
+          retention-days: 7
+
+      - name: Tao GitHub Release + dinh kem file .bin
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./MAYAP-firmware-*.bin
+          generate_release_notes: true
