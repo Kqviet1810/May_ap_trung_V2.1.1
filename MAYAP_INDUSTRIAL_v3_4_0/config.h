@@ -47,12 +47,12 @@ static_assert(sizeof(NETWORK_WIFI_HOSTNAME) <= 33U,
 
 // ------------------------- Nap firmware qua Wi-Fi (OTA) -----------------------
 // Cho phep nap code tu Arduino IDE qua mang (Tools > Port > chon may hien qua
-// mDNS) thay vi phai thao vo cam cap USB - xem ota_update.h. Mac dinh RONG =
-// TU DONG TAT tinh nang nay (khong mo cong OTA khong mat khau tren mang LAN).
-// Dat mat khau qua build_flags (-D MAYAP_OTA_PASSWORD=\"...\"), KHONG hard-code
-// truc tiep gia tri that o day truoc khi commit, giong CLOUD_DEVICE_SECRET.
+// mDNS) thay vi phai thao vo cam cap USB - xem ota_update.h. Mat khau mac
+// dinh theo yeu cau - co the doi rieng cho tung ban build qua build_flags
+// (-D MAYAP_OTA_PASSWORD=\"...\") ma khong can sua file nay. De trong se TU
+// DONG TAT ca tinh nang OTA (khong mo cong khong mat khau tren mang LAN).
 #ifndef MAYAP_OTA_PASSWORD
-#define MAYAP_OTA_PASSWORD ""
+#define MAYAP_OTA_PASSWORD "181020"
 #endif
 constexpr char OTA_PASSWORD[] = MAYAP_OTA_PASSWORD;
 static_assert(sizeof(OTA_PASSWORD) <= 64U, "Mat khau OTA toi da 63 ky tu");

@@ -95,9 +95,9 @@ Firmware viết cho **Arduino IDE** (không dùng PlatformIO):
 
 **Nạp lại firmware qua Wi-Fi (OTA), không cần cáp USB** (xem `ota_update.h`):
 
-1. Nạp lần đầu qua USB như trên, thêm build flag `-D MAYAP_OTA_PASSWORD=\"mat_khau_cua_ban\"` (Arduino IDE: **Sketch > Compiler flags**, hoặc dùng `arduino-cli` với `--build-property`). Để trống flag này (mặc định) sẽ **tắt hẳn** tính năng OTA.
+1. Nạp lần đầu qua USB như trên là dùng được OTA ngay, mật khẩu mặc định là `181020` (đặt trong `config.h`, macro `MAYAP_OTA_PASSWORD`). Muốn đổi riêng cho một bản build khác: build flag `-D MAYAP_OTA_PASSWORD=\"mat_khau_khac\"` (Arduino IDE: **Sketch > Compiler flags**, hoặc `arduino-cli` với `--build-property`); để trống flag/macro này sẽ **tắt hẳn** tính năng OTA.
 2. Chuyển máy sang **ONLINE** và chờ kết nối Wi-Fi thành công (xem màn KẾT NỐI trên HMI).
-3. Mở lại Arduino IDE trên máy tính **cùng mạng LAN**: **Tools > Port** sẽ xuất hiện thêm mục mạng dạng `mayap-industrial at <IP> (ESP32S3 Dev Module)` (cần Bonjour/mDNS trên máy tính - Windows cài kèm iTunes/Bonjour Print Services, macOS/Linux có sẵn). Chọn cổng đó rồi bấm Upload như bình thường, IDE sẽ hỏi mật khẩu đã đặt ở bước 1.
+3. Mở lại Arduino IDE trên máy tính **cùng mạng LAN**: **Tools > Port** sẽ xuất hiện thêm mục mạng dạng `mayap-industrial at <IP> (ESP32S3 Dev Module)` (cần Bonjour/mDNS trên máy tính - Windows cài kèm iTunes/Bonjour Print Services, macOS/Linux có sẵn). Chọn cổng đó rồi bấm Upload như bình thường, IDE sẽ hỏi mật khẩu OTA.
 4. Khuyến nghị chỉ nạp OTA lúc máy **đang rảnh** (ngoài mẻ ấp): lúc ghi flash, cả hai lõi CPU tạm dừng vài mili giây mỗi lần - vô hại với máy rảnh, nhưng nên tránh trùng lúc đang kiểm soát nhiệt sát ngưỡng.
 
 ### 2. Chạy Web Dashboard
