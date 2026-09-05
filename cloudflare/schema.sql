@@ -80,19 +80,18 @@ CREATE TABLE IF NOT EXISTS alarm_log (
 CREATE INDEX IF NOT EXISTS idx_alarm_log_device ON alarm_log(device_id, created_at DESC);
 
 -- Cap nhat firmware TU XA (ESP32 tu tai qua HTTPS, khac han nap qua Arduino
--- IDE cung mang LAN) - xem ota_web_update.h. File .bin THUC SU luu trong R2
--- (binding FIRMWARE_BUCKET trong wrangler.toml), bang nay chi luu METADATA.
--- published=0 luc moi upload (ban nhap, thiet bi chua thay) - admin phai
--- goi rieng /api/admin/firmware/publish de "cong bo" 1 phien ban lam ban
--- moi nhat (chi 1 phien ban duoc published=1 tai 1 thoi diem).
-CREATE TABLE IF NOT EXISTS firmware_releases (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  version       TEXT NOT NULL UNIQUE,
-  r2_key        TEXT NOT NULL,
+-- IDE cung mang LAN) - xem ota_web_update.h. Nguon la GitHub Releases cua
+-- chinh repo nay (.github/workflows/build-firmware.yml tu bien dich khi
+-- day tag "vX.Y.Z"), bang nay CHI cache 1 DONG DUY NHAT (id=1) cua ban da
+-- xac minh gan nhat (Worker tu tai file .bin that su tu GitHub va tu bam
+-- SHA-256, KHONG tin bat ky checksum co san nao) - tranh phai tai lai file
+-- moi lan co thiet bi/trinh duyet hoi. Xem getFirmwareCache() trong index.js.
+CREATE TABLE IF NOT EXISTS firmware_cache (
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  version       TEXT NOT NULL,
+  asset_url     TEXT NOT NULL,
   sha256        TEXT NOT NULL,
   size          INTEGER NOT NULL,
   notes         TEXT NOT NULL DEFAULT '',
-  published     INTEGER NOT NULL DEFAULT 0,
-  created_at    INTEGER NOT NULL
+  fetched_at    INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_firmware_releases_published ON firmware_releases(published, created_at DESC);

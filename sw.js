@@ -1,5 +1,5 @@
 'use strict';
-const CACHE = 'mayap-web-v11.4.0';
+const CACHE = 'mayap-web-v11.6.0';
 const APP_SHELL = [
   './', './index.html', './styles.css', './app.js', './push.js', './manifest.webmanifest',
   './vendor/jsQR.min.js',

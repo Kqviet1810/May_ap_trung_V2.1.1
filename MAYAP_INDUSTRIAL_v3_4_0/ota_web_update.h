@@ -39,6 +39,7 @@ namespace MayapFirmwareWebInternal {
 
 static uint32_t lastCheckAt = 0U;
 static volatile uint8_t applyRequestFlag = 0U;
+static volatile uint8_t checkNowRequestFlag = 0U;
 static volatile uint8_t applyPhase = 0U;  // 0=khong lam gi, 1=dang tai, 2=loi, 3=thanh cong (truoc khi restart)
 
 static portMUX_TYPE stateMux = portMUX_INITIALIZER_UNLOCKED;
@@ -104,6 +105,15 @@ inline FirmwareWebStatus mayapFirmwareWebStatus() {
 // nhat - chi dat co, viec tai ve/flash thuc su lam ben trong otaTask.
 inline void mayapRequestFirmwareWebApply() {
   __atomic_store_n(&MayapFirmwareWebInternal::applyRequestFlag, 1U, __ATOMIC_RELEASE);
+}
+
+// Goi tu lenh "firmware_check_now" nguoi dung bam tren web dashboard (qua
+// MQTT, xem realtime_link.h::mapCommandAction) - CHI yeu cau kiem tra ngay
+// (bo qua nhip FIRMWARE_CHECK_INTERVAL_MS dinh ky), KHONG tu tai ve/flash gi
+// ca. Neu co ban moi se hien tren HMI nhu binh thuong, van can xac nhan tai
+// may - khong bypass buoc do.
+inline void mayapRequestFirmwareWebCheckNow() {
+  __atomic_store_n(&MayapFirmwareWebInternal::checkNowRequestFlag, 1U, __ATOMIC_RELEASE);
 }
 
 // So sanh 2 chuoi phien ban dang "X.Y.Z" (giong MAYAP_FIRMWARE_VERSION) -
@@ -292,7 +302,8 @@ inline void mayapFirmwareWebApplyNow() {
 }
 
 // Goi moi chu ky tu otaTask (xem .ino). Uu tien xu ly yeu cau ap dung dang
-// cho; neu khong co, dinh ky tu kiem tra ban moi khi dang ONLINE.
+// cho; neu khong co, xu ly yeu cau "kiem tra ngay" tu web; neu khong co
+// nua, dinh ky tu kiem tra ban moi khi dang ONLINE.
 inline void mayapFirmwareWebUpdate(uint32_t now) {
   using namespace MayapFirmwareWebInternal;
   if (__atomic_load_n(&applyRequestFlag, __ATOMIC_ACQUIRE)) {
@@ -303,7 +314,10 @@ inline void mayapFirmwareWebUpdate(uint32_t now) {
 
   const NetworkStatus netStatus = mayapGetNetworkStatus();
   if (netStatus.requestedMode != ConnectivityMode::Online || !netStatus.connected) return;
-  if (lastCheckAt != 0U && (now - lastCheckAt) < FIRMWARE_CHECK_INTERVAL_MS) return;
+
+  const bool checkNow = __atomic_load_n(&checkNowRequestFlag, __ATOMIC_ACQUIRE) != 0U;
+  if (checkNow) __atomic_store_n(&checkNowRequestFlag, 0U, __ATOMIC_RELEASE);
+  if (!checkNow && lastCheckAt != 0U && (now - lastCheckAt) < FIRMWARE_CHECK_INTERVAL_MS) return;
   lastCheckAt = now;
   mayapFirmwareWebCheck();
 }

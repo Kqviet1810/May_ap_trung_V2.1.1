@@ -64,11 +64,10 @@ Toàn bộ giao diện, log và tài liệu trong dự án đều bằng **tiế
 │   ├── realtime_link.h               # Đồng bộ MQTT với dashboard
 │   ├── cloud_alert_link.h            # Gửi cảnh báo lên Cloudflare Worker
 │   ├── ota_update.h                  # Nạp firmware qua Wi-Fi bằng Arduino IDE (cùng mạng LAN)
-│   └── ota_web_update.h              # Cập nhật firmware từ xa qua Cloudflare (xem admin-firmware.html)
+│   └── ota_web_update.h              # Cập nhật firmware từ xa qua Cloudflare (nguồn: GitHub Releases)
 │
 ├── index.html / app.js / styles.css  # Web Dashboard (PWA, chạy tĩnh trên GitHub Pages)
 ├── setup.html                        # Trang bật Web Push qua quét QR trên máy
-├── admin-firmware.html               # Trang riêng (không trong menu) để đẩy firmware mới qua Cloudflare
 ├── push.js / sw.js                   # Đăng ký Web Push + Service Worker
 ├── config.js                         # Cấu hình broker MQTT + Worker cho môi trường test
 ├── config.production.example.js      # Mẫu cấu hình cho triển khai thương mại
@@ -105,7 +104,12 @@ Firmware viết cho **Arduino IDE** (không dùng PlatformIO):
 
 **Cập nhật firmware TỪ XA qua Cloudflare (không cần cùng mạng LAN)** - xem `ota_web_update.h`:
 
-Khác với OTA-Arduino-IDE ở trên (bắt buộc cùng Wi-Fi), cách này đẩy firmware qua Internet - dùng khi máy đã lắp đặt ở xa, không tiện mang máy tính đến tận nơi. Máy tự kiểm tra bản mới mỗi vài giờ khi đang ONLINE, hiện mục **"Cập nhật firmware"** trên HMI (trong KẾT NỐI) khi có bản mới - người vận hành phải tự xác nhận trên máy mới thực sự tải về/nạp (không tự động). Thiết lập backend (tạo R2 bucket, đặt token quản trị) xem [`cloudflare/README.md`](cloudflare/README.md#cập-nhật-firmware-từ-xa-ota-qua-web); trang tải bản mới lên là [`admin-firmware.html`](admin-firmware.html).
+Khác với OTA-Arduino-IDE ở trên (bắt buộc cùng Wi-Fi), cách này đẩy firmware qua Internet - dùng khi máy đã lắp đặt ở xa, không tiện mang máy tính đến tận nơi. Nguồn là **GitHub Releases của chính repo này** - không cần trang quản trị hay upload thủ công:
+
+1. Phát hành bản mới bằng cách đẩy 1 tag dạng `vX.Y.Z` lên GitHub (`git tag v3.5.0 && git push origin v3.5.0`) - xem [`.github/workflows/build-firmware.yml`](.github/workflows/build-firmware.yml). GitHub Actions tự biên dịch (arduino-cli trên máy chủ GitHub) và tạo Release kèm file `.bin`, không ai phải tự tay build.
+2. Máy tự kiểm tra bản mới mỗi 6 giờ khi đang ONLINE; người dùng cũng có thể bấm nút **"Cập nhật"** ngay trên trang chủ dashboard (mục **Cài đặt → Cập nhật firmware**) để yêu cầu máy kiểm tra ngay lập tức - nút này chỉ hiện khi thật sự có bản mới hơn phiên bản đang chạy, còn lại hiện thông tin phiên bản hiện tại.
+3. Dù kiểm tra bằng cách nào, máy chỉ hiện mục "Cập nhật firmware" trên HMI (trong KẾT NỐI) - người vận hành phải tự xác nhận **tại máy** mới thực sự tải về/nạp (không bao giờ tự động từ xa).
+4. Thiết lập backend (không cần R2, chỉ D1 có sẵn) xem [`cloudflare/README.md`](cloudflare/README.md#cập-nhật-firmware-từ-xa-qua-github-releases).
 
 ### 2. Chạy Web Dashboard
 

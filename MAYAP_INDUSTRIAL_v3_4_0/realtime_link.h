@@ -311,6 +311,10 @@ inline HmiCommandType mapCommandAction(const char *action) {
   if (!strcmp(action, "resume_yes")) return HmiCommandType::ResumeYes;
   if (!strcmp(action, "resume_no")) return HmiCommandType::ResumeNo;
   if (!strcmp(action, "autotune_start")) return HmiCommandType::AutoTuneStart;
+  // Nut "Cap nhat" tren web CHI yeu cau may kiem tra ngay (bo qua nhip 6h),
+  // KHONG tu tai ve/nap - van phai xac nhan vat ly tren HMI (xem ota_web_
+  // update.h + hmi.h::openFirmwareWebConfirm()).
+  if (!strcmp(action, "firmware_check_now")) return HmiCommandType::FirmwareWebCheckNow;
   return HmiCommandType::None;
 }
 

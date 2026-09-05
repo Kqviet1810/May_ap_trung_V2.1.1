@@ -6,8 +6,9 @@ compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
 
 # Bien KHONG bi mat (khong nhay cam) - xem README de biet cach dat cac secret
-# (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, DEVICE_KEY_PEPPER)
-# bang `wrangler secret put`, KHONG dat o day.
+# (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, DEVICE_KEY_PEPPER,
+# GITHUB_TOKEN tuy chon cho tinh nang cap nhat firmware) bang
+# `wrangler secret put`, KHONG dat o day.
 [vars]
 # Doi thanh dung origin cua trang GitHub Pages, vi du:
 # "https://ten-user.github.io"  (khong co dau / o cuoi)
@@ -17,12 +18,6 @@ ALLOWED_ORIGIN = "https://kqviet1810.github.io"
 binding = "DB"
 database_name = "mayap_push"
 database_id = "e92a393c-8596-4254-b274-68e57a6de290"
-
-# Luu file .bin firmware cho tinh nang cap nhat tu xa (xem ota_web_update.h +
-# admin-firmware.html) - tao bucket bang: npx wrangler r2 bucket create mayap-firmware
-[[r2_buckets]]
-binding = "FIRMWARE_BUCKET"
-bucket_name = "mayap-firmware"
 
 # Chay doc lap voi ESP32 - phat hien khi thiet bi im lang bat thuong (mat
 # dien/mat mang) va tu gui push "mat ket noi", vi luc do chinh ESP32 da chet
