@@ -302,7 +302,7 @@ async function verifyDevicePin(env, device, pin) {
 }
 
 function isValidPin(pin) {
-  return typeof pin === 'string' && /^[0-9]{6}$/.test(pin);
+  return typeof pin === 'string' && /^[0-9]{4,8}$/.test(pin);
 }
 
 // -------------------------- Endpoint: xac thuc PIN (dung khi them thiet bi) --------------------------
@@ -346,7 +346,7 @@ async function handleChangePin(request, env) {
   const newPin = String(body?.new_pin || '');
   if (!isValidDeviceId(deviceId)) return json(env, { success: false, error: 'device_id khong hop le' }, 400);
   if (!isValidPin(newPin)) {
-    return json(env, { success: false, error: 'PIN mới phải là đúng 6 chữ số' }, 400);
+    return json(env, { success: false, error: 'PIN mới phải là số, từ 4 đến 8 chữ số' }, 400);
   }
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
