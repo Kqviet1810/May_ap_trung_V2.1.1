@@ -45,6 +45,18 @@ static_assert(sizeof(NETWORK_WIFI_PASSWORD) <= 64U,
 static_assert(sizeof(NETWORK_WIFI_HOSTNAME) <= 33U,
               "Wi-Fi hostname toi da 32 ky tu");
 
+// ------------------------- Nap firmware qua Wi-Fi (OTA) -----------------------
+// Cho phep nap code tu Arduino IDE qua mang (Tools > Port > chon may hien qua
+// mDNS) thay vi phai thao vo cam cap USB - xem ota_update.h. Mac dinh RONG =
+// TU DONG TAT tinh nang nay (khong mo cong OTA khong mat khau tren mang LAN).
+// Dat mat khau qua build_flags (-D MAYAP_OTA_PASSWORD=\"...\"), KHONG hard-code
+// truc tiep gia tri that o day truoc khi commit, giong CLOUD_DEVICE_SECRET.
+#ifndef MAYAP_OTA_PASSWORD
+#define MAYAP_OTA_PASSWORD ""
+#endif
+constexpr char OTA_PASSWORD[] = MAYAP_OTA_PASSWORD;
+static_assert(sizeof(OTA_PASSWORD) <= 64U, "Mat khau OTA toi da 63 ky tu");
+
 // ------------------------- Web realtime (MQTT) --------------------------------
 // Broker mac dinh la broker cong cong (chi de kiem tra, xem canh bao trong
 // config.js ban web). May thuong mai PHAI doi sang broker rieng + tai khoan
