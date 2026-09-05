@@ -7,14 +7,26 @@
 
 // ============================================================================
 // MAY AP TRUNG INDUSTRIAL v3.4.0 - CAU HINH DUY NHAT CAN SUA
-// MCU: ESP32-S3, KHONG PSRAM. FLASH THUC TE 4 MB (0x400000) - da xac nhan
-// qua log boot ROM thuc te ("exceeds flash chip size 0x400000" khi lo dat
-// Flash Size = 8MB trong Arduino IDE lam sai bang phan vung, may khong boot
-// duoc). Ten module ghi "N8" trong tai lieu/nhan cu co the gay nham (N8
-// thuong = 8MB theo quy uoc Espressif) nhung CHIP THAT tren board nay chi
-// co 4MB - LUON dat Tools > Flash Size = "4MB (32Mb)" trong Arduino IDE,
-// Partition Scheme phai nam gon trong 4MB (vi du "Minimal SPIFFS (1.9MB
-// APP with OTA/190KB SPIFFS)" - van co OTA 2 khe, du cho firmware hien tai).
+// MCU: ESP32-S3-WROOM-1U-N8, FLASH THAT 8MB (da xac nhan qua "esptool.py
+// flash_id" -> "Detected flash size: 8MB"), KHONG PSRAM.
+//
+// Cau hinh Arduino IDE BAT BUOC (Tools menu):
+//   - Flash Size        = "8MB (64Mb)"
+//   - Partition Scheme   = "8M with spiffs (3MB APP/1.5MB SPIFFS)"
+//                          (2 khe OTA that su, ~3.1875MB/khe, du rong cho
+//                          firmware hien tai ~1.3MB)
+//
+// SU CO THUC TE da gap va da xac dinh dut diem nguyen nhan: co lan Flash
+// Size bi de nham "4MB" trong khi Partition Scheme van dung "8M with
+// spiffs" - Arduino IDE khai bao flash 4MB vao header anh nap, nen bootloader
+// tinh khe OTA thu 2 (ota_1, offset 0x340000 size 0x330000 - dung 2 khe cua
+// scheme nay) VUOT QUA gioi han 4MB gia (0x400000) du chip that la 8MB ->
+// "boot: Failed to verify partition table" -> may khong boot duoc. Danh sach
+// gia tri hop le da doi chieu truc tiep qua `arduino-cli board details -b
+// esp32:esp32:esp32s3 --full` (khong doan mo ho): FlashSize hop le la
+// 4M/8M/16M/32M; Partition Scheme "8M with spiffs" co khoa noi bo la
+// "default_8MB" (KHAC voi "huge_app" - "Huge APP" ghi ro la "No OTA", chi
+// 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
 constexpr char MAYAP_FIRMWARE_VERSION[] = "3.4.0";
