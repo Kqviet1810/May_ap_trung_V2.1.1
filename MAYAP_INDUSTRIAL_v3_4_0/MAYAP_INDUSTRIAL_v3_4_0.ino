@@ -149,12 +149,18 @@ void networkTask(void *parameter) {
   for (;;) {
     const uint32_t now = millis();
     mayapNetworkUpdate(now);
+    // OTA duoc kiem tra TRUOC MQTT web/Cloud Push: hai lop kia goi HTTP(S)
+    // blocking (cloud_alert_link.h co the treo toi CLOUD_HTTP_TIMEOUT_MS=8s
+    // moi lan heartbeat/canh bao) - neu OTA xep hang SAU, loi moi OTA gui
+    // dung luc do se khong duoc ArduinoOTA.handle() phan hoi kip, host bao
+    // "No response from device". Dat OTA len dau dam bao no duoc phuc vu it
+    // nhat 1 lan moi NETWORK_TASK_PERIOD_MS, khong phu thuoc cac lop sau.
+    mayapOtaUpdate(now);
     // Lop web realtime (MQTT) va lop Cloud Push chi duoc phep hoat dong tren
     // networkTask (I/O mang); xem ghi chu dau realtime_link.h/cloud_alert_link.h.
     // Hai lop nay hoan toan doc lap voi nhau - mot ben loi khong lam hong ben kia.
     mayapWebLinkUpdate(now);
     mayapCloudAlertUpdate(now);
-    mayapOtaUpdate(now);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(NETWORK_TASK_PERIOD_MS));
   }
 }
