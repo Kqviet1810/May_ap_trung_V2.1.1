@@ -7,7 +7,14 @@
 
 // ============================================================================
 // MAY AP TRUNG INDUSTRIAL v3.4.0 - CAU HINH DUY NHAT CAN SUA
-// MCU: ESP32-S3-WROOM-1U-N8 (8 MB Quad Flash, khong PSRAM)
+// MCU: ESP32-S3, KHONG PSRAM. FLASH THUC TE 4 MB (0x400000) - da xac nhan
+// qua log boot ROM thuc te ("exceeds flash chip size 0x400000" khi lo dat
+// Flash Size = 8MB trong Arduino IDE lam sai bang phan vung, may khong boot
+// duoc). Ten module ghi "N8" trong tai lieu/nhan cu co the gay nham (N8
+// thuong = 8MB theo quy uoc Espressif) nhung CHIP THAT tren board nay chi
+// co 4MB - LUON dat Tools > Flash Size = "4MB (32Mb)" trong Arduino IDE,
+// Partition Scheme phai nam gon trong 4MB (vi du "Minimal SPIFFS (1.9MB
+// APP with OTA/190KB SPIFFS)" - van co OTA 2 khe, du cho firmware hien tai).
 // ============================================================================
 
 constexpr char MAYAP_FIRMWARE_VERSION[] = "3.4.0";

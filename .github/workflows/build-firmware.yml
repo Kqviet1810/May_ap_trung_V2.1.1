@@ -13,17 +13,23 @@ name: Build & release firmware
 #   git tag v3.5.0
 #   git push origin v3.5.0
 #
-# QUAN TRONG - cau hinh board (FQBN) duoi day suy tu THUC TE nguoi dung da
-# bao cao (khong doan mo ho):
+# QUAN TRONG - cau hinh board (FQBN) da SUA LAI sau su co thuc te: dat
+# FlashSize=8M (suy tu ten module "...-N8", quy uoc Espressif = 8MB) tung
+# gay may KHONG BOOT DUOC that ("boot: Failed to verify partition table" /
+# "exceeds flash chip size 0x400000") vi CHIP THAT tren board nay chi co
+# 4MB flash - ten module ghi "N8" gay nham, KHONG dung voi phan cung that.
 #   - Board hien trong Arduino IDE: "ESP32S3 Dev Module" -> esp32:esp32:esp32s3
-#   - MCU la ESP32-S3-WROOM-1U-N8 (8 MB flash, KHONG PSRAM) -> FlashSize=8M,
-#     PSRAM=disabled
-#   - Log bien dich thuc te tren may nguoi dung: "Maximum is 3342336 bytes"
-#     (= 0x330000) khop CHINH XAC voi partition scheme "Huge APP (3MB No
-#     OTA/1MB SPIFFS)" cua arduino-esp32 -> PartitionScheme=huge_app
+#   - Flash THAT: 4MB -> FlashSize=4M (KHONG duoc doi lai 8M neu chua tu
+#     kiem chung lai dung luong chip that qua log boot)
+#   - Partition Scheme phai nam gon trong 4MB, van can 2 khe OTA (dual-slot,
+#     an toan hon huge_app single-slot) -> PartitionScheme=min_spiffs
+#     ("Minimal SPIFFS (1.9MB APP with OTA/190KB SPIFFS)" - 1.9MB/khe, du
+#     cho firmware hien tai ~1.3MB)
+#   - Khong PSRAM -> PSRAM=disabled
 # Neu lan chay dau tien (xem buoc "Bao cao kich thuoc") ra kich thuoc CHENH
 # LECH RO RET so voi kich thuoc Arduino IDE bao luc Upload tren may ban, sua
-# lai gia tri FQBN ben duoi cho khop truoc khi dung cho ban phat hanh that.
+# lai gia tri FQBN ben duoi cho khop truoc khi dung cho ban phat hanh that -
+# TUYET DOI khong doi FlashSize len lai 8M khi chua xac nhan chip that.
 on:
   push:
     tags:
@@ -31,7 +37,7 @@ on:
   workflow_dispatch: {}
 
 env:
-  MAYAP_FQBN: esp32:esp32:esp32s3:PartitionScheme=huge_app,FlashSize=8M,PSRAM=disabled
+  MAYAP_FQBN: esp32:esp32:esp32s3:PartitionScheme=min_spiffs,FlashSize=4M,PSRAM=disabled
 
 jobs:
   build:
