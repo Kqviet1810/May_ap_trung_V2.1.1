@@ -495,19 +495,21 @@ static_assert(SETTING_COUNT == 15, "Bang SETTINGS phai co 15 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
-  4,5,6,7,8,                           // Nhiet do
-  9,10,                                // Quat hut
+  4,5,6,7,8,9,10,                      // Nhiet do (gop them Quat hut - lien
+                                       // quan truc tiep den dieu khien nhiet)
   11,12,13,                            // Dao trung
-  14                                    // Ket noi
+  14                                    // He thong
 };
 
 struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
-// Chi so 0 = Cai dat me (goc tu MainMenu); 1..4 = 4 thu muc con cua
+// Chi so 0 = Cai dat me (goc tu MainMenu); 1..3 = 3 thu muc con cua
 // "CAI DAT CHUNG" (goc tu ChungMenu). Dung chung mot co che SettingList.
 const SettingGroup GROUPS[] = {
   {"CAI DAT ME", 0, 4},
-  {"NHIET DO", 4, 5},
-  {"QUAT HUT", 9, 2},
+  // Gop "Quat hut" vao chung nhom "Nhiet do" (7 thong so) - ca 2 deu la
+  // thong so dieu khien nhiet, tach rieng truoc day khien menu vun vat
+  // khong can thiet.
+  {"NHIET DO", 4, 7},
   {"DAO TRUNG", 11, 3},
   // Doi ten tu "KET NOI" thanh "HE THONG": nhom nay tu lau da khong chi con
   // la cai dat mang - gom ca ma QR, dat lai PIN, cap nhat firmware... nen
@@ -515,7 +517,7 @@ const SettingGroup GROUPS[] = {
   {"HE THONG", 14, 1}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
-static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");
+static_assert(GROUP_COUNT == 4, "Bang GROUPS phai co 4 nhom");
 static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == SETTING_COUNT,
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
 
@@ -527,15 +529,15 @@ static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) =
 // groupVisibleExtraCount dat o DUOI, sau khai bao currentConfig - xem do.)
 enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode, CloudPinReset, FirmwareWebUpdate };
 GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
-  if (group == 3 && slot == 0) return GroupExtra::TurnStats;      // DAO TRUNG -> "So lan dao"
+  if (group == 2 && slot == 0) return GroupExtra::TurnStats;      // DAO TRUNG -> "So lan dao"
   // Thu tu da quy hoach lai (nhom HE THONG): 2 muc ve MANG di lien nhau
   // truoc (thong tin + doi wifi), roi den DINH DANH/BAO MAT (QR + PIN), cuoi
   // cung la CAP NHAT (dung chung root voi may, it thao tac nhat).
-  if (group == 4 && slot == 0) return GroupExtra::ConnectionInfo;   // HE THONG -> "Thong tin ket noi"
-  if (group == 4 && slot == 1) return GroupExtra::WifiChange;       // HE THONG -> "Doi wifi"
-  if (group == 4 && slot == 2) return GroupExtra::QrCode;           // HE THONG -> "Ma QR ID"
-  if (group == 4 && slot == 3) return GroupExtra::CloudPinReset;    // HE THONG -> "Dat lai ma PIN"
-  if (group == 4 && slot == 4) return GroupExtra::FirmwareWebUpdate; // HE THONG -> "Cap nhat" (luon hien khi Online)
+  if (group == 3 && slot == 0) return GroupExtra::ConnectionInfo;   // HE THONG -> "Thong tin ket noi"
+  if (group == 3 && slot == 1) return GroupExtra::WifiChange;       // HE THONG -> "Doi wifi"
+  if (group == 3 && slot == 2) return GroupExtra::QrCode;           // HE THONG -> "Ma QR ID"
+  if (group == 3 && slot == 3) return GroupExtra::CloudPinReset;    // HE THONG -> "Dat lai ma PIN"
+  if (group == 3 && slot == 4) return GroupExtra::FirmwareWebUpdate; // HE THONG -> "Cap nhat" (luon hien khi Online)
   return GroupExtra::None;
 }
 
@@ -705,6 +707,7 @@ enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBat
 void openBatchConfirm(View returnView);
 void openResumeConfirm();
 void openAlarmView(View returnView);
+void openTestMode();
 
 MachineConfig currentConfig;
 MachineRuntime currentRuntime;
@@ -743,6 +746,18 @@ uint8_t groupVisibleExtraCount(uint8_t group) {
   uint8_t count = 0;
   while (visibleGroupExtraAt(group, count) != GroupExtra::None) ++count;
   return count;
+}
+// Chieu nguoc lai cua visibleGroupExtraAt() - dung khi goBack() tu 1 man
+// hinh con (WifiChange/ConnectionInfo/QrCode...) can biet dung VI TRI HIEN
+// TAI cua dong phu tuong ung trong danh sach de chon lai dung dong (khong
+// con hardcode vi tri co dinh - de sai neu sau nay doi thu tu groupExtraSlot()).
+uint8_t visibleExtraIndexOf(uint8_t group, GroupExtra target) {
+  uint8_t idx = 0;
+  while (true) {
+    const GroupExtra extra = visibleGroupExtraAt(group, idx);
+    if (extra == target || extra == GroupExtra::None) return idx;
+    ++idx;
+  }
 }
 
 bool lcdReady = false;
@@ -894,28 +909,32 @@ void processConfigAck(const ConfigAckInbox &ack);
 HmiI2cLockFn i2cLockCallback = nullptr;
 HmiI2cUnlockFn i2cUnlockCallback = nullptr;
 
-// Menu chinh: CAI DAT ME, CAI DAT CHUNG, CHE DO THU NGHIEM, NHAT KY ME, THOAT.
-constexpr uint8_t MAIN_COUNT = 5;
+// Menu chinh: CAI DAT ME, CAI DAT CHUNG, THOAT. "Che do test" va "Nhat ky
+// me" chuyen vao trong CAI DAT CHUNG (xem CHUNG_COUNT ben duoi) cho gon -
+// truoc day la 2 muc rieng ngang hang voi CAI DAT CHUNG, it dung hon nhieu
+// so voi cac thong so hang ngay nen dua ve chung 1 cho voi cac muc it thao
+// tac khac (TU CHINH PID...).
+constexpr uint8_t MAIN_COUNT = 3;
 enum MainMenuIndex : uint8_t {
-  MAIN_CAI_DAT_ME = 0, MAIN_CAI_DAT_CHUNG = 1, MAIN_THU_NGHIEM = 2,
-  MAIN_NHAT_KY = 3, MAIN_THOAT = 4
+  MAIN_CAI_DAT_ME = 0, MAIN_CAI_DAT_CHUNG = 1, MAIN_THOAT = 2
 };
 const char *mainItemLabel(uint8_t index) {
   switch (index) {
     case MAIN_CAI_DAT_ME: return "CAI DAT ME";
     case MAIN_CAI_DAT_CHUNG: return "CAI DAT CHUNG";
-    case MAIN_THU_NGHIEM: return "CHE DO TEST";
-    case MAIN_NHAT_KY: return "NHAT KY ME";
     default: return "THOAT";
   }
 }
 
-// Menu con "CAI DAT CHUNG": 4 thu muc setting (chi so nhom 1..4 trong GROUPS[])
-// + TU CHINH PID (mo thang View::AutoTune) + THOAT.
-constexpr uint8_t CHUNG_COUNT = (GROUP_COUNT - 1U) + 2U;
+// Menu con "CAI DAT CHUNG": 3 thu muc setting (chi so nhom 1..3 trong
+// GROUPS[]) + TU CHINH PID (View::AutoTune) + CHE DO TEST (View::TestMode)
+// + NHAT KY ME (View::EventLog) + THOAT.
+constexpr uint8_t CHUNG_COUNT = (GROUP_COUNT - 1U) + 4U;
 const char *chungItemLabel(uint8_t index) {
   if (index < GROUP_COUNT - 1U) return GROUPS[index + 1U].label;
   if (index == GROUP_COUNT - 1U) return "TU CHINH PID";
+  if (index == GROUP_COUNT) return "CHE DO TEST";
+  if (index == GROUP_COUNT + 1U) return "NHAT KY ME";
   return "THOAT";
 }
 
@@ -1123,8 +1142,8 @@ void goBack() {
       break;
     case View::TurnStats:
       view = View::SettingList;
-      selectedGroup = 3U;  // DAO TRUNG
-      setListSelection(GROUPS[3U].count, settingListItemCount(3U));
+      selectedGroup = 2U;  // DAO TRUNG
+      setListSelection(GROUPS[2U].count, settingListItemCount(2U));
       break;
     case View::AutoTune:
       view = View::ChungMenu;
@@ -1132,35 +1151,40 @@ void goBack() {
       alignChungMenuWindow();
       break;
     case View::EventLog:
-      view = View::MainMenu;
-      mainIndex = MAIN_NHAT_KY;
-      alignMainMenuWindow();
+      view = View::ChungMenu;
+      chungIndex = GROUP_COUNT + 1U;  // "NHAT KY ME"
+      alignChungMenuWindow();
       break;
     case View::TestMode:
     case View::TestSummary:
       queueCommand(HmiCommandType::TestModeExit);
-      view = View::MainMenu;
-      mainIndex = MAIN_THU_NGHIEM;
-      alignMainMenuWindow();
+      view = View::ChungMenu;
+      chungIndex = GROUP_COUNT;  // "CHE DO TEST"
+      alignChungMenuWindow();
       break;
     case View::WifiChange:
       queueCommand(HmiCommandType::WifiPortalCancel);
       view = View::SettingList;
-      selectedGroup = 4U;  // KET NOI
-      // "Doi wifi" la dong phu CUOI cung cua nhom (sau "Thong tin ket noi").
-      setListSelection(static_cast<int>(GROUPS[4U].count + groupVisibleExtraCount(4U)) - 1,
-                        settingListItemCount(4U));
+      selectedGroup = 3U;  // HE THONG
+      // Dung ham tra cuu thay vi hardcode vi tri - tranh sai khi thu tu
+      // groupExtraSlot() thay doi sau nay (da tung sai vi ly do nay).
+      setListSelection(static_cast<int>(GROUPS[3U].count) +
+                            visibleExtraIndexOf(3U, GroupExtra::WifiChange),
+                        settingListItemCount(3U));
       break;
     case View::ConnectionInfo:
       view = View::SettingList;
-      selectedGroup = 4U;  // KET NOI
-      setListSelection(GROUPS[4U].count, settingListItemCount(4U));
+      selectedGroup = 3U;  // HE THONG
+      setListSelection(static_cast<int>(GROUPS[3U].count) +
+                            visibleExtraIndexOf(3U, GroupExtra::ConnectionInfo),
+                        settingListItemCount(3U));
       break;
     case View::QrCode:
       view = View::SettingList;
-      selectedGroup = 4U;  // KET NOI
-      // "Ma QR ID" la dong phu THU 2 (sau "Thong tin ket noi", truoc "Doi wifi").
-      setListSelection(static_cast<int>(GROUPS[4U].count) + 1, settingListItemCount(4U));
+      selectedGroup = 3U;  // HE THONG
+      setListSelection(static_cast<int>(GROUPS[3U].count) +
+                            visibleExtraIndexOf(3U, GroupExtra::QrCode),
+                        settingListItemCount(3U));
       break;
     case View::Alarm: view = alarmReturnView; break;
   }
@@ -1196,11 +1220,20 @@ void selectChungItem() {
   if (chungIndex < GROUP_COUNT - 1U) {
     openGroup(static_cast<uint8_t>(chungIndex + 1U));
   } else if (chungIndex == GROUP_COUNT - 1U) {
+    // TU CHINH PID
     if (currentRuntime.batchRunning) {
       showToast("HAY DUNG ME TRUOC AUTO TUNE", true);
       return;
     }
     view = View::AutoTune;
+    dirty = true;
+  } else if (chungIndex == GROUP_COUNT) {
+    // CHE DO TEST - openTestMode() tu kiem tra dieu kien + dat dirty.
+    openTestMode();
+  } else if (chungIndex == GROUP_COUNT + 1U) {
+    // NHAT KY ME
+    eventLogIndex = 0U;
+    view = View::EventLog;
     dirty = true;
   } else {
     view = View::MainMenu;
@@ -1858,11 +1891,6 @@ void selectMainItem() {
   switch (mainIndex) {
     case MAIN_CAI_DAT_ME: openGroup(0U); break;
     case MAIN_CAI_DAT_CHUNG: openChungMenu(); break;
-    case MAIN_THU_NGHIEM: openTestMode(); break;
-    case MAIN_NHAT_KY:
-      eventLogIndex = 0U;
-      view = View::EventLog;
-      break;
     default:
       view = View::Home;
       homePage = 0;
@@ -3916,9 +3944,9 @@ void processCommandAcks() {
     }
     if (!ack.ok && command.type == HmiCommandType::TestModeEnter &&
         view == View::TestMode) {
-      view = View::MainMenu;
-      mainIndex = MAIN_THU_NGHIEM;
-      alignMainMenuWindow();
+      view = View::ChungMenu;
+      chungIndex = GROUP_COUNT;  // "CHE DO TEST"
+      alignChungMenuWindow();
       dirty = true;
     }
   }
