@@ -476,9 +476,22 @@ inline void handleSessionMessage(const JsonDocument &doc) {
     const bool haveConfig = knownConfigValid;
     const MachineConfig cfg = knownConfig;
     const uint32_t revision = webConfigRevision;
+    const HmiEventSnapshot recentEvents = pendingEventSnapshot;
     portEXIT_CRITICAL(&webMux);
     if (haveConfig) publishConfigReport(cfg, revision);
     lastSnapshotPublishAt = 0U;  // ep publish snapshot ngay trong vong lap toi
+    // Trinh duyet MOI mo/vua ket noi lai chi nhan duoc cac su kien XAY RA TU
+    // LUC DO VE SAU qua topic "log" (MQTT khong co lich su, chi phat tuc
+    // thoi) - "Nhat ky me ap" tren web vi vay trong/thieu neu bo lo su kien
+    // xay ra TRUOC do (vd bat/tat me tu HMI, hoac tu 1 trinh duyet khac dang
+    // mo). Phat lai toan bo backlog dang giu (toi da HMI_EVENT_DISPLAY_CAPACITY
+    // muc, theo thu tu CU->MOI) moi khi co yeu cau "sync" de trinh duyet nay
+    // bat kip lich su that cua may - web da tu dedupe theo "sequence" (xem
+    // handleLog() trong app.js) nen phat lai muc da co san KHONG gay trung,
+    // chi don gian khong lam gi neu trinh duyet do da nhan roi.
+    for (uint8_t offset = recentEvents.count; offset > 0U; --offset) {
+      publishLogEntry(recentEvents.items[offset - 1U]);
+    }
   }
 }
 

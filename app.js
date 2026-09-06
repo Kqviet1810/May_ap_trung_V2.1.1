@@ -817,6 +817,14 @@
     device.batchUiPendingUntil = 0;
   }
 
+  // Anh xa action MQTT -> trang thai batchRunning mong doi, dung de doi
+  // chieu voi snapshot runtime (xem batchUiAwaitingConfirmTarget ben duoi).
+  function batchTargetForAction(action) {
+    if (action === 'batch_start') return 'running';
+    if (action === 'batch_stop') return 'stopped';
+    return '';
+  }
+
   function renderBatchAction(device, runtime = device?.snapshot?.runtime) {
     const button = $('batchAction');
     if (!button) return;
@@ -846,6 +854,9 @@
   function beginBatchActionPending(device, target) {
     if (!device) return;
     device.batchUiPendingTarget = target;
+    // Huy moi "cho xac nhan tre" cua lan bam truoc - lenh moi nay se co ket
+    // qua rieng cua no (xem batchUiAwaitingConfirmTarget o applySnapshotToUi()).
+    device.batchUiAwaitingConfirmTarget = '';
     device.batchUiPendingUntil = Date.now() + Math.max(10000, Number(WEB.commandTimeoutMs || 0) + 2000);
     const expectedUntil = device.batchUiPendingUntil;
     renderBatchAction(device);
@@ -901,6 +912,26 @@
     if ((device?.batchUiPendingTarget === 'running' && runtime.batchRunning) ||
         (device?.batchUiPendingTarget === 'stopped' && !runtime.batchRunning)) {
       clearBatchActionPending(device);
+    }
+    // Runtime snapshot la SU THAT tu may, doc lap hoan toan voi duong ACK.
+    // Neu 1 lenh Bat dau/Ket thuc me truoc do da bi bao loi/het han tren web
+    // (batchUiAwaitingConfirmTarget con giu lai muc tieu cua lenh do - xem
+    // sendCommand()/handleAck()) nhung snapshot nay lai cho thay may THUC RA
+    // da thuc hien dung (mang cham lam goi ACK that lac/den tre hon 8-10s so
+    // voi may da lam xong), phai SUA LAI thanh thong bao THANH CONG thay vi
+    // de nguyen canh bao sai tren form - dung yeu cau "gui thanh cong hay
+    // khong thanh cong deu phai bao ro rang", khong duoc de lai thong bao
+    // trai voi thuc te.
+    if ((device?.batchUiAwaitingConfirmTarget === 'running' && runtime.batchRunning) ||
+        (device?.batchUiAwaitingConfirmTarget === 'stopped' && !runtime.batchRunning)) {
+      const startedNow = device.batchUiAwaitingConfirmTarget === 'running';
+      const lateOkMessage = startedNow
+        ? 'Xác nhận muộn từ máy: mẻ ấp ĐÃ bắt đầu thành công (thông báo trước đó không chính xác do mạng chậm)'
+        : 'Xác nhận muộn từ máy: mẻ ấp ĐÃ kết thúc thành công (thông báo trước đó không chính xác do mạng chậm)';
+      device.batchUiAwaitingConfirmTarget = '';
+      if (device.id === state.selectedId) setFormError('batchForm', '');
+      addBatchLog(device, lateOkMessage);
+      if (device.id === state.selectedId) toast(lateOkMessage, 4500);
     }
     renderBatchAction(device, runtime);
 
@@ -1207,11 +1238,27 @@
       timeout: setTimeout(() => {
         if (!state.pending.has(id)) return;
         state.pending.delete(id);
+        const timeoutMessage = 'Không nhận được phản hồi từ ESP32 (mất kết nối?) - đang kiểm tra lại trạng thái máy';
         if (action === 'batch_start' || action === 'batch_stop') {
           clearBatchActionPending(device);
           if (device.id === state.selectedId) renderBatchAction(device);
+          // Khac voi cac lenh khac (chi toast la du) - "Bat dau/Ket thuc me"
+          // can 1 canh bao NAM YEN tren form (giong duong xu ly khi ESP32 tra
+          // ve ket qua tu choi) vi day la truong hop nguy hiem nhat: nguoi
+          // dung khong biet lenh co thuc su toi may hay khong. Ghi lai muc
+          // tieu dang cho vao batchUiAwaitingConfirmTarget (KHONG dung
+          // batchUiPendingTarget vi clearBatchActionPending() vua xoa no) de
+          // applySnapshotToUi() con co the SUA lai thanh thong bao THANH
+          // CONG neu snapshot sau do chung minh may thuc ra DA nhan lenh
+          // (mang cham nhung lenh van toi noi).
+          device.batchUiAwaitingConfirmTarget = batchTargetForAction(action);
+          // batchForm la DOM dung chung, luon gan voi thiet bi dang CHON -
+          // chi ghi canh bao vao do neu day dung la thiet bi dang xem, tranh
+          // de lai thong bao ve 1 thiet bi khac ma nguoi dung khong con nhin.
+          if (device.id === state.selectedId) setFormError('batchForm', timeoutMessage);
+          addBatchLog(device, timeoutMessage);
         }
-        toast('ESP32 chưa phản hồi lệnh');
+        toast(timeoutMessage, 3600);
       }, WEB.commandTimeoutMs)
     });
 
@@ -1286,6 +1333,13 @@
         // toi khi nguoi dung thu lai, tranh truong hop nguoi dung lo mat
         // toast roi khong hieu vi sao nut lai tro ve trang thai cu.
         if (device.id === state.selectedId) setFormError('batchForm', message);
+        // Ket qua "expired"/"stale" o day co the la BAO ĐỘNG GIẢ: ESP32 co the
+        // van da nhan va thuc hien lenh nhung goi ACK bi tre/mat tren duong
+        // mang ve (xem giai thich o applySnapshotToUi()). Ghi lai muc tieu
+        // dang cho (KHONG dung batchUiPendingTarget vi clearBatchActionPending()
+        // vua xoa no) de con SUA lai thanh thong bao THANH CONG neu snapshot
+        // runtime sau do chung minh dieu nguoc lai voi nhung gi ACK nay vua bao.
+        device.batchUiAwaitingConfirmTarget = batchTargetForAction(pending.action);
       }
       toast(message, 3600);
       addBatchLog(device, message);
