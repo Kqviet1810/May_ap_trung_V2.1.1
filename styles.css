@@ -467,6 +467,20 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .tempGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
   .compactTile{padding:11px;min-height:80px}
   .compactTile input{font-size:18px}
+  /* KHONG giam font-size input[type=date] xuong duoi 16px de tranh loi rieng
+     cua Safari/iOS: input duoi 16px se bi TU DONG PHONG TO CA TRANG khi
+     nguoi dung cham vao (WebKit tu zoom de "de doc/go hon", Chromium khong
+     co hanh vi nay nen mo phong khong phat hien duoc). Gia tri ngay theo
+     dinh dang tieng Viet cua trinh duyet ("ngay 29 thg 7, 2026") dai hon han
+     cac o so khac trong cung luoi 2 cot - thay vi thu nho chu (se dung phai
+     loi zoom tren), cho o Ngay bat dau chiem TRON 1 hang rieng (rong gap
+     doi) de du cho hien du chu o co chu binh thuong. */
+  .batchGrid .compactTile:has(input[type=date]){grid-column:1/-1}
+  /* dense: cho phep "Tong so ngay ap" (o ke tiep sau Ngay bat dau trong DOM)
+     tu dien vao 1/2 hang con trong ben canh "Ten me ap" (thay vi de trong
+     mot khoang rong vo ich) - mac dinh (sparse) grid se KHONG tu quay lai
+     lap khoang trong nay khi da qua 1 item chiem tron hang. */
+  .batchGrid{grid-auto-flow:dense}
   .compactTile .unit b{font-size:15px}
   .batchActions{grid-template-columns:repeat(2,minmax(0,1fr))}
   .outputStrip{grid-template-columns:1fr 1fr}

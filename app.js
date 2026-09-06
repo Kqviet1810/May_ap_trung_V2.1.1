@@ -1252,10 +1252,18 @@
       } else {
         toast(message);
       }
+      if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
+        setFormError('batchForm', '');
+      }
     } else {
       if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
         clearBatchActionPending(device);
         if (device.id === state.selectedId) renderBatchAction(device);
+        // Toast tu bien mat sau vai giay - rieng lenh Bat dau/Ket thuc me
+        // can 1 canh bao NAM YEN ngay tren nut bam (giong loi validate form)
+        // toi khi nguoi dung thu lai, tranh truong hop nguoi dung lo mat
+        // toast roi khong hieu vi sao nut lai tro ve trang thai cu.
+        if (device.id === state.selectedId) setFormError('batchForm', message);
       }
       toast(message, 3600);
       addBatchLog(device, message);
@@ -1954,6 +1962,7 @@
           accept: 'Bắt đầu mẻ'
         });
         if (!ok) return;
+        setFormError('batchForm', '');
         beginBatchActionPending(device, 'running');
         if (!await sendCommand('batch_start')) {
           clearBatchActionPending(device);
@@ -1969,6 +1978,7 @@
         danger: true
       });
       if (!ok) return;
+      setFormError('batchForm', '');
       beginBatchActionPending(device, 'stopped');
       if (!await sendCommand('batch_stop')) {
         clearBatchActionPending(device);
