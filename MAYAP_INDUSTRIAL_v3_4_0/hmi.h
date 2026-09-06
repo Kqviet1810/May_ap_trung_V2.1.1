@@ -472,7 +472,13 @@ const SettingItem SETTINGS[] = {
   ITEM_FLOAT("Bu nhiet do", tempOffset, -5.0f, 5.0f, 0.1f, 1, "C"),            // 7
   // BAT (mac dinh): Bao cao/Bao khan cap hoat dong moi luc, ke ca khong co
   // me ap. TAT: 2 canh bao nay CHI kiem tra khi dang co me (giong Bao thap).
-  ITEM_BOOL("Bao nhiet ngoai me", highTempAlarmWithoutBatch),                  // 8
+  // Ten rut gon tu "Bao nhiet ngoai me" - o dong nay gia tri la 1 trong 2 tuy
+  // chon NGAN ("TAT"/"BAT", 3 ky tu), nen kich thuoc danh cho nhan gan nhu
+  // toi da (xem drawSettingList()); "Bao nhiet ngoai me" (18 ky tu) dai hon
+  // muc cho phep nen luon bi ep xuong font nho hon cac dong khac trong danh
+  // sach - nhin giong loi font dai loi day du nay chi con 15 ky tu de luon
+  // ve duoc bang font lon, dong bo voi cac dong con lai.
+  ITEM_BOOL("Bao nhiet ngoai", highTempAlarmWithoutBatch),                     // 8
 
   // ---- CAI DAT CHUNG > QUAT HUT (2 muc) ----
   ITEM_FLOAT("Quat hut bat", ventOnTemp, TARGET_TEMP_MIN_C + VENT_ON_ABOVE_SV_C,
@@ -486,7 +492,12 @@ const SettingItem SETTINGS[] = {
   ITEM_U16("Tre loi dao", turnMaxRunSec, 5, 600, 5, "s"),                    // 13
 
   // ---- CAI DAT CHUNG > KET NOI (1 muc, + "Doi wifi" la dong phu) ----
-  ITEM_U8_OPTIONS("Che do ket noi", connectivityMode,
+  // Ten rut gon tu "Che do ket noi" (14 ky tu) - option dai nhat la "OFFLINE"
+  // (7 ky tu) chiem het phan lon 128px con lai, nen nhan 14 ky tu luon bi ep
+  // ve font nho (xem drawSettingList()). Da o ngay man hinh header "HE
+  // THONG" nen rut gon con "Ket noi" (7 ky tu) van ro nghia va luon ve duoc
+  // bang font lon nhu cac dong khac.
+  ITEM_U8_OPTIONS("Ket noi", connectivityMode,
                   OPT_OFFLINE_ONLINE, 2)                                      // 14
 };
 
