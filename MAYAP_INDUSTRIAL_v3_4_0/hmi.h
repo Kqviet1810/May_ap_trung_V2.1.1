@@ -522,13 +522,17 @@ static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) =
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
 
 // Dong phu (khong phai setting gia tri) duoc gan them vao cuoi mot so nhom.
-// Moi nhom co toi da 4 dong phu (hien tai chi KET NOI dung ca 4) - liet ke
+// Moi nhom co toi da 5 dong phu (hien tai chi HE THONG dung ca 5) - liet ke
 // theo THU TU CO DINH qua groupExtraSlot(), roi loc bot dong dang AN (vd
 // "Doi wifi" chi hien khi Online) qua visibleGroupExtraAt() de ra danh sach
 // LIEN TUC hien thi tren man hinh. (groupExtraSlotVisible/visibleGroupExtraAt/
 // groupVisibleExtraCount dat o DUOI, sau khai bao currentConfig - xem do.)
-enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode, CloudPinReset, FirmwareWebUpdate };
+enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode, CloudPinReset, FirmwareWebUpdate, AutoTuneEntry };
 GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
+  // NHIET DO -> "Tu chinh PID" (chuyen tu 1 muc rieng trong Cai dat chung
+  // vao day - Auto Tune tu do thong so nhiet nen hop ly hon khi gan voi
+  // nhom Nhiet do, giong cach "So lan dao" gan voi Dao trung).
+  if (group == 1 && slot == 0) return GroupExtra::AutoTuneEntry;
   if (group == 2 && slot == 0) return GroupExtra::TurnStats;      // DAO TRUNG -> "So lan dao"
   // Thu tu da quy hoach lai (nhom HE THONG): 2 muc ve MANG di lien nhau
   // truoc (thong tin + doi wifi), roi den DINH DANH/BAO MAT (QR + PIN), cuoi
@@ -913,7 +917,7 @@ HmiI2cUnlockFn i2cUnlockCallback = nullptr;
 // me" chuyen vao trong CAI DAT CHUNG (xem CHUNG_COUNT ben duoi) cho gon -
 // truoc day la 2 muc rieng ngang hang voi CAI DAT CHUNG, it dung hon nhieu
 // so voi cac thong so hang ngay nen dua ve chung 1 cho voi cac muc it thao
-// tac khac (TU CHINH PID...).
+// tac khac.
 constexpr uint8_t MAIN_COUNT = 3;
 enum MainMenuIndex : uint8_t {
   MAIN_CAI_DAT_ME = 0, MAIN_CAI_DAT_CHUNG = 1, MAIN_THOAT = 2
@@ -927,19 +931,21 @@ const char *mainItemLabel(uint8_t index) {
 }
 
 // Menu con "CAI DAT CHUNG": 3 thu muc setting (chi so nhom 1..3 trong
-// GROUPS[]) + TU CHINH PID (View::AutoTune) + CHE DO TEST (View::TestMode)
-// + NHAT KY ME (View::EventLog) + THOAT.
-constexpr uint8_t CHUNG_COUNT = (GROUP_COUNT - 1U) + 4U;
+// GROUPS[]) + CHE DO TEST (View::TestMode) + NHAT KY ME (View::EventLog)
+// + THOAT. "TU CHINH PID" da chuyen thanh dong phu cua nhom NHIET DO (xem
+// groupExtraSlot()) - Auto Tune tu do thong so nhiet nen hop ly hon khi
+// gan voi Nhiet do, giong cach "So lan dao" gan voi Dao trung.
+constexpr uint8_t CHUNG_COUNT = (GROUP_COUNT - 1U) + 3U;
 const char *chungItemLabel(uint8_t index) {
   if (index < GROUP_COUNT - 1U) return GROUPS[index + 1U].label;
-  if (index == GROUP_COUNT - 1U) return "TU CHINH PID";
-  if (index == GROUP_COUNT) return "CHE DO TEST";
-  if (index == GROUP_COUNT + 1U) return "NHAT KY ME";
+  if (index == GROUP_COUNT - 1U) return "CHE DO TEST";
+  if (index == GROUP_COUNT) return "NHAT KY ME";
   return "THOAT";
 }
 
 const char *groupExtraLabelFor(GroupExtra extra) {
   switch (extra) {
+    case GroupExtra::AutoTuneEntry: return "Tu chinh PID";
     case GroupExtra::TurnStats: return "So lan dao";
     case GroupExtra::WifiChange: return "Doi wifi";
     case GroupExtra::ConnectionInfo: return "Thong tin ket noi";
@@ -1146,20 +1152,24 @@ void goBack() {
       setListSelection(GROUPS[2U].count, settingListItemCount(2U));
       break;
     case View::AutoTune:
-      view = View::ChungMenu;
-      chungIndex = GROUP_COUNT - 1U;  // "TU CHINH PID"
-      alignChungMenuWindow();
+      // "Tu chinh PID" gio la dong phu cua nhom NHIET DO (khong con la muc
+      // rieng trong ChungMenu) - quay ve dung dong nay trong SettingList.
+      view = View::SettingList;
+      selectedGroup = 1U;  // NHIET DO
+      setListSelection(static_cast<int>(GROUPS[1U].count) +
+                            visibleExtraIndexOf(1U, GroupExtra::AutoTuneEntry),
+                        settingListItemCount(1U));
       break;
     case View::EventLog:
       view = View::ChungMenu;
-      chungIndex = GROUP_COUNT + 1U;  // "NHAT KY ME"
+      chungIndex = GROUP_COUNT;  // "NHAT KY ME"
       alignChungMenuWindow();
       break;
     case View::TestMode:
     case View::TestSummary:
       queueCommand(HmiCommandType::TestModeExit);
       view = View::ChungMenu;
-      chungIndex = GROUP_COUNT;  // "CHE DO TEST"
+      chungIndex = GROUP_COUNT - 1U;  // "CHE DO TEST"
       alignChungMenuWindow();
       break;
     case View::WifiChange:
@@ -1220,17 +1230,9 @@ void selectChungItem() {
   if (chungIndex < GROUP_COUNT - 1U) {
     openGroup(static_cast<uint8_t>(chungIndex + 1U));
   } else if (chungIndex == GROUP_COUNT - 1U) {
-    // TU CHINH PID
-    if (currentRuntime.batchRunning) {
-      showToast("HAY DUNG ME TRUOC AUTO TUNE", true);
-      return;
-    }
-    view = View::AutoTune;
-    dirty = true;
-  } else if (chungIndex == GROUP_COUNT) {
     // CHE DO TEST - openTestMode() tu kiem tra dieu kien + dat dirty.
     openTestMode();
-  } else if (chungIndex == GROUP_COUNT + 1U) {
+  } else if (chungIndex == GROUP_COUNT) {
     // NHAT KY ME
     eventLogIndex = 0U;
     view = View::EventLog;
@@ -1241,6 +1243,17 @@ void selectChungItem() {
     alignMainMenuWindow();
     dirty = true;
   }
+}
+
+// "Tu chinh PID" - dong phu cua nhom NHIET DO (xem groupExtraSlot()). Giu
+// nguyen dieu kien chan cu (khong the tu chinh PID trong luc dang co me).
+void openAutoTuneEntry() {
+  if (currentRuntime.batchRunning) {
+    showToast("HAY DUNG ME TRUOC AUTO TUNE", true);
+    return;
+  }
+  view = View::AutoTune;
+  dirty = true;
 }
 
 void openTestMode() {
@@ -2119,7 +2132,9 @@ void handleInput() {
         } else if (listIndex < group.count + extraCount) {
           const GroupExtra extra = visibleGroupExtraAt(selectedGroup,
               static_cast<uint8_t>(listIndex - group.count));
-          if (extra == GroupExtra::TurnStats) {
+          if (extra == GroupExtra::AutoTuneEntry) {
+            openAutoTuneEntry();
+          } else if (extra == GroupExtra::TurnStats) {
             view = View::TurnStats;
             dirty = true;
           } else if (extra == GroupExtra::WifiChange) {
@@ -3945,7 +3960,7 @@ void processCommandAcks() {
     if (!ack.ok && command.type == HmiCommandType::TestModeEnter &&
         view == View::TestMode) {
       view = View::ChungMenu;
-      chungIndex = GROUP_COUNT;  // "CHE DO TEST"
+      chungIndex = GROUP_COUNT - 1U;  // "CHE DO TEST"
       alignChungMenuWindow();
       dirty = true;
     }
