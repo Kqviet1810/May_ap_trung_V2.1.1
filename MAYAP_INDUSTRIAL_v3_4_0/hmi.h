@@ -2683,7 +2683,24 @@ void drawSettingList() {
       const int16_t valueW = static_cast<int16_t>(lcd.getStrWidth(value));
       const int16_t valueX = max(2, 126 - valueW);
       lcd.drawStr(valueX, y, value);
-      drawLeftFit2(2, y, item.label, static_cast<int16_t>(valueX - 4),
+      // Rieng setting kieu lua chon (options != nullptr, vd ONLINE/OFFLINE):
+      // dung BE RONG LUA CHON DAI NHAT (khong phai gia tri DANG chon) de
+      // tinh ranh gioi cho nhan - "Che do ket noi" la nhan dai nhat bang,
+      // vua khop khi gia tri la "ONLINE" nhung "OFFLINE" dai hon 1 ky tu se
+      // lam drawLeftFit2 tuong khong du cho, tu dong lui ve font nho hon.
+      // Nguoi dung thay day la "man hinh tu doi font" moi lan bam sang
+      // Offline - co dinh ranh gioi theo lua chon dai nhat de nhan LUON
+      // dung 1 co chu, bat ke dang chon gia tri nao.
+      int16_t labelBoundaryX = valueX;
+      if (item.options && item.optionCount > 0U) {
+        int16_t widestOptionW = 0;
+        for (uint8_t optionIndex = 0; optionIndex < item.optionCount; ++optionIndex) {
+          const int16_t w = static_cast<int16_t>(lcd.getStrWidth(item.options[optionIndex]));
+          if (w > widestOptionW) widestOptionW = w;
+        }
+        labelBoundaryX = max(2, 126 - widestOptionW);
+      }
+      drawLeftFit2(2, y, item.label, static_cast<int16_t>(labelBoundaryX - 4),
                    u8g2_font_6x12_tf, u8g2_font_5x8_tf);
     } else if (local >= group.count && local < group.count + groupVisibleExtraCount(selectedGroup)) {
       // Dong muc phu (thong tin ket noi/doi wifi/thong ke dao) can trai dong
