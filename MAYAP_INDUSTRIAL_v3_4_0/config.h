@@ -348,6 +348,9 @@ constexpr uint32_t SPLASH_MIN_MS = 1500UL;
 // man khoi dong mai - sau moc nay luon vao man chinh de con thao tac duoc.
 constexpr uint32_t SPLASH_MAX_MS = 6000UL;
 constexpr uint32_t ALARM_REFRESH_MS = 5000UL;
+// Man hinh "Dang cap nhat firmware..." can lam moi nhanh hon nhieu de thanh
+// % chay muot, khac han HOME_REFRESH_MS (5s qua cham cho viec nay).
+constexpr uint32_t FIRMWARE_PROGRESS_REFRESH_MS = 400UL;
 constexpr uint32_t HMI_COMMAND_POLL_MS = 100UL;
 constexpr uint32_t MENU_IDLE_TIMEOUT_MS = 60000UL;
 constexpr uint32_t SAVE_CONFIRM_TIMEOUT_MS = 8000UL;

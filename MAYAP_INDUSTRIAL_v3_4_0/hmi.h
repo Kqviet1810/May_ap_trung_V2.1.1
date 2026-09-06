@@ -509,7 +509,10 @@ const SettingGroup GROUPS[] = {
   {"NHIET DO", 4, 5},
   {"QUAT HUT", 9, 2},
   {"DAO TRUNG", 11, 3},
-  {"KET NOI", 14, 1}
+  // Doi ten tu "KET NOI" thanh "HE THONG": nhom nay tu lau da khong chi con
+  // la cai dat mang - gom ca ma QR, dat lai PIN, cap nhat firmware... nen
+  // "He thong" mo ta dung hon la cai dat chung cua may.
+  {"HE THONG", 14, 1}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
 static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");
@@ -525,11 +528,14 @@ static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) =
 enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode, CloudPinReset, FirmwareWebUpdate };
 GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
   if (group == 3 && slot == 0) return GroupExtra::TurnStats;      // DAO TRUNG -> "So lan dao"
-  if (group == 4 && slot == 0) return GroupExtra::ConnectionInfo; // KET NOI -> "Thong tin ket noi"
-  if (group == 4 && slot == 1) return GroupExtra::QrCode;         // KET NOI -> "Ma QR ID"
-  if (group == 4 && slot == 2) return GroupExtra::WifiChange;     // KET NOI -> "Doi wifi"
-  if (group == 4 && slot == 3) return GroupExtra::CloudPinReset;  // KET NOI -> "Dat lai ma PIN"
-  if (group == 4 && slot == 4) return GroupExtra::FirmwareWebUpdate; // KET NOI -> "Cap nhat firmware" (chi hien khi co ban moi)
+  // Thu tu da quy hoach lai (nhom HE THONG): 2 muc ve MANG di lien nhau
+  // truoc (thong tin + doi wifi), roi den DINH DANH/BAO MAT (QR + PIN), cuoi
+  // cung la CAP NHAT (dung chung root voi may, it thao tac nhat).
+  if (group == 4 && slot == 0) return GroupExtra::ConnectionInfo;   // HE THONG -> "Thong tin ket noi"
+  if (group == 4 && slot == 1) return GroupExtra::WifiChange;       // HE THONG -> "Doi wifi"
+  if (group == 4 && slot == 2) return GroupExtra::QrCode;           // HE THONG -> "Ma QR ID"
+  if (group == 4 && slot == 3) return GroupExtra::CloudPinReset;    // HE THONG -> "Dat lai ma PIN"
+  if (group == 4 && slot == 4) return GroupExtra::FirmwareWebUpdate; // HE THONG -> "Cap nhat" (luon hien khi Online)
   return GroupExtra::None;
 }
 
@@ -687,7 +693,8 @@ void formatSettingValue(const SettingItem &item, float value, char *out, size_t 
 // ============================================================
 enum class View : uint8_t {
   Home, MainMenu, ChungMenu, SettingList, EditSetting, TurnStats, AutoTune,
-  EventLog, Alarm, TestMode, TestSummary, WifiChange, ConnectionInfo, QrCode
+  EventLog, Alarm, TestMode, TestSummary, WifiChange, ConnectionInfo, QrCode,
+  FirmwareProgress
 };
 
 enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset, FirmwareWebApply };
@@ -712,12 +719,13 @@ bool groupExtraSlotVisible(GroupExtra extra) {
   if (extra == GroupExtra::WifiChange || extra == GroupExtra::CloudPinReset) {
     return currentConfig.connectivityMode == ConnectivityMode::Online;
   }
-  // Chi hien dong nay khi THAT SU co ban moi hon dang cho xac nhan - tranh
-  // choan cho danh sach cai dat luc binh thuong (da kiem tra dinh ky ngam,
-  // xem mayapFirmwareWebUpdate() trong ota_web_update.h).
+  // LUON hien khi Online (giong Doi wifi/Dat lai PIN) - bam vao se hien
+  // phien ban hien tai neu chua co ban moi, hoac man hinh xac nhan Co/Khong
+  // neu THAT SU co ban moi dang cho (xem openFirmwareWebConfirm()). Truoc
+  // day chi hien khi co ban moi nen nguoi dung khong co cach nao vao xem
+  // "may dang chay ban may" tu HMI.
   if (extra == GroupExtra::FirmwareWebUpdate) {
-    return currentConfig.connectivityMode == ConnectivityMode::Online &&
-           mayapFirmwareWebStatus().available;
+    return currentConfig.connectivityMode == ConnectivityMode::Online;
   }
   return extra != GroupExtra::None;
 }
@@ -790,6 +798,12 @@ bool confirmYes = true;
 // dao tu dong) - chi ap dung khi thao tac nay, khong dung cho cac truong khac.
 MachineConfig pendingTurningConfig;
 bool resumeDecisionSubmitted = false;
+// Nhac dinh ky "co ban firmware moi" tren man hinh chinh - 0 nghia la "chua
+// tung nhac, hien ngay lan dau tien co ban moi". Bam "Khong" se cap nhat gia
+// tri nay thanh millis() hien tai de 12h sau moi nhac lai; bam "Co" thi
+// khong can vi may se khoi dong lai.
+uint32_t firmwareReminderLastAt = 0U;
+constexpr uint32_t FIRMWARE_REMINDER_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;
 View alarmReturnView = View::Home;
 uint8_t alarmIndex = 0;
 uint8_t eventLogIndex = 0;
@@ -798,6 +812,7 @@ uint32_t alarmPresentedMask = 0;
 uint32_t lastDrawAt = 0;
 uint32_t lastHomeDrawAt = 0;
 uint32_t lastAlarmDrawAt = 0;
+uint32_t lastFirmwareProgressDrawAt = 0;
 uint32_t lastInteractionAt = 0;
 uint32_t lastLcdRetryAt = 0;
 uint32_t lastLcdHealthCheckAt = 0;
@@ -911,7 +926,14 @@ const char *groupExtraLabelFor(GroupExtra extra) {
     case GroupExtra::ConnectionInfo: return "Thong tin ket noi";
     case GroupExtra::QrCode: return "Ma QR ID";
     case GroupExtra::CloudPinReset: return "Dat lai ma PIN";
-    case GroupExtra::FirmwareWebUpdate: return "Cap nhat firmware";
+    case GroupExtra::FirmwareWebUpdate: {
+      // Danh dau "*" ngay tren ten muc khi THAT SU co ban moi dang cho -
+      // nguoi dung khong can bam vao moi biet co ban moi hay khong.
+      static char label[16];
+      snprintf(label, sizeof(label), "Cap nhat%s",
+               mayapFirmwareWebStatus().available ? " (*)" : "");
+      return label;
+    }
     default: return "";
   }
 }
@@ -1332,21 +1354,30 @@ void openCloudPinResetConfirm() {
   dirty = true;
 }
 
-// Cap nhat firmware TU XA (ota_web_update.h) - CHI mo duoc khi da thuc su co
-// ban moi dang cho (dong nay cung chi hien tren danh sach khi co, xem
-// groupExtraSlotVisible()). Bam CO moi thuc su tai ve/flash - xem
-// executeConfirmation().
+// Cap nhat firmware TU XA (ota_web_update.h) - muc nay LUON bam vao duoc khi
+// Online (xem groupExtraSlotVisible()): neu THAT SU co ban moi dang cho thi
+// mo man hinh xac nhan Co/Khong; neu chua co thi chi hien thong tin phien
+// ban dang chay de nguoi dung biet may minh dang o ban nao, khong lam gi
+// them ca. Bam CO moi thuc su tai ve/flash - xem executeConfirmation().
 void openFirmwareWebConfirm() {
   if (currentConfig.connectivityMode != ConnectivityMode::Online) {
     showToast("CHI DUNG DUOC KHI ONLINE", true);
     return;
   }
   if (!mayapFirmwareWebStatus().available) {
-    showToast("CHUA CO BAN CAP NHAT MOI", true);
+    char text[24];
+    snprintf(text, sizeof(text), "DANG CHAY v%s", MAYAP_FIRMWARE_VERSION);
+    showToast(text, true);
     return;
   }
   confirmAction = ConfirmAction::FirmwareWebApply;
-  confirmReturnView = View::SettingList;
+  // Dung VIEW HIEN TAI (khong ep cung "SettingList"): ham nay duoc goi tu
+  // 2 noi - bam tay trong SettingList (tra ve do khi bam Khong la dung), VA
+  // tu dong tren man Home do nhac dinh ky (xem doan kiem tra firmware
+  // reminder trong applyRuntime(), ngay sau doan resumeConfirmationRequired)
+  // - luc do phai tra ve Home chu khong "nhay lac" nguoi dung vao menu cai
+  // dat ma ho khong yeu cau.
+  confirmReturnView = view;
   confirmYes = false;
   clearToast();
   armInputGuard();
@@ -1920,9 +1951,10 @@ void executeConfirmation(bool accepted) {
       view = returnView;
     } else if (action == ConfirmAction::FirmwareWebApply) {
       if (queueCommand(HmiCommandType::FirmwareWebApply)) {
-        showToast("DANG TAI FIRMWARE...");
+        view = View::FirmwareProgress;
+      } else {
+        view = returnView;
       }
-      view = returnView;
     }
   } else {
     if (action == ConfirmAction::ResumeBatch) {
@@ -1932,6 +1964,12 @@ void executeConfirmation(bool accepted) {
       }
       view = View::Home;
       homePage = 0;
+    } else if (action == ConfirmAction::FirmwareWebApply) {
+      // Bam "Khong" (ke ca khi man hinh nay tu dong bat len do nhac dinh
+      // ky) - hen 12h sau nhac lai, KHONG lam gi them, ve lai man hinh
+      // truoc do.
+      firmwareReminderLastAt = millis();
+      view = returnView;
     } else {
       view = returnView;
     }
@@ -1971,6 +2009,26 @@ void handleInput() {
   // mot trang nao do ma khong biet.
   if (splashActive) {
     resetRotaryPending();
+    return;
+  }
+
+  // Dang tai/flash firmware (applyPhase==1): NUOT MOI THAO TAC, khong cho
+  // thoat man hinh nay giua chung - giong san pham thuong mai, tranh nguoi
+  // dung tuong may "treo" roi tat nguon giua luc dang ghi flash. Loi
+  // (applyPhase==2) hoac thanh cong (applyPhase==3, hau nhu khong kip thay
+  // vi may khoi dong lai ngay) thi cho bam bat ky nut nao de thoat.
+  if (view == View::FirmwareProgress) {
+    const uint8_t phase = mayapFirmwareWebStatus().applyPhase;
+    if (phase == 1U) {
+      resetRotaryPending();
+      return;
+    }
+    if (rotary.button == ButtonEvent::ShortPress ||
+        rotary.button == ButtonEvent::LongPress) {
+      buzzerPlayCue(BuzzerCue::Key);
+      view = View::SettingList;
+      dirty = true;
+    }
     return;
   }
 
@@ -2966,6 +3024,51 @@ void drawTestSummary() {
   }
 }
 
+// Man hinh CHIEM TOAN BO man hinh trong luc dang tai/flash firmware moi
+// (View::FirmwareProgress) - khong the thoat/bam gi trong luc applyPhase==1
+// (xem chan input o dau handleRotary()), giong san pham thuong mai: nguoi
+// dung biet ro may dang lam gi va KHONG duoc tat nguon giua chung.
+void drawFirmwareProgress() {
+  const FirmwareWebStatus status = mayapFirmwareWebStatus();
+  // Header toi da 13 ky tu (xem drawHeader()) - "CAP NHAT FIRMWARE" se bi cat
+  // mat chu cuoi giong loi da gap truoc day voi "SUA THONG SO", nen dung ten
+  // ngan "CAP NHAT".
+  drawHeader("CAP NHAT", false);
+  lcd.setFont(u8g2_font_6x12_tf);
+
+  if (status.applyPhase == 2U) {
+    drawCenteredFit(29, "THAT BAI", u8g2_font_helvB12_tf, u8g2_font_6x12_tf,
+                    u8g2_font_6x12_tf);
+    drawLeftFit(4, 45, status.lastError, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+                u8g2_font_5x8_tf);
+    drawCenteredFit(60, "BAM DE THOAT", u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+                    u8g2_font_5x8_tf);
+    return;
+  }
+  if (status.applyPhase == 3U) {
+    // Thuc te hau nhu khong kip ve khung hinh nay - ESP.restart() goi ngay
+    // sau khi dat phase=3 (delay 300ms), nhung van ve cho day du trang thai.
+    drawCenteredFit(38, "THANH CONG!", u8g2_font_helvB12_tf,
+                    u8g2_font_6x12_tf, u8g2_font_6x12_tf);
+    return;
+  }
+
+  // applyPhase == 1 (dang tai) - hoac 0 neu vua vao man hinh nay truoc khi
+  // otaTask kip chuyen phase, van ve % = 0 cho khong bi giat hinh.
+  char text[24];
+  snprintf(text, sizeof(text), "%u%%", status.downloadPercent);
+  drawCenteredFit(34, text, u8g2_font_helvB14_tf, u8g2_font_helvB12_tf,
+                  u8g2_font_6x12_tf);
+
+  // Thanh % dang pixel don gian, khung 108x8 tai (10,42).
+  lcd.drawFrame(10, 42, 108, 8);
+  const uint16_t fillWidth = (108U * status.downloadPercent) / 100U;
+  if (fillWidth > 0U) lcd.drawBox(10, 42, static_cast<uint16_t>(fillWidth), 8);
+
+  drawCenteredFit(60, "KHONG TAT MAY", u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+                  u8g2_font_5x8_tf);
+}
+
 void drawWifiChange() {
   drawHeader("DOI WIFI");
   lcd.setFont(u8g2_font_6x12_tf);
@@ -3259,6 +3362,8 @@ void render(uint32_t now) {
                             now - lastHomeDrawAt >= HOME_REFRESH_MS;
   const bool periodicAlarm = view == View::Alarm &&
                              now - lastAlarmDrawAt >= ALARM_REFRESH_MS;
+  const bool periodicFirmwareProgress = view == View::FirmwareProgress &&
+      now - lastFirmwareProgressDrawAt >= FIRMWARE_PROGRESS_REFRESH_MS;
   const bool verificationFrame = uiVerifyFramesRemaining != 0U &&
                                  timeReached(now, uiNextVerifyDrawAt);
   const bool consumeVerifyFrame = uiVerifyFramesRemaining == 2U ||
@@ -3288,7 +3393,7 @@ void render(uint32_t now) {
   }
   const bool periodicSplash = splashActive;
   const bool periodic = periodicHome || periodicAlarm || verificationFrame ||
-                        periodicSplash;
+                        periodicSplash || periodicFirmwareProgress;
   if (!dirty && !periodic) return;
   if (now - lastDrawAt < DISPLAY_MIN_DRAW_MS) return;
 
@@ -3321,6 +3426,7 @@ void render(uint32_t now) {
       case View::TestMode: drawTestMode(); break;
       case View::TestSummary: drawTestSummary(); break;
       case View::WifiChange: drawWifiChange(); break;
+      case View::FirmwareProgress: drawFirmwareProgress(); break;
       case View::EventLog: drawEventLog(); break;
       case View::Alarm: drawAlarm(); break;
     }
@@ -3343,6 +3449,7 @@ void render(uint32_t now) {
   }
   if (view == View::Home) lastHomeDrawAt = now;
   if (view == View::Alarm) lastAlarmDrawAt = now;
+  if (view == View::FirmwareProgress) lastFirmwareProgressDrawAt = now;
 }
 
 // ============================================================
@@ -3691,6 +3798,17 @@ void applyRuntime(MachineRuntime runtime) {
   if (currentRuntime.resumeConfirmationRequired && !resumeDecisionSubmitted &&
       confirmAction != ConfirmAction::ResumeBatch && view != View::Alarm) {
     openResumeConfirm();
+  }
+
+  // Nhac dinh ky "co ban firmware moi" - CHI bat len khi dang o man hinh
+  // chinh, ranh (khong co viec gi khac dang cho xac nhan/canh bao), tranh
+  // ngat ngang luc nguoi dung dang thao tac o menu khac. Bam Co/Khong xem
+  // executeConfirmation() (ConfirmAction::FirmwareWebApply).
+  if (mayapFirmwareWebStatus().available && view == View::Home &&
+      confirmAction == ConfirmAction::None &&
+      (firmwareReminderLastAt == 0U ||
+       (millis() - firmwareReminderLastAt) >= FIRMWARE_REMINDER_INTERVAL_MS)) {
+    openFirmwareWebConfirm();
   }
   if (visibleChange) dirty = true;
 }

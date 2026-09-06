@@ -41,6 +41,12 @@ static uint32_t lastCheckAt = 0U;
 static volatile uint8_t applyRequestFlag = 0U;
 static volatile uint8_t checkNowRequestFlag = 0U;
 static volatile uint8_t applyPhase = 0U;  // 0=khong lam gi, 1=dang tai, 2=loi, 3=thanh cong (truoc khi restart)
+// Phan tram tai ve (0..100), CHI co y nghia khi applyPhase==1 - HMI doc gia
+// tri nay moi khung hinh de ve thanh % tren man hinh "Dang cap nhat..."
+// (xem drawFirmwareProgress() trong hmi.h). Doc/ghi don gian bang uint8_t la
+// atomic tren ESP32 (khong can portENTER_CRITICAL) nen khong dung chung mux
+// voi cac truong "pending" khac de khong lam cham vong lap tai file.
+static volatile uint8_t downloadPercent = 0U;
 
 static portMUX_TYPE stateMux = portMUX_INITIALIZER_UNLOCKED;
 static bool pendingAvailable = false;
@@ -84,6 +90,7 @@ struct FirmwareWebStatus {
   char sha256[65] = "";
   uint32_t size = 0U;
   uint8_t applyPhase = 0U;
+  uint8_t downloadPercent = 0U;
   char lastError[48] = "";
 };
 
@@ -98,6 +105,7 @@ inline FirmwareWebStatus mayapFirmwareWebStatus() {
   snprintf(status.lastError, sizeof(status.lastError), "%s", lastErrorText);
   portEXIT_CRITICAL(&stateMux);
   status.applyPhase = __atomic_load_n(&applyPhase, __ATOMIC_ACQUIRE);
+  status.downloadPercent = __atomic_load_n(&downloadPercent, __ATOMIC_ACQUIRE);
   return status;
 }
 
@@ -190,6 +198,7 @@ inline void mayapFirmwareWebApplyNow() {
   }
 
   __atomic_store_n(&applyPhase, 1U, __ATOMIC_RELEASE);
+  __atomic_store_n(&downloadPercent, 0U, __ATOMIC_RELEASE);
   mayapSerialPrintf(true, "[FWWEB] Bat dau tai firmware v%s (%lu bytes)...\n",
                     status.version, static_cast<unsigned long>(status.size));
 
@@ -257,6 +266,9 @@ inline void mayapFirmwareWebApplyNow() {
     if (written != static_cast<size_t>(readBytes)) { ioError = true; break; }
     mbedtls_sha256_update(&sha, buf, static_cast<size_t>(readBytes));
     remaining -= readBytes;
+    __atomic_store_n(&downloadPercent,
+        static_cast<uint8_t>((static_cast<uint32_t>(len - remaining) * 100U) / static_cast<uint32_t>(len)),
+        __ATOMIC_RELEASE);
   }
   http.end();
 
