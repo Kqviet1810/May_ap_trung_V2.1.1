@@ -696,14 +696,34 @@
     }
   }
 
+  // Nhac dinh ky (12h/lan, tinh rieng cho tung thiet bi qua localStorage - chi
+  // luu tren trinh duyet nay, khong dong bo giua cac thiet bi dang xem cung
+  // dashboard) - tranh lam phien nguoi dung moi lan trang tu render lai, chi
+  // hien toast noi bat 1 lan roi im lang toi khi du 12h.
+  const FIRMWARE_NOTICE_INTERVAL_MS = 12 * 60 * 60 * 1000;
+  function maybeNotifyFirmwareUpdate(device, latestVersion) {
+    try {
+      const key = `mayap_fw_notice_${device.id}`;
+      const last = Number(localStorage.getItem(key) || 0);
+      if (last && (Date.now() - last) < FIRMWARE_NOTICE_INTERVAL_MS) return;
+      localStorage.setItem(key, String(Date.now()));
+      toast(`🔔 Có bản firmware mới v${latestVersion} cho ${device.name || device.id}`, 6000);
+    } catch (error) {
+      // localStorage co the bi chan (che do rieng tu, cai dat trinh duyet...)
+      // - khong lam gi them, chi la mat tinh nang nhac dinh ky, khong loi.
+    }
+  }
+
   function renderFirmwareCard(deviceArg) {
     const device = deviceArg || currentDevice();
     const summaryEl = $('firmwareSummary');
     const bodyEl = $('firmwareBody');
+    const dotEl = $('firmwareUpdateDot');
     if (!summaryEl || !bodyEl) return;
     if (!device) {
       summaryEl.textContent = 'Chưa chọn thiết bị';
       bodyEl.innerHTML = '';
+      if (dotEl) dotEl.hidden = true;
       return;
     }
 
@@ -712,14 +732,18 @@
     if (!currentVersion) {
       summaryEl.textContent = 'Đang chờ đồng bộ từ máy…';
       bodyEl.innerHTML = '<p class="settingFootnote">Chưa nhận được thông tin phiên bản từ thiết bị.</p>';
+      if (dotEl) dotEl.hidden = true;
       return;
     }
 
     const latest = firmwareLatestCache;
-    if (latest && isWebFirmwareNewer(latest.version, currentVersion)) {
+    const hasUpdate = latest && isWebFirmwareNewer(latest.version, currentVersion);
+    if (dotEl) dotEl.hidden = !hasUpdate;
+    if (hasUpdate) {
       summaryEl.textContent = `Có bản mới: v${latest.version}`;
       bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy v${escapeHtml(currentVersion)} · có bản v${escapeHtml(latest.version)} mới hơn.</p><button class="primary full" id="firmwareUpdateBtn" type="button">Cập nhật lên v${escapeHtml(latest.version)}</button>`;
       $('firmwareUpdateBtn')?.addEventListener('click', () => sendCommand('firmware_check_now'));
+      maybeNotifyFirmwareUpdate(device, latest.version);
     } else {
       summaryEl.textContent = `Phiên bản v${currentVersion} · đã mới nhất`;
       bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy phiên bản v${escapeHtml(currentVersion)} - đây đã là bản mới nhất.</p>`;
@@ -1238,13 +1262,80 @@
     }
   }
 
+  // Toan bo chuoi "message" ma firmware co the tra ve trong ack (xem
+  // machine_control.h/realtime_link.h) - LUON viet HOA khong dau theo quy
+  // uoc noi bo cho Serial/HMI. Truoc day web dung 1 regex de "doan" xem raw
+  // co phai cau da dep san khong, nhung vi quy uoc firmware LUON viet hoa
+  // khong dau nen regex do LUON coi la "ma chung" va VUT BO ly do cu the
+  // (vd bam "Bat dau me" khi chua bat cong tac nhiet se chi thay "ESP32 tu
+  // choi yeu cau" thay vi ly do that). Danh sach nay dich TOAN BO cac message
+  // co that trong firmware sang tieng Viet co dau - phai cap nhat neu firmware
+  // them message moi.
+  const RAW_ACK_MESSAGES = {
+    'LENH KHONG HOP LE': 'Lệnh không hợp lệ',
+    'DA THOAT TEST': 'Đã thoát chế độ kiểm tra',
+    'DA TAT THIET BI': 'Đã tắt thiết bị đang kiểm tra',
+    'DA HUY KIEM TRA': 'Đã hủy kiểm tra',
+    'DA DONG CONG WIFI': 'Đã đóng cổng đổi Wi-Fi',
+    'DA GUI YEU CAU DAT LAI PIN': 'Đã gửi yêu cầu đặt lại mã PIN lên máy chủ',
+    'DANG TAI FIRMWARE...': 'Máy đang tải firmware mới - không tắt nguồn',
+    'DANG KIEM TRA BAN MOI': 'Máy đang kiểm tra phiên bản mới',
+    'DA CHON TIEP TUC ME': 'Đã chọn tiếp tục mẻ ấp dở',
+    'KHONG CO ME CHO XAC NHAN': 'Không có mẻ nào đang chờ xác nhận',
+    'HAY THOAT TEST TRUOC': 'Hãy thoát chế độ kiểm tra trước',
+    'ME DANG CHAY': 'Đang có mẻ ấp chạy, không thể thực hiện',
+    'DANG XOA DU LIEU ME CU': 'Máy đang xóa dữ liệu mẻ cũ, thử lại sau',
+    'LOI NHAT KY AN TOAN': 'Lỗi nhật ký an toàn - cần kiểm tra máy',
+    'LOI BO NHO CAU HINH': 'Lỗi bộ nhớ cấu hình - cần kiểm tra máy',
+    'HAY XAC NHAN RESET LOI': 'Hãy xác nhận lỗi khởi động lại bất thường trên máy trước',
+    'DUNG ME CU TRUOC': 'Hãy dừng mẻ cũ trước',
+    'AUTO TUNE DANG CHAY': 'Auto Tune đang chạy, không thể thực hiện',
+    'HAY CHUYEN SANG AUTO': 'Hãy chuyển máy sang chế độ Tự động (Auto) trước',
+    'CAM BIEN CHUA SAN SANG': 'Cảm biến nhiệt độ/độ ẩm chưa sẵn sàng',
+    'RTC CHUA HOP LE': 'Đồng hồ thời gian thực (RTC) chưa hợp lệ',
+    'LOI 2 HANH TRINH': 'Lỗi cả 2 công tắc hành trình cùng tác động',
+    'DANG CO LOI DAO': 'Đang có lỗi cơ cấu đảo trứng, cần xử lý trước',
+    'NHIET DANG QUA CAO': 'Nhiệt độ đang quá cao, không thể thực hiện',
+    'HAY BAT CONG TAC NHIET': 'Hãy bật công tắc thanh nhiệt trước',
+    'HAY BAT TU DONG DAO': 'Hãy bật chế độ tự động đảo trứng trước',
+    'LOI LUU TRANG THAI ME': 'Lỗi lưu trạng thái mẻ ấp vào bộ nhớ',
+    'DA BAT DAU ME': 'Đã bắt đầu mẻ ấp mới',
+    'DANG XOA DU LIEU ME': 'Đang xóa dữ liệu mẻ, chưa có mẻ nào chạy',
+    'KHONG CO ME DANG CHAY': 'Không có mẻ nào đang chạy',
+    'DUNG ME TRUOC': 'Hãy dừng mẻ đang chạy trước',
+    'KHOANG NHIET KHONG DU': 'Khoảng nhiệt độ hiện tại không đủ rộng để chạy Auto Tune',
+    'AUTO TUNE DA BAT DAU': 'Đã bắt đầu Auto Tune',
+    'DANG CO ME - KHONG TEST DUOC': 'Đang có mẻ ấp chạy, không vào được chế độ kiểm tra',
+    'DANG QUA NHIET KHAN CAP': 'Đang quá nhiệt khẩn cấp, không thể thực hiện',
+    'DA VAO CHE DO TEST': 'Đã vào chế độ kiểm tra thiết bị',
+    'CHUA VAO CHE DO TEST': 'Chưa ở chế độ kiểm tra thiết bị',
+    'THIET BI KHONG HOP LE': 'Thiết bị chọn để kiểm tra không hợp lệ',
+    'DANG BAT THIET BI': 'Đang bật thử thiết bị',
+    'HAY TAC DONG CONG TAC HANH TRINH': 'Hãy tác động công tắc hành trình để kiểm tra',
+    'DANG MO CONG DOI WIFI': 'Đang mở cổng đổi Wi-Fi trên máy',
+    'CHI DUNG DUOC KHI ONLINE': 'Chỉ dùng được khi máy đang Online',
+    'DA HUY ME CU': 'Đã hủy mẻ cũ',
+    'DA HUY - CHO XOA BO NHO': 'Đã hủy - đang chờ xóa bộ nhớ',
+    'DA DUNG ME': 'Đã dừng mẻ ấp',
+    'DA DUNG - CHO XOA BO NHO': 'Đã dừng - đang chờ xóa bộ nhớ',
+    'LOI HE THONG CHUA XOA': 'Còn lỗi hệ thống chưa được xóa',
+    'COI TAM DUNG 5 PHUT': 'Đã tạm dừng còi 5 phút',
+    'DA XAC NHAN RESET LOI': 'Đã xác nhận lỗi khởi động lại bất thường',
+    'DA XOA LOI DAO': 'Đã xóa lỗi cơ cấu đảo trứng',
+    'THA NUT/KT HANH TRINH': 'Hãy thả nút nhấn hoặc kiểm tra công tắc hành trình',
+    'DA XAC NHAN': 'Đã xác nhận',
+    'CHUA CO CAU HINH GOC': 'Máy chưa có cấu hình gốc để so sánh',
+    'THIEU CONFIG': 'Thiếu dữ liệu cấu hình gửi lên',
+    'LUU CAU HINH BI TU CHOI': 'Máy từ chối lưu (đang có mẻ chạy khoá cấu hình, hoặc lỗi bộ nhớ) - thử lại sau'
+  };
+
   function humanAckMessage(ack) {
     const result = String(ack.result || '');
     const raw = String(ack.message || '').trim();
     const map = {
       accepted: 'ESP32 đã tiếp nhận yêu cầu',
       applied: 'ESP32 đã lưu và áp dụng cấu hình',
-      rejected: 'ESP32 từ chối yêu cầu',
+      rejected: 'ESP32 từ chối yêu cầu (không rõ lý do)',
       invalid: 'Dữ liệu gửi xuống không hợp lệ',
       duplicate: 'Yêu cầu này đã được xử lý',
       busy: 'ESP32 đang xử lý yêu cầu khác',
@@ -1252,8 +1343,8 @@
       stale: 'Lệnh thuộc lần khởi động cũ',
       unsupported: 'Firmware chưa hỗ trợ lệnh này'
     };
-    if (raw && !/^[A-Z0-9 _/.-]+$/.test(raw)) return raw;
-    return map[result] || raw || `Phản hồi: ${result || 'không xác định'}`;
+    if (raw) return RAW_ACK_MESSAGES[raw] || raw;
+    return map[result] || `Phản hồi: ${result || 'không xác định'}`;
   }
 
   function handleConfigReport(device, report) {

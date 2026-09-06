@@ -298,7 +298,11 @@ input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:n
 /* Icon la SVG net mong (khong phai ky tu unicode nhu truoc) - dat width/
    height thang tren the <svg> nen o day chi can can giua, khong con phai lo
    font-size/letter-spacing rieng tung icon nhu khi con la text. */
-.settingIcon{width:44px;height:44px;border-radius:13px;background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center}
+.settingIcon{position:relative;width:44px;height:44px;border-radius:13px;background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center}
+/* Cham xanh bao "co ban firmware moi" tren icon muc Cap nhat firmware -
+   don gian, khong choan cho, chi bat/tat qua thuoc tinh [hidden] tu JS (xem
+   renderFirmwareCard() trong app.js). */
+.updateDot{position:absolute;top:-2px;right:-2px;width:11px;height:11px;border-radius:50%;background:var(--primary2);border:2px solid #fff}
 .settingSummary{min-width:0}
 .settingSummary strong,.settingSummary small{display:block}
 .settingSummary strong{font-size:var(--fs-base);font-weight:700}
@@ -548,7 +552,14 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   body[data-page="device"] #page-device.active{
     flex:1 1 auto;min-height:0;width:100%;
     display:flex;flex-direction:column;gap:12px;
-    justify-content:center;
+    /* KHONG dung justify-content:center: khi 2 khoi con (deviceCompact +
+       quickForm) cao hon vung chua (de xay ra tren man hep nhu iPhone X -
+       tieu de + 3 o trang thai chiem nhieu cho hon man rong), canh giua se
+       day phan tran LEN TREN de vao thanh tieu de thay vi cho cuon xuong
+       xem duoc (day la loi nguoi dung bao "de het len nhau kho bam kho
+       nhin"). flex-start luon an toan: vua du thi trong dep, tran thi cuon
+       binh thuong qua .main{overflow-y:auto}. */
+    justify-content:flex-start;
   }
   body[data-page="device"] .deviceCompact,
   body[data-page="device"] .quickForm{flex:0 0 auto}
