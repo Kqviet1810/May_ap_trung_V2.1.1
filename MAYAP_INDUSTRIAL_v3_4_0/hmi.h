@@ -913,33 +913,32 @@ void processConfigAck(const ConfigAckInbox &ack);
 HmiI2cLockFn i2cLockCallback = nullptr;
 HmiI2cUnlockFn i2cUnlockCallback = nullptr;
 
-// Menu chinh: CAI DAT ME, CAI DAT CHUNG, THOAT. "Che do test" va "Nhat ky
-// me" chuyen vao trong CAI DAT CHUNG (xem CHUNG_COUNT ben duoi) cho gon -
-// truoc day la 2 muc rieng ngang hang voi CAI DAT CHUNG, it dung hon nhieu
-// so voi cac thong so hang ngay nen dua ve chung 1 cho voi cac muc it thao
-// tac khac.
-constexpr uint8_t MAIN_COUNT = 3;
+// Menu chinh: CAI DAT ME, NHAT KY ME, CAI DAT CHUNG, THOAT. "Nhat ky me" la
+// man hinh XEM LICH SU (khong phai 1 "cai dat") nen hop ly hon khi dat ngang
+// hang voi Cai dat chung thay vi chon sau vao trong do - menu chinh chi con
+// 3 muc (Cai dat me/Cai dat chung/Thoat) bi che la "trong", dua Nhat ky me
+// ra day vua giai quyet, vua dung ban chat cua no.
+constexpr uint8_t MAIN_COUNT = 4;
 enum MainMenuIndex : uint8_t {
-  MAIN_CAI_DAT_ME = 0, MAIN_CAI_DAT_CHUNG = 1, MAIN_THOAT = 2
+  MAIN_CAI_DAT_ME = 0, MAIN_NHAT_KY = 1, MAIN_CAI_DAT_CHUNG = 2, MAIN_THOAT = 3
 };
 const char *mainItemLabel(uint8_t index) {
   switch (index) {
     case MAIN_CAI_DAT_ME: return "CAI DAT ME";
+    case MAIN_NHAT_KY: return "NHAT KY ME";
     case MAIN_CAI_DAT_CHUNG: return "CAI DAT CHUNG";
     default: return "THOAT";
   }
 }
 
 // Menu con "CAI DAT CHUNG": 3 thu muc setting (chi so nhom 1..3 trong
-// GROUPS[]) + CHE DO TEST (View::TestMode) + NHAT KY ME (View::EventLog)
-// + THOAT. "TU CHINH PID" da chuyen thanh dong phu cua nhom NHIET DO (xem
-// groupExtraSlot()) - Auto Tune tu do thong so nhiet nen hop ly hon khi
-// gan voi Nhiet do, giong cach "So lan dao" gan voi Dao trung.
-constexpr uint8_t CHUNG_COUNT = (GROUP_COUNT - 1U) + 3U;
+// GROUPS[]) + CHE DO TEST (View::TestMode) + THOAT. "TU CHINH PID" la dong
+// phu cua nhom NHIET DO (xem groupExtraSlot()); "NHAT KY ME" da chuyen ra
+// Menu chinh (xem MAIN_COUNT o tren).
+constexpr uint8_t CHUNG_COUNT = (GROUP_COUNT - 1U) + 2U;
 const char *chungItemLabel(uint8_t index) {
   if (index < GROUP_COUNT - 1U) return GROUPS[index + 1U].label;
   if (index == GROUP_COUNT - 1U) return "CHE DO TEST";
-  if (index == GROUP_COUNT) return "NHAT KY ME";
   return "THOAT";
 }
 
@@ -1161,9 +1160,9 @@ void goBack() {
                         settingListItemCount(1U));
       break;
     case View::EventLog:
-      view = View::ChungMenu;
-      chungIndex = GROUP_COUNT;  // "NHAT KY ME"
-      alignChungMenuWindow();
+      view = View::MainMenu;
+      mainIndex = MAIN_NHAT_KY;
+      alignMainMenuWindow();
       break;
     case View::TestMode:
     case View::TestSummary:
@@ -1232,11 +1231,6 @@ void selectChungItem() {
   } else if (chungIndex == GROUP_COUNT - 1U) {
     // CHE DO TEST - openTestMode() tu kiem tra dieu kien + dat dirty.
     openTestMode();
-  } else if (chungIndex == GROUP_COUNT) {
-    // NHAT KY ME
-    eventLogIndex = 0U;
-    view = View::EventLog;
-    dirty = true;
   } else {
     view = View::MainMenu;
     mainIndex = MAIN_CAI_DAT_CHUNG;
@@ -1903,6 +1897,10 @@ bool requestAlarmAcknowledge() {
 void selectMainItem() {
   switch (mainIndex) {
     case MAIN_CAI_DAT_ME: openGroup(0U); break;
+    case MAIN_NHAT_KY:
+      eventLogIndex = 0U;
+      view = View::EventLog;
+      break;
     case MAIN_CAI_DAT_CHUNG: openChungMenu(); break;
     default:
       view = View::Home;
