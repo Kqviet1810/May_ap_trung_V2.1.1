@@ -273,6 +273,27 @@
     return postCloudJson('/api/device/change-pin', { device_id: deviceId, old_pin: oldPin, new_pin: newPin });
   }
 
+  // Ten thiet bi la thuoc tinh CHUNG (luu tren Worker, xem renameDeviceRemote())
+  // nhung truoc day web CHI lay ten luc THEM thiet bi lan dau roi luu co dinh
+  // vao localStorage cua rieng trinh duyet do - neu doi ten tu 1 trinh duyet
+  // khac (cung device_id), cac trinh duyet con lai khong bao gio biet, hien
+  // ten cu mai mai. Dinh ky doc lai ten that tu endpoint cong khai (khong can
+  // PIN) de moi trinh duyet dang xem cung 1 thiet bi som muon deu dong bo.
+  const deviceNameFetchedAt = new Map();
+  const DEVICE_NAME_TTL_MS = 2 * 60 * 1000;
+  async function refreshDeviceNameIfNeeded(device) {
+    if (!device) return;
+    const last = deviceNameFetchedAt.get(device.id) || 0;
+    if (Date.now() - last < DEVICE_NAME_TTL_MS) return;
+    deviceNameFetchedAt.set(device.id, Date.now());
+    const result = await getCloudJson(`/api/device/${device.id}/status`);
+    if (result.success && result.exists && result.device_name && result.device_name !== device.name) {
+      device.name = result.device_name;
+      saveDeviceRuntime(device);
+      renderSelector();
+    }
+  }
+
   function escapeHtml(value) {
     return String(value).replace(/[&<>'"]/g, (char) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
@@ -633,6 +654,7 @@
     $('deviceNameView').textContent = device?.name || 'Chưa chọn thiết bị';
     $('deviceIdView').textContent = device?.id || 'Nhấn + để thêm thiết bị';
     $('sideDevice').textContent = device?.name || 'Chưa có thiết bị';
+    refreshDeviceNameIfNeeded(device);
 
     if (connection === 'online') {
       pill.textContent = 'ONLINE';
