@@ -2724,23 +2724,31 @@ void drawSettingList() {
       const int16_t valueW = static_cast<int16_t>(lcd.getStrWidth(value));
       const int16_t valueX = max(2, 126 - valueW);
       lcd.drawStr(valueX, y, value);
-      // Rieng setting kieu lua chon (options != nullptr, vd ONLINE/OFFLINE):
-      // dung BE RONG LUA CHON DAI NHAT (khong phai gia tri DANG chon) de
-      // tinh ranh gioi cho nhan - "Che do ket noi" la nhan dai nhat bang,
-      // vua khop khi gia tri la "ONLINE" nhung "OFFLINE" dai hon 1 ky tu se
-      // lam drawLeftFit2 tuong khong du cho, tu dong lui ve font nho hon.
-      // Nguoi dung thay day la "man hinh tu doi font" moi lan bam sang
-      // Offline - co dinh ranh gioi theo lua chon dai nhat de nhan LUON
-      // dung 1 co chu, bat ke dang chon gia tri nao.
-      int16_t labelBoundaryX = valueX;
+      // Dung BE RONG GIA TRI RONG NHAT CO THE (khong phai gia tri DANG hien)
+      // de tinh ranh gioi cho nhan - tranh nhan tu doi co chu moi lan gia
+      // tri thay doi do rong (vd "Che do ket noi": nhan vua khop khi la
+      // "ONLINE" nhung "OFFLINE" dai hon 1 ky tu lam drawLeftFit2 tuong
+      // khong du cho, tu dong lui ve font nho hon - nguoi dung thay day la
+      // "man hinh tu doi font"; hoac "Chu ky dao" 1-720 phut, "1 ph" va
+      // "720 ph" rong khac han nhau). Voi setting kieu lua chon (options),
+      // gia tri rong nhat la lua chon dai nhat trong danh sach; voi setting
+      // dang so, la gia tri o 1 trong 2 dau khoang (minimum/maximum - vd
+      // dau am cua "-5.0" hoac nhieu chu so hon cua "720").
+      int16_t widestValueW = 0;
       if (item.options && item.optionCount > 0U) {
-        int16_t widestOptionW = 0;
         for (uint8_t optionIndex = 0; optionIndex < item.optionCount; ++optionIndex) {
           const int16_t w = static_cast<int16_t>(lcd.getStrWidth(item.options[optionIndex]));
-          if (w > widestOptionW) widestOptionW = w;
+          if (w > widestValueW) widestValueW = w;
         }
-        labelBoundaryX = max(2, 126 - widestOptionW);
+      } else {
+        char probe[18];
+        formatSettingValue(item, item.minimum, probe, sizeof(probe));
+        widestValueW = static_cast<int16_t>(lcd.getStrWidth(probe));
+        formatSettingValue(item, item.maximum, probe, sizeof(probe));
+        const int16_t maxEndW = static_cast<int16_t>(lcd.getStrWidth(probe));
+        if (maxEndW > widestValueW) widestValueW = maxEndW;
       }
+      const int16_t labelBoundaryX = max(2, 126 - widestValueW);
       drawLeftFit2(2, y, item.label, static_cast<int16_t>(labelBoundaryX - 4),
                    u8g2_font_6x12_tf, u8g2_font_5x8_tf);
     } else if (local >= group.count && local < group.count + groupVisibleExtraCount(selectedGroup)) {
