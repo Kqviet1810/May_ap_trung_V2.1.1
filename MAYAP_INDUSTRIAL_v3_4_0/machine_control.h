@@ -3691,6 +3691,20 @@ class MachineController {
           mayapRequestFirmwareWebCheckNow();
           ok = true; message = "DANG KIEM TRA BAN MOI";
           break;
+        case HmiCommandType::FirmwareRollback:
+          // Kiem tra NGAY tren controlTask (chi doc 1 byte flash, khong
+          // ghi/block) de tra ve ket qua chinh xac ngay lap tuc thay vi bao
+          // "dang xu ly" roi im lang neu khong con ban de quay lai - dung
+          // yeu cau moi lenh phai bao ro thanh cong/that bai. Viec THAT SU
+          // doi con tro khoi dong + restart nam ben otaTask (xem ota_
+          // rollback.h), giong moi thao tac dung den flash khac.
+          if (mayapRollbackAvailable()) {
+            mayapRequestFirmwareRollback();
+            ok = true; message = "DANG QUAY LAI FIRMWARE CU...";
+          } else {
+            message = "KHONG CO BAN CU DE QUAY LAI";
+          }
+          break;
         case HmiCommandType::AutoTuneStart:
           ok = startAutoTune(now, message); break;
         case HmiCommandType::ResumeYes:

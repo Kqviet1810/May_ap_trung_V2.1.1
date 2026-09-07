@@ -27,6 +27,7 @@ void mayapI2cUnlock() {
 #include "network_service.h"
 #include "ota_update.h"
 #include "ota_web_update.h"
+#include "ota_rollback.h"
 #include "hmi.h"
 #include "realtime_link.h"
 #include "cloud_alert_link.h"
@@ -179,6 +180,10 @@ void otaTask(void *parameter) {
     // Cap nhat firmware TU XA qua Cloudflare (ota_web_update.h) - cung task
     // vi ca hai deu la "dang ghi flash", tu nhien loai tru lan nhau.
     mayapFirmwareWebUpdate(now);
+    // Quay lai firmware truoc do (ota_rollback.h) - cung task voi 2 thao tac
+    // tren vi day cung la thao tac lien quan flash/khoi dong, tu nhien loai
+    // tru lan nhau giong het 2 dong tren.
+    mayapFirmwareRollbackUpdate(now);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }
 }
@@ -253,6 +258,7 @@ void setup() {
   // duoc phep khoi dong Wi-Fi neu nguoi dung da chon ONLINE.
   mayapNetworkBegin();
   mayapOtaBegin();
+  mayapOtaRollbackBegin();
   mayapWebLinkBegin();
   mayapCloudAlertBegin();
 

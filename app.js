@@ -761,15 +761,32 @@
     const latest = firmwareLatestCache;
     const hasUpdate = latest && isWebFirmwareNewer(latest.version, currentVersion);
     if (dotEl) dotEl.hidden = !hasUpdate;
+    // Nut "Quay lai ban truoc" LUON hien (khong phu thuoc co ban moi hay
+    // khong) - ESP32 giu san 1 ban firmware truoc do trong vi tri OTA con
+    // lai (thiet ke phan cung 2-vi-tri), muc nay chi la doi con tro khoi
+    // dong ve do. Khong biet truoc tren web thiet bi co THAT SU con ban de
+    // quay lai khong (chi co the kiem tra tren chinh ESP32) nen cu hien nut,
+    // neu khong co gi de quay lai thi ACK se bao ro "KHONG CO BAN CU DE
+    // QUAY LAI" (xem RAW_ACK_MESSAGES) thay vi an nut di truoc.
+    const rollbackButtonHtml = '<button class="dangerButton full" id="firmwareRollbackBtn" type="button">Quay lại firmware trước đó</button>';
     if (hasUpdate) {
       summaryEl.textContent = `Có bản mới: v${latest.version}`;
-      bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy v${escapeHtml(currentVersion)} · có bản v${escapeHtml(latest.version)} mới hơn.</p><button class="primary full" id="firmwareUpdateBtn" type="button">Cập nhật lên v${escapeHtml(latest.version)}</button>`;
+      bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy v${escapeHtml(currentVersion)} · có bản v${escapeHtml(latest.version)} mới hơn.</p><button class="primary full" id="firmwareUpdateBtn" type="button">Cập nhật lên v${escapeHtml(latest.version)}</button>${rollbackButtonHtml}`;
       $('firmwareUpdateBtn')?.addEventListener('click', () => sendCommand('firmware_check_now'));
       maybeNotifyFirmwareUpdate(device, latest.version);
     } else {
       summaryEl.textContent = `Phiên bản v${currentVersion} · đã mới nhất`;
-      bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy phiên bản v${escapeHtml(currentVersion)} - đây đã là bản mới nhất.</p>`;
+      bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy phiên bản v${escapeHtml(currentVersion)} - đây đã là bản mới nhất.</p>${rollbackButtonHtml}`;
     }
+    $('firmwareRollbackBtn')?.addEventListener('click', () => {
+      // Hanh dong hiem gap, gay khoi dong lai ngay - can 1 buoc xac nhan ro
+      // rang truoc khi gui, tranh bam nham (khac batch/cai dat thong thuong
+      // von khong can vi de sua lai duoc).
+      const ok = window.confirm(
+        'Quay lại firmware trước đó?\n\nMáy sẽ khởi động lại ngay. Chỉ nên làm khi bản hiện tại đang có lỗi.'
+      );
+      if (ok) sendCommand('firmware_rollback');
+    });
   }
 
   function renderDeviceList() {
@@ -1364,6 +1381,8 @@
     'DA GUI YEU CAU DAT LAI PIN': 'Đã gửi yêu cầu đặt lại mã PIN lên máy chủ',
     'DANG TAI FIRMWARE...': 'Máy đang tải firmware mới - không tắt nguồn',
     'DANG KIEM TRA BAN MOI': 'Máy đang kiểm tra phiên bản mới',
+    'DANG QUAY LAI FIRMWARE CU...': 'Máy đang quay lại firmware trước đó - sắp khởi động lại',
+    'KHONG CO BAN CU DE QUAY LAI': 'Không còn bản firmware trước đó để quay lại',
     'DA CHON TIEP TUC ME': 'Đã chọn tiếp tục mẻ ấp dở',
     'KHONG CO ME CHO XAC NHAN': 'Không có mẻ nào đang chờ xác nhận',
     'HAY THOAT TEST TRUOC': 'Hãy thoát chế độ kiểm tra trước',
