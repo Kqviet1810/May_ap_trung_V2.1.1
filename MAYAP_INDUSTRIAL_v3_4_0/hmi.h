@@ -538,7 +538,7 @@ static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) =
 // "Doi wifi" chi hien khi Online) qua visibleGroupExtraAt() de ra danh sach
 // LIEN TUC hien thi tren man hinh. (groupExtraSlotVisible/visibleGroupExtraAt/
 // groupVisibleExtraCount dat o DUOI, sau khai bao currentConfig - xem do.)
-enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode, CloudPinReset, FirmwareWebUpdate, AutoTuneEntry };
+enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode, CloudPinReset, FirmwareWebUpdate, AutoTuneEntry, FirmwareRollback };
 GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
   // NHIET DO -> "Tu chinh PID" (chuyen tu 1 muc rieng trong Cai dat chung
   // vao day - Auto Tune tu do thong so nhiet nen hop ly hon khi gan voi
@@ -553,6 +553,9 @@ GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
   if (group == 3 && slot == 2) return GroupExtra::QrCode;           // HE THONG -> "Ma QR ID"
   if (group == 3 && slot == 3) return GroupExtra::CloudPinReset;    // HE THONG -> "Dat lai ma PIN"
   if (group == 3 && slot == 4) return GroupExtra::FirmwareWebUpdate; // HE THONG -> "Cap nhat" (luon hien khi Online)
+  // Dat ngay sau "Cap nhat" (lien quan chu de) - chi hien khi THAT SU con 1
+  // ban firmware truoc do hop le trong vi tri OTA con lai (xem groupExtraSlotVisible()).
+  if (group == 3 && slot == 5) return GroupExtra::FirmwareRollback;
   return GroupExtra::None;
 }
 
@@ -714,7 +717,7 @@ enum class View : uint8_t {
   FirmwareProgress
 };
 
-enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset, FirmwareWebApply };
+enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset, FirmwareWebApply, FirmwareRollback };
 
 // Prototype thu cong: Arduino IDE tu sinh prototype cho ham trong .ino.
 // Neu ham dung enum/struct tuy chinh, prototype tu dong co the bi chen
@@ -745,11 +748,23 @@ bool groupExtraSlotVisible(GroupExtra extra) {
   if (extra == GroupExtra::FirmwareWebUpdate) {
     return currentConfig.connectivityMode == ConnectivityMode::Online;
   }
+  // Chi hien khi THAT SU con 1 ban firmware truoc do hop le trong vi tri
+  // OTA con lai (xem mayapOtaRollbackBegin() trong ota_rollback.h, kiem tra
+  // 1 lan luc khoi dong) - may chua tung OTA lan nao thi khong co gi de
+  // quay lai, an muc nay di thay vi de nguoi dung bam roi nhan loi.
+  if (extra == GroupExtra::FirmwareRollback) {
+    return mayapRollbackAvailable();
+  }
   return extra != GroupExtra::None;
 }
 GroupExtra visibleGroupExtraAt(uint8_t group, uint8_t visibleIdx) {
   uint8_t seen = 0;
-  for (uint8_t slot = 0; slot < 5U; ++slot) {
+  // 6 slot (0..5) - PHAI khop voi so nhanh "if (group == X && slot == Y)"
+  // nhieu nhat trong groupExtraSlot() (hien tai nhom HE THONG dung het ca
+  // 6: ConnectionInfo/WifiChange/QrCode/CloudPinReset/FirmwareWebUpdate/
+  // FirmwareRollback) - tang so nay truoc neu sau nay them slot moi, neu
+  // khong slot moi se khong bao gio duoc duyet toi.
+  for (uint8_t slot = 0; slot < 6U; ++slot) {
     const GroupExtra extra = groupExtraSlot(group, slot);
     if (!groupExtraSlotVisible(extra)) continue;
     if (seen == visibleIdx) return extra;
@@ -962,6 +977,7 @@ const char *groupExtraLabelFor(GroupExtra extra) {
     case GroupExtra::ConnectionInfo: return "Thong tin ket noi";
     case GroupExtra::QrCode: return "Ma QR ID";
     case GroupExtra::CloudPinReset: return "Dat lai ma PIN";
+    case GroupExtra::FirmwareRollback: return "Quay lai ban cu";
     case GroupExtra::FirmwareWebUpdate: {
       // Danh dau "*" ngay tren ten muc khi THAT SU co ban moi dang cho -
       // nguoi dung khong can bam vao moi biet co ban moi hay khong.
@@ -1399,6 +1415,21 @@ void openCloudPinResetConfirm() {
     return;
   }
   confirmAction = ConfirmAction::CloudPinReset;
+  confirmReturnView = View::SettingList;
+  confirmYes = false;
+  clearToast();
+  armInputGuard();
+  dirty = true;
+}
+
+// Quay lai firmware truoc do (ota_rollback.h) - KHONG can Online (thao tac
+// hoan toan noi bo, chi doi con tro vi tri khoi dong trong flash). Muc nay
+// chi hien khi mayapRollbackAvailable() dung (xem groupExtraSlotVisible()),
+// nen den day chac chan con ban de quay lai - van kiem tra lai LAN CUOI
+// thuc su luc ap dung (mayapFirmwareRollbackUpdate()) phong truong hop
+// hiem gap.
+void openFirmwareRollbackConfirm() {
+  confirmAction = ConfirmAction::FirmwareRollback;
   confirmReturnView = View::SettingList;
   confirmYes = false;
   clearToast();
@@ -2006,6 +2037,15 @@ void executeConfirmation(bool accepted) {
       } else {
         view = returnView;
       }
+    } else if (action == ConfirmAction::FirmwareRollback) {
+      // Khong dung man rieng nhu FirmwareProgress (rollback la doi con tro
+      // + khoi dong lai gan nhu tuc thi, khong co qua trinh tai % nao de
+      // hien) - chi can toast bao da gui, roi ESP.restart() se tu ngat
+      // ngang moi thu trong vai tram ms toi.
+      if (queueCommand(HmiCommandType::FirmwareRollback)) {
+        showToast("DANG QUAY LAI BAN CU...");
+      }
+      view = returnView;
     }
   } else {
     if (action == ConfirmAction::ResumeBatch) {
@@ -2159,6 +2199,8 @@ void handleInput() {
             openCloudPinResetConfirm();
           } else if (extra == GroupExtra::FirmwareWebUpdate) {
             openFirmwareWebConfirm();
+          } else if (extra == GroupExtra::FirmwareRollback) {
+            openFirmwareRollbackConfirm();
           }
         } else {
           exitSettingGroup();
@@ -3393,6 +3435,9 @@ void drawConfirmScreen() {
   } else if (confirmAction == ConfirmAction::CloudPinReset) {
     line1 = "DAT LAI MA PIN WEB";
     line2 = "VE MAC DINH 1111?";
+  } else if (confirmAction == ConfirmAction::FirmwareRollback) {
+    line1 = "QUAY LAI FIRMWARE CU?";
+    line2 = "MAY SE KHOI DONG LAI";
   } else if (confirmAction == ConfirmAction::FirmwareWebApply) {
     static char fwVerLine[24];
     snprintf(fwVerLine, sizeof(fwVerLine), "LEN v%s?", mayapFirmwareWebStatus().version);

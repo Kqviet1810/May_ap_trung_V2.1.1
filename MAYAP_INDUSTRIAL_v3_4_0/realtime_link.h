@@ -315,6 +315,13 @@ inline HmiCommandType mapCommandAction(const char *action) {
   // KHONG tu tai ve/nap - van phai xac nhan vat ly tren HMI (xem ota_web_
   // update.h + hmi.h::openFirmwareWebConfirm()).
   if (!strcmp(action, "firmware_check_now")) return HmiCommandType::FirmwareWebCheckNow;
+  // Quay lai firmware truoc do (xem ota_rollback.h) - KHAC voi cap nhat
+  // (chi "kiem tra", phai xac nhan vat ly tren HMI), lenh nay ap dung
+  // NGAY qua web vi ban chat la doi ve firmware DA TUNG chay on dinh
+  // truoc do (khong phai 1 ban hoan toan moi/chua kiem chung), va nguoi
+  // dung can quay lai duoc TU XA dung luc may dang gap loi sau khi cap
+  // nhat, khong phai luc nao cung o canh may that.
+  if (!strcmp(action, "firmware_rollback")) return HmiCommandType::FirmwareRollback;
   return HmiCommandType::None;
 }
 
