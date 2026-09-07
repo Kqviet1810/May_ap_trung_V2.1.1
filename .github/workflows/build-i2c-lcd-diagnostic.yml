@@ -1,0 +1,55 @@
+name: Build I2C/LCD diagnostic sketch
+
+# Bien dich thu MAYAP_I2C_DISPLAY_TEST (sketch chan doan I2C/LCD rieng, xem
+# ghi chu dau file .ino) bang arduino-cli - CHI de kiem tra con bien dich
+# duoc khong, KHONG tao GitHub Release/tag nao (khac han build-firmware.yml
+# danh cho firmware chinh). Chay tay qua workflow_dispatch, hoac tu dong khi
+# co thay doi trong thu muc sketch nay.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'MAYAP_I2C_DISPLAY_TEST/**'
+      - '.github/workflows/build-i2c-lcd-diagnostic.yml'
+
+env:
+  MAYAP_FQBN: esp32:esp32:esp32s3:PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ma nguon
+        uses: actions/checkout@v4
+
+      - name: Cai dat arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Cai loi ESP32 (Espressif)
+        run: |
+          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
+      - name: Cai thu vien (U8g2)
+        run: arduino-cli lib install U8g2
+
+      - name: Bien dich sketch chan doan
+        run: |
+          arduino-cli compile \
+            --fqbn "${{ env.MAYAP_FQBN }}" \
+            --output-dir ./build \
+            --verbose \
+            MAYAP_I2C_DISPLAY_TEST
+
+      - name: Bao cao kich thuoc
+        run: ls -la ./build/*.bin
+
+      - name: Luu file .bin de nap USB lan dau
+        uses: actions/upload-artifact@v4
+        with:
+          name: i2c-lcd-diagnostic-bin
+          path: ./build/MAYAP_I2C_DISPLAY_TEST.ino.bin
+          retention-days: 30
