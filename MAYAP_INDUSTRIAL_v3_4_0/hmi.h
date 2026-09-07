@@ -847,6 +847,7 @@ uint32_t lastInteractionAt = 0;
 uint32_t lastLcdRetryAt = 0;
 uint32_t lastLcdHealthCheckAt = 0;
 uint32_t lastLcdFaultLogAt = 0;
+uint32_t lastLcdFullReinitAt = 0;
 char toastLine[27] = "";
 bool toastError = false;
 uint32_t toastUntil = 0;
@@ -3469,8 +3470,17 @@ void render(uint32_t now) {
     }
   }
   const bool periodicSplash = splashActive;
+  // Tu "lam lanh" dinh ky CHO MOI man hinh (khong chi rieng Home/Alarm/
+  // FirmwareProgress da co san o tren) - neu 1 khung hinh bi nhieu I2C lam
+  // rach/sai ngay luc man dang DUNG YEN (vd dang xem menu, khong bam gi),
+  // truoc day no se o nguyen tren man VO THOI HAN toi khi nguoi dung tuong
+  // tac lai (dirty chi bat khi co thay doi that). Dung lai lastDrawAt (da
+  // duoc cap nhat sau MOI lan gui khung thanh cong, khong rieng gi Home) de
+  // gioi han thoi gian 1 khung loi con hien tren man o muc vai giay.
+  const bool periodicIdleSelfHeal = now - lastDrawAt >= HMI_IDLE_SELFHEAL_MS;
   const bool periodic = periodicHome || periodicAlarm || verificationFrame ||
-                        periodicSplash || periodicFirmwareProgress;
+                        periodicSplash || periodicFirmwareProgress ||
+                        periodicIdleSelfHeal;
   if (!dirty && !periodic) return;
   if (now - lastDrawAt < DISPLAY_MIN_DRAW_MS) return;
 
@@ -3602,6 +3612,29 @@ void serviceLcd(uint32_t now) {
     return;
   }
 
+  // Tu lam moi sau dinh ky (xem giai thich tai LCD_FULL_REINIT_MS trong
+  // config.h) - CHU DONG nap lai toan bo chuoi khoi tao ST7567 ke ca khi
+  // ACK van binh thuong, phong truong hop nhieu lam sai 1 thanh ghi noi bo
+  // (vd dao mau, lech dia chi) ma probe ACK don gian khong the phat hien.
+  // Kiem tra TRUOC health-check thuong (cung nhip lock/unlock, khong ton
+  // them chi phi dang ke) - neu vua lam moi xong thi khong can probe lai
+  // ngay trong cung 1 chu ky.
+  if (now - lastLcdFullReinitAt >= LCD_FULL_REINIT_MS) {
+    lastLcdFullReinitAt = now;
+    lastLcdHealthCheckAt = now;
+    if (beginLcd()) {
+      dirty = true;
+    } else {
+      lcdReady = false;
+      lastLcdRetryAt = now;
+      dirty = true;
+#if MAYAP_DIAGNOSTIC_SERIAL
+      mayapSerialPrintf(false, "[HMI] LCD/I2C lost during scheduled reinit\n");
+#endif
+    }
+    return;
+  }
+
   if (now - lastLcdHealthCheckAt < LCD_HEALTH_CHECK_MS) return;
   lastLcdHealthCheckAt = now;
   if (i2cLockCallback && !i2cLockCallback(I2C_TIMEOUT_MS)) return;
@@ -3627,6 +3660,7 @@ void hmiBegin() {
   lastCommandPollAt = now;
   lastLcdRetryAt = now;
   lastLcdHealthCheckAt = now;
+  lastLcdFullReinitAt = now;
   // Moc thoi gian man khoi dong tinh tu luc BAT MAY, khong phai tu frame ve
   // dau tien: neu LCD chua nhan duoc luc khoi dong (dang tu do tim lai), den
   // khi no phuc hoi thi SPLASH_MAX_MS da qua tu lau va may vao thang man

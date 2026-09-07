@@ -323,14 +323,42 @@ constexpr bool hmiPinsAreValidAndUnique() {
 }
 static_assert(hmiPinsAreValidAndUnique(), "HMI: GPIO trung nhau/ngoai pham vi");
 
-constexpr uint32_t I2C_CLOCK_HZ = 100000UL;
+// Ha tu 100kHz xuong 50kHz (van la "Standard-mode" I2C hop le, chi cham hon)
+// de tang bien do chong nhieu - may chay trong tu dien cong nghiep, gan
+// contactor/relay/bien tan de phat xung nhieu dien tu len duong I2C. Voi
+// cung 1 xung nhieu hep (vai tram ns, dien hinh do dong cat tiep diem/cuon
+// hut), chu ky bit CANG DAI (clock cang thap) thi xung nhieu do chiem ty le
+// CANG NHO trong 1 bit -> it kha nang bi hieu nham thanh 1 canh xung that,
+// giam ro ret ty le sai byte lenh/du lieu ma khong doi phan cung. Man hinh
+// khong can toc do cao (vai lan ve/giay la du), nen danh doi nay gan nhu
+// khong mat gi ve trai nghiem.
+constexpr uint32_t I2C_CLOCK_HZ = 50000UL;
 constexpr uint16_t I2C_TIMEOUT_MS = 25;          // timeout phan cung moi giao dich
 constexpr uint16_t I2C_STORAGE_LOCK_TIMEOUT_MS = 120; // doi LCD full-buffer toi da co gioi han
 constexpr uint8_t DEFAULT_CONTRAST = 230;
 constexpr bool REVERSE_ENCODER = false;
 constexpr uint32_t LCD_RETRY_INTERVAL_MS = 3000UL;
-constexpr uint32_t LCD_HEALTH_CHECK_MS = 5000UL;
+// Rut tu 5000 xuong 2000ms - phat hien LCD "chet"/mat ACK nhanh hon, giam
+// thoi gian man hinh dung hinh/sai ma khong ai biet truoc khi tu phuc hoi.
+constexpr uint32_t LCD_HEALTH_CHECK_MS = 2000UL;
 constexpr uint32_t LCD_FAULT_LOG_INTERVAL_MS = 30000UL;
+// Tu "lam moi sau" dinh ky: ke ca khi khong phat hien loi ro rang (ACK van
+// tra loi binh thuong), van chu dong nap lai TOAN BO chuoi khoi tao ST7567
+// (bias/power control/contrast...) moi 60s 1 lan. Ly do: 1 xung nhieu trung
+// dung luc dang gui LENH DIEU KHIEN (khac voi du lieu diem anh) co the lam
+// sai 1 thanh ghi noi bo cua chip LCD (vd dao nguoc mau, lech dia chi cot/
+// trang) ma health-check kieu ACK khong the phat hien duoc (chip van tra
+// loi ACK binh thuong, chi noi dung hien sai) - phai NAP LAI TU DAU moi het
+// hoan toan. Doi trong ngan nen chon 60s la du de "tu chua" ma khong tao
+// qua nhieu luu luong I2C thua so voi loi ich.
+constexpr uint32_t LCD_FULL_REINIT_MS = 60000UL;
+// Man dang dung (menu/cai dat...) truoc day CHI ve lai khi co thay doi that
+// (dirty=true) - neu 1 khung hinh bi nhieu lam rach/sai NGAY GIUA luc dung
+// yen (vd dang xem menu, khong bam gi), no se o nguyen tren man VO THOI HAN
+// toi khi nguoi dung tuong tac lai. Hang so nay bat MOI man hinh (khong chi
+// rieng Home/Alarm/FirmwareProgress da co san) tu gui lai dinh ky, gioi han
+// thoi gian 1 khung bi loi con hien tren man o muc vai giay thay vi vo han.
+constexpr uint32_t HMI_IDLE_SELFHEAL_MS = 3000UL;
 #ifndef LCD_PROFILE
 #define LCD_PROFILE 1
 #endif
