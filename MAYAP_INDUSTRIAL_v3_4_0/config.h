@@ -323,16 +323,17 @@ constexpr bool hmiPinsAreValidAndUnique() {
 }
 static_assert(hmiPinsAreValidAndUnique(), "HMI: GPIO trung nhau/ngoai pham vi");
 
-// Ha tu 100kHz xuong 50kHz (van la "Standard-mode" I2C hop le, chi cham hon)
-// de tang bien do chong nhieu - may chay trong tu dien cong nghiep, gan
-// contactor/relay/bien tan de phat xung nhieu dien tu len duong I2C. Voi
-// cung 1 xung nhieu hep (vai tram ns, dien hinh do dong cat tiep diem/cuon
-// hut), chu ky bit CANG DAI (clock cang thap) thi xung nhieu do chiem ty le
-// CANG NHO trong 1 bit -> it kha nang bi hieu nham thanh 1 canh xung that,
-// giam ro ret ty le sai byte lenh/du lieu ma khong doi phan cung. Man hinh
-// khong can toc do cao (vai lan ve/giay la du), nen danh doi nay gan nhu
-// khong mat gi ve trai nghiem.
-constexpr uint32_t I2C_CLOCK_HZ = 50000UL;
+// QUAY LAI 100kHz - tung thu ha xuong 50kHz de tang chong nhieu, nhung
+// nguoi dung bao HMI bi lag ro sau doi nay - dung nhu du doan: hmiTask ve
+// man va doc encoder tren CUNG 1 task/vong lap (xem hmiUpdate()), nen moi
+// lan sendBuffer() (~1KB) BLOCK toan bo task, ke ca doc nut xoay, cho toi
+// khi gui xong; ha clock lam MOI lan gui cham gap doi, tuc la MOI thao tac
+// tren HMI (khong rieng gi luc tu "lam lanh") deu keo dai thoi gian "dung
+// hinh" do. Doi lai trong khi van bao mai khong het loi vo/soc (nguoi dung
+// xac nhan "van bi vo khi chuyen man") - cai gia (lag lien tuc) khong dang
+// so voi loi ich chua ro rang. Chong nhieu gio dua chinh vao 2 co che tu
+// phuc hoi ben duoi (health-check + tu lam moi dinh ky) thay vi ha toc do.
+constexpr uint32_t I2C_CLOCK_HZ = 100000UL;
 constexpr uint16_t I2C_TIMEOUT_MS = 25;          // timeout phan cung moi giao dich
 constexpr uint16_t I2C_STORAGE_LOCK_TIMEOUT_MS = 120; // doi LCD full-buffer toi da co gioi han
 constexpr uint8_t DEFAULT_CONTRAST = 230;
@@ -340,6 +341,9 @@ constexpr bool REVERSE_ENCODER = false;
 constexpr uint32_t LCD_RETRY_INTERVAL_MS = 3000UL;
 // Rut tu 5000 xuong 2000ms - phat hien LCD "chet"/mat ACK nhanh hon, giam
 // thoi gian man hinh dung hinh/sai ma khong ai biet truoc khi tu phuc hoi.
+// Chi la 1 giao dich tham do 0-byte (vai chuc micro giay), khong dang ke
+// den do lag nhu sendBuffer() day du nen giu nguyen, khong lien quan gioi
+// han o tren.
 constexpr uint32_t LCD_HEALTH_CHECK_MS = 2000UL;
 constexpr uint32_t LCD_FAULT_LOG_INTERVAL_MS = 30000UL;
 // Tu "lam moi sau" dinh ky: ke ca khi khong phat hien loi ro rang (ACK van
@@ -349,8 +353,8 @@ constexpr uint32_t LCD_FAULT_LOG_INTERVAL_MS = 30000UL;
 // sai 1 thanh ghi noi bo cua chip LCD (vd dao nguoc mau, lech dia chi cot/
 // trang) ma health-check kieu ACK khong the phat hien duoc (chip van tra
 // loi ACK binh thuong, chi noi dung hien sai) - phai NAP LAI TU DAU moi het
-// hoan toan. Doi trong ngan nen chon 60s la du de "tu chua" ma khong tao
-// qua nhieu luu luong I2C thua so voi loi ich.
+// hoan toan. 60s du thua (~1 lan/phut) de khong tao lag deu dan nhu bien
+// duoi day tung bi (chi 1 lan block dai hon moi 60s, thay vi 20 lan/phut).
 constexpr uint32_t LCD_FULL_REINIT_MS = 60000UL;
 // Man dang dung (menu/cai dat...) truoc day CHI ve lai khi co thay doi that
 // (dirty=true) - neu 1 khung hinh bi nhieu lam rach/sai NGAY GIUA luc dung
@@ -358,7 +362,12 @@ constexpr uint32_t LCD_FULL_REINIT_MS = 60000UL;
 // toi khi nguoi dung tuong tac lai. Hang so nay bat MOI man hinh (khong chi
 // rieng Home/Alarm/FirmwareProgress da co san) tu gui lai dinh ky, gioi han
 // thoi gian 1 khung bi loi con hien tren man o muc vai giay thay vi vo han.
-constexpr uint32_t HMI_IDLE_SELFHEAL_MS = 3000UL;
+// TANG tu 3000 len 8000ms: 3s qua day (~20 lan sendBuffer()/phut CHI DE tu
+// kiem tra, cong voi cac lan ve that su khi tuong tac) la nguyen nhan
+// chinh gay lag nguoi dung bao - moi lan trung dung luc dang xoay nut la
+// cam thay "khuc". 8s van du nhanh de 1 khung loi khong "dinh" qua lau
+// tren man, nhung giam tan suat block xuong con ~7-8 lan/phut.
+constexpr uint32_t HMI_IDLE_SELFHEAL_MS = 8000UL;
 #ifndef LCD_PROFILE
 #define LCD_PROFILE 1
 #endif
