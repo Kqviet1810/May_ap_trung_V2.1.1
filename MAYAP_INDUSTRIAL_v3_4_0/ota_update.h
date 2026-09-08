@@ -39,6 +39,11 @@ inline void onStart() {
 inline void onEnd() {
   inProgress = false;
   mayapSerialPrintf(true, "[OTA] Nap xong, chuan bi khoi dong lai\n");
+  // Danh dau day la khoi dong lai CO CHU DICH (xem config.h) - thu vien
+  // ArduinoOTA tu goi ESP.restart() ngay sau callback nay khi nap thanh
+  // cong; khong danh dau se bi PowerManager tinh nham vao bo dem "reset bat
+  // thuong" giong het cach ota_web_update.h/ota_rollback.h da xu ly.
+  mayapMarkIntentionalRestart();
 }
 
 inline void onProgress(unsigned int progress, unsigned int total) {

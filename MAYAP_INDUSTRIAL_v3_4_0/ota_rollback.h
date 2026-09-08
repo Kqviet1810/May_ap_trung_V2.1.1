@@ -88,6 +88,10 @@ inline void mayapFirmwareRollbackUpdate(uint32_t now) {
   }
   mayapSerialPrintf(true,
       "[ROLLBACK] Da chuyen huong khoi dong ve firmware truoc do - KHOI DONG LAI\n");
+  // Danh dau day la khoi dong lai CO CHU DICH (xem config.h) - khong de
+  // PowerManager tinh nham lan rollback thanh cong nay vao bo dem "reset bat
+  // thuong", tranh bao gia "ABNORMAL RESET"/mat dien sau khi quay lai ban cu.
+  mayapMarkIntentionalRestart();
   delay(300);
   ESP.restart();
 }

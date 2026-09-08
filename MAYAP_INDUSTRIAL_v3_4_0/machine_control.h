@@ -763,8 +763,15 @@ class PowerManager {
     journal_ = &journal;
     reason_ = esp_reset_reason();
 
+    // Khoi dong lai CO CHU DICH (OTA/rollback vua thanh cong - xem giai
+    // thich tai mayapMarkIntentionalRestart() trong config.h): du reason_ la
+    // ESP_RST_SW giong het 1 lan crash/watchdog that, KHONG duoc tinh vao bo
+    // dem "reset bat thuong" - xoa het bo dem, coi nhu khoi dong sach.
+    const bool intentional = mayapConsumeIntentionalRestart();
     uint8_t resetCount = journal.ready() ? journal.resetCount() : 0U;
-    if (resetReasonIsAutomaticRecovery(reason_)) {
+    if (intentional) {
+      resetCount = 0U;
+    } else if (resetReasonIsAutomaticRecovery(reason_)) {
       if (resetCount < UINT8_MAX) ++resetCount;
     } else {
       resetCount = 0U;
@@ -1521,19 +1528,26 @@ class ExternalEeprom24xx {
            address <= static_cast<uint16_t>(EEPROM_CAPACITY_BYTES - length);
   }
 
+  // Khoa/mo I2C theo TUNG chunk (toi da 32 byte), khong khoa 1 lan cho ca
+  // ban ghi dai - ban ghi cau hinh/me ap co the dai vai tram byte (~chuc
+  // chunk). Neu giu 1 khoa xuyen suot, LCD (hmiTask, uu tien thap hon) co
+  // the phai cho toi vai chuc ms khong duoc ve man hinh dang doc EEPROM.
+  // Nha khoa giua cac chunk khong mat an toan: moi chunk tu gui lai dia chi
+  // day du (khong dua vao con tro noi bo con lai tu chunk truoc).
   bool readBytesOnce(uint16_t address, void *destination, size_t length) const {
-    if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) return false;
     uint8_t *out = static_cast<uint8_t *>(destination);
     bool ok = true;
     while (length && ok) {
       const uint8_t chunk = static_cast<uint8_t>(std::min<size_t>(length, 32U));
+      if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) { ok = false; break; }
       Wire.beginTransmission(EEPROM_I2C_ADDRESS);
       Wire.write(static_cast<uint8_t>(address >> 8U));
       Wire.write(static_cast<uint8_t>(address & 0xFFU));
-      if (Wire.endTransmission(false) != 0U) { ok = false; break; }
+      if (Wire.endTransmission(false) != 0U) { mayapI2cUnlock(); ok = false; break; }
       const size_t got = Wire.requestFrom(EEPROM_I2C_ADDRESS, chunk, true);
       if (got != chunk) {
         while (Wire.available()) (void)Wire.read();
+        mayapI2cUnlock();
         ok = false;
         break;
       }
@@ -1541,17 +1555,25 @@ class ExternalEeprom24xx {
         if (!Wire.available()) { ok = false; break; }
         out[i] = static_cast<uint8_t>(Wire.read());
       }
+      mayapI2cUnlock();
       if (!ok) break;
       address = static_cast<uint16_t>(address + chunk);
       out += chunk;
       length -= chunk;
     }
-    mayapI2cUnlock();
     return ok;
   }
 
+  // Khoa/mo I2C theo TUNG trang (32 byte) thay vi khoa 1 lan cho ca ban ghi -
+  // ly do giong het readBytesOnce() o tren, nhung anh huong ro hon o day: moi
+  // trang con phai CHO them toi 20ms (EEPROM_WRITE_TIMEOUT_MS, waitWrite
+  // CompleteLocked) de AT24C32 ghi xong noi bo. Ghi 1 ban ghi ~7 trang ma
+  // khoa xuyen suot co the giu bus toi ~140ms lien tuc - qua lau so voi
+  // ngan sach cho cua LCD (I2C_TIMEOUT_MS=25ms), gay lag ro khi vua luu cau
+  // hinh/so lieu me ap vua thao tac man hinh. Nha khoa giua cac trang cho
+  // LCD/RTC xen vao cong bang hon; slot A/B + CRC (xem ghi chu writeBytes())
+  // da san sang cho truong hop 1 trang bi ngat giua chung do mat khoa.
   bool writeBytesOnce(uint16_t address, const void *source, size_t length) const {
-    if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) return false;
     const uint8_t *in = static_cast<const uint8_t *>(source);
     bool ok = true;
     while (length && ok) {
@@ -1559,12 +1581,16 @@ class ExternalEeprom24xx {
           EEPROM_PAGE_SIZE - (address % EEPROM_PAGE_SIZE));
       const uint8_t chunk = static_cast<uint8_t>(
           std::min<size_t>(length, pageRemain));
+      if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) { ok = false; break; }
       Wire.beginTransmission(EEPROM_I2C_ADDRESS);
       Wire.write(static_cast<uint8_t>(address >> 8U));
       Wire.write(static_cast<uint8_t>(address & 0xFFU));
       const size_t written = Wire.write(in, chunk);
       const uint8_t err = Wire.endTransmission(true);
-      if (written != chunk || err != 0U || !waitWriteCompleteLocked()) {
+      const bool complete = (written == chunk && err == 0U) ?
+          waitWriteCompleteLocked() : false;
+      mayapI2cUnlock();
+      if (written != chunk || err != 0U || !complete) {
         ok = false;
         break;
       }
@@ -1572,7 +1598,6 @@ class ExternalEeprom24xx {
       in += chunk;
       length -= chunk;
     }
-    mayapI2cUnlock();
     return ok;
   }
 

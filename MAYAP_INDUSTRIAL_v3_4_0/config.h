@@ -448,6 +448,38 @@ constexpr bool MANUAL_FAN_CAN_DISABLE_HEATING = true;
 constexpr uint8_t RESET_STORM_LIMIT = 3U;
 constexpr uint32_t RESET_STORM_STABLE_CLEAR_MS = 600000UL; // 10 phut chay on dinh xoa dem
 
+// PowerManager (machine_control.h) dem SO LAN reset lien tiep co ly do la
+// "automatic recovery" (SW/EXT/PANIC/WDT - xem resetReasonIsAutomaticRecovery())
+// va bao "ABNORMAL RESET" (E210, web dich la "mat dien"/reset bat thuong)
+// khi vuot RESET_STORM_LIMIT (chi 3 lan). Van de: esp_reset_reason() tra ve
+// CUNG 1 gia tri ESP_RST_SW cho MOI truong hop goi ESP.restart() - khong the
+// phan biet "that su crash-loop bat thuong" voi "nap firmware/quay lai ban
+// cu THANH CONG, tu chu dong khoi dong lai" (ota_web_update.h/ota_rollback.h/
+// ota_update.h). Ket qua: nap OTA vai lan lien tiep trong <10 phut (rat binh
+// thuong khi dang phat trien/thu nghiem) se bi tinh nham la "reset bat
+// thuong" du moi lan deu la nap firmware thanh cong, khong lien quan gi den
+// mat dien/loi he thong that.
+//
+// Fix: danh dau "day la lan khoi dong lai CO CHU DICH" NGAY TRUOC khi goi
+// ESP.restart() o 3 noi tren, dung vung nho RTC_NOINIT (KHONG bi bootloader
+// xoa khi khoi dong lai bang phan mem - dung dac tinh nay de phan biet voi
+// mat dien that: mat dien/brownout thi RAM mat dien that su, gia tri nay se
+// KHONG con hop le). PowerManager::begin() doc co nay dau tien - neu co, coi
+// nhu khoi dong sach (khong tinh vao bo dem storm) bat ke ly do reset la gi.
+RTC_NOINIT_ATTR uint32_t gMayapIntentionalRestartMagic;
+constexpr uint32_t MAYAP_INTENTIONAL_RESTART_MAGIC = 0x4F544149UL;  // "IATO" doc nguoc
+
+inline void mayapMarkIntentionalRestart() {
+  gMayapIntentionalRestartMagic = MAYAP_INTENTIONAL_RESTART_MAGIC;
+}
+// Doc VA XOA trong 1 buoc (chi co y nghia dung 1 lan cho lan khoi dong ke
+// tiep) - goi 1 lan duy nhat luc boot (PowerManager::begin()).
+inline bool mayapConsumeIntentionalRestart() {
+  const bool was = gMayapIntentionalRestartMagic == MAYAP_INTENTIONAL_RESTART_MAGIC;
+  gMayapIntentionalRestartMagic = 0U;
+  return was;
+}
+
 // Cac moc thoi gian an toan.
 constexpr uint32_t INPUT_SCAN_MS = 5UL;
 constexpr uint32_t INPUT_DEBOUNCE_MS = 30UL;

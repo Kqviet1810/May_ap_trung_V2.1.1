@@ -309,6 +309,10 @@ inline void mayapFirmwareWebApplyNow() {
   mayapSerialPrintf(true, "[FWWEB] Checksum khop, ghi flash thanh cong - KHOI DONG LAI\n");
   __atomic_store_n(&applyPhase, 3U, __ATOMIC_RELEASE);
   publishPending(false, "", "", 0U);
+  // Danh dau day la khoi dong lai CO CHU DICH (xem config.h) - khong de
+  // PowerManager tinh nham lan nap firmware thanh cong nay vao bo dem "reset
+  // bat thuong", tranh bao gia "ABNORMAL RESET"/mat dien sau khi nap ban moi.
+  mayapMarkIntentionalRestart();
   delay(300);
   ESP.restart();
 }
