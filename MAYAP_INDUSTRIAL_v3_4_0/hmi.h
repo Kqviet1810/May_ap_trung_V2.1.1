@@ -1049,6 +1049,17 @@ bool confirmationActive() {
 }
 
 void resetRotaryPending() {
+  // Neu dang nuot ngay 1 su kien LongPress VUA phat trong chinh chu ky nay
+  // (vd input guard vua duoc kich hoat do view doi dot ngot - co canh bao
+  // moi - dung luc nguoi dung giu nut cham nguong 900ms), phai mo lai co
+  // longPressReported. Neu khong: LongPress bi nuot mat (dung), NHUNG co
+  // nay van con true nen luc nguoi dung tha nut ra, nhanh "else if
+  // (!rotary.longPressReported)" trong updateRotary() cung khong con kich
+  // hoat ShortPress du phong - toan bo thao tac giu-va-tha bi nuot trang,
+  // khong co phan hoi nao ca.
+  if (rotary.button == ButtonEvent::LongPress) {
+    rotary.longPressReported = false;
+  }
   rotary.accumulator = 0;
   rotary.step = 0;
   rotary.button = ButtonEvent::None;
@@ -2021,8 +2032,19 @@ void executeConfirmation(bool accepted) {
       view = View::Home;
       homePage = 0;
     } else if (action == ConfirmAction::TurningToggle) {
-      if (startConfigSave(pendingTurningConfig)) {
-        currentConfig = pendingTurningConfig;
+      // KHONG luu thang pendingTurningConfig - no la ban CHUP TOAN BO cau
+      // hinh tu LUC MO hoi thoai, va hoi thoai nay khong co han tu dong dong
+      // (nguoi dung co the can nhac vai giay toi vai phut). Neu trong luc do
+      // web gui 1 thay doi khac (vd doi SV) toi applyHostConfig() cap nhat
+      // currentConfig, luu thang pendingTurningConfig se GHI DE mat thay doi
+      // do ma khong ai hay. Chi lay LAI dung 1 truong turningEnabled tu ban
+      // chup, ap vao BAN currentConfig HIEN TAI (moi nhat) - moi thay doi
+      // khac phat sinh trong luc cho deu duoc giu nguyen.
+      MachineConfig candidate = currentConfig;
+      candidate.turningEnabled = pendingTurningConfig.turningEnabled;
+      sanitizeConfig(candidate);
+      if (startConfigSave(candidate)) {
+        currentConfig = candidate;
         showToast("DANG LUU...");
       }
       view = returnView;
@@ -2281,6 +2303,15 @@ void handleInput() {
           testDeviceConfirmActive = true;
           testDeviceConfirmIndex = listIndex;
           testDeviceConfirmYes = true;
+          // Moi ConfirmAction khac trong file nay deu goi armInputGuard()
+          // ngay luc mo hoi thoai - rieng hoi thoai CO/KHONG long trong Test
+          // Mode nay (khong doi View, chi bat co noi bo) truoc day thieu
+          // buoc nay. Nut nhan tren encoder co the lam rung nhe truc xoay
+          // (ghep co that tren mot so module encoder re), tao ra vai xung
+          // rotary.step "ma" ngay sau cu nhan - neu khong chan lai, no co
+          // the tu lat testDeviceConfirmYes tu true (Dat) sang false (Loi)
+          // truoc khi nguoi lap dat kip nhin man hinh, ghi nham ket qua.
+          armInputGuard();
         } else if (listIndex < TEST_MODE_OUTPUT_ROWS + TEST_MODE_LIMIT_ROWS) {
           testLimitSelected = (listIndex == TEST_MODE_OUTPUT_ROWS)
               ? TestLimitId::Left : TestLimitId::Right;
@@ -3562,7 +3593,13 @@ void render(uint32_t now) {
       case View::EventLog: drawEventLog(); break;
       case View::Alarm: drawAlarm(); break;
     }
-    drawToast(now);
+    // Man Canh bao dung dung dai 9px cuoi man (y~55-64) cho dong "E### x/y
+    // NHAN=ACK" - day la thong tin BAT BUOC phai doc duoc (ma loi + cach xac
+    // nhan). Toast ve DE LEN CUNG dai nay se che mat hoan toan trong 1.4-2.5s
+    // moi lan toast xuat hien trong luc dang xem canh bao. Bo qua toast rieng
+    // man nay - cac view khac deu chi mat thong tin PHU (trang thai chung,
+    // dong cuoi 1 danh sach) trong chop mat, khong nghiem trong bang.
+    if (view != View::Alarm) drawToast(now);
   }
   lcd.setDrawColor(1);
   if (i2cLockCallback && !i2cLockCallback(I2C_TIMEOUT_MS)) {
@@ -4003,6 +4040,14 @@ void applyHostConfig(MachineConfig config) {
     float minimum, maximum;
     settingLimits(currentConfig, item, minimum, maximum);
     editValue = constrain(editValue, minimum, maximum);
+  } else if (view == View::SettingList) {
+    // groupVisibleExtraCount() (vd Doi wifi/Dat lai PIN/Cap nhat firmware)
+    // phu thuoc currentConfig.connectivityMode - config nay vua doi phia
+    // tren nen so dong THAT SU hien ra co the vua co/mat di ngay tuc khac.
+    // Khong re-clamp o day thi listIndex/listTop co the tro vao 1 dong vua
+    // bien mat (khong con gi duoc to sang) hoac vuot qua "Thoat" cho toi khi
+    // nguoi dung tu xoay num lai (setListSelection() moi tu clamp).
+    setListSelection(listIndex, settingListItemCount(selectedGroup));
   }
   dirty = true;
 }
@@ -4267,9 +4312,22 @@ void hmiUpdate(uint32_t now) {
   }
 
   buzzerUpdate(now);
-  if (toastLine[0] && timeReached(now, toastUntil)) {
-    clearToast();
-    dirty = true;
+  if (toastLine[0]) {
+    if (confirmationActive()) {
+      // Man xac nhan CO/KHONG dang che dai toast (drawToast() khong ve gi
+      // luc showConfirmScreen=true, xem render()) - va khong co han tu dong
+      // dong man xac nhan (MENU_IDLE_TIMEOUT_MS chu dong loai tru truong hop
+      // nay). Neu cu de toastUntil troi qua binh thuong trong luc bi che, no
+      // se bi clearToast() xoa truoc khi nguoi dung tung thay - vd ACK 1
+      // canh bao roi giu nut mo hoi thoai "DUNG KHAN CAP" ngay sau do, ket
+      // qua ACK/timeout lenh khong bao gio hien ra. Doi han moi chu ky de
+      // "tam dung dong ho" - toast luon con nguyen 1 khoang hien thi day du
+      // ngay khi man xac nhan dong lai.
+      toastUntil = now + (toastError ? TOAST_ERROR_MS : TOAST_INFO_MS);
+    } else if (timeReached(now, toastUntil)) {
+      clearToast();
+      dirty = true;
+    }
   }
   serviceLcd(now);
   render(now);
