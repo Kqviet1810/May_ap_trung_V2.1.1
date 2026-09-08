@@ -27,13 +27,22 @@ import { sendWebPush, buildNotificationPayload } from './push.js';
 // muc nay cho CUNG mot (device_id, alarm_type) khi trang thai khong doi.
 const MIN_ALARM_COOLDOWN_MS = 15_000;
 
-// ESP32 heartbeat moi 15s (CLOUD_HEARTBEAT_INTERVAL_MS trong config.h) - cho
-// phep truot ~5 lan (mat goi/backoff luc mang chap chon) truoc khi coi la
-// "mat ket noi that su" de tranh bao gia luc mang giat nhe. Day la do tre
-// nhanh nhat hop ly dat duoc: Cron Trigger cua Cloudflare toi da 1 phut/lan
-// (gioi han nen tang), nen ~75s la can bang tot nhat giua "nhanh" va
-// "khong bao gia" voi kien truc heartbeat+cron polling nay.
-const DEVICE_OFFLINE_THRESHOLD_MS = 75 * 1000;
+// ESP32 heartbeat moi 15s (CLOUD_HEARTBEAT_INTERVAL_MS trong config.h). Nguong
+// nay TRUOC DAY la 75s (~5 lan bo lo heartbeat) - du de tha luc mang giat
+// nhe, nhung KHONG du cho 1 chu ky khoi dong lai CO CHU DICH: nap firmware
+// qua web (tai file ~3MB tu GitHub qua Worker + ghi flash) hoac quay lai
+// ban cu (esp_ota_set_boot_partition + restart) deu ket thuc bang mot lan
+// restart that su - ESP32 mat toi thieu vai chuc giay de tai/ghi xong, roi
+// them thoi gian ket noi lai Wi-Fi/MQTT/heartbeat, cong don co the vuot 75s
+// trong dieu kien mang binh thuong (chua tinh mang yeu). Ket qua: nguoi dung
+// nap OTA/quay lai firmware xong lai nhan canh bao "mat dien/mat Wi-Fi" gia,
+// dung luc thiet bi van dang tu khoi dong lai binh thuong. Nang len 180s (3
+// phut) de bao trum thoai mai ca 2 truong hop nay - van la do tre chap nhan
+// duoc cho 1 canh bao "mat dien that su" tren mot he thong ap trung (nhiet
+// do khong the doi trong vai phut do khoi luong nhiet cua tu ap), va van
+// nam trong gioi han Cron Trigger 1 phut/lan cua Cloudflare (khong the
+// nhanh hon du muon).
+const DEVICE_OFFLINE_THRESHOLD_MS = 180 * 1000;
 
 function corsHeaders(env) {
   return {
@@ -605,9 +614,10 @@ async function checkDeviceConnectivity(env) {
     // db.js) - khong co me nao dang chay thi mat mang/mat dien khong can bao,
     // theo yeu cau: chi quan tam khi dang ap that su.
     if (!device.batch_running) continue;
+    const thresholdSeconds = Math.round(DEVICE_OFFLINE_THRESHOLD_MS / 1000);
     await sendDeviceLifecycleAlarm(env, device, {
       state: 'active',
-      message: 'Mất kết nối trên 75 giây - kiểm tra nguồn điện hoặc Wi-Fi ngay.',
+      message: `Mất kết nối trên ${thresholdSeconds} giây - kiểm tra nguồn điện hoặc Wi-Fi ngay.`,
     });
   }
 

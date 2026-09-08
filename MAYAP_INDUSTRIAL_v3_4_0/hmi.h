@@ -3617,7 +3617,20 @@ void recoverI2cBusUnlocked() {
 #endif
 }
 
-bool beginLcd() {
+// fullClear=true (mac dinh) dung lcd.begin() nguyen ban (initDisplay +
+// clearDisplay + setPowerSave) - clearDisplay() ghi thang 1 khung TRANG/DEN
+// xuong PANEL THAT qua I2C, tach biet hoan toan voi framebuffer RAM cua
+// u8g2. Chi nen dung fullClear=true luc khoi dong lanh (chua co khung hinh
+// dung nao dang hien, khong ai thay "flash"). Cac lan goi lai LCD khi may
+// dang CHAY (health-check phuc hoi, tu lam moi dinh ky - xem serviceLcd())
+// PHAI truyen fullClear=false: chi initDisplay()+setPowerSave() de nap lai
+// chuoi lenh khoi tao ST7567 (sua thanh ghi noi bo bi nhieu lam sai), KHONG
+// goi clearDisplay() - buoc nay thua vi ngay sau do dirty=true se ep ve lai
+// TOAN BO khung That qua sendBuffer(). Bo qua clearDisplay() loai bo hoan
+// toan 1 lan truyen I2C day khung trang (~vai chuc ms o 100kHz) dang gay
+// "chop nhay man den 1 cai" ma nguoi dung thay khi thao tac (cuon nhanh hay
+// binh thuong deu co the trung luc health-check/tu lam moi dinh ky chay).
+bool beginLcd(bool fullClear = true) {
   if (i2cLockCallback && !i2cLockCallback(I2C_TIMEOUT_MS)) return false;
 #if MAYAP_HMI_OWNS_I2C_BUS
   recoverI2cBusUnlocked();
@@ -3630,7 +3643,12 @@ bool beginLcd() {
   }
   lcd.setBusClock(I2C_CLOCK_HZ);
   lcd.setI2CAddress(static_cast<uint8_t>(LCD_I2C_ADDRESS << 1));
-  lcd.begin();
+  if (fullClear) {
+    lcd.begin();
+  } else {
+    lcd.initDisplay();
+    lcd.setPowerSave(0);
+  }
   lcd.setContrast(DEFAULT_CONTRAST);
   if (i2cUnlockCallback) i2cUnlockCallback();
   return true;
@@ -3640,7 +3658,10 @@ void serviceLcd(uint32_t now) {
   if (!lcdReady) {
     if (now - lastLcdRetryAt < LCD_RETRY_INTERVAL_MS) return;
     lastLcdRetryAt = now;
-    lcdReady = beginLcd();
+    // fullClear=false: man dang hien noi dung CU (dung hoac da hong san,
+    // khong co gi "tot" de giu) - bo qua clearDisplay() de tranh 1 khung
+    // trang chen giua, dirty=true ben duoi se ve lai khung That ngay.
+    lcdReady = beginLcd(false);
     if (lcdReady) {
       lastLcdHealthCheckAt = now;
       dirty = true;
@@ -3667,7 +3688,10 @@ void serviceLcd(uint32_t now) {
   if (now - lastLcdFullReinitAt >= LCD_FULL_REINIT_MS) {
     lastLcdFullReinitAt = now;
     lastLcdHealthCheckAt = now;
-    if (beginLcd()) {
+    // fullClear=false: man dang hien khung hinh DUNG (day la tu lam moi
+    // PHONG NGUA dinh ky, khong phai phuc hoi loi that) - khong co ly do gi
+    // lam den man ngay ca trong chop mat.
+    if (beginLcd(false)) {
       dirty = true;
     } else {
       lcdReady = false;
