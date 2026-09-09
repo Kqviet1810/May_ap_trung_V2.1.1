@@ -431,7 +431,14 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
    den sidebar/topbar desktop bi nhoi vao man hinh chi cao ~390-430px. Xet
    them max-height de nhan dien "man hinh thap" (dien thoai ngang) va van
    dung bo cuc thanh dieu huong duoi + rut gon nhu dien thoai doc. */
-@media(max-width:800px),(max-height:500px){
+/* min-width:391px o day va o 2 khoi @media(max-width:800px) khac ben duoi
+   (trang Me ap/Thiet bi toan man hinh): tu 390px tro xuong da chuyen han
+   sang mobile-small.css (ban rieng, bo cuc doc lap - xem file do va the
+   <link media> trong index.html), khong con dung toi cac quy tac danh cho
+   dien thoai thuong o day nua. Nhanh (max-height:500px) VAN giu nguyen
+   khong gioi han theo be rong - dien thoai xoay ngang du hep van can kieu
+   rut gon nay bat ke be rong bao nhieu. */
+@media(max-width:800px) and (min-width:391px),(max-height:500px){
   :root{--navH:88px}
   .appShell{display:block}
   .sidebar{inset:auto 0 0 0;width:auto;height:calc(var(--navH) + env(safe-area-inset-bottom));padding:0 9px calc(8px + env(safe-area-inset-bottom));background:transparent;display:block;pointer-events:none}
@@ -490,33 +497,20 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .wifiInputRow{grid-template-columns:1fr}
   .wifiInputRow button{width:100%}
 }
-@media(max-width:360px){
-  .tempGrid{gap:6px}
-  .compactTile{padding:9px 8px}
-  .compactTile>span,.compactTile .tileLabel{font-size:var(--fs-2xs)}
-  .compactTile input{font-size:17px}
-  .compactTile .unit b{font-size:14px}
-  .quickField input{font-size:17px}
-  .quickField b{font-size:14px}
-  .batchActions button{font-size:var(--fs-2xs)}
-  .topbar{grid-template-columns:minmax(82px,1fr) repeat(3,minmax(0,64px))}
-  .title h1{font-size:22px}
-  .live>strong{font-size:13px}
-  .deviceTop{gap:8px}
-  .statusBlock{min-width:78px}
-  .devicePickerRow{gap:7px}
-  .addDevice{flex-basis:50px;width:50px}
-  .panel{padding:15px}
-  .actions{grid-template-columns:1fr}
-  .actions .dark{grid-column:auto}
-}
+/* Truoc day co @media(max-width:360px) o day de thu them chu/khoang cach
+   cho may cuc hep - tu 390px tro xuong gio da chuyen han sang mobile-
+   small.css (bo cuc rieng tu dau, khong con la ban "thu nho tiep" cua
+   dien thoai thuong nua), nen khoi nay khong con can thiet, da bo. */
 @media(prefers-reduced-motion:reduce){
   *{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
 }
 
 /* v9.0.2 - Gộp Bắt đầu/Kết thúc thành một nút theo trạng thái mẻ; bố cục mẻ ấp
-   toàn màn hình trên mobile (không cuộn trang, chỉ cuộn nhật ký). */
-@media(max-width:800px),(max-height:500px){
+   toàn màn hình trên mobile (không cuộn trang, chỉ cuộn nhật ký). Tu 390px
+   tro xuong da chuyen sang bo cuc cuon trang tu nhien rieng trong
+   mobile-small.css nen khoi nay gioi han lai chi con ap dung tu 391px
+   (xem giai thich day du tai khoi @media dien thoai thuong o tren). */
+@media(max-width:800px) and (min-width:391px),(max-height:500px){
   body[data-page="batch"]{height:100dvh;min-height:0;overflow:hidden}
   body[data-page="batch"] .appShell{height:100dvh;min-height:0;overflow:hidden}
   body[data-page="batch"] .main{
@@ -558,8 +552,10 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
    khong phai cuon trang tren cac man hinh dien thoai thong thuong. .main
    van giu overflow-y:auto (thay vi hidden nhu trang Me ap) vi trang nay
    khong co 1 vung cuon rieng nhu nhat ky - phong khi may qua thap/co chu
-   to (accessibility) van con du gon 1 chut thay vi cat mat noi dung. */
-@media(max-width:800px),(max-height:500px){
+   to (accessibility) van con du gon 1 chut thay vi cat mat noi dung.
+   Gioi han lai tu 391px vi tu 390px tro xuong da chuyen sang bo cuc cuon
+   trang tu nhien rieng trong mobile-small.css. */
+@media(max-width:800px) and (min-width:391px),(max-height:500px){
   body[data-page="device"]{height:100dvh;min-height:0;overflow:hidden}
   body[data-page="device"] .appShell{height:100dvh;min-height:0;overflow:hidden}
   body[data-page="device"] .main{
