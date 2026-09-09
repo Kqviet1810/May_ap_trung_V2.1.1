@@ -861,6 +861,8 @@ uint32_t lastFirmwareProgressDrawAt = 0;
 uint32_t lastInteractionAt = 0;
 uint32_t lastLcdRetryAt = 0;
 uint32_t lastLcdHealthCheckAt = 0;
+// Dem so lan tham do ACK that BAI LIEN TIEP - xem giai thich tai serviceLcd().
+uint8_t lcdHealthFailStreak = 0;
 uint32_t lastLcdFaultLogAt = 0;
 char toastLine[27] = "";
 bool toastError = false;
@@ -3728,7 +3730,17 @@ void serviceLcd(uint32_t now) {
   if (i2cLockCallback && !i2cLockCallback(I2C_TIMEOUT_MS)) return;
   const bool ok = probeLcdUnlocked();
   if (i2cUnlockCallback) i2cUnlockCallback();
-  if (!ok) {
+  if (ok) {
+    lcdHealthFailStreak = 0U;
+  } else if (++lcdHealthFailStreak >= LCD_HEALTH_FAIL_STREAK) {
+    // Doi du LCD_HEALTH_FAIL_STREAK lan tham do that bai LIEN TIEP (khong
+    // phai chi 1 lan) moi thuc su coi la mat LCD va nap lai - ban than lan
+    // nap lai (beginLcd()) cung gay 1 lan chop hardware that (xem giai
+    // thich o tren), nen 1 xung nhieu don le lam sai DUY NHAT 1 lan tham do
+    // (nha may cong nghiep de gap) khong nen tu keo theo them 1 lan chop
+    // nua - phai co it nhat 2 lan lien tiep moi dang tin la LCD that su gap
+    // van de, khong phai nhieu thoang qua.
+    lcdHealthFailStreak = 0U;
     lcdReady = false;
     lastLcdRetryAt = now;
     dirty = true;

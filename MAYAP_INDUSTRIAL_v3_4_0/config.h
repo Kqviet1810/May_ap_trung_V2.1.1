@@ -345,6 +345,13 @@ constexpr uint32_t LCD_RETRY_INTERVAL_MS = 3000UL;
 // den do lag nhu sendBuffer() day du nen giu nguyen, khong lien quan gioi
 // han o tren.
 constexpr uint32_t LCD_HEALTH_CHECK_MS = 2000UL;
+// So lan tham do ACK that bai LIEN TIEP (khong phai chi 1 lan don le) truoc
+// khi thuc su coi la mat LCD va nap lai - xem giai thich day du tai
+// serviceLcd() trong hmi.h. 2 lan = toi da 1 chu ky LCD_HEALTH_CHECK_MS
+// (~2s) tre hon de phat hien loi that su, doi lay loc bo hau het cac xung
+// nhieu don le trong tu cong nghiep ma khong tu gay them 1 lan chop man
+// hinh khong can thiet.
+constexpr uint8_t LCD_HEALTH_FAIL_STREAK = 2U;
 constexpr uint32_t LCD_FAULT_LOG_INTERVAL_MS = 30000UL;
 // [DA BO - xem ghi chu tai serviceLcd() trong hmi.h] Tung co 1 hang so
 // LCD_FULL_REINIT_MS o day, chu dong nap lai TOAN BO chuoi khoi tao ST7567
