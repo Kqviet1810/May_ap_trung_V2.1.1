@@ -2296,21 +2296,31 @@ void handleInput() {
       }
       if (rotary.button == ButtonEvent::ShortPress) {
         if (listIndex < TEST_MODE_OUTPUT_ROWS) {
-          queueCommand(HmiCommandType::TestOutputPulse, COMMAND_DEFAULT_VALID_MS,
-                      0, static_cast<uint32_t>(listIndex));
-          testModeLastCommandAt = millis();
-          testDeviceConfirmActive = true;
-          testDeviceConfirmIndex = listIndex;
-          testDeviceConfirmYes = true;
-          // Moi ConfirmAction khac trong file nay deu goi armInputGuard()
-          // ngay luc mo hoi thoai - rieng hoi thoai CO/KHONG long trong Test
-          // Mode nay (khong doi View, chi bat co noi bo) truoc day thieu
-          // buoc nay. Nut nhan tren encoder co the lam rung nhe truc xoay
-          // (ghep co that tren mot so module encoder re), tao ra vai xung
-          // rotary.step "ma" ngay sau cu nhan - neu khong chan lai, no co
-          // the tu lat testDeviceConfirmYes tu true (Dat) sang false (Loi)
-          // truoc khi nguoi lap dat kip nhin man hinh, ghi nham ket qua.
-          armInputGuard();
+          // CHI mo hoi thoai "CO CHAY KHONG?" khi lenh THAT SU vao duoc hang
+          // doi (queueCommand() tra ve true) - truoc day mo vo dieu kien du
+          // lenh co gui di duoc hay khong (hang doi day/trung lenh cung
+          // loai dang cho). Neu lenh khong toi noi, thiet bi KHONG he duoc
+          // xung dien, nhung hoi thoai van hoi Dat/Loi nhu binh thuong - de
+          // nguoi lap dat ghi nham ket qua cho 1 dau ra chua he duoc thu.
+          // queueCommand() tu hien toast loi + keu coi khi that bai, nen o
+          // day chi can KHONG mo hoi thoai la du, khong can bao them.
+          if (queueCommand(HmiCommandType::TestOutputPulse,
+                           COMMAND_DEFAULT_VALID_MS, 0,
+                           static_cast<uint32_t>(listIndex))) {
+            testModeLastCommandAt = millis();
+            testDeviceConfirmActive = true;
+            testDeviceConfirmIndex = listIndex;
+            testDeviceConfirmYes = true;
+            // Moi ConfirmAction khac trong file nay deu goi armInputGuard()
+            // ngay luc mo hoi thoai - rieng hoi thoai CO/KHONG long trong Test
+            // Mode nay (khong doi View, chi bat co noi bo) truoc day thieu
+            // buoc nay. Nut nhan tren encoder co the lam rung nhe truc xoay
+            // (ghep co that tren mot so module encoder re), tao ra vai xung
+            // rotary.step "ma" ngay sau cu nhan - neu khong chan lai, no co
+            // the tu lat testDeviceConfirmYes tu true (Dat) sang false (Loi)
+            // truoc khi nguoi lap dat kip nhin man hinh, ghi nham ket qua.
+            armInputGuard();
+          }
         } else if (listIndex < TEST_MODE_OUTPUT_ROWS + TEST_MODE_LIMIT_ROWS) {
           testLimitSelected = (listIndex == TEST_MODE_OUTPUT_ROWS)
               ? TestLimitId::Left : TestLimitId::Right;
@@ -3726,7 +3736,20 @@ void serviceLcd(uint32_t now) {
   if (now - lastLcdHealthCheckAt < LCD_HEALTH_CHECK_MS) return;
   lastLcdHealthCheckAt = now;
   if (i2cLockCallback && !i2cLockCallback(I2C_TIMEOUT_MS)) return;
-  const bool ok = probeLcdUnlocked();
+  bool ok = probeLcdUnlocked();
+  if (!ok) {
+    // 1 xung nhieu chi anh huong 1 giao dich thoang qua thuong da het tac
+    // dung chi sau vai mili giay - thu lai NGAY trong CHINH lan goi nay
+    // (van giu nguyen khoa I2C xuyen suot, khong ai chen vao giua duoc)
+    // thay vi doi den chu ky health-check SAU (LCD_HEALTH_CHECK_MS, 2s
+    // nua) moi co diem du lieu thu 2 nhu truoc day - vua giam thoi gian
+    // man hinh dung hinh khi that su co su co (xac nhan trong vai ms thay
+    // vi toi 2s), vua van loc duoc da so nhieu don le trong tu cong
+    // nghiep (chi 1 xung nhieu that su hiem khi lam sai CA HAI lan tham do
+    // lien tiep sat nhau nhu vay).
+    delay(2);
+    ok = probeLcdUnlocked();
+  }
   if (i2cUnlockCallback) i2cUnlockCallback();
   if (!ok) {
     lcdReady = false;
