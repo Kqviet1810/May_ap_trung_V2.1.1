@@ -520,8 +520,20 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   body[data-page="batch"]{height:100dvh;min-height:0;overflow:hidden}
   body[data-page="batch"] .appShell{height:100dvh;min-height:0;overflow:hidden}
   body[data-page="batch"] .main{
-    height:100dvh;min-height:0;overflow:hidden;
+    height:100dvh;min-height:0;overflow-y:auto;
     display:flex;flex-direction:column;
+    /* overflow-y:auto (khong phai hidden) - day la LUOI AN TOAN giong het
+       trang Thiet bi (xem giai thich tai body[data-page="device"] .main o
+       duoi): .batchPanel la flex:0 0 auto (KHONG tu co lai), neu noi dung
+       cua no (vd nhieu canh bao/nut hon binh thuong, hoac chu to accessibility)
+       cao hon phan con lai cua man hinh THAP (iPhone nho), no se tran qua
+       vung hien duoc. Truoc day .main la overflow:hidden nen phan tran do
+       (thuong la nut cuoi .batchPanel) bi KET LAI duoi thanh dieu huong co
+       dinh, khong co cach nao cuon len de bam duoc - dung loi nguoi dung bao
+       "man nho khong cuon len duoc, thanh tab che mat nut". overflow-y:auto
+       khong pha bo cuc binh thuong (noi dung vua khop van khong hien thanh
+       cuon), chi la duong thoat khi khong vua.
+    */
   }
   body[data-page="batch"] .topbar{flex:0 0 auto}
   body[data-page="batch"] #page-batch.active{
