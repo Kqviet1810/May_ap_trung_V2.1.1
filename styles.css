@@ -124,15 +124,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .page{display:none;min-width:0;width:100%}
 .page.active{display:grid;gap:20px;min-width:0;width:100%}
 .page#page-batch.active{display:block}
-/* max-width: cac panel dieu khien (deviceCompact/quickForm/batchPanel/
-   batchLogPanel) la FORM/danh sach, khong phai bang du lieu can toi da
-   chieu rong - de gian het .main (toi 1320px) tren man rong se thanh 1
-   khoi trang qua kho, luoi/nut ben trong bi "lac long" giua nhieu khoang
-   trong. Gioi han ve 1 be rong lam viec doc thoai mai; man rong con lai
-   don gian la le trang, khong co gi sai khi 1 form khong choan het man
-   4K. Man hep hon 900px (hau het tablet/dien thoai) khong bi anh huong -
-   panel van tu co theo container nhu binh thuong. */
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow);max-width:900px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow)}
 
 .panelHead,.deviceTop,.dialogHead{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
 .panel h2,.dialogHead h2,.confirmBody h2{margin:2px 0 0;font-size:var(--fs-xl);font-weight:700;letter-spacing:-.3px}
@@ -217,16 +209,7 @@ input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:n
 .customSelectOption:hover,.customSelectOption:focus-visible{background:var(--wash);outline:none}
 .customSelectOption[aria-selected="true"]{background:var(--primarySoft);color:var(--primary2);font-weight:800}
 
-/* auto-fit+minmax (KHONG phai 1fr 1fr co dinh): tren man rong, "1fr 1fr" ep
-   moi o gian ra het co container (vd 1 o chi co "37.5 °C" bi keo thanh
-   600-700px, nhin det/rong nhu dang bo trong 1 khung qua kho) - o day moi
-   o tu gioi han o be rong hop ly (280-340px), thua bao nhieu cho thi de
-   trong nhu khoang lech le binh thuong cua 1 form, khong ep no vao o. Tu
-   dong xep them cot neu du rong (vd 3-4 cot tren man rat rong) thay vi
-   luon co dinh 2 cot. Cac muc @media hep hon ben duoi van tiep tuc ghi de
-   rieng (repeat co dinh) cho tung nguong dien thoai/may tinh bang - khong
-   doi hanh vi o do. */
-.quickGrid,.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,340px));gap:16px;margin-top:18px}
+.quickGrid,.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
 .quickField{border:1px solid var(--line);border-radius:var(--radius-md);background:var(--tile);padding:16px}
 .quickField>span{font-size:var(--fs-sm);font-weight:700;color:var(--label)}
 .quickField>div,.unit{display:flex;align-items:center}
@@ -240,10 +223,7 @@ input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:n
 .quickField input{font-size:20px;min-height:36px}
 .quickField b{font-size:var(--fs-md)}
 
-/* auto-fit+minmax cung ly do voi quickGrid/grid2 o tren, cap nho hon vi
-   noi dung moi o chi la 1 nhan + ON/OFF (repeat(3,1fr) tung keo moi o
-   thanh ~440px tren man rong, rat trong/det). */
-.outputStrip{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,180px));gap:10px;margin:16px 0}
+.outputStrip{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0}
 .outputStrip>div{padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);transition:background var(--ease),border-color var(--ease)}
 .outputStrip span,.outputStrip strong{display:block}
 .outputStrip span{color:var(--muted);font-size:var(--fs-2xs);font-weight:700;letter-spacing:.4px;text-transform:uppercase}
@@ -285,9 +265,8 @@ input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:n
    thước theo chủ đích thiết kế gốc, chỉ tăng cỡ chữ/khoảng cách). */
 .batchPanel{padding:22px}
 .batchPanel .panelHead{align-items:center}
-/* auto-fit+minmax cung ly do voi quickGrid/grid2 o tren. */
-.batchGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,300px));gap:12px;margin-top:16px}
-.tempGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,240px));gap:10px}
+.batchGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}
+.tempGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .compactTile{min-width:0;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);padding:13px 14px;display:grid;align-content:start;gap:6px;min-height:86px;transition:border-color var(--ease)}
 .compactTile:focus-within{border-color:var(--ring)}
 .compactTile>span,.compactTile .tileLabel{display:block;color:var(--label);font-size:var(--fs-xs);font-weight:700;line-height:1.25}
@@ -310,13 +289,7 @@ input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:n
 .temperatureFormCompact .primary{min-height:46px}
 
 /* Cài đặt theo progressive disclosure */
-/* max-width rieng cho danh sach Cai dat: day la 1 DANH SACH (khong phai
-   luoi/grid nen khong tu co lai theo noi dung nhu cac o tren), neu de no
-   gian het chieu rong .main (toi 1320px) tren man rong thi moi the tro
-   thanh 1 vet ngang det - icon+tieu de+mo ta chi chiem ~350px dau, con lai
-   la khoang trong menh mong. Gioi han ve 1 be rong doc thoai mai (giong
-   1 trang Cai dat/menu binh thuong), van du rong hon han dien thoai. */
-.settingsStack{display:grid;gap:12px;max-width:720px}
+.settingsStack{display:grid;gap:12px}
 .settingCard{background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadowSm);overflow:hidden}
 .settingCard summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:44px minmax(0,1fr) 34px;gap:14px;align-items:center;min-height:84px;padding:16px 16px 16px 17px;transition:background var(--ease)}
 .settingCard summary::-webkit-details-marker{display:none}
@@ -458,14 +431,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
    den sidebar/topbar desktop bi nhoi vao man hinh chi cao ~390-430px. Xet
    them max-height de nhan dien "man hinh thap" (dien thoai ngang) va van
    dung bo cuc thanh dieu huong duoi + rut gon nhu dien thoai doc. */
-/* min-width:391px o day va o 2 khoi @media(max-width:800px) khac ben duoi
-   (trang Me ap/Thiet bi toan man hinh): tu 390px tro xuong da chuyen han
-   sang mobile-small.css (ban rieng, bo cuc doc lap - xem file do va the
-   <link media> trong index.html), khong con dung toi cac quy tac danh cho
-   dien thoai thuong o day nua. Nhanh (max-height:500px) VAN giu nguyen
-   khong gioi han theo be rong - dien thoai xoay ngang du hep van can kieu
-   rut gon nay bat ke be rong bao nhieu. */
-@media(max-width:800px) and (min-width:391px),(max-height:500px){
+@media(max-width:800px),(max-height:500px){
   :root{--navH:88px}
   .appShell{display:block}
   .sidebar{inset:auto 0 0 0;width:auto;height:calc(var(--navH) + env(safe-area-inset-bottom));padding:0 9px calc(8px + env(safe-area-inset-bottom));background:transparent;display:block;pointer-events:none}
@@ -524,20 +490,33 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .wifiInputRow{grid-template-columns:1fr}
   .wifiInputRow button{width:100%}
 }
-/* Truoc day co @media(max-width:360px) o day de thu them chu/khoang cach
-   cho may cuc hep - tu 390px tro xuong gio da chuyen han sang mobile-
-   small.css (bo cuc rieng tu dau, khong con la ban "thu nho tiep" cua
-   dien thoai thuong nua), nen khoi nay khong con can thiet, da bo. */
+@media(max-width:360px){
+  .tempGrid{gap:6px}
+  .compactTile{padding:9px 8px}
+  .compactTile>span,.compactTile .tileLabel{font-size:var(--fs-2xs)}
+  .compactTile input{font-size:17px}
+  .compactTile .unit b{font-size:14px}
+  .quickField input{font-size:17px}
+  .quickField b{font-size:14px}
+  .batchActions button{font-size:var(--fs-2xs)}
+  .topbar{grid-template-columns:minmax(82px,1fr) repeat(3,minmax(0,64px))}
+  .title h1{font-size:22px}
+  .live>strong{font-size:13px}
+  .deviceTop{gap:8px}
+  .statusBlock{min-width:78px}
+  .devicePickerRow{gap:7px}
+  .addDevice{flex-basis:50px;width:50px}
+  .panel{padding:15px}
+  .actions{grid-template-columns:1fr}
+  .actions .dark{grid-column:auto}
+}
 @media(prefers-reduced-motion:reduce){
   *{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
 }
 
 /* v9.0.2 - Gộp Bắt đầu/Kết thúc thành một nút theo trạng thái mẻ; bố cục mẻ ấp
-   toàn màn hình trên mobile (không cuộn trang, chỉ cuộn nhật ký). Tu 390px
-   tro xuong da chuyen sang bo cuc cuon trang tu nhien rieng trong
-   mobile-small.css nen khoi nay gioi han lai chi con ap dung tu 391px
-   (xem giai thich day du tai khoi @media dien thoai thuong o tren). */
-@media(max-width:800px) and (min-width:391px),(max-height:500px){
+   toàn màn hình trên mobile (không cuộn trang, chỉ cuộn nhật ký). */
+@media(max-width:800px),(max-height:500px){
   body[data-page="batch"]{height:100dvh;min-height:0;overflow:hidden}
   body[data-page="batch"] .appShell{height:100dvh;min-height:0;overflow:hidden}
   body[data-page="batch"] .main{
@@ -579,10 +558,8 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
    khong phai cuon trang tren cac man hinh dien thoai thong thuong. .main
    van giu overflow-y:auto (thay vi hidden nhu trang Me ap) vi trang nay
    khong co 1 vung cuon rieng nhu nhat ky - phong khi may qua thap/co chu
-   to (accessibility) van con du gon 1 chut thay vi cat mat noi dung.
-   Gioi han lai tu 391px vi tu 390px tro xuong da chuyen sang bo cuc cuon
-   trang tu nhien rieng trong mobile-small.css. */
-@media(max-width:800px) and (min-width:391px),(max-height:500px){
+   to (accessibility) van con du gon 1 chut thay vi cat mat noi dung. */
+@media(max-width:800px),(max-height:500px){
   body[data-page="device"]{height:100dvh;min-height:0;overflow:hidden}
   body[data-page="device"] .appShell{height:100dvh;min-height:0;overflow:hidden}
   body[data-page="device"] .main{
