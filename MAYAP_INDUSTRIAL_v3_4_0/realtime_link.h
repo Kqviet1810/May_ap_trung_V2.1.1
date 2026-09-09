@@ -624,19 +624,31 @@ inline void serviceSessionTimeout(uint32_t now) {
   }
 }
 
-// Nguon "can hieu nang cao" duy nhat: phien web dang active HOAC cong doi
-// Wi-Fi tren HMI dang mo (AP+STA dang bat, dang phat song MAYAP-XXXX). Day
-// la noi DUY NHAT trong toan bo firmware goi esp_wifi_set_ps() - luon di qua
-// applyWifiPowerMode() de bien dem highPerfWifiApplied khong bao gio lech
-// voi trang thai phan cung that (neu co noi thu hai tu goi thang, bien dem
-// se "tuong" sai va bo qua lan dong bo sau, ket qua la giu nham che do).
+// Nguon "can hieu nang cao": phien web dang active, HOAC cong doi Wi-Fi tren
+// HMI dang mo (AP+STA dang bat, dang phat song MAYAP-XXXX), HOAC dang co
+// canh bao/loi con hoat dong (alarmMask != AlarmNone) - truong hop thu 3 nay
+// dam bao goi canh bao qua Cloud Push (cloud_alert_link.h, chay cung
+// networkTask) di voi do tre thap nhat co the, khong phai cho WiFi "thuc
+// day" tu WIFI_PS_MIN_MODEM luc dang co su co that su can bao gap. Chi doc
+// knownRuntime (da duoc controlTask ghi san qua mayapWebSetRuntime(), bao ve
+// bang webMux - xem hook o duoi file) - KHONG dong cham gi den controlTask/
+// vong dieu khien PID, giu dung yeu cau on dinh phan dieu khien la uu tien
+// tuyet doi.
+//
+// Day la noi DUY NHAT trong toan bo firmware goi esp_wifi_set_ps() - luon di
+// qua applyWifiPowerMode() de bien dem highPerfWifiApplied khong bao gio
+// lech voi trang thai phan cung that (neu co noi thu hai tu goi thang, bien
+// dem se "tuong" sai va bo qua lan dong bo sau, ket qua la giu nham che do).
 // Chay MOI vong lap ke ca khi STA dang tat (dung luc cong doi Wi-Fi vua ngat
 // STA de bat AP on dinh - xem network_service.h::portalBeginStarting), nen
 // duoc goi truoc moi nhanh return som cua mayapWebLinkUpdate().
 inline void serviceWifiPowerMode() {
   const WifiPortalStatus portal = mayapGetWifiPortalStatus();
   const bool portalActive = portal.state != WifiPortalState::Idle;
-  applyWifiPowerMode(webSessionActive || portalActive);
+  portENTER_CRITICAL(&webMux);
+  const bool alarmActive = knownRuntimeValid && knownRuntime.alarmMask != AlarmNone;
+  portEXIT_CRITICAL(&webMux);
+  applyWifiPowerMode(webSessionActive || portalActive || alarmActive);
 }
 
 inline void serviceConfigPublish() {
