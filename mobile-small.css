@@ -1,153 +1,167 @@
 /* ============================================================================
    BAN RIENG CHO MAN HINH THUC SU NHO (<=390px, vd iPhone X/mini/SE, cac
-   dong Android nho tuong duong) - v1.
+   dong Android nho tuong duong) - v2.
 
-   TACH BIET HOAN TOAN ve BO CUC voi:
-     - Ban dien thoai thuong (391-800px) trong styles.css.
-     - Ban may tinh bang/may tinh trong styles.css.
-   Dung CHUNG index.html va app.js voi 2 ban kia - CHI doi CACH XEP cac muc
-   noi dung tren man hinh, khong doi noi dung/logic/ID phan tu nao ca. File
-   nay CHI duoc trinh duyet tai khi man hinh thuc su khop dieu kien
-   media="(max-width:390px)" khai bao tren the <link> trong index.html, nen
-   o day viet HOAN TOAN TU DAU - khong ke thua hay vam them vao cac quy tac
-   @media danh cho dien thoai thuong trong styles.css (cac quy tac do da
-   duoc gioi han lai chi con ap dung tu 391px tro len, xem styles.css).
+   TACH BIET HOAN TOAN ve BO CUC voi ban dien thoai thuong (391-800px) va
+   ban may tinh/may tinh bang trong styles.css. Dung CHUNG index.html va
+   app.js - CHI doi CACH XEP noi dung, khong doi noi dung/logic/ID phan tu
+   nao. File nay CHI duoc tai khi man hinh khop media="(max-width:390px)"
+   khai bao tren the <link> trong index.html.
 
-   Triet ly thiet ke rieng cho tang nay:
-     1. AN TOAN hon toc do "vua 1 man": cho phep cuon trang TU NHIEN (khong
-        khoa 100dvh + overflow:hidden nhu ban dien thoai thuong tung lam) -
-        day chinh la loai loi nguoi dung da gap ("man nho khong cuon len
-        duoc, thanh tab che mat nut") tren ban cu. O day khong con "khoa
-        cung" nao ca nen khong the tai dien loi do.
-     2. Xep CHONG (1 cot) thay vi ep 2 cot nhu ban dien thoai thuong - man
-        thuc su hep (~375-390px) thi 2 cot lam moi o qua nho, kho bam/kho
-        doc. 1 cot rong het co la de doc/de bam nhat.
-     3. Tach thanh dau trang thanh 2 hang (tieu de rieng, 3 o gia tri rieng)
-        thay vi ep chung 1 hang 4 cot - tranh phai cat chu thich/thu font
-        qua nho nhu ban dien thoai thuong tung phai lam.
+   v2 - MUC TIEU MOI: nen chat lai de moi trang (Thiet bi/Me ap/Cai dat) vua
+   du trong 1 man hinh, giong trai nghiem "khong can cuon" cua ban may tinh
+   (o do khong can cuon don gian vi man rong/cao du cho tat ca). Rieng trang
+   Me ap (co nhat ky dai khong gioi han) dung ky thuat "khung co dinh + phan
+   con lai danh cho nhat ky, cuon o TRONG chinh no" - PHAN BIET RO voi kieu
+   khoa cung overflow:hidden ma ban dien thoai thuong tung dung va gay loi
+   truoc day: o day .main VAN la overflow-y:auto (KHONG BAO GIO hidden) -
+   neu 1 may cu the qua thap hoac nguoi dung phong to chu (accessibility)
+   khien noi dung khong vua vua du, nguoi dung VAN cuon duoc trang binh
+   thuong thay vi bi ket cung duoi thanh tab - day la bai hoc truc tiep tu
+   loi da gap va sua truoc do, khong lap lai loi cu duoi hinh thuc moi.
    ============================================================================ */
 
-:root{--navH:80px}
+:root{--navH:68px}
 
 /* ============================== 1. KHUNG TONG ============================== */
-/* Cuon trang TU NHIEN - khong khoa chieu cao/overflow o bat ky cap nao
-   (html/body/.appShell/.main). Thanh tab duoi dung yen nho position:fixed
-   (ke thua tu .sidebar), .main chi can du khoang trong (padding-bottom) de
-   noi dung cuoi cung khong bi thanh tab che, KHONG can khoa cuon. */
 html,body{height:auto;overflow:visible}
 .appShell{display:block;min-height:100vh}
 
 .sidebar{
   position:fixed;inset:auto 0 0 0;width:auto;
   height:calc(var(--navH) + env(safe-area-inset-bottom));
-  padding:0 8px calc(6px + env(safe-area-inset-bottom));
+  padding:0 8px calc(5px + env(safe-area-inset-bottom));
   background:transparent;display:block;pointer-events:none;z-index:40;
 }
 .brand,.sideState{display:none}
 .nav{
-  pointer-events:auto;width:100%;max-width:340px;height:60px;margin:0 auto;
-  padding:5px;border:1px solid #315149;border-radius:20px;background:#102d28;
-  box-shadow:0 12px 28px #0a201c66;
+  pointer-events:auto;width:100%;max-width:320px;height:52px;margin:0 auto;
+  padding:4px;border:1px solid #315149;border-radius:17px;background:#102d28;
+  box-shadow:0 10px 24px #0a201c66;
   display:grid;grid-template-columns:repeat(3,1fr);gap:4px;
 }
-.nav button{min-height:50px;padding:3px 2px;border-radius:15px;display:grid;place-items:center;align-content:center;gap:1px;text-align:center}
-.nav button span{width:auto;font-size:17px;line-height:1}
-.nav button b{font-size:10px}
+.nav button{min-height:44px;padding:2px;border-radius:13px;display:grid;place-items:center;align-content:center;gap:0;text-align:center}
+.nav button span{width:auto;font-size:15px;line-height:1}
+.nav button b{font-size:9.5px}
 
+/* .main LUON la vung cuon an toan (overflow-y:auto) - xem giai thich dai o
+   dau file. Cac trang duoc nen du gon de BINH THUONG khong bao gio can
+   dung toi thanh cuon nay; no chi la luoi du phong. */
 .main{
-  width:100%;max-width:100%;overflow-x:clip;
-  padding:0 10px calc(var(--navH) + env(safe-area-inset-bottom) + 14px);
+  width:100%;max-width:100%;overflow-x:clip;overflow-y:auto;
+  padding:0 8px calc(var(--navH) + env(safe-area-inset-bottom) + 8px);
 }
-
-/* Toast: doi cham day duoi de khong bi thanh tab co dinh che/de len (ban
-   goc chi co 1 muc bottom:24px co dinh, khong tinh rieng cho thanh tab). */
-.toast{bottom:calc(var(--navH) + env(safe-area-inset-bottom) + 12px)}
+.toast{bottom:calc(var(--navH) + env(safe-area-inset-bottom) + 10px)}
 
 /* ============================ 2. THANH DAU TRANG ============================ */
-/* index.html: .topbar chua 4 anh em truc tiep (.title + 3 x .live). Xep
-   .title chiem tron hang 1 (grid-column:1/-1), 3 .live tu dong xuong hang 2
-   chia deu 3 cot - moi o gia tri co ca 1 hang rong rai, khong con phai cat
-   chu thich hay thu font toi han nhu ban dien thoai thuong. */
+/* 2 hang: hang 1 tieu de (rieng, gon), hang 2 la 3 o gia tri chia deu 3 cot -
+   nen thap hon han so v1 de danh nhieu cho hon cho noi dung trang ben duoi. */
 .topbar{
-  display:grid;grid-template-columns:repeat(3,1fr);gap:8px;align-items:stretch;
-  padding:calc(10px + env(safe-area-inset-top)) 0 10px;min-height:0;
+  display:grid;grid-template-columns:repeat(3,1fr);gap:6px;align-items:stretch;
+  padding:calc(6px + env(safe-area-inset-top)) 0 6px;min-height:0;
   position:sticky;top:0;z-index:30;background:#f1f6f4ee;backdrop-filter:blur(12px);
 }
 .title{grid-column:1/-1;display:block}
-.title h1{margin:0;font-size:23px;font-weight:800;letter-spacing:-.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.title h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.3px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .title p{display:none}
 
-.live{padding:9px 8px;border-radius:12px}
-.live>span{font-size:9.5px}
-.live>strong{font-size:16px}
-.faultPopup{width:min(84vw,260px)}
+.live{padding:6px 7px;border-radius:10px}
+.live>span{font-size:9px}
+.live>strong{font-size:14px;margin-top:2px}
+.faultPopup{width:min(84vw,250px)}
 
-/* ============================== 3. TRANG THIET BI ============================== */
+/* ============================== 3. KHUNG CHUNG TRANG ============================== */
 .page{min-width:0;width:100%}
-.page.active{display:grid;gap:14px}
-.panel{padding:16px;border-radius:16px}
-.deviceCompact{padding:16px}
-.deviceIdentity h2{font-size:19px}
-.deviceIdentity small{font-size:11px}
-.statusBlock{min-width:0}
-.devicePickerRow{margin-top:12px;gap:8px}
-.addDevice{height:48px;flex-basis:48px;width:48px}
+.page.active{display:grid;gap:6px}
+.panel{padding:9px;border-radius:13px}
+.panelHead{gap:8px}
+.panel h2{font-size:15px}
+.eyebrow{font-size:9.5px}
 
-/* 1 cot: 2 o "Nhiet do dat"/"Chu ky dao" xep chong thay vi chen 2 cot hep -
-   moi o rong het co, so va don vi de doc hon han. */
-.quickGrid{grid-template-columns:1fr;gap:10px;margin-top:12px}
-.quickField{padding:11px}
-.quickField input{font-size:19px;min-height:34px}
-.quickField b{font-size:14px}
+/* Cac luoi 2-3 cot ben trong: GIU 2 COT (khong xep 1 cot nhu v1) - uu tien
+   nen gon vua 1 man hon la moi o toi da rong. */
+.quickGrid,.grid2,.tempGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:6px}
+.batchGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:6px}
 
-/* Dai trang thai 6 muc: giu 2 cot (chi la o DOC gia tri, khong phai o
-   NHAP) - 2 cot x 3 hang van du gon, khong can xep het thanh 1 cot. */
-.outputStrip{grid-template-columns:repeat(2,1fr);gap:8px;margin:12px 0}
-.outputStrip>div{padding:10px 11px}
-.outputStrip strong{font-size:14px}
+/* ============================== 4. TRANG THIET BI ============================== */
+.deviceCompact{padding:9px}
+.deviceIdentity h2{font-size:16px}
+.deviceIdentity small{font-size:10px}
+.devicePickerRow{margin-top:6px;gap:6px}
+.addDevice{height:38px;flex-basis:38px;width:38px;font-size:19px}
+.customSelectTrigger{min-height:38px}
 
-.grid2{grid-template-columns:1fr;gap:10px}
+.quickField{padding:7px}
+.quickField>span{font-size:10px}
+.quickField input{font-size:16px;min-height:24px}
+.quickField b{font-size:12px}
 
-/* ============================== 4. TRANG ME AP ============================== */
-.batchPanel{padding:14px}
-/* 1 cot cho ca 6 o cau hinh me ap - man that su hep (~375-390px) thi 2 cot
-   lam moi o chi con ~160px, so/nhan bi bop; 1 cot rong het co la de nhap/
-   de doc nhat, danh doi bang cuon trang dai hon (da AN TOAN vi .main cuon
-   tu nhien, khong con khoa "vua 1 man" nhu ban dien thoai thuong). */
-.batchGrid{grid-template-columns:1fr;gap:8px;margin-top:12px}
-.compactTile{padding:11px 12px;min-height:64px}
-.compactTile input{font-size:18px;min-height:32px;height:32px}
-.compactTile input[type=date]{font-size:14px}
-.compactTile .unit b{font-size:14px}
+.outputStrip{grid-template-columns:repeat(2,1fr);gap:5px;margin:6px 0}
+.outputStrip>div{padding:6px 7px}
+.outputStrip span{font-size:9px}
+.outputStrip strong{font-size:12px;margin-top:2px}
 
-/* 2 nut Luu/Bat dau van vua canh nhau tren 1 hang o be rong nay. */
-.batchActions{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}
-.batchActions button{min-height:44px;font-size:12.5px}
+.primary,.ghost{min-height:34px;font-size:12.5px}
 
-.batchLogPanel{margin-top:0;padding:13px 14px}
+/* ============================== 5. TRANG ME AP ============================== */
+/* Khung co dinh: .main gioi han o 100dvh + flex-column, .batchPanel giu
+   chieu cao tu nhien (flex:0 0 auto), .batchLogPanel chiem HET phan con
+   lai (flex:1 1 auto) va tu cuon BEN TRONG danh sach cua no. .main van la
+   overflow-y:auto (dat o khoi #1 ben tren, khong doi lai o day) nen neu
+   .batchPanel qua cao khong con cho cho log (may qua thap/chu qua to), ca
+   trang se cuon binh thuong thay vi ket cung - AN TOAN hon han kieu
+   overflow:hidden ma ban dien thoai thuong tung dung. */
+body[data-page="batch"] .main{height:100dvh;display:flex;flex-direction:column}
+body[data-page="batch"] .topbar{flex:0 0 auto}
+body[data-page="batch"] #page-batch.active{
+  flex:1 1 auto;min-height:0;width:100%;display:flex;flex-direction:column;gap:7px;
+}
+body[data-page="batch"] .batchPanel{flex:0 0 auto}
+
+.batchPanel{padding:10px}
+.compactTile{padding:7px 8px;min-height:52px;gap:3px}
+.compactTile>span,.compactTile .tileLabel{font-size:10px}
+.compactTile input{font-size:15px;min-height:24px;height:24px}
+.compactTile input[type=date]{font-size:12px}
+.compactTile .unit b{font-size:12px}
+.compactToggle small{font-size:9.5px}
+
+.batchActions{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:8px}
+.batchActions button{min-height:36px;font-size:11.5px;padding:0 6px}
+
+body[data-page="batch"] .batchLogPanel{
+  flex:1 1 auto;min-height:110px;margin-top:0;padding:9px 10px;
+  display:flex;flex-direction:column;overflow:hidden;
+}
 .batchLogPanel .panelHead{align-items:center}
-.currentActivity{margin-top:10px;padding:10px 11px}
-/* Nhat ky co tran (max-height + cuon rieng) de khong lam trang qua dai vo
-   han, nhung day chi la 1 gioi han "cho dep" - KHONG phai khoa bat buoc:
-   neu vi ly do gi do phan con lai (.batchPanel) cao bat thuong, .main van
-   luon cuon duoc binh thuong, khong con "ket cung" nhu ban cu. */
-.batchLogList{max-height:46vh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
-.batchLogRow{grid-template-columns:38px minmax(0,1fr) auto;min-height:34px}
-.batchLogRow .logMessage,.batchLogRow .logDuration,.batchLogRow time{font-size:11px}
-.batchLogRow .logDuration{max-width:66px;overflow:hidden;text-overflow:ellipsis}
+.logHint{font-size:9px}
+.currentActivity{margin-top:7px;padding:7px 8px;flex:0 0 auto}
+.currentActivity strong{font-size:11.5px}
+.currentActivity small{font-size:9px}
+body[data-page="batch"] .batchLogList{
+  flex:1 1 auto;min-height:0;max-height:none;margin-top:6px;
+  overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+}
+.batchLogRow{grid-template-columns:32px minmax(0,1fr) auto;min-height:28px;gap:6px}
+.batchLogRow .logMessage,.batchLogRow .logDuration,.batchLogRow time{font-size:10px}
+.batchLogRow .logDuration{max-width:56px;overflow:hidden;text-overflow:ellipsis}
+.batchLogEmpty{padding:10px 4px;font-size:10.5px}
 
-/* ============================== 5. TRANG CAI DAT ============================== */
-.settingCard summary{min-height:70px;padding:12px}
-.settingIcon{width:38px;height:38px;border-radius:11px}
-.settingIcon svg{width:18px;height:18px}
-.settingSummary strong{font-size:13px}
-.settingSummary small{font-size:10.5px}
-.settingBody{padding:14px}
-/* Cac luoi 2-3 cot ben trong the cai dat (Nhiet do va bao ve, Dao trung,
-   Cam bien...) xep het thanh 1 cot - cung ly do voi batchGrid o tren. */
-.tempGrid{grid-template-columns:1fr;gap:8px}
+/* ============================== 6. TRANG CAI DAT ============================== */
+.settingsStack{gap:7px}
+.settingCard summary{min-height:48px;padding:8px;gap:9px}
+.settingIcon{width:32px;height:32px;border-radius:9px}
+.settingIcon svg{width:16px;height:16px}
+.settingSummary strong{font-size:12.5px}
+.settingSummary small{font-size:10px}
+.disclosure{width:26px;height:26px}
+.settingBody{padding:11px;gap:10px}
+.settingFootnote{font-size:11px}
 
-/* ============================== 6. HOP THOAI ============================== */
-dialog{width:calc(100% - 20px)}
-.dialogBody{padding:18px}
-.confirmBody{padding:18px}
+/* ============================== 7. HOP THOAI ============================== */
+dialog{width:calc(100% - 18px)}
+.dialogBody{padding:14px;gap:10px}
+.confirmBody{padding:14px;gap:10px}
+.field{gap:5px}
+.field>span{font-size:12px}
+input,select,.customSelectTrigger{min-height:42px;font-size:14px}
