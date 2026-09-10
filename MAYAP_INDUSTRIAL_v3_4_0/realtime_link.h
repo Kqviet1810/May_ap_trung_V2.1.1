@@ -202,7 +202,12 @@ static uint32_t lastPublishedEventSequence = 0U;
 inline void publishJson(const char *suffix, const JsonDocument &doc,
                         bool retain) {
   if (!mqtt.connected()) return;
-  char buffer[1024];  // config/reported (28 truong) la payload lon nhat, ~700-900 byte
+  // config/reported (38 truong ke ca 8 truong "Nang cao") la payload lon
+  // nhat, toi ~1000-1050 byte o truong hop xau nhat (so am/thap phan dai) -
+  // qua sat gioi han 1024 cu, co the IM LANG khong gui duoc tuy gia tri
+  // (length >= sizeof(buffer) bi loai ngay duoi). Nang len 1536 (khop
+  // mqtt.setBufferSize() o mayapWebLinkBegin()) de co du du.
+  char buffer[1536];
   const size_t length = serializeJson(doc, buffer, sizeof(buffer));
   if (length == 0U || length >= sizeof(buffer)) return;
   mqtt.publish(topicOf(suffix), reinterpret_cast<const uint8_t *>(buffer),
@@ -258,6 +263,20 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   c["highTempAlarmWithoutBatch"] = cfg.highTempAlarmWithoutBatch;
   c["controlMode"] = static_cast<uint8_t>(cfg.controlMode);
   c["nextDirection"] = static_cast<uint8_t>(cfg.nextDirection);
+  // 8 truong "Nang cao" (schema 8, xem config.h) - THIEU o day tu luc them
+  // tinh nang "Nang cao" la LOI GOC gay web KHONG BAO GIO dong bo duoc: web
+  // (CONFIG_KEYS trong app.js) doi hoi DU CA 38 truong moi coi 1 goi config/
+  // reported la hop le (validateFullConfig), thieu dung 8 truong nay khien
+  // MOI lan bao cau hinh tu ESP32 bi web tu choi vinh vien - khong lien quan
+  // gi den mang/broker, day la loi giao thuc that su.
+  c["heaterStuckMinRiseC"] = cfg.heaterStuckMinRiseC;
+  c["heaterStuckDurationSec"] = cfg.heaterStuckDurationSec;
+  c["tempRateLimitC"] = cfg.tempRateLimitC;
+  c["tempRateWindowSec"] = cfg.tempRateWindowSec;
+  c["tempOscillationCrossLimit"] = cfg.tempOscillationCrossLimit;
+  c["tempOscillationWindowSec"] = cfg.tempOscillationWindowSec;
+  c["autotuneRelayPowerPercent"] = cfg.autotuneRelayPowerPercent;
+  c["autotuneBandC"] = cfg.autotuneBandC;
   publishJson("config/reported", doc, true);
 }
 
@@ -469,6 +488,23 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
       configObj["controlMode"] | static_cast<uint8_t>(candidate.controlMode));
   candidate.nextDirection = static_cast<TurnDirection>(
       configObj["nextDirection"] | static_cast<uint8_t>(candidate.nextDirection));
+  // 8 truong "Nang cao" (schema 8) - cung bi THIEU o day tu luc them tinh
+  // nang, khien luu tu form "Nang cao" tren web ROI VAO IM LANG (khong loi,
+  // nhung khong truong nao trong 8 truong nay thuc su duoc ap dung).
+  candidate.heaterStuckMinRiseC =
+      configObj["heaterStuckMinRiseC"] | candidate.heaterStuckMinRiseC;
+  candidate.heaterStuckDurationSec =
+      configObj["heaterStuckDurationSec"] | candidate.heaterStuckDurationSec;
+  candidate.tempRateLimitC = configObj["tempRateLimitC"] | candidate.tempRateLimitC;
+  candidate.tempRateWindowSec =
+      configObj["tempRateWindowSec"] | candidate.tempRateWindowSec;
+  candidate.tempOscillationCrossLimit =
+      configObj["tempOscillationCrossLimit"] | candidate.tempOscillationCrossLimit;
+  candidate.tempOscillationWindowSec =
+      configObj["tempOscillationWindowSec"] | candidate.tempOscillationWindowSec;
+  candidate.autotuneRelayPowerPercent =
+      configObj["autotuneRelayPowerPercent"] | candidate.autotuneRelayPowerPercent;
+  candidate.autotuneBandC = configObj["autotuneBandC"] | candidate.autotuneBandC;
 
   sanitizeConfig(candidate);
 
