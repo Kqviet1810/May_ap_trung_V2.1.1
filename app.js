@@ -1838,7 +1838,21 @@
     clearInterval(state.sessionTimer);
     if (!state.selectedId || !state.mqttConnected) return;
     sendSession(state.selectedId, true, sync);
-    state.sessionTimer = setInterval(() => sendSession(state.selectedId, true, false), WEB.sessionRefreshMs);
+    // "session" dung QoS 0 (khong dam bao toi, khong tu gui lai) - neu goi
+    // "sync:true" DUY NHAT luc vua ket noi bi rot tren duong truyen (chap
+    // chon mang, broker cong khai qua tai), web se ket cau hinh KHONG BAO GIO
+    // ve duoc cho toi khi nguoi dung tu tai lai trang, du o day van bao "da
+    // ket noi MQTT" binh thuong (trang thai socket, khong lien quan gi den
+    // du lieu cua THIET BI co thuc su toi hay khong). Sua bang cach tu xin
+    // dong bo lai moi chu ky giu phien (moi WEB.sessionRefreshMs) CHO TOI KHI
+    // thuc su nhan du cau hinh hop le - tu gioi han (het roi thi thoi, khong
+    // con gui them "sync:true" thua) nen khong tang tai binh thuong.
+    state.sessionTimer = setInterval(() => {
+      const device = currentDevice();
+      const needsSync = device?.id !== state.selectedId ||
+          !device?.config || !validateFullConfig(device.config);
+      sendSession(state.selectedId, true, needsSync);
+    }, WEB.sessionRefreshMs);
   }
 
   function deactivateSession(deviceId) {
