@@ -1,7 +1,7 @@
 #pragma once
 
 /*
-  MAYAP HMI ST7567S 128x64 + rotary + buzzer - v3.6.0
+  MAYAP HMI ST7567S 128x64 + rotary + buzzer - v3.7.0
   Phan cung: LCD 0x3F SDA8/SCL9, rotary 38/39/40, buzzer GPIO41.
   File nay chi dung trong firmware tong; khong chua setup/loop demo, Wi-Fi,
   ket noi mang, luu flash noi hay dieu khien GPIO chap hanh.
@@ -827,6 +827,20 @@ struct ConfigSaveTransaction {
 };
 ConfigSaveTransaction configSave;
 uint32_t nextConfigTransactionId = 1;
+
+// Giao dich luu Danh sach nhac nho tuy chinh (v3.7.0) - CHI tu web (khong co
+// man hinh HMI nao tao/sua muc nay), nen KHONG can rollback/toast tren man
+// hinh vat ly nhu ConfigSaveTransaction; gate .active RIENG voi configSave vi
+// day la du lieu doc lap, khong can chan lan nhau.
+struct ReminderSaveTransaction {
+  bool active = false;
+  bool readyForHost = false;
+  uint32_t id = 0;
+  uint32_t startedAt = 0;
+  ReminderSet candidate;
+};
+ReminderSaveTransaction reminderSave;
+uint32_t nextReminderTransactionId = 1;
 
 View view = View::Home;
 uint8_t homePage = 0;
@@ -1890,6 +1904,22 @@ bool startConfigSave(const MachineConfig &candidate) {
   configSave.startedAt = millis();
   configSave.rollback = currentConfig;
   configSave.candidate = candidate;
+  portEXIT_CRITICAL(&hmiApiMux);
+  return true;
+}
+
+// Goi tu realtime_link.h::handleReminderSetMessage() khi web gui "reminders/
+// set" - KHONG co duong nao khac tao giao dich nay (khong co man hinh HMI).
+bool startReminderSave(const ReminderSet &candidate) {
+  if (reminderSave.active) return false;
+  uint32_t id = nextReminderTransactionId++;
+  if (id == 0) id = nextReminderTransactionId++;
+  portENTER_CRITICAL(&hmiApiMux);
+  reminderSave.active = true;
+  reminderSave.readyForHost = true;
+  reminderSave.id = id;
+  reminderSave.startedAt = millis();
+  reminderSave.candidate = candidate;
   portEXIT_CRITICAL(&hmiApiMux);
   return true;
 }
@@ -4424,6 +4454,34 @@ bool hmiConfirmConfigSave(uint32_t transactionId, bool ok,
     configAckInbox.hasStoredConfig = storedConfig != nullptr;
     if (storedConfig) configAckInbox.storedConfig = *storedConfig;
     markApiWorkPending();
+    accepted = true;
+  }
+  portEXIT_CRITICAL(&hmiApiMux);
+  return accepted;
+}
+
+bool hmiTakeSavedReminders(ReminderSet &out, uint32_t &transactionId) {
+  bool available = false;
+  portENTER_CRITICAL(&hmiApiMux);
+  if (reminderSave.active && reminderSave.readyForHost) {
+    out = reminderSave.candidate;
+    transactionId = reminderSave.id;
+    reminderSave.readyForHost = false;
+    available = true;
+  }
+  portEXIT_CRITICAL(&hmiApiMux);
+  return available;
+}
+
+// Khac hmiConfirmConfigSave() (phai di qua configAckInbox de con hien toast/
+// rollback tren man hinh vat ly), nhac nho tuy chinh KHONG co man hinh HMI
+// nao ca nen dong giao dich TRUC TIEP tai day - khong can hop thu rieng.
+bool hmiConfirmReminderSave(uint32_t transactionId) {
+  bool accepted = false;
+  portENTER_CRITICAL(&hmiApiMux);
+  if (reminderSave.active && reminderSave.id == transactionId) {
+    reminderSave.active = false;
+    reminderSave.readyForHost = false;
     accepted = true;
   }
   portEXIT_CRITICAL(&hmiApiMux);

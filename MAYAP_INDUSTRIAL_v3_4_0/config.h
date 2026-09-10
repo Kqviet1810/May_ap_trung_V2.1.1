@@ -29,9 +29,9 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.6.0";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.7.0";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
-constexpr char HMI_FIRMWARE_VERSION[] = "3.6.0";
+constexpr char HMI_FIRMWARE_VERSION[] = "3.7.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
 
 // ----------------------------- BUILD -----------------------------------------
@@ -118,6 +118,10 @@ constexpr uint32_t WEB_SNAPSHOT_ACTIVE_INTERVAL_MS = 400UL;
 constexpr uint32_t WEB_SNAPSHOT_IDLE_INTERVAL_MS = 6000UL;
 constexpr uint32_t WEB_COMMAND_ACK_TIMEOUT_MS = 8000UL;
 constexpr uint32_t WEB_CONFIG_SAVE_ACK_TIMEOUT_MS = 8000UL;
+// Dung chung thoi han cho voi "config/set" - luu danh sach nhac nho tuy
+// chinh (xem "reminders/set" trong realtime_link.h) don gian hon nhieu (chi
+// 1 mang nho, khong dan xen voi dieu khien) nen khong can hang so rieng.
+constexpr uint32_t WEB_REMINDER_SAVE_ACK_TIMEOUT_MS = WEB_CONFIG_SAVE_ACK_TIMEOUT_MS;
 
 // --------------------------- Cloud Push (Cloudflare Worker, doc lap voi Web) ---
 // KENH RIENG, KHONG DI QUA MQTT/WEB: cloud_alert_link.h tu mo ket noi HTTPS
@@ -774,14 +778,34 @@ constexpr uint32_t EEPROM_HEALTH_CHECK_MS = 5000UL;
 constexpr uint8_t EEPROM_RECOVERY_VERIFY_COUNT = 2U;
 constexpr uint32_t MAX_RTC_RECOVERY_GAP_SEC = 45UL * 86400UL;
 
+// Danh sach nhac nho tuy chinh (v3.7.0) - nguoi dung tao tren web (vd "4 ngay
+// sau khi bat dau me, nhac kiem tra"), web da phan tich/xac thuc xong het,
+// ESP32 CHI nhan (ngay, ten) da xu ly san va cho tuc thoi ngay den la bao qua
+// Cloud Push - xem cloud_alert_link.h::checkCustomReminders(). Toi da 10 muc
+// tranh phinh to payload MQTT/EEPROM vo ich; ten toi da 23 ky tu (23+1 byte
+// ket thuc) - du cho 1 cau ngan, HMI khong hien thi muc nay nen khong bi rang
+// buoc boi be rong man hinh LCD.
+constexpr uint8_t MAX_CUSTOM_REMINDERS = 10U;
+constexpr uint8_t CUSTOM_REMINDER_LABEL_LEN = 24U;  // gom byte '\0' ket thuc
+
 // Ban do AT24C32, dia chi o nho 16-bit:
-// Config A/B 256 byte; Batch A/B 128 byte; phan con lai du phong.
+// Config A/B 256 byte; Batch A/B 128 byte; Reminders A/B 320 byte; phan con
+// lai du phong. Reminders dung BAN GHI RIENG (khong nhap chung vao
+// PackedMachineConfigV1/CONFIG_SCHEMA) de KHONG dung den dia chi Batch A/B da
+// co san - tranh nguy co mat du lieu "tiep tuc me dang do" cua nguoi dung
+// dang ap thuc te ngay luc nang cap len firmware co tinh nang nay (doi dia
+// chi Batch se khien ban ghi batch cu "bien mat" sau OTA vi code moi doc sai
+// vi tri). Vi ly do tuong tu, KHONG bao gio doi cac hang so EEPROM_ADDR_* o
+// tren cho ban ghi da co san trong tuong lai.
 constexpr uint16_t EEPROM_ADDR_CONFIG_A = 0x0000U;
 constexpr uint16_t EEPROM_ADDR_CONFIG_B = 0x0100U;
 constexpr uint16_t EEPROM_ADDR_BATCH_A  = 0x0200U;
 constexpr uint16_t EEPROM_ADDR_BATCH_B  = 0x0280U;
+constexpr uint16_t EEPROM_ADDR_REMINDERS_A = 0x0300U;
+constexpr uint16_t EEPROM_ADDR_REMINDERS_B = 0x0440U;
 constexpr uint16_t EEPROM_CONFIG_SLOT_BYTES = 0x0100U;
 constexpr uint16_t EEPROM_BATCH_SLOT_BYTES = 0x0080U;
+constexpr uint16_t EEPROM_REMINDERS_SLOT_BYTES = 0x0140U;
 
 static_assert(EEPROM_I2C_ADDRESS >= 0x50U && EEPROM_I2C_ADDRESS <= 0x57U,
               "Dia chi AT24C32 phai nam trong 0x50..0x57");
@@ -808,7 +832,11 @@ static_assert(EEPROM_RECOVERY_VERIFY_COUNT > 0U,
 static_assert(EEPROM_ADDR_CONFIG_A + EEPROM_CONFIG_SLOT_BYTES <= EEPROM_ADDR_CONFIG_B, "Config A de len B");
 static_assert(EEPROM_ADDR_CONFIG_B + EEPROM_CONFIG_SLOT_BYTES <= EEPROM_ADDR_BATCH_A, "Config B de len Batch A");
 static_assert(EEPROM_ADDR_BATCH_A + EEPROM_BATCH_SLOT_BYTES <= EEPROM_ADDR_BATCH_B, "Batch A de len B");
-static_assert(EEPROM_ADDR_BATCH_B + EEPROM_BATCH_SLOT_BYTES <= EEPROM_CAPACITY_BYTES,
+static_assert(EEPROM_ADDR_BATCH_B + EEPROM_BATCH_SLOT_BYTES <= EEPROM_ADDR_REMINDERS_A,
+              "Batch B de len Reminders A");
+static_assert(EEPROM_ADDR_REMINDERS_A + EEPROM_REMINDERS_SLOT_BYTES <= EEPROM_ADDR_REMINDERS_B,
+              "Reminders A de len B");
+static_assert(EEPROM_ADDR_REMINDERS_B + EEPROM_REMINDERS_SLOT_BYTES <= EEPROM_CAPACITY_BYTES,
               "Ban do EEPROM vuot 4KB");
 
 // -------------------- RANG BUOC HMI/AN TOAN ---------------------------------
@@ -926,6 +954,48 @@ struct MachineConfig {
   // phong dat may nong tu nhien luc khong ap gay bao gia lien tuc.
   bool highTempAlarmWithoutBatch = true;
 };
+
+// Nhac nho tuy chinh theo ngay (v3.7.0) - nguoi dung tao tren web, tinh tu
+// luc bat dau me (day = 1 la ngay dau tien). day == 0 nghia la O TRONG (chua
+// dat/da xoa) - KHONG dung "count" rieng, giu don gian dung nguyen tac cua
+// cac truong "0 = tat/trong" da co san trong firmware nay (vd batchStartEpoch).
+// Rieng biet voi MachineConfig/CONFIG_SCHEMA - xem ghi chu EEPROM_ADDR_REMINDERS_*.
+struct CustomReminder {
+  uint8_t day = 0;
+  char label[CUSTOM_REMINDER_LABEL_LEN] = "";
+};
+struct ReminderSet {
+  CustomReminder items[MAX_CUSTOM_REMINDERS];
+};
+
+// Sua loi/rang buoc an toan CHO DU LIEU NAY (khong lien quan dieu khien nhiet/
+// dao trung) - luon chay lai o firmware bat ke web da xac thuc chua, giong
+// het nguyen tac sanitizeMachineConfig() ben duoi: khong bao gio tin tuong
+// hoan toan du lieu tu ben ngoai. Web van la noi lam TOAN BO viec "phan tich"
+// (hieu cau nhap tu nhien cua nguoi dung, bao loi trung/khong hop le ngay
+// tren form) - day chi la luoi an toan cuoi cung tren firmware.
+inline void sanitizeReminderSet(ReminderSet &set) {
+  bool seenDay[256] = {};
+  for (uint8_t i = 0; i < MAX_CUSTOM_REMINDERS; ++i) {
+    CustomReminder &item = set.items[i];
+    item.label[CUSTOM_REMINDER_LABEL_LEN - 1U] = '\0';  // luon co '\0' ket thuc
+    if (item.day == 0U || item.label[0] == '\0') {
+      // Ngay 0 hoac ten rong deu coi la O TRONG - dong bo lai ca 2 truong.
+      item.day = 0U;
+      item.label[0] = '\0';
+      continue;
+    }
+    item.day = static_cast<uint8_t>(constrain(static_cast<int>(item.day), 1, 200));
+    if (seenDay[item.day]) {
+      // Trung ngay voi 1 muc da giu truoc do trong CUNG lan luu nay (le ra
+      // web da loc, day la luoi du phong) - bo muc DEN SAU, giu muc dau tien.
+      item.day = 0U;
+      item.label[0] = '\0';
+      continue;
+    }
+    seenDay[item.day] = true;
+  }
+}
 
 struct NetworkStatus {
   ConnectivityMode requestedMode = ConnectivityMode::Offline;
