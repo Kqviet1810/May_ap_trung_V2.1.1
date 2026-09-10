@@ -225,7 +225,7 @@ select,.customSelectTrigger{appearance:none;-webkit-appearance:none;padding-righ
 input:hover,select:hover,.customSelectTrigger:hover{border-color:#a9c2bc}
 input:focus,select:focus,.customSelectTrigger:focus-visible{border-color:var(--ring);box-shadow:0 0 0 3px #2f8f8220}
 input::placeholder{color:var(--faint)}
-input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:not-allowed;background:var(--tile)}
+input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:not-allowed;background-color:var(--tile)}
 
 .fieldWithAction{display:flex;gap:8px}
 .fieldWithAction input{flex:1;min-width:0}
