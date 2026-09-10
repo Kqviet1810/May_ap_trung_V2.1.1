@@ -12,3 +12,4 @@ Heater (nhiet),Co (qua sensor/cong tac),-,Tu khi dieu kien het (khong latching),
 Fan (quat),Gian tiep (bi ep bat khi co loi nhiet/sensor),-,-,-,-,Khong co E-code rieng cho quat,-
 Output (interlock tong),Co,Khong,Khong tu - can ACK + kiem tra phan cung,Khong,Co,304,Dung may; goi ky thuat ngay
 Batch (me ap),Co,Co (ghi EEPROM),Co dieu kien (resume tu dong/hoi xac nhan),Co,Co (313),"132, 133, 134, 135, 136, 313",Xem Phan 10/14 trong manual
+Giam sat suc khoe he thong (v3.6.0),Co (heap/xu huong nhiet/EEPROM retry),Khong ap dung,"Tu khoi dong lai co kiem soat khi RAM nguy cap/luc an toan (khong tu can thiep nhiet/dao)",Co,Khong,"401, 402, 403, 404",Theo doi; goi ky thuat neu lap lai thuong xuyen

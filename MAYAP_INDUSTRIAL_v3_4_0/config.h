@@ -29,7 +29,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.5.0";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.6.0";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
 constexpr char HMI_FIRMWARE_VERSION[] = "3.6.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
@@ -215,6 +215,37 @@ constexpr uint8_t BATCH_NEARING_END_DAYS_LEFT = 2U;
 // chi thoang qua yeu vai giay.
 constexpr int8_t WIFI_RSSI_WEAK_DBM = -82;
 constexpr uint32_t WIFI_RSSI_WEAK_DURATION_MS = 300000UL; // 5 phut
+
+// ---------------------------------------------------------------------------
+// GIAM SAT SUC KHOE HE THONG (v3.6.0) - du doan som truoc khi thanh loi that
+// su xay ra, thay vi chi bao khi da qua nguong. Xem serviceHealthMonitor()
+// trong machine_control.h. CO CHU DICH de hang so cung (giong nhom canh bao
+// bo sung o tren) - day la nguong an toan he thong, khong phai tham so van
+// hanh nguoi dung can chinh theo tung may.
+// ---------------------------------------------------------------------------
+// Chu ky lay mau suc khoe he thong (heap/nhiet do xu huong/EEPROM). Du nhe de
+// chay moi chu ky dieu khien (5ms) ma khong ton chi phi dang ke.
+constexpr uint32_t HEALTH_CHECK_INTERVAL_MS = 30000UL; // 30 giay
+// Doi he thong chay on dinh sau boot roi moi chup heap nen (bo qua dinh cao
+// tam thoi luc vua khoi dong cac dich vu Wi-Fi/MQTT/OTA).
+constexpr uint32_t HEALTH_BASELINE_CAPTURE_DELAY_MS = 60000UL; // 60 giay
+// % heap con lai SO VOI heap nen - duoi nguong nay lien tuc
+// HEALTH_STREAK_CONFIRM lan (~streak*30s) moi bao, tranh bao gia do dao dong
+// tam thoi (dang publish MQTT, dang parse JSON...).
+constexpr uint8_t HEALTH_HEAP_WARN_PERCENT = 30U;
+constexpr uint8_t HEALTH_HEAP_WARN_CLEAR_PERCENT = 35U; // tre (hysteresis) khi het canh bao
+constexpr uint8_t HEALTH_HEAP_SERIOUS_PERCENT = 15U;    // len lich tu khoi dong lai luc an toan
+constexpr uint8_t HEALTH_HEAP_CRITICAL_PERCENT = 6U;    // khoi dong lai NGAY, khong cho
+constexpr uint8_t HEALTH_STREAK_CONFIRM = 3U;
+// Du doan nhiet do: chu ky lay mau nen de tinh toc do, va thoi gian "nhin
+// truoc" - neu toc do hien tai se cham nguong Bao cao/Bao thap trong khoang
+// thoi gian nay thi bao truoc, KHONG cho doi that su cham nguong.
+constexpr uint32_t HEALTH_TEMP_TREND_WINDOW_MS = 180000UL; // 3 phut/mau nen
+constexpr float HEALTH_TEMP_TREND_MIN_RATE_C_PER_MIN = 0.02f; // bo qua troi noise
+constexpr float HEALTH_TEMP_TREND_LOOKAHEAD_MIN = 5.0f; // canh bao neu <=5 phut nua cham nguong
+// EEPROM phai thu lai (retry) qua nhieu lan trong 1 chu ky kiem tra - dau
+// hieu suy giam som cua chip nho truoc khi hong han.
+constexpr uint8_t HEALTH_EEPROM_RETRY_WARN_COUNT = 5U;
 
 constexpr uint8_t CLOUD_OUTBOX_SIZE = 8U;
 // >= HMI_FAULT_DISPLAY_CAPACITY (so loi dang active toi da doc duoc tu runtime

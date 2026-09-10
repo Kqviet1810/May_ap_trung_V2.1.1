@@ -397,7 +397,13 @@ enum class FaultCode : uint16_t {
   RtcFailure = 306,
   BatchStateClearPending = 313,
   SafetyJournalUnavailable = 314,
-  BatchLogUnavailable = 315
+  BatchLogUnavailable = 315,
+  // Nhom 400: GIAM SAT SUC KHOE HE THONG (v3.6.0) - canh bao DU DOAN SOM,
+  // khong phai loi an toan tuc thi. Xem serviceHealthMonitor().
+  HeapLow = 401,
+  HeapCritical = 402,
+  TemperatureTrendWarning = 403,
+  StorageRetryTrend = 404
 };
 
 struct FaultDescriptor {
@@ -477,7 +483,21 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // bat dau/phuc hoi de tranh tu khoi dong lai mot me da duoc dung.
     {FaultCode::SafetyJournalUnavailable, FaultSeverity::Stop, 214U, AlarmSystem, true, true, true, false, false, false, "SAFETY JOURNAL FAIL"},
     // Mat log khong duoc lam dung gia nhiet/dao cua me, nhung phai canh bao ro.
-    {FaultCode::BatchLogUnavailable, FaultSeverity::Warning, 75U, AlarmSystem, false, false, false, false, false, false, "BATCH LOG UNAVAILABLE"}
+    {FaultCode::BatchLogUnavailable, FaultSeverity::Warning, 75U, AlarmSystem, false, false, false, false, false, false, "BATCH LOG UNAVAILABLE"},
+    // Nhom 400: canh bao DU DOAN SOM cua serviceHealthMonitor() - CHU DICH
+    // khong dat inhibitSsr/dropHeatMaster/inhibitsTurning nao: day la canh
+    // bao he thong/phan mem, khong phai su co nhiet/co khi that su, khong
+    // duoc phep tu y cat nhiet/khoa dao chi vi RAM thap hay du doan xu huong.
+    // latching=false: tu het khi xu huong tro lai binh thuong (co tre/
+    // hysteresis rieng trong logic tinh, xem serviceHealthMonitor()).
+    {FaultCode::HeapLow, FaultSeverity::Warning, 30U, AlarmSystem, false, false, false, false, false, false, "HEAP LOW"},
+    // HeapCritical chi bao best-effort truoc luc tu khoi dong lai (xem
+    // healthRestartRequested()) - thuong se restart ngay sau khi bao nen
+    // "dang xay ra" it khi thay tren HMI, chu yeu de lai dau vet trong nhat
+    // ky/Cloud Push truoc khi may tu khoi dong lai.
+    {FaultCode::HeapCritical, FaultSeverity::Warning, 35U, AlarmSystem, false, false, false, false, false, false, "HEAP CRITICAL"},
+    {FaultCode::TemperatureTrendWarning, FaultSeverity::Warning, 48U, AlarmTempHigh, false, false, false, false, false, false, "TEMP TREND WARNING"},
+    {FaultCode::StorageRetryTrend, FaultSeverity::Warning, 72U, AlarmSystem, false, false, false, false, false, false, "STORAGE RETRY TREND"}
   };
   for (const auto &item : table) if (item.code == code) return item;
   return unknown;
@@ -1559,18 +1579,26 @@ class ExternalEeprom24xx {
  public:
   bool begin() const {
     for (uint8_t attempt = 0U; attempt < EEPROM_IO_RETRIES; ++attempt) {
-      if (probe()) return true;
+      if (probe()) {
+        if (attempt > 0U) ++softRetryEvents_;
+        return true;
+      }
       finiteRetryPause();
     }
+    ++softRetryEvents_;
     return false;
   }
 
   bool readBytes(uint16_t address, void *destination, size_t length) const {
     if (!destination || !rangeValid(address, length)) return false;
     for (uint8_t attempt = 0U; attempt < EEPROM_IO_RETRIES; ++attempt) {
-      if (readBytesOnce(address, destination, length)) return true;
+      if (readBytesOnce(address, destination, length)) {
+        if (attempt > 0U) ++softRetryEvents_;
+        return true;
+      }
       finiteRetryPause();
     }
+    ++softRetryEvents_;
     return false;
   }
 
@@ -1579,13 +1607,29 @@ class ExternalEeprom24xx {
     // Neu mot lan ghi bi ngat giua chung, ghi lai toan bo record vao cung slot.
     // Slot A/B con lai van nguyen ven; CRC se loai slot dang ghi do dang.
     for (uint8_t attempt = 0U; attempt < EEPROM_IO_RETRIES; ++attempt) {
-      if (writeBytesOnce(address, source, length)) return true;
+      if (writeBytesOnce(address, source, length)) {
+        if (attempt > 0U) ++softRetryEvents_;
+        return true;
+      }
       finiteRetryPause();
     }
+    ++softRetryEvents_;
     return false;
   }
 
+  // Dem "su kien phai thu lai" (thanh cong sau >=1 lan that bai, HOAC that
+  // bai toan bo) - dau hieu suy giam som cua chip nho, doc va tu xoa ve 0
+  // moi chu ky kiem tra suc khoe (xem serviceHealthMonitor() trong
+  // MachineController). mutable vi cac ham tren la const (chi lam I/O,
+  // khong doi trang thai cau hinh cua chinh object nay).
+  uint32_t takeSoftRetryEvents() const {
+    const uint32_t value = softRetryEvents_;
+    softRetryEvents_ = 0U;
+    return value;
+  }
+
  private:
+  mutable uint32_t softRetryEvents_ = 0U;
   static void finiteRetryPause() {
     if (EEPROM_RETRY_GAP_MS != 0U) {
       vTaskDelay(pdMS_TO_TICKS(EEPROM_RETRY_GAP_MS));
@@ -1721,6 +1765,10 @@ class PersistentStore {
   bool probe() const {
     return !EXTERNAL_EEPROM_ENABLED || eeprom_.begin();
   }
+
+  // Xem ExternalEeprom24xx::takeSoftRetryEvents() - dung cho
+  // serviceHealthMonitor() phat hien chip nho suy giam som.
+  uint32_t takeEepromSoftRetryEvents() { return eeprom_.takeSoftRetryEvents(); }
 
   // Thu lai dung dia chi EEPROM da cau hinh; khong quet bus. Dung khi module
   // DS3231+AT24C32 bi thao ra/lap lai trong luc ESP32 van dang chay.
@@ -3350,6 +3398,7 @@ class MachineController {
     syncOutputFaults(now);
     updateBatchTime(now);
     serviceBatchLog(now);
+    serviceHealthMonitor(now);
     updateLed(now);
     if (runtimeGate_.due(now, true)) copyRuntimeToHmi();
     if (checkpointGate_.due(now, false)) checkpointBatch();
@@ -3361,6 +3410,11 @@ class MachineController {
   const MachineConfig &config() const { return config_; }
   const MachineRuntime &runtime() const { return runtime_; }
   const OutputState &outputs() const { return outputs_.state(); }
+  // Doc tu supervisorTask (khac task voi controlTask ghi trong update()) de
+  // quyet dinh esp_restart() - xem ghi chu tai khai bao healthRestartRequested_.
+  bool healthRestartRequested() const {
+    return __atomic_load_n(&healthRestartRequested_, __ATOMIC_ACQUIRE);
+  }
 
  private:
   enum class BatchPhase : uint8_t { Stopped, Prestart, Homing, Running };
@@ -3369,6 +3423,142 @@ class MachineController {
     HeaterSwitch, Sensor, Rtc, TurnFault, LimitConflict, Temperature, Delay,
     TurningDisabled
   };
+
+  // ------------------- Giam sat suc khoe he thong (v3.6.0) --------------------
+  // Muc tieu: DU DOAN SOM truoc khi thanh su co that su xay ra (het RAM, cham
+  // nguong nhiet, EEPROM suy giam), thay vi chi phat hien SAU khi da xay ra
+  // nhu cac canh bao cu (VD HighTemperature chi bao khi DA vuot nguong). Ba
+  // muc con giam sat doc lap voi nhau, chi dua ra CANH BAO va (voi rieng
+  // heap) tu quyet dinh THOI DIEM AN TOAN de tu khoi dong lai - KHONG duoc
+  // phep tu y can thiep nhiet/dao (xem faultDescriptor() nhom 400: khong
+  // inhibitSsr/dropHeatMaster/inhibitsTurning nao ca).
+  bool safeToHealthRestart() const {
+    if (autotune_.running()) return false;
+    if (runtime_.turnState != TurnState::Stopped) return false;
+    if (highTemperatureActive_ || lowTemperatureActive_ || emergencyActive_) return false;
+    return true;
+  }
+
+  void serviceHealthHeap(uint32_t now) {
+    if (!healthBaselineCaptured_) return;
+    const uint32_t freeHeap = ESP.getFreeHeap();
+    const uint32_t percent = static_cast<uint32_t>(
+        (static_cast<uint64_t>(freeHeap) * 100ULL) / healthHeapBaseline_);
+
+    // Muc 3 - NGUY CAP: khoi dong lai NGAY bat ke dang lam gi. O day rui ro
+    // crash khong kiem soat (treo giua chung, du lieu dang ghi do dang) cao
+    // hon han rui ro cua 1 lan restart chu dong - khong debounce, khong cho
+    // "luc an toan" (nhip lay mau 30s da tu loc bot nhieu tuc thoi).
+    if (percent <= HEALTH_HEAP_CRITICAL_PERCENT) {
+      faults_.set(FaultCode::HeapCritical, true, now, static_cast<int16_t>(percent));
+      __atomic_store_n(&healthRestartRequested_, true, __ATOMIC_RELEASE);
+      mayapSerialPrintf(true,
+          "[HEALTH] Heap NGUY CAP %lu%% (%lu/%lu bytes) - xin khoi dong lai NGAY\n",
+          static_cast<unsigned long>(percent), static_cast<unsigned long>(freeHeap),
+          static_cast<unsigned long>(healthHeapBaseline_));
+      return;
+    }
+    faults_.set(FaultCode::HeapCritical, false, now);
+
+    // Muc 2 - nghiem trong: chi LEN LICH, cho toi luc an toan (khong dang co
+    // canh bao nhiet dang hoat dong/dao dang chay/autotune dang chay) moi
+    // thuc su xin khoi dong lai - tranh cat quyen dieu khien giua luc quan trong.
+    if (percent <= HEALTH_HEAP_SERIOUS_PERCENT) {
+      if (healthHeapSeriousStreak_ < UINT8_MAX) ++healthHeapSeriousStreak_;
+    } else {
+      healthHeapSeriousStreak_ = 0U;
+    }
+    if (healthHeapSeriousStreak_ >= HEALTH_STREAK_CONFIRM && safeToHealthRestart()) {
+      __atomic_store_n(&healthRestartRequested_, true, __ATOMIC_RELEASE);
+      mayapSerialPrintf(true,
+          "[HEALTH] Heap thap keo dai %lu%% - dang o luc an toan, xin khoi dong lai\n",
+          static_cast<unsigned long>(percent));
+    }
+
+    // Muc 1 - canh bao som, co tre (hysteresis 30%/35%) de khong nhay lien
+    // tuc quanh nguong khi heap dao dong nhe quanh muc canh bao.
+    if (!healthHeapLowActive_) {
+      if (percent <= HEALTH_HEAP_WARN_PERCENT) {
+        if (healthHeapLowStreak_ < UINT8_MAX) ++healthHeapLowStreak_;
+      } else {
+        healthHeapLowStreak_ = 0U;
+      }
+      if (healthHeapLowStreak_ >= HEALTH_STREAK_CONFIRM) healthHeapLowActive_ = true;
+    } else if (percent >= HEALTH_HEAP_WARN_CLEAR_PERCENT) {
+      healthHeapLowActive_ = false;
+      healthHeapLowStreak_ = 0U;
+    }
+    faults_.set(FaultCode::HeapLow, healthHeapLowActive_, now, static_cast<int16_t>(percent));
+  }
+
+  // Du doan nhiet do: ngoai suy toc do thay doi hien tai (do rieng, cua so
+  // HEALTH_TEMP_TREND_WINDOW_MS - KHAC voi tempRateRefValue_/tempRateWindowSec
+  // dung phat hien thay doi DOT NGOT) - neu voi toc do nay se cham nguong
+  // Bao cao/Bao thap trong vong HEALTH_TEMP_TREND_LOOKAHEAD_MIN phut nua thi
+  // bao TRUOC, khong doi that su cham nguong roi HighTemperature/LowTemperature
+  // moi bao nhu truoc day.
+  void serviceHealthTemperatureTrend(uint32_t now) {
+    bool warn = false;
+    int16_t warnDetail = 0;
+    const uint32_t baselineAgeMs = elapsedMs(now, healthTempBaselineAt_);
+    if (batchRunning_ && sensorUsable_ && isfinite(temperature_) &&
+        isfinite(healthTempBaseline_) && baselineAgeMs > 0U) {
+      const float windowMin = static_cast<float>(baselineAgeMs) / 60000.0f;
+      const float ratePerMin = (temperature_ - healthTempBaseline_) / windowMin;
+      if (ratePerMin >= HEALTH_TEMP_TREND_MIN_RATE_C_PER_MIN &&
+          temperature_ < config_.highTempAlarm) {
+        const float minutesToHigh = (config_.highTempAlarm - temperature_) / ratePerMin;
+        if (minutesToHigh > 0.0f && minutesToHigh <= HEALTH_TEMP_TREND_LOOKAHEAD_MIN) {
+          warn = true;
+          warnDetail = static_cast<int16_t>(lroundf(minutesToHigh));
+        }
+      } else if (ratePerMin <= -HEALTH_TEMP_TREND_MIN_RATE_C_PER_MIN &&
+                 temperature_ > config_.lowTempAlarm) {
+        const float minutesToLow = (temperature_ - config_.lowTempAlarm) / (-ratePerMin);
+        if (minutesToLow > 0.0f && minutesToLow <= HEALTH_TEMP_TREND_LOOKAHEAD_MIN) {
+          warn = true;
+          // Am = dang huong xuong Bao thap (phan biet voi huong len Bao cao).
+          warnDetail = static_cast<int16_t>(-lroundf(minutesToLow));
+        }
+      }
+    }
+    faults_.set(FaultCode::TemperatureTrendWarning, warn, now, warnDetail);
+
+    if (!isfinite(healthTempBaseline_) ||
+        baselineAgeMs >= HEALTH_TEMP_TREND_WINDOW_MS) {
+      healthTempBaseline_ = (sensorUsable_ && isfinite(temperature_))
+                                 ? temperature_ : NAN;
+      healthTempBaselineAt_ = now;
+    }
+  }
+
+  // EEPROM phai thu lai (retry) qua nhieu lan trong 1 chu ky kiem tra - dau
+  // hieu suy giam som cua chip nho truoc khi hong han. Bo dem tu xoa ve 0
+  // moi chu ky (xem ExternalEeprom24xx::takeSoftRetryEvents()).
+  void serviceHealthStorageRetry(uint32_t now) {
+    if (!EXTERNAL_EEPROM_ENABLED) return;
+    const uint32_t retries = store_.takeEepromSoftRetryEvents();
+    faults_.set(FaultCode::StorageRetryTrend,
+                retries >= HEALTH_EEPROM_RETRY_WARN_COUNT, now,
+                static_cast<int16_t>(std::min<uint32_t>(retries, INT16_MAX)));
+  }
+
+  void serviceHealthMonitor(uint32_t now) {
+    if (!healthBaselineCaptured_) {
+      // Doi he thong chay on dinh sau boot roi moi chup heap nen, bo qua
+      // bien dong tam thoi luc vua khoi dong Wi-Fi/MQTT/OTA.
+      if (elapsedMs(now, bootAt_) < HEALTH_BASELINE_CAPTURE_DELAY_MS) return;
+      healthHeapBaseline_ = ESP.getFreeHeap();
+      healthBaselineCaptured_ = healthHeapBaseline_ > 0U;
+      mayapSerialPrintf(false, "[HEALTH] Heap nen = %lu bytes\n",
+                        static_cast<unsigned long>(healthHeapBaseline_));
+      return;
+    }
+    if (!healthCheckGate_.due(now, false)) return;
+    serviceHealthHeap(now);
+    serviceHealthTemperatureTrend(now);
+    serviceHealthStorageRetry(now);
+  }
 
   // ------------------------- I2C device recovery -----------------------------
   void serviceI2cDeviceRecovery(uint32_t now) {
@@ -6056,6 +6246,23 @@ class MachineController {
   uint32_t heaterStuckSinceAt_ = 0U;
   float heaterStuckStartTemp_ = NAN;
   bool heaterNotHeatingActive_ = false;
+
+  // --- Giam sat suc khoe he thong (v3.6.0) - xem serviceHealthMonitor() ---
+  PeriodicGate healthCheckGate_{HEALTH_CHECK_INTERVAL_MS};
+  bool healthBaselineCaptured_ = false;
+  uint32_t healthHeapBaseline_ = 0U;
+  uint8_t healthHeapLowStreak_ = 0U;
+  bool healthHeapLowActive_ = false;
+  uint8_t healthHeapSeriousStreak_ = 0U;
+  float healthTempBaseline_ = NAN;
+  uint32_t healthTempBaselineAt_ = 0U;
+  // Doc/ghi tu 2 task khac nhau (controlTask ghi trong update(), supervisorTask
+  // doc de quyet dinh esp_restart()) - dung atomic builtin giong het idiom
+  // gMayapSystemTripLatched/controlHeartbeatMs trong file .ino, vi day la
+  // hanh dong KHONG THE DAO NGUOC (khoi dong lai) nen can chac chan hon muc
+  // "doc khong dong bo chap nhan duoc" ma cac truong runtime_ khac dang dung.
+  volatile bool healthRestartRequested_ = false;
+
   uint32_t sirenMutedUntil_ = 0;
   uint32_t heatRestartNotBefore_ = 0;
   uint32_t postCoolUntil_ = 0;

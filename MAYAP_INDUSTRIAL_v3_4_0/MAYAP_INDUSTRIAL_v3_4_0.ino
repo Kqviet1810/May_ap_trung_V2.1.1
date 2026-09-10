@@ -235,6 +235,19 @@ void supervisorTask(void *parameter) {
                         hmiHealthy ? "RECOVERED" : "HEARTBEAT SLOW");
     }
 
+    // Giam sat suc khoe he thong (v3.6.0, xem serviceHealthMonitor() trong
+    // machine_control.h): controlTask da tu quyet dinh CO NEN va KHI NAO AN
+    // TOAN de khoi dong lai (RAM can kiet dan) - supervisorTask (noi duy nhat
+    // duoc phep goi esp_restart() ngoai fatalRestart()) chi THUC THI quyet
+    // dinh do. Dua ra ngoai vong an toan cua Output an toan truoc khi restart,
+    // giong het duong TRIP o tren.
+    if (Machine.healthRestartRequested()) {
+      mayapSafeOutputsEarly();
+      mayapSerialPrintf(true, "[SUPERVISOR] Health-monitor xin khoi dong lai co kiem soat\n");
+      esp_restart();
+      abort();
+    }
+
     const esp_err_t result = esp_task_wdt_reset();
     if (result != ESP_OK) fatalRestart("SUP WDT RESET", result);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(SUPERVISOR_TASK_PERIOD_MS));

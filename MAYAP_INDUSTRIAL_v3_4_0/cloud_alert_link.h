@@ -183,6 +183,10 @@ inline const char *faultSummaryText(uint16_t code) {
     case 313: return "Đang dọn dẹp dữ liệu mẻ cũ trước đó";
     case 314: return "Mất nhật ký an toàn (safety journal)";
     case 315: return "Mất nhật ký sự kiện của mẻ";
+    case 401: return "Bộ nhớ RAM còn thấp - hệ thống đang tự theo dõi";
+    case 402: return "Bộ nhớ RAM cạn kiệt - máy sẽ tự khởi động lại để phòng ngừa";
+    case 403: return "Dự đoán nhiệt độ sắp chạm ngưỡng cảnh báo theo tốc độ hiện tại";
+    case 404: return "Bộ nhớ EEPROM phải thử lại nhiều bất thường - có thể đang suy giảm";
     default: return "Lỗi không xác định";
   }
 }
