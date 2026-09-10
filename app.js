@@ -1529,7 +1529,7 @@
 
   // event.code - 1000 = FaultCode, doi chieu bang loi faultDescriptor() trong
   // machine_control.h. CAP NHAT DONG BO khi firmware them ma loi moi vao
-  // FaultCode (danh sach nay khop dung 31 ma dang co trong enum FaultCode -
+  // FaultCode (danh sach nay khop dung 35 ma dang co trong enum FaultCode -
   // xem audit/OPERATION_RECOVERY_MANUAL.md va audit/manual/manual.html).
   const FAULT_TITLES = {
     101: 'Mất cảm biến', 102: 'Cảm biến sai', 103: 'Cảm biến bất thường',
@@ -1544,7 +1544,9 @@
     301: 'Mất EEPROM', 302: 'EEPROM suy giảm',
     303: 'Reset bất thường', 304: 'Xung đột output', 305: 'Relay đóng cắt nhiều',
     306: 'Lỗi đồng hồ RTC', 313: 'Chưa xoá dữ liệu mẻ',
-    314: 'Lỗi nhật ký an toàn', 315: 'Mất nhật ký mẻ'
+    314: 'Lỗi nhật ký an toàn', 315: 'Mất nhật ký mẻ',
+    401: 'RAM thấp (cảnh báo sớm)', 402: 'RAM cạn - tự khởi động lại',
+    403: 'Dự đoán sắp chạm ngưỡng nhiệt', 404: 'EEPROM cần thử lại nhiều'
   };
 
   // Mô tả ngắn dùng cho popup chi tiết khi bấm vào ô Trạng thái (Phần "Ý
@@ -1581,7 +1583,11 @@
     306: 'Đồng hồ thời gian thực mất kết nối hoặc dữ liệu không hợp lệ.',
     313: 'Đã dừng/huỷ mẻ nhưng bộ nhớ chưa xác nhận ghi xong.',
     314: 'Bộ nhớ nội bộ đảm bảo an toàn khi mất điện bị lỗi ghi.',
-    315: 'Log chi tiết mẻ ấp không ghi được (không ảnh hưởng an toàn).'
+    315: 'Log chi tiết mẻ ấp không ghi được (không ảnh hưởng an toàn).',
+    401: 'Bộ nhớ RAM còn lại thấp hơn ngưỡng an toàn - hệ thống đang tự theo dõi, chưa ảnh hưởng vận hành.',
+    402: 'RAM cạn kiệt nghiêm trọng - máy tự khởi động lại có kiểm soát để phòng tránh treo máy đột ngột. Nhiệt/đảo trứng phục hồi ngay sau khi khởi động lại xong.',
+    403: 'Theo tốc độ thay đổi nhiệt độ hiện tại, dự đoán sắp chạm ngưỡng cảnh báo trong ít phút tới - cảnh báo sớm, không phải đã vượt ngưỡng.',
+    404: 'Bộ nhớ EEPROM phải thử lại nhiều lần bất thường khi đọc/ghi - dấu hiệu suy giảm sớm của chip nhớ, nên theo dõi thêm.'
   };
 
   // severity: 0=Info,1=Warning,2=Stop,3=Emergency (khop enum FaultSeverity
