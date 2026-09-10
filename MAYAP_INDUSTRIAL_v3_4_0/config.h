@@ -196,18 +196,16 @@ constexpr uint32_t CLOUD_LIGHT_AFTER_BATCH_REPEAT_MS = 1800000UL; // 30 phut
 // ---------------------------------------------------------------------------
 constexpr float HUMIDITY_HIGH_ALARM_C = 85.0f;
 constexpr float HUMIDITY_HIGH_HYSTERESIS_C = 2.0f;
-// Toc do tang/giam nhiet bat thuong: so sanh nhiet do hien tai voi nhiet do
-// cua chinh no TEMP_RATE_WINDOW_MS truoc - lech qua TEMP_RATE_LIMIT_C la canh bao.
-constexpr uint32_t TEMP_RATE_WINDOW_MS = 120000UL;   // 2 phut
-constexpr float TEMP_RATE_LIMIT_C = 1.0f;
-// Dao dong nhiet mat on dinh: dem so lan nhiet do doi dau quanh diem dat
-// (vuot khoi dai hysteresis) trong 1 khung gio co dinh.
-constexpr uint32_t TEMP_OSCILLATION_WINDOW_MS = 600000UL; // 10 phut
-constexpr uint8_t TEMP_OSCILLATION_CROSS_LIMIT = 6U;
-// Thanh nhiet duoc lenh BAT lien tuc qua lau ma nhiet khong tang du
-// HEATER_STUCK_MIN_RISE_C - nghi ngo SSR/relay dinh hong dieu khien duoc.
-constexpr uint32_t HEATER_STUCK_DURATION_MS = 900000UL; // 15 phut
-constexpr float HEATER_STUCK_MIN_RISE_C = 0.3f;
+// [DA CHUYEN SANG MachineConfig, schema 8] Toc do tang/giam nhiet bat thuong,
+// dao dong nhiet mat on dinh, va nghi ngo SSR/relay dinh (thanh nhiet BAT lau
+// ma nhiet khong tang) tung la hang so cung o day (TEMP_RATE_WINDOW_MS/
+// TEMP_RATE_LIMIT_C, TEMP_OSCILLATION_WINDOW_MS/CROSS_LIMIT,
+// HEATER_STUCK_DURATION_MS/MIN_RISE_C). Da chuyen thanh truong MachineConfig
+// (tempRateWindowSec/tempRateLimitC, tempOscillationWindowSec/CrossLimit,
+// heaterStuckDurationSec/MinRiseC - xem MachineConfig o duoi) de nguoi dung
+// tu chinh qua HMI/web khi lap may that (dan nhiet cong suat lon co the can
+// nguong khac mac dinh) ma khong can nap lai firmware. Gia tri mac dinh giu
+// nguyen y het hang so cu.
 // Bo lo lich dao: khong ghi nhan lan dao nao thanh cong qua
 // TURN_MISSED_MULTIPLIER x chu ky dao da cau hinh.
 constexpr uint8_t TURN_MISSED_MULTIPLIER = 2U;
@@ -695,8 +693,11 @@ constexpr uint32_t SSR_MIN_ON_MS = 300UL;
 constexpr uint32_t SSR_MIN_OFF_MS = 300UL;
 
 // Auto Tune relay co gioi han, khong chay khi dang co me.
-constexpr uint8_t AUTOTUNE_RELAY_POWER_PERCENT = 30;
-constexpr float AUTOTUNE_BAND_C = 0.20f;
+// [DA CHUYEN SANG MachineConfig, schema 8] Bien do relay % va dai xac nhan
+// °C tung la hang so cung (AUTOTUNE_RELAY_POWER_PERCENT/AUTOTUNE_BAND_C) - da
+// chuyen thanh MachineConfig::autotuneRelayPowerPercent/autotuneBandC de
+// nguoi dung tu chinh "nhe tay" hon khi Auto Tune tren dan nhiet cong suat
+// lon ma khong can nap lai firmware. Gia tri mac dinh giu nguyen y het.
 constexpr uint8_t AUTOTUNE_REQUIRED_CYCLES = 3;
 constexpr uint32_t AUTOTUNE_MAX_MS = 2700000UL; // 45 phut
 constexpr uint32_t AUTOTUNE_PHASE_MAX_MS = 900000UL; // moi pha toi da 15 phut
@@ -842,6 +843,20 @@ struct MachineConfig {
   float kd = 45.0f;
   uint16_t pidCycleSec = 10;
   uint8_t maxHeaterPower = 100;
+
+  // Nang cao (schema 8): nguong chan doan nhiet + tham so Auto Tune, truoc
+  // day la hang so cung trong config.h (xem ghi chu cu o khu "HANG SO AN
+  // TOAN CO DINH"). Dua vao MachineConfig de nguoi dung chinh truc tiep qua
+  // HMI/web khi lap may that ma khong can nap lai firmware - gia tri mac
+  // dinh giu nguyen y het hang so cu.
+  float heaterStuckMinRiseC = 0.3f;
+  uint16_t heaterStuckDurationSec = 900;   // 15 phut
+  float tempRateLimitC = 1.0f;
+  uint16_t tempRateWindowSec = 120;        // 2 phut
+  uint8_t tempOscillationCrossLimit = 6;
+  uint16_t tempOscillationWindowSec = 600; // 10 phut
+  uint8_t autotuneRelayPowerPercent = 30;
+  float autotuneBandC = 0.20f;
 
   float lowHumidityAlarm = 45.0f;
   uint16_t humidityAlarmDelaySec = 60;

@@ -498,23 +498,46 @@ const SettingItem SETTINGS[] = {
   // THONG" nen rut gon con "Ket noi" (7 ky tu) van ro nghia va luon ve duoc
   // bang font lon nhu cac dong khac.
   ITEM_U8_OPTIONS("Ket noi", connectivityMode,
-                  OPT_OFFLINE_ONLINE, 2)                                      // 14
+                  OPT_OFFLINE_ONLINE, 2),                                     // 14
+
+  // ---- NANG CAO (13 muc): PID thu cong + nguong chan doan nhiet + Auto
+  // Tune - them de nguoi dung tu chinh khi lap may that (dan nhiet cong suat
+  // lon co the can nguong khac mac dinh) ma khong can nap lai firmware. Gioi
+  // han min/max khop dung sanitizeMachineConfig() trong machine_control.h.
+  ITEM_FLOAT("He so Kp", kp, 0.0f, 100.0f, 0.5f, 1, ""),                     // 15
+  ITEM_FLOAT("He so Ki", ki, 0.0f, 20.0f, 0.05f, 2, ""),                     // 16
+  ITEM_FLOAT("He so Kd", kd, 0.0f, 200.0f, 1.0f, 1, ""),                     // 17
+  ITEM_U16("Chu ky SSR", pidCycleSec, 1, 60, 1, "s"),                        // 18
+  ITEM_U8("Tran cong suat", maxHeaterPower, 10, 100, 5, "%"),                // 19
+  ITEM_FLOAT("Nguong ket dinh", heaterStuckMinRiseC, 0.05f, 5.0f, 0.05f, 2, "C"), // 20
+  ITEM_U16("TG xac nhan ket", heaterStuckDurationSec, 60, 3600, 30, "s"),    // 21
+  ITEM_FLOAT("Nguong toc do", tempRateLimitC, 0.1f, 10.0f, 0.1f, 1, "C"),    // 22
+  ITEM_U16("Khung toc do", tempRateWindowSec, 30, 1800, 10, "s"),            // 23
+  ITEM_U8("So lan doi dau", tempOscillationCrossLimit, 2, 30, 1, "l"),       // 24
+  ITEM_U16("Khung dao dong", tempOscillationWindowSec, 60, 3600, 30, "s"),   // 25
+  ITEM_U8("Cong suat tune", autotuneRelayPowerPercent, 10, 80, 5, "%"),      // 26
+  ITEM_FLOAT("Bien do tune", autotuneBandC, 0.05f, 1.0f, 0.05f, 2, "C")      // 27
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 15, "Bang SETTINGS phai co 15 thong so");
+static_assert(SETTING_COUNT == 28, "Bang SETTINGS phai co 28 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
   4,5,6,7,8,9,10,                      // Nhiet do (gop them Quat hut - lien
                                        // quan truc tiep den dieu khien nhiet)
   11,12,13,                            // Dao trung
-  14                                    // He thong
+  14,                                   // He thong
+  15,16,17,18,19,20,21,22,23,24,25,26,27 // Nang cao
 };
 
 struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
-// Chi so 0 = Cai dat me (goc tu MainMenu); 1..3 = 3 thu muc con cua
+// Chi so 0 = Cai dat me (goc tu MainMenu); 1..4 = 4 thu muc con cua
 // "CAI DAT CHUNG" (goc tu ChungMenu). Dung chung mot co che SettingList.
+// LUU Y: nhom moi (Nang cao) PHAI o CUOI mang - groupExtraSlot()/
+// groupExtraSlotVisible() ben duoi dang tham chieu chi so nhom 1/2/3 TUYET
+// DOI (Nhiet do/Dao trung/He thong), chen nhom moi vao giua se lam sai lech
+// toan bo cac tham chieu do.
 const SettingGroup GROUPS[] = {
   {"CAI DAT ME", 0, 4},
   // Gop "Quat hut" vao chung nhom "Nhiet do" (7 thong so) - ca 2 deu la
@@ -525,10 +548,11 @@ const SettingGroup GROUPS[] = {
   // Doi ten tu "KET NOI" thanh "HE THONG": nhom nay tu lau da khong chi con
   // la cai dat mang - gom ca ma QR, dat lai PIN, cap nhat firmware... nen
   // "He thong" mo ta dung hon la cai dat chung cua may.
-  {"HE THONG", 14, 1}
+  {"HE THONG", 14, 1},
+  {"NANG CAO", 15, 13}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
-static_assert(GROUP_COUNT == 4, "Bang GROUPS phai co 4 nhom");
+static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");
 static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == SETTING_COUNT,
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
 
