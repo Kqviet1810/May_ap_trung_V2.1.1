@@ -22,6 +22,11 @@
   const THEME_STORAGE = 'mayap.theme';
   const PROTOCOL_VERSION = 1;
   const DEVICE_ID_RE = /^MAP-[A-F0-9]{12}$/;
+  // Khop dung MAX_CUSTOM_REMINDERS trong firmware (config.h) - chi de hien thi
+  // "x/10 nhac da dat" va chan them qua tay tren web; ESP32 van tu gioi han
+  // lai (sanitizeReminderSet) neu web nao do gui vuot qua.
+  const MAX_CUSTOM_REMINDERS = 10;
+  const REMINDER_LABEL_MAX = 23;
   const CONFIG_KEYS = Object.freeze([
     'targetTemp', 'tempHysteresis', 'lowTempAlarm', 'highTempAlarm',
     'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'ventOnTemp',
@@ -426,9 +431,11 @@
       presence: `${base}/presence`,
       snapshot: `${base}/snapshot`,
       report: `${base}/config/reported`,
+      remindersReport: `${base}/reminders/reported`,
       ack: `${base}/ack`,
       log: `${base}/log`,
       config: `${base}/config/set`,
+      reminders: `${base}/reminders/set`,
       command: `${base}/command`,
       session: `${base}/session`
     };
@@ -437,7 +444,7 @@
   function parseTopic(topic) {
     const root = String(WEB.topicRoot || 'mayap/v1').replace(/^\/+|\/+$/g, '');
     const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = String(topic).match(new RegExp(`^${escaped}/(MAP-[A-F0-9]{12})/(presence|snapshot|config/reported|ack|log)$`));
+    const match = String(topic).match(new RegExp(`^${escaped}/(MAP-[A-F0-9]{12})/(presence|snapshot|config/reported|reminders/reported|ack|log)$`));
     return match ? { deviceId: match[1], channel: match[2] } : null;
   }
 
@@ -1359,6 +1366,19 @@
       return;
     }
 
+    if (pending.kind === 'reminders') {
+      if (result === 'accepted' || result === 'applied') return;  // cho "reminders/reported" xac nhan hoan tat
+      if (result === 'duplicate') {
+        sendSession(device.id, true, true);
+        return;
+      }
+      clearPending(String(ack.requestId));
+      device.remindersPending = false;
+      if (device.id === state.selectedId) renderReminderList(device);
+      toast(message, 3600);
+      return;
+    }
+
     clearPending(String(ack.requestId));
     if (['accepted', 'applied'].includes(result)) {
       // Tin nhan goc tu firmware cho lenh nay la chu HOA khong dau (quy uoc
@@ -1460,7 +1480,9 @@
     'DA XAC NHAN': 'Đã xác nhận',
     'CHUA CO CAU HINH GOC': 'Máy chưa có cấu hình gốc để so sánh',
     'THIEU CONFIG': 'Thiếu dữ liệu cấu hình gửi lên',
-    'LUU CAU HINH BI TU CHOI': 'Máy từ chối lưu (đang có mẻ chạy khoá cấu hình, hoặc lỗi bộ nhớ) - thử lại sau'
+    'LUU CAU HINH BI TU CHOI': 'Máy từ chối lưu (đang có mẻ chạy khoá cấu hình, hoặc lỗi bộ nhớ) - thử lại sau',
+    'LUU NHAC NHO BI TU CHOI': 'Máy từ chối lưu danh sách nhắc nhở (lỗi bộ nhớ) - thử lại sau',
+    'THIEU REMINDERS': 'Thiếu dữ liệu nhắc nhở gửi lên'
   };
 
   function humanAckMessage(ack) {
@@ -1499,6 +1521,103 @@
     }
 
     if (device.id === state.selectedId) applyConfigToUi(device);
+  }
+
+  // So sanh 2 danh sach nhac nho - thu tu khong quan trong (ESP32 co the tra
+  // ve theo thu tu slot noi bo khac voi thu tu nguoi dung vua gui), chi can
+  // cung mot TAP HOP (ngay, ten) la coi la khop.
+  function remindersEqual(a, b) {
+    const listA = Array.isArray(a) ? a : [];
+    const listB = Array.isArray(b) ? b : [];
+    if (listA.length !== listB.length) return false;
+    const key = (item) => `${Number(item.day) || 0}|${String(item.label || '')}`;
+    const setA = new Set(listA.map(key));
+    return listB.every((item) => setA.has(key(item)));
+  }
+
+  function handleReminderReport(device, report) {
+    const list = Array.isArray(report.reminders)
+      ? report.reminders
+          .map((item) => ({ day: Number(item.day) || 0, label: String(item.label || '').slice(0, 23) }))
+          .filter((item) => item.day > 0 && item.label)
+      : [];
+    device.reminders = list;
+    device.remindersRevision = Number(report.revision || 0);
+
+    for (const [id, pending] of state.pending.entries()) {
+      if (pending.kind !== 'reminders' || pending.deviceId !== device.id) continue;
+      if (device.remindersRevision >= pending.revision && remindersEqual(device.reminders, pending.nextList)) {
+        clearPending(id);
+        device.remindersPending = false;
+        toast('Đã lưu danh sách nhắc nhở');
+      }
+    }
+
+    if (device.id === state.selectedId) renderReminderList(device);
+  }
+
+  function renderReminderList(device) {
+    const root = $('reminderList');
+    if (!root) return;
+    const list = Array.isArray(device?.reminders) ? device.reminders : [];
+    root.replaceChildren();
+    const summary = $('remindersSummary');
+    if (summary) {
+      summary.textContent = list.length
+        ? `${list.length}/${MAX_CUSTOM_REMINDERS} nhắc đã đặt`
+        : 'Chưa có nhắc nào';
+    }
+    list
+      .slice()
+      .sort((a, b) => a.day - b.day)
+      .forEach((item) => {
+        const row = document.createElement('div');
+        row.className = 'deviceListItem';
+        const text = document.createElement('div');
+        text.innerHTML = `<strong>Ngày ${escapeHtml(String(item.day))}</strong><small>${escapeHtml(item.label)}</small>`;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.textContent = 'Xóa';
+        remove.disabled = Boolean(device.remindersPending);
+        remove.addEventListener('click', () => {
+          const nextList = list.filter((entry) => !(entry.day === item.day && entry.label === item.label));
+          sendReminders(device, nextList);
+        });
+        row.append(text, remove);
+        root.append(row);
+      });
+    const addBtn = $('addReminderBtn');
+    if (addBtn) addBtn.disabled = Boolean(device.remindersPending);
+  }
+
+  async function sendReminders(device, nextList) {
+    if (!device) return;
+    if (!isDeviceOnline(device)) return toast('Thiết bị đang offline');
+
+    const revision = Math.max(Number(device.remindersRevision || 0) + 1, Math.floor(Date.now() / 1000));
+    const id = requestId('rem');
+    const payload = { v: PROTOCOL_VERSION, revision, requestId: id, reminders: nextList };
+    device.remindersPending = true;
+    renderReminderList(device);
+    state.pending.set(id, {
+      kind: 'reminders', deviceId: device.id, revision, nextList,
+      timeout: setTimeout(() => {
+        const pending = state.pending.get(id);
+        if (!pending) return;
+        state.pending.delete(id);
+        device.remindersPending = false;
+        if (device.id === state.selectedId) renderReminderList(device);
+        toast('ESP32 chưa xác nhận nhắc nhở · thử lại sau', 3600);
+      }, WEB.configTimeoutMs)
+    });
+    try {
+      publish(topics(device.id).reminders, payload, { qos: 1, retain: false });
+    } catch (error) {
+      clearPending(id);
+      device.remindersPending = false;
+      if (device.id === state.selectedId) renderReminderList(device);
+      toast(error.message, 3600);
+    }
   }
 
   function handleSnapshot(device, snapshot) {
@@ -1732,6 +1851,7 @@
     subscribeDevice(device.id);
     activateSelectedSession(force);
     if (device.config) applyConfigToUi(device, force);
+    renderReminderList(device);
     renderDevice();
     renderPushStatus();
   }
@@ -1739,7 +1859,7 @@
   function subscribeDevice(deviceId) {
     if (!state.mqttConnected || !state.mqtt?.connected || !deviceId) return;
     const outputTopics = topics(deviceId);
-    [outputTopics.presence, outputTopics.snapshot, outputTopics.report, outputTopics.ack, outputTopics.log]
+    [outputTopics.presence, outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log]
       .forEach((topic) => {
         if (state.subscriptions.has(topic)) return;
         state.mqtt.subscribe(topic, { qos: topic.endsWith('/snapshot') ? 0 : 1 }, (error) => {
@@ -1751,7 +1871,7 @@
   function unsubscribeDevice(deviceId) {
     if (!state.mqtt?.connected || !deviceId) return;
     const outputTopics = topics(deviceId);
-    [outputTopics.presence, outputTopics.snapshot, outputTopics.report, outputTopics.ack, outputTopics.log]
+    [outputTopics.presence, outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log]
       .forEach((topic) => {
         if (!state.subscriptions.has(topic)) return;
         state.mqtt.unsubscribe(topic);
@@ -1834,6 +1954,7 @@
       if (parsedTopic.channel === 'presence') handlePresence(device, payload);
       else if (parsedTopic.channel === 'snapshot') handleSnapshot(device, payload);
       else if (parsedTopic.channel === 'config/reported') handleConfigReport(device, payload);
+      else if (parsedTopic.channel === 'reminders/reported') handleReminderReport(device, payload);
       else if (parsedTopic.channel === 'ack') handleAck(device, payload);
       else if (parsedTopic.channel === 'log') handleLog(device, payload);
     });
@@ -2054,6 +2175,38 @@
       // moi them vao (khong bat nguoi dung phai bam lai "Bat thong bao").
       renderPushStatus();
       toast('Đã thêm thiết bị. Website đang chờ dữ liệu thật.');
+    });
+
+    $('remindersForm').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const device = currentDevice();
+      clearInvalid('remindersForm');
+      if (!device) return toast('Hãy thêm thiết bị trước');
+      if (device.remindersPending) return;
+
+      const dayInput = $('reminderDayInput');
+      const labelInput = $('reminderLabelInput');
+      const day = Math.round(Number(dayInput.value));
+      const label = labelInput.value.trim().slice(0, REMINDER_LABEL_MAX);
+      const existing = Array.isArray(device.reminders) ? device.reminders : [];
+
+      if (!Number.isFinite(day) || day < 1 || day > 99) {
+        return invalidate('remindersForm', 'reminderDayInput', 'Số ngày phải từ 1 đến 99.');
+      }
+      if (!label) {
+        return invalidate('remindersForm', 'reminderLabelInput', 'Hãy nhập nội dung nhắc.');
+      }
+      if (existing.length >= MAX_CUSTOM_REMINDERS) {
+        return invalidate('remindersForm', 'reminderDayInput', `Đã đủ tối đa ${MAX_CUSTOM_REMINDERS} nhắc nhở - hãy xóa bớt trước khi thêm.`);
+      }
+      if (existing.some((item) => item.day === day)) {
+        return invalidate('remindersForm', 'reminderDayInput', `Đã có 1 nhắc nhở ở ngày ${day} - hãy xóa hoặc đổi ngày khác.`);
+      }
+
+      const nextList = [...existing, { day, label }];
+      dayInput.value = '';
+      labelInput.value = '';
+      sendReminders(device, nextList);
     });
 
     $('renameDeviceForm').addEventListener('submit', async (event) => {

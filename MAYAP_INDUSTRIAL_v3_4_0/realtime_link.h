@@ -127,6 +127,13 @@ static uint32_t webConfigRevision = 0U;
 static MachineRuntime knownRuntime{};
 static bool knownRuntimeValid = false;
 
+// Danh sach nhac nho tuy chinh (v3.7.0) - cung mailbox pattern voi knownConfig
+// o tren, nhung DOC LAP hoan toan (khong dan xen voi luu cau hinh dieu khien).
+static ReminderSet knownReminders{};
+static bool knownRemindersValid = false;
+static bool remindersDirty = false;
+static uint32_t webRemindersRevision = 0U;
+
 // --------------------- Tuong quan lenh/luu cau hinh voi web --------------------
 // pendingCommands/pendingConfigSave duoc GHI boi networkTask (khi nhan lenh tu
 // web va queueCommand()/startConfigSave() thanh cong) va DOC+XOA boi ca hai
@@ -150,6 +157,11 @@ struct PendingConfigSave {
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
 };
 static PendingConfigSave pendingConfigSave;
+
+// Giong het PendingConfigSave nhung cho "reminders/set" - gate .used RIENG,
+// khong dung chung voi pendingConfigSave (2 loai luu doc lap, khong can
+// chan lan nhau - xem ghi chu ReminderSaveTransaction trong hmi.h).
+static PendingConfigSave pendingReminderSave;
 
 // ------------------------------- Hop thu phat ACK -------------------------------
 // mayapWebConfirmCommand/mayapWebConfirmConfigSave chay tren controlTask va
@@ -247,6 +259,23 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   c["controlMode"] = static_cast<uint8_t>(cfg.controlMode);
   c["nextDirection"] = static_cast<uint8_t>(cfg.nextDirection);
   publishJson("config/reported", doc, true);
+}
+
+// Danh sach nhac nho tuy chinh hien co - web dung de dong bo lai form khi mo
+// trang/doi thiet bi (giong het vai tro cua "config/reported" voi MachineConfig).
+inline void publishReminderReport(const ReminderSet &reminders, uint32_t revision) {
+  JsonDocument doc;
+  doc["v"] = 1;
+  doc["bootId"] = bootId;
+  doc["revision"] = revision;
+  JsonArray items = doc["reminders"].to<JsonArray>();
+  for (uint8_t i = 0; i < MAX_CUSTOM_REMINDERS; ++i) {
+    if (reminders.items[i].day == 0U) continue;  // O TRONG - khong gui
+    JsonObject item = items.add<JsonObject>();
+    item["day"] = reminders.items[i].day;
+    item["label"] = reminders.items[i].label;
+  }
+  publishJson("reminders/reported", doc, true);
 }
 
 inline void publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
@@ -458,6 +487,56 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   publishAck(requestId, "accepted", "");
 }
 
+// Web da phan tich/xac thuc TOAN BO o phia web (parse ngay thang tu nhien,
+// bao loi trung/khong hop le tren form...) - firmware CHI nhan mang (day,
+// label) da xu ly san va sanitizeReminderSet() lam luoi an toan cuoi (xem
+// config.h). Luon thay THE TOAN BO danh sach (khong merge tung phan tu),
+// giong het huong tiep can cua "config/set" o tren.
+inline void handleReminderSetMessage(const JsonDocument &doc) {
+  const char *requestId = doc["requestId"] | "";
+  const uint32_t revision = doc["revision"] | 0UL;
+
+  portENTER_CRITICAL(&webMux);
+  const bool busy = pendingReminderSave.used;
+  portEXIT_CRITICAL(&webMux);
+  if (busy) {
+    publishAck(requestId, "busy", "");
+    return;
+  }
+
+  JsonVariantConst remindersArr = doc["reminders"];
+  if (!remindersArr.is<JsonArrayConst>()) {
+    publishAck(requestId, "invalid", "THIEU REMINDERS");
+    return;
+  }
+
+  ReminderSet candidate{};
+  uint8_t slot = 0U;
+  for (JsonVariantConst entry : remindersArr.as<JsonArrayConst>()) {
+    if (slot >= MAX_CUSTOM_REMINDERS) break;  // web da gioi han 10, day la luoi du phong
+    const int day = entry["day"] | 0;
+    const char *label = entry["label"] | "";
+    if (day <= 0 || !label[0]) continue;  // muc khong hop le: bo qua thay vi tu choi ca goi
+    candidate.items[slot].day = static_cast<uint8_t>(constrain(day, 1, 200));
+    snprintf(candidate.items[slot].label, sizeof(candidate.items[slot].label), "%s", label);
+    ++slot;
+  }
+
+  if (!startReminderSave(candidate)) {
+    publishAck(requestId, "busy", "");
+    return;
+  }
+
+  portENTER_CRITICAL(&webMux);
+  webRemindersRevision = revision > webRemindersRevision ? revision : webRemindersRevision + 1U;
+  pendingReminderSave.used = true;
+  pendingReminderSave.queuedAt = millis();
+  snprintf(pendingReminderSave.requestId, sizeof(pendingReminderSave.requestId), "%s",
+           requestId);
+  portEXIT_CRITICAL(&webMux);
+  publishAck(requestId, "accepted", "");
+}
+
 // Gia dinh MOT trinh duyet dang theo doi may tai 1 thoi diem (dung thuc te
 // cua san pham); neu nhieu tab/thiet bi web cung mo, "active" cua nguoi gui
 // SAU CUNG se thang - khong co dieu phoi nhieu client dong thoi.
@@ -484,8 +563,12 @@ inline void handleSessionMessage(const JsonDocument &doc) {
     const MachineConfig cfg = knownConfig;
     const uint32_t revision = webConfigRevision;
     const HmiEventSnapshot recentEvents = pendingEventSnapshot;
+    const bool haveReminders = knownRemindersValid;
+    const ReminderSet reminders = knownReminders;
+    const uint32_t remindersRevision = webRemindersRevision;
     portEXIT_CRITICAL(&webMux);
     if (haveConfig) publishConfigReport(cfg, revision);
+    if (haveReminders) publishReminderReport(reminders, remindersRevision);
     lastSnapshotPublishAt = 0U;  // ep publish snapshot ngay trong vong lap toi
     // Trinh duyet MOI mo/vua ket noi lai chi nhan duoc cac su kien XAY RA TU
     // LUC DO VE SAU qua topic "log" (MQTT khong co lich su, chi phat tuc
@@ -520,6 +603,10 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
     handleConfigSetMessage(doc);
     return;
   }
+  if (strstr(topic, "/reminders/set")) {
+    handleReminderSetMessage(doc);
+    return;
+  }
   const char *suffix = strrchr(topic, '/');
   if (!suffix) return;
   ++suffix;
@@ -533,6 +620,7 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
 // ------------------------------ Vong doi ket noi -------------------------------
 inline void subscribeAll() {
   mqtt.subscribe(topicOf("config/set"));
+  mqtt.subscribe(topicOf("reminders/set"));
   mqtt.subscribe(topicOf("command"));
   mqtt.subscribe(topicOf("session"));
 }
@@ -593,10 +681,20 @@ inline void expirePendingCommands(uint32_t now) {
              pendingConfigSave.requestId);
     pendingConfigSave.used = false;
   }
+  bool remindersExpired = false;
+  char reminderRequestId[WEB_REQUEST_ID_CAPACITY] = "";
+  if (pendingReminderSave.used &&
+      elapsedMs(now, pendingReminderSave.queuedAt) >= WEB_REMINDER_SAVE_ACK_TIMEOUT_MS) {
+    remindersExpired = true;
+    snprintf(reminderRequestId, sizeof(reminderRequestId), "%s",
+             pendingReminderSave.requestId);
+    pendingReminderSave.used = false;
+  }
   portEXIT_CRITICAL(&webMux);
 
   for (uint8_t i = 0; i < expireCount; ++i) publishAck(requestIdsToExpire[i], "expired", "");
   if (configExpired) publishAck(configRequestId, "expired", "");
+  if (remindersExpired) publishAck(reminderRequestId, "expired", "");
 }
 
 inline void drainAckOutbox() {
@@ -659,6 +757,16 @@ inline void serviceConfigPublish() {
   const uint32_t revision = webConfigRevision;
   portEXIT_CRITICAL(&webMux);
   if (dirty) publishConfigReport(cfg, revision);
+}
+
+inline void serviceReminderPublish() {
+  portENTER_CRITICAL(&webMux);
+  const bool dirty = remindersDirty;
+  remindersDirty = false;
+  const ReminderSet reminders = knownReminders;
+  const uint32_t revision = webRemindersRevision;
+  portEXIT_CRITICAL(&webMux);
+  if (dirty) publishReminderReport(reminders, revision);
 }
 
 inline void serviceSnapshotPublish(uint32_t now) {
@@ -737,6 +845,7 @@ inline void mayapWebLinkUpdate(uint32_t now) {
   drainAckOutbox();
   serviceSessionTimeout(now);
   serviceConfigPublish();
+  serviceReminderPublish();
   serviceSnapshotPublish(now);
   serviceEventLogPublish();
 }
@@ -772,6 +881,21 @@ inline void mayapWebSetConfig(const MachineConfig &config) {
   portEXIT_CRITICAL(&webMux);
 }
 
+inline void mayapWebSetReminders(const ReminderSet &reminders) {
+  using namespace MayapRealtimeInternal;
+  portENTER_CRITICAL(&webMux);
+  const bool changed = !knownRemindersValid ||
+      memcmp(&reminders, &knownReminders, sizeof(ReminderSet)) != 0;
+  knownReminders = reminders;
+  knownRemindersValid = true;
+  if (changed) {
+    remindersDirty = true;
+    if (webRemindersRevision == 0U) webRemindersRevision = 1U;
+    else if (!pendingReminderSave.used) ++webRemindersRevision;
+  }
+  portEXIT_CRITICAL(&webMux);
+}
+
 inline void mayapWebConfirmCommand(uint32_t commandId, bool ok,
                                    const char *message) {
   using namespace MayapRealtimeInternal;
@@ -795,6 +919,20 @@ inline void mayapWebConfirmConfigSave(uint32_t transactionId, bool ok,
     enqueueAckLocked(pendingConfigSave.requestId, ok ? "applied" : "rejected",
                      ok ? "" : "LUU CAU HINH BI TU CHOI");
     pendingConfigSave.used = false;
+  }
+  portEXIT_CRITICAL(&webMux);
+}
+
+inline void mayapWebConfirmReminderSave(uint32_t transactionId, bool ok,
+                                        const ReminderSet *stored) {
+  using namespace MayapRealtimeInternal;
+  (void)transactionId;
+  (void)stored;  // danh sach moi da/se toi qua mayapWebSetReminders() tu cung noi goi
+  portENTER_CRITICAL(&webMux);
+  if (pendingReminderSave.used) {
+    enqueueAckLocked(pendingReminderSave.requestId, ok ? "applied" : "rejected",
+                     ok ? "" : "LUU NHAC NHO BI TU CHOI");
+    pendingReminderSave.used = false;
   }
   portEXIT_CRITICAL(&webMux);
 }
