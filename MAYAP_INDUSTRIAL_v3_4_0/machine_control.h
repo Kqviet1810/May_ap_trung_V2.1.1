@@ -1211,6 +1211,22 @@ inline void sanitizeMachineConfig(MachineConfig &cfg) {
   cfg.maxHeaterPower = static_cast<uint8_t>(constrain(
       static_cast<int>(cfg.maxHeaterPower), 10, 100));
 
+  // Nang cao (schema 8) - gioi han cung dam bao khong the chinh ve gia tri
+  // vo nghia/gay bao gia tu web hay HMI (vd 0 phut, 0 lan doi dau...).
+  cfg.heaterStuckMinRiseC = clampFloat(cfg.heaterStuckMinRiseC, 0.05f, 5.0f);
+  cfg.heaterStuckDurationSec = static_cast<uint16_t>(constrain(
+      static_cast<int>(cfg.heaterStuckDurationSec), 60, 3600));
+  cfg.tempRateLimitC = clampFloat(cfg.tempRateLimitC, 0.1f, 10.0f);
+  cfg.tempRateWindowSec = static_cast<uint16_t>(constrain(
+      static_cast<int>(cfg.tempRateWindowSec), 30, 1800));
+  cfg.tempOscillationCrossLimit = static_cast<uint8_t>(constrain(
+      static_cast<int>(cfg.tempOscillationCrossLimit), 2, 30));
+  cfg.tempOscillationWindowSec = static_cast<uint16_t>(constrain(
+      static_cast<int>(cfg.tempOscillationWindowSec), 60, 3600));
+  cfg.autotuneRelayPowerPercent = static_cast<uint8_t>(constrain(
+      static_cast<int>(cfg.autotuneRelayPowerPercent), 10, 80));
+  cfg.autotuneBandC = clampFloat(cfg.autotuneBandC, 0.05f, 1.0f);
+
   cfg.lowHumidityAlarm = clampFloat(cfg.lowHumidityAlarm, 10.0f, 90.0f);
   cfg.humidityAlarmDelaySec = static_cast<uint16_t>(constrain(
       static_cast<int>(cfg.humidityAlarmDelaySec), 0, 600));
@@ -1292,6 +1308,16 @@ struct PackedMachineConfigV1 {
   uint8_t autoResumeOnPowerLoss;  // schema 5+: "Ap lai"
   uint8_t lightAfterBatchAlarmEnabled;  // schema 6+: canh bao den con bat khi dang ap
   uint8_t highTempAlarmWithoutBatch;  // schema 7+: bao nhiet cao/khan cap ke ca khong co me
+  // schema 8+: "Nang cao" - nguong chan doan nhiet + tham so Auto Tune, truoc
+  // day la hang so cung trong config.h (xem MachineConfig o config.h).
+  float heaterStuckMinRiseC;
+  uint16_t heaterStuckDurationSec;
+  float tempRateLimitC;
+  uint16_t tempRateWindowSec;
+  uint8_t tempOscillationCrossLimit;
+  uint16_t tempOscillationWindowSec;
+  uint8_t autotuneRelayPowerPercent;
+  float autotuneBandC;
 };
 struct ConfigRecordV1 {
   uint32_t magic;
@@ -1308,8 +1334,12 @@ constexpr size_t CONFIG_V3_PAYLOAD_BYTES =
 // Sau connectivityMode la 4 truong uint8_t moi hon: autoResumeOnPowerLoss
 // (schema 5), lightAfterBatchAlarmEnabled (schema 6), highTempAlarmWithoutBatch
 // (schema 7) - dat lai gia tri mac dinh tuong minh sau memcpy.
+// So sanh voi offsetof truong Nang cao dau tien (schema 8), KHONG PHAI
+// sizeof(PackedMachineConfigV1) - struct con them cac truong Nang cao phia
+// sau highTempAlarmWithoutBatch nen sizeof toan struct khong con dung bang
+// mep cuoi cua 4 truong nay nua.
 static_assert(CONFIG_V3_PAYLOAD_BYTES + 4U * sizeof(uint8_t) ==
-                  sizeof(PackedMachineConfigV1),
+                  offsetof(PackedMachineConfigV1, heaterStuckMinRiseC),
               "connectivityMode phai la truong cuoi cung cua schema 3, "
               "theo sau boi dung 4 truong uint8_t moi hon");
 struct ConfigRecordLegacyV3 {
@@ -1324,11 +1354,13 @@ struct ConfigRecordLegacyV3 {
 // tru autoResumeOnPowerLoss. Dung de nang cap tai cho khong mat cau hinh cu.
 constexpr size_t CONFIG_V4_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, autoResumeOnPowerLoss);
+// So sanh voi offsetof truong Nang cao dau tien (schema 8) - xem ghi chu o
+// static_assert cua CONFIG_V3_PAYLOAD_BYTES o tren.
 static_assert(CONFIG_V4_PAYLOAD_BYTES + 3U * sizeof(uint8_t) ==
-                  sizeof(PackedMachineConfigV1),
+                  offsetof(PackedMachineConfigV1, heaterStuckMinRiseC),
               "autoResumeOnPowerLoss + lightAfterBatchAlarmEnabled + "
               "highTempAlarmWithoutBatch phai la 3 truong cuoi cung cua "
-              "PackedMachineConfigV1");
+              "PackedMachineConfigV1 truoc schema 8");
 struct ConfigRecordLegacyV4 {
   uint32_t magic;
   uint16_t schema;
@@ -1359,15 +1391,35 @@ static_assert(CONFIG_V5_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
                   CONFIG_V6_PAYLOAD_BYTES,
               "lightAfterBatchAlarmEnabled phai la truong duy nhat giua "
               "schema 5 va schema 6");
-static_assert(CONFIG_V6_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
-                  sizeof(PackedMachineConfigV1),
-              "highTempAlarmWithoutBatch phai la truong cuoi cung cua PackedMachineConfigV1");
 struct ConfigRecordLegacyV6 {
   uint32_t magic;
   uint16_t schema;
   uint16_t size;
   uint32_t sequence;
   uint8_t payload[CONFIG_V6_PAYLOAD_BYTES];
+  uint32_t crc;
+};
+// Config schema 7 (truoc ban co "Nang cao": nguong chan doan nhiet + tham so
+// Auto Tune) co payload giong schema 8 tru 8 truong moi cuoi cung. Dung de
+// nang cap tai cho khong mat cau hinh cu, giong het cach lam voi cac schema
+// truoc do.
+constexpr size_t CONFIG_V7_PAYLOAD_BYTES =
+    offsetof(PackedMachineConfigV1, heaterStuckMinRiseC);
+static_assert(CONFIG_V6_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
+                  CONFIG_V7_PAYLOAD_BYTES,
+              "highTempAlarmWithoutBatch phai la truong duy nhat giua "
+              "schema 6 va schema 7");
+static_assert(CONFIG_V7_PAYLOAD_BYTES + 3U * sizeof(float) + 3U * sizeof(uint16_t) +
+                  2U * sizeof(uint8_t) ==
+                  sizeof(PackedMachineConfigV1),
+              "8 truong Nang cao phai la cac truong cuoi cung cua "
+              "PackedMachineConfigV1");
+struct ConfigRecordLegacyV7 {
+  uint32_t magic;
+  uint16_t schema;
+  uint16_t size;
+  uint32_t sequence;
+  uint8_t payload[CONFIG_V7_PAYLOAD_BYTES];
   uint32_t crc;
 };
 // Schema batch v3 bo sung moc bat dau me va lan dao thanh cong gan nhat.
@@ -1410,11 +1462,12 @@ struct BatchRecordLegacyV2 {
 
 constexpr uint32_t CONFIG_MAGIC = 0x4D415943UL; // MAYC
 constexpr uint32_t BATCH_MAGIC  = 0x4D415942UL; // MAYB
-constexpr uint16_t CONFIG_SCHEMA = 7;
+constexpr uint16_t CONFIG_SCHEMA = 8;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V4 = 4;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V5 = 5;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V6 = 6;
+constexpr uint16_t CONFIG_SCHEMA_LEGACY_V7 = 7;
 constexpr uint16_t BATCH_SCHEMA = 3;
 constexpr uint16_t BATCH_SCHEMA_LEGACY = 2;
 
@@ -1449,6 +1502,14 @@ inline PackedMachineConfigV1 packConfig(const MachineConfig &c) {
   p.autoResumeOnPowerLoss = c.autoResumeOnPowerLoss ? 1U : 0U;
   p.lightAfterBatchAlarmEnabled = c.lightAfterBatchAlarmEnabled ? 1U : 0U;
   p.highTempAlarmWithoutBatch = c.highTempAlarmWithoutBatch ? 1U : 0U;
+  p.heaterStuckMinRiseC = c.heaterStuckMinRiseC;
+  p.heaterStuckDurationSec = c.heaterStuckDurationSec;
+  p.tempRateLimitC = c.tempRateLimitC;
+  p.tempRateWindowSec = c.tempRateWindowSec;
+  p.tempOscillationCrossLimit = c.tempOscillationCrossLimit;
+  p.tempOscillationWindowSec = c.tempOscillationWindowSec;
+  p.autotuneRelayPowerPercent = c.autotuneRelayPowerPercent;
+  p.autotuneBandC = c.autotuneBandC;
   return p;
 }
 inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
@@ -1482,6 +1543,14 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.autoResumeOnPowerLoss = p.autoResumeOnPowerLoss != 0U;
   c.lightAfterBatchAlarmEnabled = p.lightAfterBatchAlarmEnabled != 0U;
   c.highTempAlarmWithoutBatch = p.highTempAlarmWithoutBatch != 0U;
+  c.heaterStuckMinRiseC = p.heaterStuckMinRiseC;
+  c.heaterStuckDurationSec = p.heaterStuckDurationSec;
+  c.tempRateLimitC = p.tempRateLimitC;
+  c.tempRateWindowSec = p.tempRateWindowSec;
+  c.tempOscillationCrossLimit = p.tempOscillationCrossLimit;
+  c.tempOscillationWindowSec = p.tempOscillationWindowSec;
+  c.autotuneRelayPowerPercent = p.autotuneRelayPowerPercent;
+  c.autotuneBandC = p.autotuneBandC;
   sanitizeMachineConfig(c);
   return c;
 }
@@ -1633,6 +1702,8 @@ static_assert(sizeof(ConfigRecordLegacyV5) <= EEPROM_CONFIG_SLOT_BYTES,
               "Legacy config record V5 khong vua slot AT24C32");
 static_assert(sizeof(ConfigRecordLegacyV6) <= EEPROM_CONFIG_SLOT_BYTES,
               "Legacy config record V6 khong vua slot AT24C32");
+static_assert(sizeof(ConfigRecordLegacyV7) <= EEPROM_CONFIG_SLOT_BYTES,
+              "Legacy config record V7 khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordV1) <= EEPROM_BATCH_SLOT_BYTES,
               "Batch record khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordLegacyV2) <= EEPROM_BATCH_SLOT_BYTES,
@@ -1808,6 +1879,12 @@ class PersistentStore {
            r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
                             offsetof(ConfigRecordLegacyV6, crc));
   }
+  static bool validConfigLegacyV7(const ConfigRecordLegacyV7 &r) {
+    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V7 &&
+           r.size == sizeof(r) &&
+           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
+                            offsetof(ConfigRecordLegacyV7, crc));
+  }
   static bool validBatch(const BatchRecordV1 &r) {
     return r.magic == BATCH_MAGIC && r.schema == BATCH_SCHEMA &&
            r.size == sizeof(r) &&
@@ -1832,6 +1909,35 @@ class PersistentStore {
       configCurrentIsA_ = useA;
       configSequence_ = best.sequence;
       configPayload_ = best.payload;
+      return true;
+    }
+
+    // Fallback config schema 7 (ban truoc khi co "Nang cao": nguong chan
+    // doan nhiet + tham so Auto Tune). 8 truong moi duoc dat lai dung gia tri
+    // mac dinh cua MachineConfig (khop y het hang so cu tung dung o config.h
+    // truoc khi chuyen sang schema 8) thay vi de nguyen 0 tu memcpy; lan luu
+    // cau hinh tiep theo se ghi schema 8 vao khe doi dien.
+    ConfigRecordLegacyV7 la7{}, lb7{};
+    const bool vla7 = readRecord(EEPROM_ADDR_CONFIG_A, la7) &&
+                      validConfigLegacyV7(la7);
+    const bool vlb7 = readRecord(EEPROM_ADDR_CONFIG_B, lb7) &&
+                      validConfigLegacyV7(lb7);
+    if (vla7 || vlb7) {
+      const bool useA7 = !vlb7 || (vla7 && newer(la7.sequence, lb7.sequence));
+      const ConfigRecordLegacyV7 &best7 = useA7 ? la7 : lb7;
+      configPayload_ = PackedMachineConfigV1{};
+      memcpy(&configPayload_, best7.payload, sizeof(best7.payload));
+      configPayload_.heaterStuckMinRiseC = 0.3f;
+      configPayload_.heaterStuckDurationSec = 900;
+      configPayload_.tempRateLimitC = 1.0f;
+      configPayload_.tempRateWindowSec = 120;
+      configPayload_.tempOscillationCrossLimit = 6;
+      configPayload_.tempOscillationWindowSec = 600;
+      configPayload_.autotuneRelayPowerPercent = 30;
+      configPayload_.autotuneBandC = 0.20f;
+      configCacheValid_ = true;
+      configCurrentIsA_ = useA7;
+      configSequence_ = best7.sequence;
       return true;
     }
 
@@ -2990,9 +3096,9 @@ class RelayAutoTune {
 
     if (phaseHeat_) {
       if (input < currentLow_) currentLow_ = input;
-      power_ = static_cast<float>(std::min<uint8_t>(AUTOTUNE_RELAY_POWER_PERCENT,
+      power_ = static_cast<float>(std::min<uint8_t>(cfg.autotuneRelayPowerPercent,
                                                cfg.maxHeaterPower));
-      if (input >= target_ + AUTOTUNE_BAND_C) {
+      if (input >= target_ + cfg.autotuneBandC) {
         if (isfinite(capturedHigh_) && lastUpperCrossAt_ != 0U) {
           const float amplitude = (capturedHigh_ - currentLow_) * 0.5f;
           const uint32_t period = elapsedMs(now, lastUpperCrossAt_);
@@ -3017,7 +3123,7 @@ class RelayAutoTune {
     } else {
       if (input > currentHigh_) currentHigh_ = input;
       power_ = 0.0f;
-      if (input <= target_ - AUTOTUNE_BAND_C) {
+      if (input <= target_ - cfg.autotuneBandC) {
         capturedHigh_ = currentHigh_;
         phaseHeat_ = true;
         phaseStartedAt_ = now;
@@ -3035,7 +3141,7 @@ class RelayAutoTune {
       amplitude /= AUTOTUNE_REQUIRED_CYCLES;
       periodSec /= AUTOTUNE_REQUIRED_CYCLES;
       const float relayAmplitude = static_cast<float>(
-          std::min<uint8_t>(AUTOTUNE_RELAY_POWER_PERCENT, cfg.maxHeaterPower)) * 0.5f;
+          std::min<uint8_t>(cfg.autotuneRelayPowerPercent, cfg.maxHeaterPower)) * 0.5f;
       const float ku = (4.0f * relayAmplitude) /
                        (static_cast<float>(PI) * amplitude);
       if (!isfinite(ku) || ku <= 0.0f || periodSec <= 0.0f) {
@@ -3926,7 +4032,7 @@ class MachineController {
     if (!sensorUsable_) { message = "CAM BIEN CHUA SAN SANG"; return false; }
     if (!rtc_.valid()) { message = "RTC CHUA HOP LE"; return false; }
     if (highTemperatureActive_ || emergencyActive_) { message = "NHIET DANG QUA CAO"; return false; }
-    if (config_.targetTemp + AUTOTUNE_BAND_C >= config_.highTempAlarm) {
+    if (config_.targetTemp + config_.autotuneBandC >= config_.highTempAlarm) {
       message = "KHOANG NHIET KHONG DU"; return false;
     }
     autotune_.configure(config_.targetTemp);
@@ -3937,7 +4043,7 @@ class MachineController {
     eventLog_.push(now, EventType::AutoTuneStart,
                    static_cast<uint16_t>(EventCode::AutoTuneStarted));
     mayapSerialPrintf(false, "[TUNE] START power=%u%% band=%.2fC\n",
-                     AUTOTUNE_RELAY_POWER_PERCENT, AUTOTUNE_BAND_C);
+                     config_.autotuneRelayPowerPercent, config_.autotuneBandC);
     return true;
   }
 
@@ -4206,9 +4312,10 @@ class MachineController {
     // Toc do tang/giam nhiet bat thuong: so sanh voi chinh no TEMP_RATE_WINDOW_MS
     // truoc. Chi danh gia lai moi khi het 1 khung gio (khong phai lien tuc) -
     // du cho canh bao chan doan phu, khong phai cat an toan tuc thi.
-    if (!isfinite(tempRateRefValue_) || elapsedMs(now, tempRateRefAt_) >= TEMP_RATE_WINDOW_MS) {
+    if (!isfinite(tempRateRefValue_) || elapsedMs(now, tempRateRefAt_) >=
+                                             config_.tempRateWindowSec * 1000UL) {
       if (isfinite(tempRateRefValue_) && sensorUsable_ && isfinite(temperature_) && batchRunning_) {
-        temperatureRateActive_ = fabsf(temperature_ - tempRateRefValue_) >= TEMP_RATE_LIMIT_C;
+        temperatureRateActive_ = fabsf(temperature_ - tempRateRefValue_) >= config_.tempRateLimitC;
       } else {
         temperatureRateActive_ = false;
       }
@@ -4218,9 +4325,10 @@ class MachineController {
 
     // Dao dong nhiet mat on dinh: dem so lan doi dau quanh diem dat (ra khoi
     // dai hysteresis) trong 1 khung gio co dinh TEMP_OSCILLATION_WINDOW_MS.
-    if (elapsedMs(now, tempOscillationWindowStart_) >= TEMP_OSCILLATION_WINDOW_MS) {
+    if (elapsedMs(now, tempOscillationWindowStart_) >=
+        config_.tempOscillationWindowSec * 1000UL) {
       temperatureUnstableActive_ = batchRunning_ && sensorUsable_ &&
-          tempOscillationCrossCount_ >= TEMP_OSCILLATION_CROSS_LIMIT;
+          tempOscillationCrossCount_ >= config_.tempOscillationCrossLimit;
       tempOscillationCrossCount_ = 0U;
       tempOscillationWindowStart_ = now;
       tempOscillationLastSign_ = 0;
@@ -4262,7 +4370,8 @@ class MachineController {
       heaterStuckTracking_ = true;
       heaterStuckSinceAt_ = now;
       heaterStuckStartTemp_ = temperature_;
-    } else if (elapsedMs(now, heaterStuckSinceAt_) >= HEATER_STUCK_DURATION_MS) {
+    } else if (elapsedMs(now, heaterStuckSinceAt_) >=
+               config_.heaterStuckDurationSec * 1000UL) {
       heaterNotHeatingActive_ = false;  // [NHANH TEST] luon tat, bo qua dieu kien that
     }
 
@@ -5719,6 +5828,13 @@ class MachineController {
         "[CONFIG] PID kp=%.2f ki=%.2f kd=%.2f chu_ky=%us cong_suat_max=%u%%\n",
         config_.kp, config_.ki, config_.kd, config_.pidCycleSec,
         config_.maxHeaterPower);
+    mayapSerialPrintf(false,
+        "[CONFIG] Nang cao: ket_dinh=%.2fC/%us toc_do=%.2fC/%us dao_dong=%u/%us "
+        "tune_cong_suat=%u%% tune_band=%.2fC\n",
+        config_.heaterStuckMinRiseC, config_.heaterStuckDurationSec,
+        config_.tempRateLimitC, config_.tempRateWindowSec,
+        config_.tempOscillationCrossLimit, config_.tempOscillationWindowSec,
+        config_.autotuneRelayPowerPercent, config_.autotuneBandC);
     mayapSerialPrintf(false,
         "[CONFIG] am_thap=%.0f%% tre_bao_am=%us quat_hut_bat=%.1fC quat_hut_tat=%.1fC quat_tuan_hoan=%s\n",
         config_.lowHumidityAlarm, config_.humidityAlarmDelaySec,

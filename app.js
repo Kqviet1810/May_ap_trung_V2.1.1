@@ -19,6 +19,7 @@
   });
 
   const STORAGE = 'mayap.web.v9';
+  const THEME_STORAGE = 'mayap.theme';
   const PROTOCOL_VERSION = 1;
   const DEVICE_ID_RE = /^MAP-[A-F0-9]{12}$/;
   const CONFIG_KEYS = Object.freeze([
@@ -30,7 +31,9 @@
     'totalIncubationDays', 'circulationFanEnabled', 'turningEnabled',
     'autoResumeAfterPower', 'allowHeatWithoutBatch', 'alarmEnabled',
     'lightAfterBatchAlarmEnabled', 'highTempAlarmWithoutBatch', 'controlMode',
-    'nextDirection'
+    'nextDirection', 'heaterStuckMinRiseC', 'heaterStuckDurationSec',
+    'tempRateLimitC', 'tempRateWindowSec', 'tempOscillationCrossLimit',
+    'tempOscillationWindowSec', 'autotuneRelayPowerPercent', 'autotuneBandC'
   ]);
 
   const DEFAULT_BATCH_META = Object.freeze({
@@ -1070,7 +1073,21 @@
 
     check('lightAlarmForm', 'lightAfterBatchAlarmEnabled', config.lightAfterBatchAlarmEnabled);
 
-    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm'].forEach((formId) => {
+    assign('advancedForm', 'advKp', config.kp);
+    assign('advancedForm', 'advKi', config.ki);
+    assign('advancedForm', 'advKd', config.kd);
+    assign('advancedForm', 'advPidCycleSec', config.pidCycleSec);
+    assign('advancedForm', 'advMaxHeaterPower', config.maxHeaterPower);
+    assign('advancedForm', 'advTempRateLimitC', config.tempRateLimitC);
+    assign('advancedForm', 'advTempRateWindowSec', config.tempRateWindowSec);
+    assign('advancedForm', 'advTempOscillationCrossLimit', config.tempOscillationCrossLimit);
+    assign('advancedForm', 'advTempOscillationWindowSec', config.tempOscillationWindowSec);
+    assign('advancedForm', 'advHeaterStuckMinRiseC', config.heaterStuckMinRiseC);
+    assign('advancedForm', 'advHeaterStuckDurationSec', config.heaterStuckDurationSec);
+    assign('advancedForm', 'advAutotuneRelayPowerPercent', config.autotuneRelayPowerPercent);
+    assign('advancedForm', 'advAutotuneBandC', config.autotuneBandC);
+
+    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm', 'advancedForm'].forEach((formId) => {
       if (force || !hasDirtyForm(formId)) setFormState(formId, 'saved', 'Đã đồng bộ với ESP32');
     });
     updateSettingSummaries();
@@ -1145,6 +1162,20 @@
       config.sensorTimeoutSec = Number($('sensorTimeout').value);
     } else if (group === 'lightAlarm') {
       config.lightAfterBatchAlarmEnabled = $('lightAfterBatchAlarmEnabled').checked;
+    } else if (group === 'advanced') {
+      config.kp = Number($('advKp').value);
+      config.ki = Number($('advKi').value);
+      config.kd = Number($('advKd').value);
+      config.pidCycleSec = Number($('advPidCycleSec').value);
+      config.maxHeaterPower = Number($('advMaxHeaterPower').value);
+      config.tempRateLimitC = Number($('advTempRateLimitC').value);
+      config.tempRateWindowSec = Number($('advTempRateWindowSec').value);
+      config.tempOscillationCrossLimit = Number($('advTempOscillationCrossLimit').value);
+      config.tempOscillationWindowSec = Number($('advTempOscillationWindowSec').value);
+      config.heaterStuckMinRiseC = Number($('advHeaterStuckMinRiseC').value);
+      config.heaterStuckDurationSec = Number($('advHeaterStuckDurationSec').value);
+      config.autotuneRelayPowerPercent = Number($('advAutotuneRelayPowerPercent').value);
+      config.autotuneBandC = Number($('advAutotuneBandC').value);
     }
     return config;
   }
@@ -1860,6 +1891,67 @@
     return true;
   }
 
+  function validateAdvancedForm() {
+    clearInvalid('advancedForm');
+    const kp = Number($('advKp').value);
+    const ki = Number($('advKi').value);
+    const kd = Number($('advKd').value);
+    const pidCycleSec = Number($('advPidCycleSec').value);
+    const maxHeaterPower = Number($('advMaxHeaterPower').value);
+    const tempRateLimitC = Number($('advTempRateLimitC').value);
+    const tempRateWindowSec = Number($('advTempRateWindowSec').value);
+    const tempOscillationCrossLimit = Number($('advTempOscillationCrossLimit').value);
+    const tempOscillationWindowSec = Number($('advTempOscillationWindowSec').value);
+    const heaterStuckMinRiseC = Number($('advHeaterStuckMinRiseC').value);
+    const heaterStuckDurationSec = Number($('advHeaterStuckDurationSec').value);
+    const autotuneRelayPowerPercent = Number($('advAutotuneRelayPowerPercent').value);
+    const autotuneBandC = Number($('advAutotuneBandC').value);
+    if (!(kp >= 0 && kp <= 100)) return invalidate('advancedForm', 'advKp', 'Hệ số Kp phải từ 0 đến 100.');
+    if (!(ki >= 0 && ki <= 20)) return invalidate('advancedForm', 'advKi', 'Hệ số Ki phải từ 0 đến 20.');
+    if (!(kd >= 0 && kd <= 200)) return invalidate('advancedForm', 'advKd', 'Hệ số Kd phải từ 0 đến 200.');
+    if (!(pidCycleSec >= 1 && pidCycleSec <= 60)) return invalidate('advancedForm', 'advPidCycleSec', 'Chu kỳ SSR phải từ 1 đến 60 giây.');
+    if (!(maxHeaterPower >= 10 && maxHeaterPower <= 100)) return invalidate('advancedForm', 'advMaxHeaterPower', 'Trần công suất phải từ 10 đến 100%.');
+    if (!(tempRateLimitC >= 0.1 && tempRateLimitC <= 10)) return invalidate('advancedForm', 'advTempRateLimitC', 'Ngưỡng tốc độ phải từ 0,1 đến 10°C.');
+    if (!(tempRateWindowSec >= 30 && tempRateWindowSec <= 1800)) return invalidate('advancedForm', 'advTempRateWindowSec', 'Khung thời gian phải từ 30 đến 1800 giây.');
+    if (!(tempOscillationCrossLimit >= 2 && tempOscillationCrossLimit <= 30)) return invalidate('advancedForm', 'advTempOscillationCrossLimit', 'Số lần dao động phải từ 2 đến 30.');
+    if (!(tempOscillationWindowSec >= 60 && tempOscillationWindowSec <= 3600)) return invalidate('advancedForm', 'advTempOscillationWindowSec', 'Khung thời gian phải từ 60 đến 3600 giây.');
+    if (!(heaterStuckMinRiseC >= 0.05 && heaterStuckMinRiseC <= 5)) return invalidate('advancedForm', 'advHeaterStuckMinRiseC', 'Ngưỡng tăng tối thiểu phải từ 0,05 đến 5°C.');
+    if (!(heaterStuckDurationSec >= 60 && heaterStuckDurationSec <= 3600)) return invalidate('advancedForm', 'advHeaterStuckDurationSec', 'Thời gian xác nhận phải từ 60 đến 3600 giây.');
+    if (!(autotuneRelayPowerPercent >= 10 && autotuneRelayPowerPercent <= 80)) return invalidate('advancedForm', 'advAutotuneRelayPowerPercent', 'Công suất relay Auto Tune phải từ 10 đến 80%.');
+    if (!(autotuneBandC >= 0.05 && autotuneBandC <= 1)) return invalidate('advancedForm', 'advAutotuneBandC', 'Dải xác nhận Auto Tune phải từ 0,05 đến 1°C.');
+    return true;
+  }
+
+  function getThemePreference() {
+    try {
+      const value = localStorage.getItem(THEME_STORAGE);
+      return value === 'light' || value === 'dark' ? value : 'system';
+    } catch (e) {
+      return 'system';
+    }
+  }
+
+  function applyTheme(choice) {
+    if (choice === 'light' || choice === 'dark') {
+      document.documentElement.setAttribute('data-theme', choice);
+      try { localStorage.setItem(THEME_STORAGE, choice); } catch (e) { /* ignore */ }
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      try { localStorage.removeItem(THEME_STORAGE); } catch (e) { /* ignore */ }
+    }
+    const toggle = $('themeToggle');
+    if (toggle) {
+      toggle.querySelectorAll('button').forEach((button) => {
+        const checked = button.dataset.themeChoice === choice;
+        button.setAttribute('aria-checked', checked ? 'true' : 'false');
+      });
+    }
+    const summary = $('themeSummary');
+    if (summary) {
+      summary.textContent = choice === 'light' ? 'Sáng' : choice === 'dark' ? 'Tối' : 'Theo hệ thống';
+    }
+  }
+
   function bindUi() {
     $('confirmCancel').addEventListener('click', () => finishConfirm(false));
     $('confirmAccept').addEventListener('click', () => finishConfirm(true));
@@ -2127,6 +2219,12 @@
       await sendConfig('lightAlarmForm', 'lightAlarm');
     });
 
+    $('advancedForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!validateAdvancedForm()) return;
+      await sendConfig('advancedForm', 'advanced');
+    });
+
     $('startTune').addEventListener('click', async () => {
       const runtime = currentDevice()?.snapshot?.runtime;
       if (runtime?.batchRunning) return toast('Không thể Auto Tune khi mẻ đang chạy');
@@ -2136,6 +2234,10 @@
         accept: 'Bắt đầu Auto Tune'
       });
       if (ok) await sendCommand('autotune_start');
+    });
+
+    $('themeToggle').querySelectorAll('button').forEach((button) => {
+      button.addEventListener('click', () => applyTheme(button.dataset.themeChoice));
     });
 
     $('enablePushBtn').addEventListener('click', onEnablePushClick);
@@ -2150,7 +2252,7 @@
       if (ok) window.location.href = 'http://192.168.4.1/';
     });
 
-    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm'].forEach(registerDirty);
+    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm', 'advancedForm'].forEach(registerDirty);
   }
 
   function startTimers() {
@@ -2307,6 +2409,7 @@
     // showPage chi chay khi bam nut chuyen trang), nen moi lan doi chu trong
     // pageMeta ma quen sua index.html la nguoi dung van thay chuoi cu.
     showPage('device');
+    applyTheme(getThemePreference());
     applyDeepLinkDevice();
     bindUi();
     renderSelector();
