@@ -1334,8 +1334,12 @@ constexpr size_t CONFIG_V3_PAYLOAD_BYTES =
 // Sau connectivityMode la 4 truong uint8_t moi hon: autoResumeOnPowerLoss
 // (schema 5), lightAfterBatchAlarmEnabled (schema 6), highTempAlarmWithoutBatch
 // (schema 7) - dat lai gia tri mac dinh tuong minh sau memcpy.
+// So sanh voi offsetof truong Nang cao dau tien (schema 8), KHONG PHAI
+// sizeof(PackedMachineConfigV1) - struct con them cac truong Nang cao phia
+// sau highTempAlarmWithoutBatch nen sizeof toan struct khong con dung bang
+// mep cuoi cua 4 truong nay nua.
 static_assert(CONFIG_V3_PAYLOAD_BYTES + 4U * sizeof(uint8_t) ==
-                  sizeof(PackedMachineConfigV1),
+                  offsetof(PackedMachineConfigV1, heaterStuckMinRiseC),
               "connectivityMode phai la truong cuoi cung cua schema 3, "
               "theo sau boi dung 4 truong uint8_t moi hon");
 struct ConfigRecordLegacyV3 {
@@ -1350,11 +1354,13 @@ struct ConfigRecordLegacyV3 {
 // tru autoResumeOnPowerLoss. Dung de nang cap tai cho khong mat cau hinh cu.
 constexpr size_t CONFIG_V4_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, autoResumeOnPowerLoss);
+// So sanh voi offsetof truong Nang cao dau tien (schema 8) - xem ghi chu o
+// static_assert cua CONFIG_V3_PAYLOAD_BYTES o tren.
 static_assert(CONFIG_V4_PAYLOAD_BYTES + 3U * sizeof(uint8_t) ==
-                  sizeof(PackedMachineConfigV1),
+                  offsetof(PackedMachineConfigV1, heaterStuckMinRiseC),
               "autoResumeOnPowerLoss + lightAfterBatchAlarmEnabled + "
               "highTempAlarmWithoutBatch phai la 3 truong cuoi cung cua "
-              "PackedMachineConfigV1");
+              "PackedMachineConfigV1 truoc schema 8");
 struct ConfigRecordLegacyV4 {
   uint32_t magic;
   uint16_t schema;
