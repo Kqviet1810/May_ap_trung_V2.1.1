@@ -120,10 +120,9 @@
 <div class="settingBody">
 <p class="settingFootnote">Nhắc theo số ngày kể từ lúc bắt đầu mẻ ấp, ví dụ "4 ngày sau khi bắt đầu, nhắc kiểm tra". Tối đa 10 nhắc, tự động lặp lại cho mỗi mẻ ấp mới.</p>
 <form class="stackForm" id="remindersForm">
-<div class="grid2">
-<label class="field"><span>Sau bao nhiêu ngày</span><div class="unit"><input id="reminderDayInput" max="99" min="1" step="1" type="number"/><b>Ngày</b></div></label>
-<label class="field"><span>Nội dung nhắc</span><input id="reminderLabelInput" maxlength="23" placeholder="Kiểm tra trứng" type="text"/></label>
-</div>
+<label class="compactTile"><span>Sau bao nhiêu ngày</span><div class="unit"><input id="reminderDayInput" max="99" min="1" placeholder="4" step="1" type="number"/><b>Ngày</b></div></label>
+<label class="field"><span>Nội dung nhắc</span><textarea id="reminderLabelInput" maxlength="120" placeholder="Ví dụ: Ngày thứ 10 thì cần mang khay số 3 ra để kiểm tra" rows="2"></textarea></label>
+<p class="settingFootnote" id="reminderLabelCounter">Còn 79 byte (dấu tiếng Việt tốn nhiều byte hơn số chữ hiển thị)</p>
 <p class="formError" id="remindersFormError" role="alert"></p>
 <button class="ghost full" id="addReminderBtn" type="submit">Thêm nhắc nhở</button>
 </form>

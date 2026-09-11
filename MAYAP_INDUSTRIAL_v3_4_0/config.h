@@ -786,10 +786,17 @@ constexpr uint32_t MAX_RTC_RECOVERY_GAP_SEC = 45UL * 86400UL;
 // ket thuc) - du cho 1 cau ngan, HMI khong hien thi muc nay nen khong bi rang
 // buoc boi be rong man hinh LCD.
 constexpr uint8_t MAX_CUSTOM_REMINDERS = 10U;
-constexpr uint8_t CUSTOM_REMINDER_LABEL_LEN = 24U;  // gom byte '\0' ket thuc
+// 79 ky tu (byte UTF-8) su dung + 1 byte '\0' ket thuc - du cho 1 cau nhac
+// day du kieu "Ngay thu 10 thi can mang khay so 3 ra de kiem tra" (nguoi
+// dung phan anh 23 byte cu qua chat, cat cut mat noi dung that su can nho).
+// Luu y day la GIOI HAN BYTE UTF-8, khong phai so ky tu hien thi - tieng Viet
+// co dau ton nhieu byte hon so ky tu (xem REMINDER_LABEL_MAX_BYTES/
+// utf8ByteLength() trong app.js, dam bao web khong bao gio gui qua gioi han
+// nay va lam dut giua 1 ky tu nhieu byte).
+constexpr uint8_t CUSTOM_REMINDER_LABEL_LEN = 80U;  // gom byte '\0' ket thuc
 
 // Ban do AT24C32, dia chi o nho 16-bit:
-// Config A/B 256 byte; Batch A/B 128 byte; Reminders A/B 320 byte; phan con
+// Config A/B 256 byte; Batch A/B 128 byte; Reminders A/B 1024 byte; phan con
 // lai du phong. Reminders dung BAN GHI RIENG (khong nhap chung vao
 // PackedMachineConfigV1/CONFIG_SCHEMA) de KHONG dung den dia chi Batch A/B da
 // co san - tranh nguy co mat du lieu "tiep tuc me dang do" cua nguoi dung
@@ -802,10 +809,10 @@ constexpr uint16_t EEPROM_ADDR_CONFIG_B = 0x0100U;
 constexpr uint16_t EEPROM_ADDR_BATCH_A  = 0x0200U;
 constexpr uint16_t EEPROM_ADDR_BATCH_B  = 0x0280U;
 constexpr uint16_t EEPROM_ADDR_REMINDERS_A = 0x0300U;
-constexpr uint16_t EEPROM_ADDR_REMINDERS_B = 0x0440U;
+constexpr uint16_t EEPROM_ADDR_REMINDERS_B = 0x0700U;
 constexpr uint16_t EEPROM_CONFIG_SLOT_BYTES = 0x0100U;
 constexpr uint16_t EEPROM_BATCH_SLOT_BYTES = 0x0080U;
-constexpr uint16_t EEPROM_REMINDERS_SLOT_BYTES = 0x0140U;
+constexpr uint16_t EEPROM_REMINDERS_SLOT_BYTES = 0x0400U;
 
 static_assert(EEPROM_I2C_ADDRESS >= 0x50U && EEPROM_I2C_ADDRESS <= 0x57U,
               "Dia chi AT24C32 phai nam trong 0x50..0x57");

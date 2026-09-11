@@ -220,12 +220,13 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 /* ================================= Forms ==================================== */
 .field{display:grid;gap:8px}
 .field>span{font-size:var(--fs-sm);font-weight:700;color:var(--label)}
-input,select,.customSelectTrigger{width:100%;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);color:var(--ink);font-size:var(--fs-md);padding:0 14px;outline:0;transition:border-color var(--ease),box-shadow var(--ease),background var(--ease),color var(--ease)}
+input,select,textarea,.customSelectTrigger{width:100%;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);color:var(--ink);font-size:var(--fs-md);padding:0 14px;outline:0;transition:border-color var(--ease),box-shadow var(--ease),background var(--ease),color var(--ease)}
 select,.customSelectTrigger{appearance:none;-webkit-appearance:none;padding-right:44px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%232c5d56' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center;background-size:16px}
-input:hover,select:hover,.customSelectTrigger:hover{border-color:#a9c2bc}
-input:focus,select:focus,.customSelectTrigger:focus-visible{border-color:var(--ring);box-shadow:0 0 0 3px #2f8f8220}
-input::placeholder{color:var(--faint)}
-input:disabled,select:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:not-allowed;background-color:var(--tile)}
+textarea{padding:12px 14px;font-family:inherit;resize:vertical}
+input:hover,select:hover,textarea:hover,.customSelectTrigger:hover{border-color:#a9c2bc}
+input:focus,select:focus,textarea:focus,.customSelectTrigger:focus-visible{border-color:var(--ring);box-shadow:0 0 0 3px #2f8f8220}
+input::placeholder,textarea::placeholder{color:var(--faint)}
+input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:not-allowed;background-color:var(--tile)}
 
 .fieldWithAction{display:flex;gap:8px}
 .fieldWithAction input{flex:1;min-width:0}
