@@ -228,9 +228,21 @@ input:focus,select:focus,textarea:focus,.customSelectTrigger:focus-visible{borde
 input::placeholder,textarea::placeholder{color:var(--faint)}
 input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:not-allowed;background-color:var(--tile)}
 
+/* Don vi (Giay/%/°C/Phut) dat truc tiep trong .field (KHONG phai
+   .compactTile, vd Dao trung/Cam bien) - o day .unit PHAI TU LAM KHUNG (nhu
+   1 input binh thuong), vi input ben trong von thiet ke trong suot chi hop
+   khi nam trong .compactTile/.quickField. Thieu quy tac nay la nguyen nhan
+   "khung vo hinh" trong cac muc nay truoc do. */
+.field>.unit{border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);padding:0 14px;min-height:52px;transition:border-color var(--ease),box-shadow var(--ease),background var(--ease)}
+.field>.unit:hover{border-color:#a9c2bc}
+.field>.unit:focus-within{border-color:var(--ring);box-shadow:0 0 0 3px #2f8f8220}
+.field>.unit input{font-size:var(--fs-md);font-weight:700;min-height:50px}
+.field>.unit b{font-size:var(--fs-sm)}
+
 .fieldWithAction{display:flex;gap:8px}
 .fieldWithAction input{flex:1;min-width:0}
-.scanBtn{flex:0 0 52px;width:52px;height:52px;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center;cursor:pointer;transition:filter var(--ease)}
+.reminderDayInput{flex:0 0 84px;text-align:center;padding:0 8px}
+.scanBtn{flex:0 0 52px;width:52px;height:52px;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center;cursor:pointer;transition:filter var(--ease);font-size:24px;font-weight:700;line-height:1}
 .scanBtn:hover{filter:brightness(.97)}
 /* Man quet QR toan man hinh (kieu Google Lens) - dat NGOAI <dialog>, tu no
    la 1 lop phu rieng nen hop thoai "Them thiet bi" phia sau van giu nguyen
@@ -530,7 +542,12 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
      tinh, nen an han chu thich, chi giu tieu de. */
   .title p{display:none}
   .live{padding:8px;border-radius:11px}
-  .live>span{font-size:9px}
+  /* "Trang thai" (10 ky tu) dai hon han "Nhiet do"/"Do am" cung hang - viet
+     hoa + letter-spacing mac dinh (.7px) khien no la nhan DUY NHAT bi tran
+     va cat "..." tren man hinh hep, du 2 nhan kia van vua khung binh thuong.
+     Giam rieng letter-spacing (khong giam them font-size, van doc duoc) de
+     lay lai vai px, du de khong con bi cat. */
+  .live>span{font-size:9px;letter-spacing:.2px}
   .live>strong{font-size:15px}
   .panel{padding:18px;border-radius:16px}
   .deviceIdentity h2{font-size:20px}

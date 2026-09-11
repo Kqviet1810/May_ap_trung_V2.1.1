@@ -48,7 +48,7 @@
 </div>
 </section>
 <form class="panel" id="quickForm">
-<div class="panelHead"><div><p class="eyebrow">ĐIỀU CHỈNH NHANH</p><h2>Thông số vận hành</h2></div><span class="pill soft">Đồng bộ ESP32</span></div>
+<div class="panelHead"><div><p class="eyebrow">ĐIỀU CHỈNH NHANH</p><h2>Vận hành</h2></div><span class="pill soft">Đồng bộ ESP32</span></div>
 <div class="quickGrid">
 <label class="quickField"><span>Nhiệt độ đặt</span><div><input id="quickTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
 <label class="quickField"><span>Chu kỳ đảo</span><div><input id="quickTurn" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
@@ -119,12 +119,12 @@
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><rect height="18" rx="2" width="18" x="3" y="4"/><line x1="3" x2="21" y1="10" y2="10"/><path d="M8 2v4M16 2v4"/></svg></span><span class="settingSummary"><strong>Nhắc nhở tùy chỉnh</strong><small id="remindersSummary">Chưa có nhắc nào</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
 <form class="stackForm" id="remindersForm">
-<div class="tempGrid">
-<label class="compactTile"><span>Sau bao nhiêu ngày</span><div class="unit"><input id="reminderDayInput" max="99" min="1" placeholder="4" step="1" type="number"/><b>Ngày</b></div></label>
+<div class="fieldWithAction">
+<input aria-label="Sau bao nhiêu ngày" class="reminderDayInput" id="reminderDayInput" max="99" min="1" placeholder="Ngày" step="1" type="number"/>
+<input aria-label="Nội dung nhắc" id="reminderLabelInput" maxlength="120" placeholder="Nội dung nhắc, ví dụ: mang khay số 3 ra kiểm tra" type="text"/>
+<button aria-label="Thêm nhắc nhở" class="scanBtn" id="addReminderBtn" type="submit">+</button>
 </div>
-<label class="field"><span>Nội dung nhắc</span><textarea id="reminderLabelInput" maxlength="120" placeholder="Ví dụ: Ngày thứ 10 thì cần mang khay số 3 ra để kiểm tra" rows="2"></textarea></label>
 <p class="formError" id="remindersFormError" role="alert"></p>
-<button class="ghost full" id="addReminderBtn" type="submit">Thêm nhắc nhở</button>
 </form>
 <div class="deviceList" id="reminderList"></div>
 </div>
@@ -209,22 +209,18 @@
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 8 8 8"/></svg></span><span class="settingSummary"><strong>Đảo trứng</strong><small id="turningSummary">Tự động · mỗi 120 phút</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody" id="turningForm">
 <div class="notificationLine"><div><strong>Đảo tự động</strong><small>ESP32 thực hiện theo chu kỳ và công tắc hành trình.</small></div><label class="toggle"><input checked="" id="turningEnabled" type="checkbox"/><i></i></label></div>
-<div class="tempGrid">
-<label class="compactTile"><span>Chu kỳ đảo</span><div class="unit"><input id="turnInterval" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
-<label class="compactTile"><span>Chờ hành trình</span><div class="unit"><input id="limitAlarmTime" max="120" min="3" type="number" value="20"/><b>Giây</b></div></label>
-<label class="compactTile"><span>Hướng đảo kế tiếp</span><select id="nextDirection"><option value="left">Trái</option><option value="right">Phải</option></select></label>
-</div>
+<label class="field"><span>Khoảng thời gian giữa hai lần đảo</span><div class="unit"><input id="turnInterval" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
+<label class="field"><span>Thời gian chờ hành trình</span><div class="unit"><input id="limitAlarmTime" max="120" min="3" type="number" value="20"/><b>Giây</b></div></label>
+<label class="field"><span>Hướng đảo kế tiếp</span><select id="nextDirection"><option value="left">Trái</option><option value="right">Phải</option></select></label>
 <button class="primary full" type="submit">Lưu cài đặt đảo</button>
 </form>
 </details>
 <details class="settingCard">
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 2.7s6 6.5 6 11a6 6 0 1 1-12 0c0-4.5 6-11 6-11Z"/></svg></span><span class="settingSummary"><strong>Cảm biến</strong><small id="sensorSummary">Bù 0,0°C · timeout 10 giây</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody" id="sensorForm">
-<div class="tempGrid">
-<label class="compactTile"><span>Bù nhiệt độ</span><div class="unit"><input id="tempOffset" max="10" min="-10" step="0.1" type="number" value="0"/><b>°C</b></div></label>
-<label class="compactTile"><span>Bù độ ẩm</span><div class="unit"><input id="humidityOffset" max="20" min="-20" step="0.1" type="number" value="0"/><b>%RH</b></div></label>
-<label class="compactTile"><span>Timeout cảm biến</span><div class="unit"><input id="sensorTimeout" max="120" min="2" type="number" value="10"/><b>Giây</b></div></label>
-</div>
+<label class="field"><span>Bù nhiệt độ</span><div class="unit"><input id="tempOffset" max="10" min="-10" step="0.1" type="number" value="0"/><b>°C</b></div></label>
+<label class="field"><span>Bù độ ẩm</span><div class="unit"><input id="humidityOffset" max="20" min="-20" step="0.1" type="number" value="0"/><b>%RH</b></div></label>
+<label class="field"><span>Timeout cảm biến</span><div class="unit"><input id="sensorTimeout" max="120" min="2" type="number" value="10"/><b>Giây</b></div></label>
 <button class="primary full" type="submit">Lưu hiệu chỉnh cảm biến</button>
 </form>
 </details>
