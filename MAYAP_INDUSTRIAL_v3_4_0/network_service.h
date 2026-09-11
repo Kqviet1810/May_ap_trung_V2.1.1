@@ -8,6 +8,7 @@
 #include <Preferences.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <time.h>
 
 // Wi-Fi duoc cach ly khoi task dieu khien. File nay chi duoc goi boi
 // networkTask (tru mayapSetConnectivityMode/mayapGetNetworkStatus/
@@ -515,7 +516,88 @@ inline void servicePortal(uint32_t now) {
   }
 }
 
+// --------------------------- Dong bo gio qua NTP (v3.8.0) --------------------
+// Mailbox rieng, cung mo hinh voi webMux/pendingConfigSave (realtime_link.h):
+// GHI boi networkTask (serviceNtpSync(), khi Wi-Fi da ket noi va toi chu ky
+// dong bo), DOC+XOA boi controlTask qua mayapTakePendingNtpTime() trong
+// serviceI2cDeviceRecovery() (machine_control.h). Vung critical section chi
+// copy vai byte, khong bao gio giu qua mot loi goi I/O.
+static portMUX_TYPE ntpMux = portMUX_INITIALIZER_UNLOCKED;
+struct PendingNtpTime {
+  bool pending = false;
+  uint16_t year = 0U;
+  uint8_t month = 0U, day = 0U, hour = 0U, minute = 0U, second = 0U;
+};
+static PendingNtpTime pendingNtpTime;
+static uint32_t lastNtpSyncAt = 0U;
+static bool ntpConfigured = false;
+
+inline void serviceNtpSync(uint32_t now) {
+  if (!NTP_SYNC_ENABLED) return;
+  // lastNtpSyncAt==0 dung nghia "chua tung dong bo" - dong bo NGAY lan dau co
+  // Wi-Fi (khong doi du NTP_SYNC_INTERVAL_MS) de rut ngan thoi gian phuc hoi
+  // sau khi mat dien/reboot dung luc RTC hong that; sau lan dau moi vao chu ky
+  // dinh ky binh thuong (chi sua troi dat nho cua thach anh DS3231).
+  if (lastNtpSyncAt != 0U &&
+      elapsedMs(now, lastNtpSyncAt) < NTP_SYNC_INTERVAL_MS) {
+    return;
+  }
+  lastNtpSyncAt = now;
+  if (!ntpConfigured) {
+    configTime(NTP_TIMEZONE_OFFSET_SEC, 0, NTP_SERVER_PRIMARY, NTP_SERVER_SECONDARY);
+    ntpConfigured = true;
+  }
+  struct tm timeinfo{};
+  // getLocalTime() block toi da NTP_REQUEST_TIMEOUT_MS - chap nhan duoc vi day
+  // la networkTask (da chiu block boi HTTP(S)/MQTT o noi khac trong cung task),
+  // KHONG phai controlTask dieu khien an toan (rieng, khong bao gio block).
+  if (!getLocalTime(&timeinfo, NTP_REQUEST_TIMEOUT_MS)) {
+    mayapSerialPrintf(false, "[NTP] Dong bo that bai (khong lien lac duoc may chu gio)\n");
+    return;
+  }
+  const int year = timeinfo.tm_year + 1900;
+  if (year < static_cast<int>(RTC_VALID_YEAR_MIN) ||
+      year > static_cast<int>(RTC_VALID_YEAR_MAX)) {
+    return;  // gia tri rac (SNTP chua sync xong that su ngay sau configTime) - bo qua, thu lai chu ky sau
+  }
+  portENTER_CRITICAL(&ntpMux);
+  pendingNtpTime.pending = true;
+  pendingNtpTime.year = static_cast<uint16_t>(year);
+  pendingNtpTime.month = static_cast<uint8_t>(timeinfo.tm_mon + 1);
+  pendingNtpTime.day = static_cast<uint8_t>(timeinfo.tm_mday);
+  pendingNtpTime.hour = static_cast<uint8_t>(timeinfo.tm_hour);
+  pendingNtpTime.minute = static_cast<uint8_t>(timeinfo.tm_min);
+  pendingNtpTime.second = static_cast<uint8_t>(timeinfo.tm_sec);
+  portEXIT_CRITICAL(&ntpMux);
+  mayapSerialPrintf(false, "[NTP] Dong bo OK %04d-%02d-%02d %02d:%02d:%02d\n",
+      year, timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_hour,
+      timeinfo.tm_min, timeinfo.tm_sec);
+}
+
 }  // namespace MayapNetworkInternal
+
+// Doc boi controlTask (MachineController::serviceI2cDeviceRecovery()) - lay va
+// xoa 1 lan gio moi nhat tu NTP neu co (giong het pattern pendingConfigSave.used
+// o realtime_link.h). Tra ve true + dien du 6 truong neu co du lieu moi.
+inline bool mayapTakePendingNtpTime(uint16_t &year, uint8_t &month, uint8_t &day,
+                                     uint8_t &hour, uint8_t &minute,
+                                     uint8_t &second) {
+  using namespace MayapNetworkInternal;
+  bool has = false;
+  portENTER_CRITICAL(&ntpMux);
+  if (pendingNtpTime.pending) {
+    has = true;
+    year = pendingNtpTime.year;
+    month = pendingNtpTime.month;
+    day = pendingNtpTime.day;
+    hour = pendingNtpTime.hour;
+    minute = pendingNtpTime.minute;
+    second = pendingNtpTime.second;
+    pendingNtpTime.pending = false;
+  }
+  portEXIT_CRITICAL(&ntpMux);
+  return has;
+}
 
 // Dinh danh thiet bi "MAP-XXXXXXXXXXXX" dung chung cho ca portal web va cac
 // module khac (cloud_alert_link.h) - tranh moi noi tu tinh lai tu MAC rieng.
@@ -686,6 +768,9 @@ inline void mayapNetworkUpdate(uint32_t now) {
     if (rssi > 0) rssi = 0;
     publish(NetworkStateCode::Connected, true,
             static_cast<int8_t>(rssi));
+    // Dong bo gio qua NTP (xem serviceNtpSync() o tren) - chi khi mang STA
+    // that su on dinh (khong phai luc cong Wi-Fi dang test SSID moi).
+    serviceNtpSync(now);
     return;
   }
 

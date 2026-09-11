@@ -196,6 +196,7 @@ enum class EventCode : uint16_t {
   ResumePrompt = 23, ResumeAccepted, ResumeRejected,
   ModeAuto = 30, ModeManual, AutoLostDuringBatch, AutoRestoredDuringBatch,
   SensorOnline = 40, SensorOffline, RtcReconnected, RtcAutoRepaired,
+  RtcNtpSynced,
   ConfigSaved = 50, AutoTuneStarted, AutoTuneSuccess, AutoTuneFailed,
   StorageReconnected,
   TurnStartLeft = 60, TurnStartRight, TurnHomeLeft, TurnHomeRight,
@@ -3702,6 +3703,26 @@ class MachineController {
 
   // ------------------------- I2C device recovery -----------------------------
   void serviceI2cDeviceRecovery(uint32_t now) {
+    // Gio moi tu NTP (networkTask, xem serviceNtpSync() trong network_service.h)
+    // - nguon phuc hoi THU HAI, doc lap voi RTC_AUTO_REPAIR_* o tren: giup khi
+    // module DS3231 hong that/mat dong ho bong (ca 2 co che tren deu bo tay),
+    // dong thoi sua troi dat nho tich luy giua cac lan neu RTC van dang chay
+    // binh thuong. Ap dung TRUOC khoi RTC auto-repair ben duoi de khong tranh
+    // chap (rtc_.set() tu dat lai autoRepairAttempts_/invalidReadConfirm_).
+    uint16_t ntpYear; uint8_t ntpMonth, ntpDay, ntpHour, ntpMinute, ntpSecond;
+    if (mayapTakePendingNtpTime(ntpYear, ntpMonth, ntpDay, ntpHour, ntpMinute,
+                                 ntpSecond)) {
+      const bool ok = rtc_.set(ntpYear, ntpMonth, ntpDay, ntpHour, ntpMinute,
+                                ntpSecond);
+      if (ok) {
+        eventLog_.push(now, EventType::Recovery,
+                       static_cast<uint16_t>(EventCode::RtcNtpSynced));
+      }
+      mayapSerialPrintf(false, "[RTC] NTP SYNC %s -> %04u-%02u-%02u %02u:%02u:%02u\n",
+          ok ? "OK" : "FAIL", ntpYear, ntpMonth, ntpDay, ntpHour, ntpMinute,
+          ntpSecond);
+    }
+
     const bool rtcAutoRepaired = rtc_.takeAutoRepairNotice();
     const bool rtcReconnected = rtc_.takeReconnectNotice();
     if (rtcAutoRepaired) {

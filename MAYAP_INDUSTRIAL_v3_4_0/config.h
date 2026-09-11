@@ -776,6 +776,27 @@ constexpr uint32_t EEPROM_HEALTH_CHECK_MS = 5000UL;
 constexpr uint8_t EEPROM_RECOVERY_VERIFY_COUNT = 2U;
 constexpr uint32_t MAX_RTC_RECOVERY_GAP_SEC = 45UL * 86400UL;
 
+// --------------------------- Dong bo gio qua NTP -----------------------------
+// RTC_AUTO_REPAIR_* o tren chi phuc hoi duoc khi ESP32 VAN CON NGUON (dong ho
+// bong trong RAM con song) va chua het RTC_AUTO_REPAIR_MAX_ATTEMPTS lan thu -
+// khong giup gi khi module DS3231 hong that (thach anh/pin CR2032 chet) hoac
+// ca ESP32 cung mat dien (dong ho bong mat theo): luc do RTC dung im vinh vien
+// cho den khi co nguoi cam tay set lai (lenh serial "TIME SET" hoac tuong tu).
+// Lop nay them nguon thoi gian THU HAI doc lap qua NTP khi co Wi-Fi - dong bo
+// dinh ky (khong doi loi moi lam) de vua tu phuc hoi khoi tinh huong tren, vua
+// sua troi dat tich luy nho cua thach anh DS3231 (~vai giay/thang) giua cac lan.
+constexpr bool NTP_SYNC_ENABLED = true;
+constexpr char NTP_SERVER_PRIMARY[] = "pool.ntp.org";
+constexpr char NTP_SERVER_SECONDARY[] = "time.google.com";
+// Viet Nam UTC+7, khong doi gio mua he. RTC va toan bo firmware luu GIO DIA
+// PHUONG truc tiep (giong het lenh serial "TIME SET"/HMI dang set thu cong),
+// NTP tra ve UTC nen phai cong offset nay khi doc getLocalTime().
+constexpr int32_t NTP_TIMEZONE_OFFSET_SEC = 7L * 3600L;
+// Chu ky dong bo dinh ky - theo de xuat nguoi dung (12h/lan): du nhanh de troi
+// dat thach anh khong tich luy dang ke, du thua de khong lam phien may chu NTP.
+constexpr uint32_t NTP_SYNC_INTERVAL_MS = 12UL * 3600UL * 1000UL;
+constexpr uint32_t NTP_REQUEST_TIMEOUT_MS = 5000UL;
+
 // Danh sach nhac nho tuy chinh (v3.7.0) - nguoi dung tao tren web (vd "4 ngay
 // sau khi bat dau me, nhac kiem tra"), web da phan tich/xac thuc xong het,
 // ESP32 CHI nhan (ngay, ten) da xu ly san va cho tuc thoi ngay den la bao qua
