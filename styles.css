@@ -241,8 +241,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 
 .fieldWithAction{display:flex;gap:8px}
 .fieldWithAction input{flex:1;min-width:0}
-.reminderDayInput{flex:0 0 84px;text-align:center;padding:0 8px}
-.scanBtn{flex:0 0 52px;width:52px;height:52px;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center;cursor:pointer;transition:filter var(--ease);font-size:24px;font-weight:700;line-height:1}
+.scanBtn{flex:0 0 52px;width:52px;height:52px;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center;cursor:pointer;transition:filter var(--ease)}
 .scanBtn:hover{filter:brightness(.97)}
 /* Man quet QR toan man hinh (kieu Google Lens) - dat NGOAI <dialog>, tu no
    la 1 lop phu rieng nen hop thoai "Them thiet bi" phia sau van giu nguyen
@@ -349,7 +348,11 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .batchPanel{padding:22px}
 .batchPanel .panelHead{align-items:center}
 .batchGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}
-.tempGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+/* 2 cot (khong phai 3) - dang dung cho ca 2 muc Nhiet do va Nang cao, nhieu
+   nhan dai (vd "Toc do tang/giam bat thuong") nen 3 cot lam chu bi bop/
+   xuong dong lien tuc, kho doc. Giu nguyen ten class "tempGrid" (khong doi
+   thanh ten khac) de khong phai sua lai moi noi da tham chieu. */
+.tempGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .compactTile{min-width:0;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);padding:13px 14px;display:grid;align-content:start;gap:6px;min-height:86px;transition:border-color var(--ease)}
 .compactTile:focus-within{border-color:var(--ring)}
 .compactTile>span,.compactTile .tileLabel{display:block;color:var(--label);font-size:var(--fs-xs);font-weight:700;line-height:1.25}
@@ -562,7 +565,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .quickField b{font-size:15px}
   .outputStrip{margin:12px 0}
   .batchGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-  .tempGrid{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+  .tempGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .compactTile{padding:11px;min-height:80px}
   .compactTile input{font-size:18px}
   /* Gia tri ngay theo dinh dang tieng Viet cua trinh duyet ("ngay 29 thg 7,
@@ -638,7 +641,17 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
     flex:1 1 auto;min-height:0;width:100%;
     display:flex;flex-direction:column;gap:10px;
   }
-  body[data-page="batch"] .batchPanel{flex:0 0 auto}
+  /* .batchPanel flex:0 0 auto (khong tu co) nen cang GON thi Nhat ky (flex:1,
+     chiem het phan con lai) cang co nhieu cho hien - truoc day chi thu gon
+     tu @media(max-height:760px) tro xuong nen dien thoai binh thuong (cao
+     hon 760px, van hep < 800px) khong duoc thu gon gi ca, Nhat ky bi ep
+     nho lai vo ich. Ap dung thu gon o day (ngay khi vao che do "toan man
+     hinh khong cuon trang") thay vi doi them dieu kien chieu cao. */
+  body[data-page="batch"] .batchPanel{flex:0 0 auto;padding:16px}
+  body[data-page="batch"] .batchGrid{margin-top:12px;gap:9px}
+  body[data-page="batch"] .compactTile{min-height:72px;padding:10px 11px}
+  body[data-page="batch"] .batchActions{margin-top:10px}
+  body[data-page="batch"] .batchActions button{min-height:46px}
   body[data-page="batch"] .batchLogPanel{
     flex:1 1 auto;min-height:0;margin-top:0;overflow:hidden;
     display:flex;flex-direction:column;

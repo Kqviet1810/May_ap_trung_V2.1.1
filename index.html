@@ -119,12 +119,10 @@
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><rect height="18" rx="2" width="18" x="3" y="4"/><line x1="3" x2="21" y1="10" y2="10"/><path d="M8 2v4M16 2v4"/></svg></span><span class="settingSummary"><strong>Nhắc nhở tùy chỉnh</strong><small id="remindersSummary">Chưa có nhắc nào</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
 <form class="stackForm" id="remindersForm">
-<div class="fieldWithAction">
-<input aria-label="Sau bao nhiêu ngày" class="reminderDayInput" id="reminderDayInput" max="99" min="1" placeholder="Ngày" step="1" type="number"/>
+<input aria-label="Sau bao nhiêu ngày" id="reminderDayInput" max="99" min="1" placeholder="Ngày, ví dụ: 4" step="1" type="number"/>
 <input aria-label="Nội dung nhắc" id="reminderLabelInput" maxlength="120" placeholder="Nội dung nhắc, ví dụ: mang khay số 3 ra kiểm tra" type="text"/>
-<button aria-label="Thêm nhắc nhở" class="scanBtn" id="addReminderBtn" type="submit">+</button>
-</div>
 <p class="formError" id="remindersFormError" role="alert"></p>
+<button class="ghost full" id="addReminderBtn" type="submit">Thêm nhắc nhở</button>
 </form>
 <div class="deviceList" id="reminderList"></div>
 </div>
