@@ -26,7 +26,25 @@
   // "x/10 nhac da dat" va chan them qua tay tren web; ESP32 van tu gioi han
   // lai (sanitizeReminderSet) neu web nao do gui vuot qua.
   const MAX_CUSTOM_REMINDERS = 10;
-  const REMINDER_LABEL_MAX = 23;
+  // Khop dung CUSTOM_REMINDER_LABEL_LEN - 1 trong firmware (config.h) - day
+  // la GIOI HAN BYTE UTF-8 (khong phai so ky tu), vi tieng Viet co dau ton
+  // nhieu byte hon 1 ky tu binh thuong (vd "ầ" = 2 byte UTF-8). Dung
+  // utf8ByteLength()/truncateUtf8Bytes() ben duoi, KHONG dung String.slice()
+  // theo so ky tu - se cat sai gioi han that su ma firmware chap nhan.
+  const REMINDER_LABEL_MAX_BYTES = 79;
+
+  function utf8ByteLength(str) {
+    return new TextEncoder().encode(str).length;
+  }
+
+  // Cat NGUYEN KY TU (khong cat dut giua 1 ky tu UTF-8 nhieu byte) cho toi
+  // khi vua vuot qua maxBytes - dung khi CAN cat (hien thi phong ngua), con
+  // luc nguoi dung tu nhap thi bao loi va bat tu rut gon thay vi tu y cat.
+  function truncateUtf8Bytes(str, maxBytes) {
+    let result = str;
+    while (utf8ByteLength(result) > maxBytes) result = result.slice(0, -1);
+    return result;
+  }
   const CONFIG_KEYS = Object.freeze([
     'targetTemp', 'tempHysteresis', 'lowTempAlarm', 'highTempAlarm',
     'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'ventOnTemp',
@@ -1538,7 +1556,7 @@
   function handleReminderReport(device, report) {
     const list = Array.isArray(report.reminders)
       ? report.reminders
-          .map((item) => ({ day: Number(item.day) || 0, label: String(item.label || '').slice(0, 23) }))
+          .map((item) => ({ day: Number(item.day) || 0, label: truncateUtf8Bytes(String(item.label || ''), REMINDER_LABEL_MAX_BYTES) }))
           .filter((item) => item.day > 0 && item.label)
       : [];
     device.reminders = list;
@@ -2191,6 +2209,16 @@
       toast('Đã thêm thiết bị. Website đang chờ dữ liệu thật.');
     });
 
+    $('reminderLabelInput').addEventListener('input', () => {
+      const bytes = utf8ByteLength($('reminderLabelInput').value.trim());
+      const left = REMINDER_LABEL_MAX_BYTES - bytes;
+      const counter = $('reminderLabelCounter');
+      counter.textContent = left >= 0
+        ? `Còn ${left} byte (dấu tiếng Việt tốn nhiều byte hơn số chữ hiển thị)`
+        : `Đã vượt quá ${-left} byte - hãy rút gọn lại`;
+      counter.style.color = left < 0 ? 'var(--danger)' : '';
+    });
+
     $('remindersForm').addEventListener('submit', (event) => {
       event.preventDefault();
       const device = currentDevice();
@@ -2201,7 +2229,7 @@
       const dayInput = $('reminderDayInput');
       const labelInput = $('reminderLabelInput');
       const day = Math.round(Number(dayInput.value));
-      const label = labelInput.value.trim().slice(0, REMINDER_LABEL_MAX);
+      const label = labelInput.value.trim();
       const existing = Array.isArray(device.reminders) ? device.reminders : [];
 
       if (!Number.isFinite(day) || day < 1 || day > 99) {
@@ -2209,6 +2237,15 @@
       }
       if (!label) {
         return invalidate('remindersForm', 'reminderLabelInput', 'Hãy nhập nội dung nhắc.');
+      }
+      // Bao loi va bat nguoi dung tu rut gon thay vi AM THAM cat bot noi
+      // dung - nguoi dung tung phan anh bi cat mat noi dung can nho ma
+      // khong biet, "lam thong minh len" o day nghia la NOI RO ngay tu luc
+      // nhap, khong phai tu y sua sau lung.
+      const labelBytes = utf8ByteLength(label);
+      if (labelBytes > REMINDER_LABEL_MAX_BYTES) {
+        return invalidate('remindersForm', 'reminderLabelInput',
+            `Nội dung dài ${labelBytes} byte, vượt quá tối đa ${REMINDER_LABEL_MAX_BYTES} byte (chữ có dấu tốn nhiều byte hơn số chữ hiển thị) - hãy rút gọn lại.`);
       }
       if (existing.length >= MAX_CUSTOM_REMINDERS) {
         return invalidate('remindersForm', 'reminderDayInput', `Đã đủ tối đa ${MAX_CUSTOM_REMINDERS} nhắc nhở - hãy xóa bớt trước khi thêm.`);
