@@ -2209,16 +2209,6 @@
       toast('Đã thêm thiết bị. Website đang chờ dữ liệu thật.');
     });
 
-    $('reminderLabelInput').addEventListener('input', () => {
-      const bytes = utf8ByteLength($('reminderLabelInput').value.trim());
-      const left = REMINDER_LABEL_MAX_BYTES - bytes;
-      const counter = $('reminderLabelCounter');
-      counter.textContent = left >= 0
-        ? `Còn ${left} byte (dấu tiếng Việt tốn nhiều byte hơn số chữ hiển thị)`
-        : `Đã vượt quá ${-left} byte - hãy rút gọn lại`;
-      counter.style.color = left < 0 ? 'var(--danger)' : '';
-    });
-
     $('remindersForm').addEventListener('submit', (event) => {
       event.preventDefault();
       const device = currentDevice();
