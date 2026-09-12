@@ -738,7 +738,7 @@ void formatSettingValue(const SettingItem &item, float value, char *out, size_t 
 enum class View : uint8_t {
   Home, MainMenu, ChungMenu, SettingList, EditSetting, TurnStats, AutoTune,
   EventLog, Alarm, TestMode, TestSummary, WifiChange, ConnectionInfo, QrCode,
-  FirmwareProgress
+  FirmwareProgress, TurnStatus
 };
 
 enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset, FirmwareWebApply, FirmwareRollback };
@@ -891,6 +891,11 @@ View alarmReturnView = View::Home;
 uint8_t alarmIndex = 0;
 uint8_t eventLogIndex = 0;
 uint32_t alarmPresentedMask = 0;
+// Man phu tu dong bat khi dong co BAT DAU chay dao/tim goc (canh trong
+// tick khi runtime.turnState chuyen sang Left/Right) - co che giong het
+// man Alarm (xem applyRuntime()): tu bat khi co "su kien moi", tu tat khi
+// dong co ngung, nguoi dung co the bam ngan de thoat som ve man truoc do.
+View turnStatusReturnView = View::Home;
 
 uint32_t lastDrawAt = 0;
 uint32_t lastHomeDrawAt = 0;
@@ -1273,6 +1278,7 @@ void goBack() {
                         settingListItemCount(3U));
       break;
     case View::Alarm: view = alarmReturnView; break;
+    case View::TurnStatus: view = turnStatusReturnView; break;
   }
   dirty = true;
 }
@@ -2438,6 +2444,10 @@ void handleInput() {
       }
       break;
     }
+
+    case View::TurnStatus:
+      if (rotary.button == ButtonEvent::ShortPress) goBack();
+      break;
   }
 }
 
@@ -2748,6 +2758,29 @@ const char *turnStateShort(TurnState state) {
     case TurnState::Waiting: return "CHO";
     case TurnState::Fault: return "LOI";
     default: return "DUNG";
+  }
+}
+
+// Man phu tu dong bat khi dong co dang chay dao trung hoac tim goc - xem co
+// che tu bat/tu tat tai applyRuntime() (giong het man Alarm). Chi 1 trong 2
+// truong hop hien tai duoc ve (turnHoming uu tien vi noi ro dong co dang lam
+// gi hon "dao trung" don thuan khi vi tri khay con chua xac dinh).
+void drawTurnStatus() {
+  char line[24];
+  if (currentRuntime.turnHoming) {
+    drawHeader("TIM GOC");
+    drawCenteredFit(29, "DANG TIM GOC", u8g2_font_helvB10_tf,
+                    u8g2_font_6x12_tf, u8g2_font_5x8_tf);
+    lcd.setFont(u8g2_font_5x8_tf);
+    drawCenteredText(50, "DINH VI LAI KHAY TRUNG");
+  } else {
+    drawHeader("DAO TRUNG");
+    drawCenteredFit(29, "DANG DAO TRUNG", u8g2_font_helvB10_tf,
+                    u8g2_font_6x12_tf, u8g2_font_5x8_tf);
+    lcd.setFont(u8g2_font_6x12_tf);
+    snprintf(line, sizeof(line), "HUONG: %s",
+             turnStateShort(currentRuntime.turnState));
+    drawCenteredText(50, line);
   }
 }
 
@@ -3667,6 +3700,7 @@ void render(uint32_t now) {
       case View::FirmwareProgress: drawFirmwareProgress(); break;
       case View::EventLog: drawEventLog(); break;
       case View::Alarm: drawAlarm(); break;
+      case View::TurnStatus: drawTurnStatus(); break;
     }
     // Man Canh bao dung dung dai 9px cuoi man (y~55-64) cho dong "E### x/y
     // NHAN=ACK" - day la thong tin BAT BUOC phai doc duoc (ma loi + cach xac
@@ -4014,6 +4048,10 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
              before.activeFaultDisplayCount != after.activeFaultDisplayCount ||
              before.faultNotificationSequence != after.faultNotificationSequence;
 
+    case View::TurnStatus:
+      return before.turnState != after.turnState ||
+             before.turnHoming != after.turnHoming;
+
     case View::TestMode:
       return before.testModeActive != after.testModeActive ||
              before.testOutputMaskActive != after.testOutputMaskActive ||
@@ -4045,6 +4083,14 @@ void applyRuntime(MachineRuntime runtime) {
       ? alarmBitForFaultCode(runtime.lastRaisedFaultCode) : AlarmNone;
   const uint32_t newAlarmBits = runtime.alarmMask & ~alarmPresentedMask;
   alarmPresentedMask &= runtime.alarmMask;
+  // Canh (edge) dong co VUA bat dau chay dao/tim goc - tuc la truoc do KHONG
+  // phai Left/Right, gio thanh Left/Right. Dung de tu bat man phu TurnStatus
+  // dung 1 lan moi dot dao/tim goc, giong het newFaultOccurrence o tren.
+  const bool newTurnMoveOccurrence =
+      (runtime.turnState == TurnState::Left ||
+       runtime.turnState == TurnState::Right) &&
+      currentRuntime.turnState != TurnState::Left &&
+      currentRuntime.turnState != TurnState::Right;
 
   const bool visibleChange = runtimeVisibleChanged(currentRuntime, runtime);
   currentRuntime = runtime;
@@ -4098,11 +4144,28 @@ void applyRuntime(MachineRuntime runtime) {
     dirty = true;
   }
 
+  // Man phu TurnStatus (dang dao/tim goc) - co che giong het Alarm o tren:
+  // tu bat khi CO SU KIEN MOI (canh len cua turnState->Left/Right), tu tat
+  // khi dong co ngung chay. KHONG duoc chen ngang man Alarm (loi luon uu
+  // tien hien thi) - da co loi thi bo qua, cho Alarm tu dong dong truoc.
+  const bool turnStatusMoving = currentRuntime.turnState == TurnState::Left ||
+                                 currentRuntime.turnState == TurnState::Right;
+  if (newTurnMoveOccurrence && !currentRuntime.activeFaultDisplayCount &&
+      view != View::Alarm) {
+    if (view != View::TurnStatus) turnStatusReturnView = view;
+    view = View::TurnStatus;
+    dirty = true;
+  } else if (!turnStatusMoving && view == View::TurnStatus) {
+    view = turnStatusReturnView;
+    dirty = true;
+  }
+
   // Sau khi xu ly man hinh loi, neu day la khoi dong lai sau mat dien thi
   // luon dua nguoi dung den man hinh xac nhan. Khong de trang Alarm cu che
   // mat yeu cau tiep tuc/huy me.
   if (currentRuntime.resumeConfirmationRequired && !resumeDecisionSubmitted &&
-      confirmAction != ConfirmAction::ResumeBatch && view != View::Alarm) {
+      confirmAction != ConfirmAction::ResumeBatch && view != View::Alarm &&
+      view != View::TurnStatus) {
     openResumeConfirm();
   }
 
