@@ -370,6 +370,10 @@ inline HmiCommandType mapCommandAction(const char *action) {
   // dung can quay lai duoc TU XA dung luc may dang gap loi sau khi cap
   // nhat, khong phai luc nao cung o canh may that.
   if (!strcmp(action, "firmware_rollback")) return HmiCommandType::FirmwareRollback;
+  // Nut den/coi tren dashboard (outputStrip) - xem handleCommandMessage() ve
+  // cach truyen alarmMask rieng cho alarm_ack (LightToggle khong can tham so).
+  if (!strcmp(action, "light_toggle")) return HmiCommandType::LightToggle;
+  if (!strcmp(action, "alarm_ack")) return HmiCommandType::AlarmAck;
   return HmiCommandType::None;
 }
 
@@ -399,10 +403,22 @@ inline void handleCommandMessage(const JsonDocument &doc) {
     return;
   }
 
+  // "Coi bao" tren dashboard tat tam giong het nut ACK tren HMI (xem
+  // requestAlarmAcknowledge() trong hmi.h) - can dung mat na canh bao
+  // DANG active, khong phai AlarmNone, neu khong AlarmAck se khong xoa/tat
+  // duoc gi ca (xem case HmiCommandType::AlarmAck trong machine_control.h).
+  uint32_t alarmMaskParam = AlarmNone;
+  if (type == HmiCommandType::AlarmAck) {
+    portENTER_CRITICAL(&webMux);
+    alarmMaskParam = knownRuntimeValid
+        ? (knownRuntime.alarmMask & ALARM_KNOWN_MASK) : AlarmNone;
+    portEXIT_CRITICAL(&webMux);
+  }
+
   uint32_t commandId = 0U;
   const uint16_t validForMs = type == HmiCommandType::AutoTuneStart
       ? COMMAND_AUTOTUNE_VALID_MS : COMMAND_DEFAULT_VALID_MS;
-  const bool queued = queueCommand(type, validForMs, 0U, AlarmNone, &commandId);
+  const bool queued = queueCommand(type, validForMs, 0U, alarmMaskParam, &commandId);
   if (!queued) {
     publishAck(requestId, "busy", "");
     return;

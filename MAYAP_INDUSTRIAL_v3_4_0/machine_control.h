@@ -4207,6 +4207,16 @@ class MachineController {
             message = "KHONG CO BAN CU DE QUAY LAI";
           }
           break;
+        case HmiCommandType::LightToggle: {
+          const bool currentlyOn = lightWebOverrideActive_
+              ? lightWebOverrideValue_ : inputs_.state().light;
+          lightWebOverrideValue_ = !currentlyOn;
+          lightWebOverrideActive_ = true;
+          lightWebOverrideRefInput_ = inputs_.state().light;
+          ok = true;
+          message = lightWebOverrideValue_ ? "DA BAT DEN" : "DA TAT DEN";
+          break;
+        }
         case HmiCommandType::AutoTuneStart:
           ok = startAutoTune(now, message); break;
         case HmiCommandType::ResumeYes:
@@ -5287,7 +5297,12 @@ class MachineController {
     if (testModeActive_) { updateTestModeOutputs(now); return; }
     const InputState &in = inputs_.state();
     OutputRequest req{};
-    req.light = in.light; // doc lap AUTO va me
+    // Cong tac vat ly doi kien tu luc ghi de (hoac chua tung ghi de) - cong
+    // tac lay lai quyen dieu khien. Xem ghi chu tai lightWebOverrideActive_.
+    if (lightWebOverrideActive_ && in.light != lightWebOverrideRefInput_) {
+      lightWebOverrideActive_ = false;
+    }
+    req.light = lightWebOverrideActive_ ? lightWebOverrideValue_ : in.light; // doc lap AUTO va me
 
     // Sau mat dien, trong luc dang cho nguoi dung chon TIEP TUC/HUY, tat toan
     // bo co cau, quat hut va nhiet. Den van doc lap de nguoi dung thao tac HMI.
@@ -6480,6 +6495,14 @@ class MachineController {
   volatile bool healthRestartRequested_ = false;
 
   uint32_t sirenMutedUntil_ = 0;
+  // Cong tac den (PIN_IN_LIGHT) van la nguon dieu khien mac dinh (xem
+  // updateHeatingAndOutputs()); nut bat/tat den tren web CHI de lai 1 lenh
+  // "ghi de" tam thoi - het hieu luc ngay khi cong tac vat ly thuc su doi
+  // trang thai (xem lightWebOverrideRefInput_), tranh truong hop web tuong
+  // den dang OFF trong khi ai do da bat cong tac that tai may.
+  bool lightWebOverrideActive_ = false;
+  bool lightWebOverrideValue_ = false;
+  bool lightWebOverrideRefInput_ = false;
   uint32_t heatRestartNotBefore_ = 0;
   uint32_t postCoolUntil_ = 0;
   bool safetyJournalFaultLatched_ = false;
