@@ -174,6 +174,7 @@ inline const char *faultSummaryText(uint16_t code) {
     case 120: return "Độ ẩm thấp - kiểm tra nguồn cấp nước";
     case 121: return "Độ ẩm cao bất thường - kiểm tra thông gió";
     case 130: return "Công tắc nhiệt bị tắt trong lúc đang ấp";
+    case 137: return "Đang chờ RTC hợp lệ để chạy tiếp mẻ ấp - không xác định được đã mất điện bao lâu";
     case 132: return "Cần bật lại chế độ AUTO để tiếp tục mẻ";
     case 133: return "Chế độ AUTO bị tắt trong lúc đang ấp";
     case 134: return "Đảo trứng tự động bị khóa trong lúc đang ấp";

@@ -2527,7 +2527,7 @@ uint32_t alarmBitForFaultCode(uint16_t code) {
     case 130: case 131: case 132: return AlarmSystem;
     case 133: return AlarmAutoMode;
     case 134: return AlarmTurning;
-    case 135: case 136: return AlarmSystem;
+    case 135: case 136: case 137: return AlarmSystem;
     case 201: case 202: case 203: case 204: case 205: return AlarmTurning;
     case 301: case 302: case 303: case 304: case 305: case 306:
     case 313: case 314: case 315: return AlarmSystem;
@@ -2555,6 +2555,7 @@ const char *faultTitle(uint16_t code) {
     case 134: return "TU DONG DAO BI TAT";
     case 135: return "CHO XAC NHAN AP LAI";
     case 136: return "ME QUA HAN AP";
+    case 137: return "CHO RTC QUA LAU";
     case 201: return "LOI 2 HANH TRINH";
     case 202: return "DAO QUA THOI GIAN";
     case 203: return "HANH TRINH BI KET";
@@ -2598,6 +2599,7 @@ void faultDetail(const HmiFaultItem &fault, char *out, size_t size) {
     case 134: snprintf(out, size, "DAO TU DONG PHAI LUON ON"); break;
     case 135: snprintf(out, size, "%d PHUT CHUA XAC NHAN", fault.detail); break;
     case 136: snprintf(out, size, "QUA %d NGAY", fault.detail); break;
+    case 137: snprintf(out, size, "%d PHUT CHUA RO RTC", fault.detail); break;
     case 201: snprintf(out, size, "HAI CTHT CUNG TAC DONG"); break;
     case 202: snprintf(out, size, "CHUA CHAM CTHT DICH"); break;
     case 203: snprintf(out, size, "CTHT GOC KHONG NHA"); break;
@@ -3410,6 +3412,10 @@ void eventText(const HmiEventItem &e, char *title, size_t titleSize,
     case 52: snprintf(title, titleSize, "AUTO TUNE OK"); break;
     case 53: snprintf(title, titleSize, "AUTO TUNE LOI"); break;
     case 54: snprintf(title, titleSize, "EEPROM PHUC HOI"); break;
+    case 55:
+      snprintf(title, titleSize, "DA BU GIO MAT DIEN");
+      snprintf(detail, detailSize, "MAT DIEN ~%d GIO", e.value);
+      return;
     case 60: snprintf(title, titleSize, "BAT DAO TRAI"); break;
     case 61: snprintf(title, titleSize, "BAT DAO PHAI"); break;
     case 62: snprintf(title, titleSize, "TIM GOC TRAI"); break;

@@ -574,6 +574,12 @@ constexpr uint8_t TURN_FAULT_STREAK_LIMIT = 3U;
 // dinh) nhung neu khong ai thao tac qua lau thi can canh bao rieng de nguoi
 // dung/quan tri biet may dang treo cho, khong phai dang hoat dong binh thuong.
 constexpr uint32_t RESUME_CONFIRM_ALERT_MS = 900000UL; // 15 phut
+// Khi cho phuc hoi me ma RTC khong hop le (ResumeBlockReason::Rtc) - khac voi
+// man hinh xac nhan tren (co nguoi thao tac duoc), truong hop nay may KHONG
+// TU LAM GI DUOC (dang cho RTC song lai qua auto-repair/NTP), nen can canh
+// bao SOM hon nhieu de nguoi dung biet may dang treo cho vi ly do gi thay vi
+// tuong dang hoat dong binh thuong ma khong ro sao chua ap tiep.
+constexpr uint32_t RESUME_RTC_WAIT_ALERT_MS = 300000UL; // 5 phut
 // Trend trong me: 5 phut/mau. Event quan trong duoc ghi ngay khi xay ra.
 constexpr uint32_t BATCH_LOG_SAMPLE_MS = 300000UL;
 constexpr size_t BATCH_LOG_MIN_FREE_BYTES = 256U * 1024U;
