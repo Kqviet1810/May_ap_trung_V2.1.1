@@ -263,9 +263,9 @@ constexpr uint8_t CLOUD_ACTIVE_TRACK_SIZE = 16U;
 // ----------------------------- GPIO ------------------------------------------
 // Output HIGH = ON.
 constexpr uint8_t PIN_OUT_HEATER_SSR   = 1;   // KAO3400 - SSR thanh nhiet
-// Chan 2 truoc day du phong (PULSE_SPARE), nay gan LED xanh bao "dang co me
-// ap" (ON khi batchRunning_, xem updateHeatingAndOutputs()).
-constexpr uint8_t PIN_OUT_BATCH_LED    = 2;   // KAO3400 - LED bao dang ap me
+// Chan 2 truoc day du phong (PULSE_SPARE), sau do gan LED xanh bao "dang co
+// me ap" - nay bo han tinh nang LED nay, chan 2 chuyen thanh coi HMI (xem
+// PIN_BUZZER ben duoi). GPIO41 (coi HMI cu) khong con dung, de trong.
 // Pinmap thuc te da doi lai theo dung board dang lap (xem anh pinmap):
 // TRAI <-> QUAT, PHAI <-> NHIET van giu nguyen tu v3.2.8.
 // (Nghi ngo truoc do ve cheo chan HEAT_MASTER/TURN_RIGHT da duoc loai bo:
@@ -301,7 +301,9 @@ constexpr uint8_t PIN_RS485_RX = 37;     // RO
 constexpr uint8_t PIN_RS485_DE_RE = 36;  // DE + /RE
 constexpr uint8_t PIN_RS485_TX = 35;     // DI
 
-// HMI ST7567 + rotary + coi phu duy nhat. GPIO41 bao phim, trang thai, dao va loi.
+// HMI ST7567 + rotary + coi phu duy nhat. GPIO2 bao phim, trang thai, dao va loi
+// (truoc day la GPIO41 - da chuyen sang GPIO2 vi GPIO41 khong con dung, xem
+// ghi chu tai PIN_OUT_HEATER_SSR ben tren).
 // GPIO47 chi danh cho coi lon qua nhiet cap cao nhat.
 constexpr uint8_t LCD_I2C_ADDRESS = 0x3F;
 constexpr uint8_t PIN_I2C_SDA = 8;
@@ -309,12 +311,12 @@ constexpr uint8_t PIN_I2C_SCL = 9;
 constexpr uint8_t PIN_ENCODER_CLK = 38;
 constexpr uint8_t PIN_ENCODER_DT  = 39;
 constexpr uint8_t PIN_ENCODER_SW  = 40;
-constexpr uint8_t PIN_BUZZER      = 41;
+constexpr uint8_t PIN_BUZZER      = 2;
 constexpr bool BUZZER_ACTIVE_HIGH = true;
 
 // Kiem tra toan bo GPIO tai compile-time.
 constexpr uint8_t MAYAP_USED_PINS[] = {
-  PIN_OUT_HEATER_SSR, PIN_OUT_BATCH_LED, PIN_OUT_TURN_RIGHT,
+  PIN_OUT_HEATER_SSR, PIN_OUT_TURN_RIGHT,
   PIN_OUT_TURN_LEFT, PIN_OUT_VENT_FAN, PIN_OUT_LIGHT,
   PIN_OUT_HEAT_MASTER, PIN_OUT_CIRC_FAN, PIN_OUT_SIREN,
   PIN_OUT_RELAY_SPARE, PIN_STATUS_RGB,
