@@ -1155,7 +1155,7 @@ enum class HmiCommandType : uint8_t {
   AlarmAck, AutoTuneStart, ResumeYes, ResumeNo,
   TestModeEnter, TestModeExit, TestOutputPulse, TestOutputStop, TestLimitStart, TestLimitCancel,
   WifiPortalStart, WifiPortalCancel, CloudPinReset, FirmwareWebApply, FirmwareWebCheckNow,
-  FirmwareRollback
+  FirmwareRollback, LightToggle
 };
 struct HmiCommand {
   uint32_t id = 0;

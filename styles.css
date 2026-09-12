@@ -306,7 +306,13 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .quickField b{font-size:var(--fs-md)}
 
 .outputStrip{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0}
-.outputStrip>div{padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);transition:background var(--ease),border-color var(--ease)}
+.outputStrip>div,.outputStrip>button{padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);transition:background var(--ease),border-color var(--ease)}
+/* 2 o Den/Coi la nut bam that (xem app.js) - reset kieu button mac dinh
+   cua trinh duyet de trong giong het 4 o hien thi con lai, chi them con
+   tro tay + trang thai nhan/focus de bao hieu co the bam. */
+.outputStrip>button{font:inherit;text-align:inherit;width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.outputStrip>button:active{transform:scale(.97)}
+.outputStrip>button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .outputStrip span,.outputStrip strong{display:block}
 .outputStrip span{color:var(--muted);font-size:var(--fs-2xs);font-weight:700;letter-spacing:.4px;text-transform:uppercase}
 .outputStrip strong{font-size:var(--fs-md);font-weight:700;margin-top:6px}
@@ -315,10 +321,11 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 #outputSiren.on{color:var(--danger)}
 /* Thiet bi dang bat: sang ca o (nen + vien mau) thay vi chi doi mau chu,
    de trang thai ON noi bat, de nhan biet tu xa hon la doc tung chu nho. */
-.outputStrip>div.on{background:var(--primarySoft);border-color:var(--onBorder)}
-.outputStrip>div.on span{color:var(--successTextSoft)}
-.outputStrip>div.on:has(#outputSiren){background:var(--dangerSoft);border-color:var(--dangerBorder)}
-.outputStrip>div.on:has(#outputSiren) span{color:var(--dangerTextStrong)}
+.outputStrip>div.on,.outputStrip>button.on{background:var(--primarySoft);border-color:var(--onBorder)}
+.outputStrip>div.on span,.outputStrip>button.on span{color:var(--successTextSoft)}
+.outputStrip>div.on:has(#outputSiren),.outputStrip>button.on:has(#outputSiren){background:var(--dangerSoft);border-color:var(--dangerBorder)}
+.outputStrip>div.on:has(#outputSiren) span,.outputStrip>button.on:has(#outputSiren) span{color:var(--dangerTextStrong)}
+.outputStrip>button:disabled{cursor:not-allowed;opacity:.6}
 
 .primary,.ghost{min-height:50px;border-radius:var(--radius-md);padding:0 18px;font-weight:700;font-size:var(--fs-sm);cursor:pointer;transition:filter var(--ease),transform var(--ease),background var(--ease),border-color var(--ease),box-shadow var(--ease)}
 .primary{border:0;background:var(--primary);color:#fff;box-shadow:0 8px 18px #0d827522}

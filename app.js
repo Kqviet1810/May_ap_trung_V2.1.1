@@ -924,6 +924,8 @@
       updateOutput('outputTurn', false, 'ĐANG ĐẢO', 'CHỜ');
       updateOutput('outputLight', false);
       updateOutput('outputSiren', false);
+      if ($('outputLightBtn')) $('outputLightBtn').disabled = true;
+      if ($('outputSirenBtn')) $('outputSirenBtn').disabled = true;
       setCurrentActivity('Chưa có dữ liệu vận hành', 'Đang chờ snapshot từ ESP32', 'idle');
       renderBatchAction(device, null);
       return;
@@ -943,6 +945,12 @@
     updateOutput('outputVent', bool(runtime.ventFanOn));
     updateOutput('outputLight', bool(runtime.lightOn));
     updateOutput('outputSiren', bool(runtime.sirenOn));
+    // Nut Den bam duoc bat cu luc nao thiet bi online; nut Coi CHI bam duoc
+    // khi coi dang thuc su keu (giong het dieu kien mo man Alarm tren HMI).
+    if ($('outputLightBtn')) $('outputLightBtn').disabled = !isDeviceOnline(device);
+    if ($('outputSirenBtn')) {
+      $('outputSirenBtn').disabled = !isDeviceOnline(device) || !bool(runtime.sirenOn);
+    }
 
     const turnMap = { 0: 'DỪNG', 1: 'TRÁI', 2: 'PHẢI', 3: 'CHỜ', 4: 'LỖI' };
     const turn = Number(runtime.turnState);
@@ -2371,6 +2379,19 @@
         clearBatchActionPending(device);
         renderBatchAction(device);
       }
+    });
+
+    // O "Den" tren outputStrip gio la nut bam: bat/tat den tuc thi, khong
+    // can xac nhan (thao tac nhe, khong anh huong an toan van hanh).
+    $('outputLightBtn')?.addEventListener('click', () => sendCommand('light_toggle'));
+
+    // O "Coi bao" chi bam duoc khi coi THUC SU dang keu (xem toggle disabled
+    // trong applySnapshotToUi) - giong het nut ACK tren HMI, tat coi tam 5
+    // phut chu KHONG tat han canh bao (loi goc van con neu chua khac phuc).
+    $('outputSirenBtn')?.addEventListener('click', async () => {
+      const device = currentDevice();
+      if (!device?.snapshot?.runtime?.sirenOn) return;
+      if (await sendCommand('alarm_ack')) toast('Đã tạm tắt còi vài phút');
     });
 
     $('temperatureForm').addEventListener('submit', async (event) => {
