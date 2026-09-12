@@ -199,6 +199,8 @@ enum class EventCode : uint16_t {
   RtcNtpSynced,
   ConfigSaved = 50, AutoTuneStarted, AutoTuneSuccess, AutoTuneFailed,
   StorageReconnected,
+  // value (int16_t) mang so GIO da mat dien, xem adjustResumeElapsedFromRtc().
+  PowerOutageDuration,
   TurnStartLeft = 60, TurnStartRight, TurnHomeLeft, TurnHomeRight,
   TurnCompleteLeft, TurnCompleteRight,
   NetworkModeOffline = 70, NetworkConnecting, NetworkConnected,
@@ -382,6 +384,10 @@ enum class FaultCode : uint16_t {
   // thuc - canh bao tai cho tren HMI/web, doc lap voi thong bao Cloud Push
   // (cloud_alert_link.h) de van thay duoc ke ca khi may khong co mang.
   BatchOverdue = 136,
+  // Cho phuc hoi me ma RTC khong hop le qua lau (RESUME_RTC_WAIT_ALERT_MS) -
+  // khac ResumeConfirmationPending (co nguoi bam duoc), truong hop nay may
+  // KHONG TU LAM GI DUOC, chi biet cho RTC song lai (auto-repair/NTP).
+  ResumeRtcWaitTooLong = 137,
   TurnLimitConflict = 201,
   TurnTimeout = 202,
   TurnLimitStuck = 203,
@@ -454,6 +460,10 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // Qua so ngay ap du kien - chi canh bao (khong khoa gi), doc lap voi
     // thong bao Cloud Push tuong ung trong cloud_alert_link.h.
     {FaultCode::BatchOverdue, FaultSeverity::Warning, 50U, AlarmSystem, false, false, false, false, false, false, "BATCH OVERDUE"},
+    // Chi canh bao (khong khoa gi them - ResumeBlockReason::Rtc da tu chan
+    // resume roi), muc dich la de nguoi dung/quan tri BIET may dang treo cho
+    // vi sao thay vi im lang khong ro ly do.
+    {FaultCode::ResumeRtcWaitTooLong, FaultSeverity::Warning, 176U, AlarmSystem, false, false, false, false, false, false, "RESUME WAIT RTC"},
     // AUTO bi tat giua me dang chay: van giu dieu khien nhiet nhu cu. Theo
     // yeu cau nguoi lap dat, KHONG con khoa dao tay nua (inhibitsTurning=
     // false) - cong tac dao trai/phai hoat dong binh thuong nhu ngoai me,
@@ -4447,6 +4457,13 @@ class MachineController {
     mayapSerialPrintf(false, "[TIME] DA BU THOI GIAN TU RTC: +%lus, elapsed=%lus\n",
                       static_cast<unsigned long>(delta),
                       static_cast<unsigned long>(elapsedBeforeStartSec_));
+    // Ghi lai thoi luong giu khoang trong (mat dien/reset) vao nhat ky su
+    // kien - doi ra GIO cho gon (gap toi da MAX_RTC_RECOVERY_GAP_SEC=45 ngay
+    // = 1080h, thua suc nam trong int16_t) thay vi giay/phut de khong tran.
+    const uint32_t gapHours = delta / 3600UL;
+    eventLog_.push(now, EventType::Recovery,
+                   static_cast<uint16_t>(EventCode::PowerOutageDuration),
+                   static_cast<int16_t>(std::min<uint32_t>(gapHours, INT16_MAX)));
   }
 
   // ----------------------------- Resume --------------------------------------
@@ -4470,21 +4487,23 @@ class MachineController {
     }
   }
 
-  void setResumeBlockReason(ResumeBlockReason reason) {
+  void setResumeBlockReason(ResumeBlockReason reason, uint32_t now) {
     if (resumeBlockReason_ == reason) return;
     resumeBlockReason_ = reason;
+    resumeBlockReasonAt_ = now;
     mayapSerialPrintf(false, "[RECOVERY] block=%s\n",
                       resumeBlockReasonText(reason));
   }
 
   void processResume(uint32_t now) {
     if (!resumePending_) {
-      setResumeBlockReason(ResumeBlockReason::None);
+      setResumeBlockReason(ResumeBlockReason::None, now);
       faults_.set(FaultCode::ResumeConfirmationPending, false, now);
+      faults_.set(FaultCode::ResumeRtcWaitTooLong, false, now);
       return;
     }
     if (resumeConfirmationRequired_) {
-      setResumeBlockReason(ResumeBlockReason::Confirmation);
+      setResumeBlockReason(ResumeBlockReason::Confirmation, now);
       // Chi canh bao "cho qua lau", KHONG tu lam gi thay nguoi dung - van
       // giu dung y do an toan cua man hinh xac nhan (phai co nguoi quyet
       // dinh CO/HUY, khong tu dong ap lai/huy khi qua thoi gian).
@@ -4498,31 +4517,53 @@ class MachineController {
 
     const InputState &in = inputs_.state();
     if (batchClearPending_) {
-      setResumeBlockReason(ResumeBlockReason::BatchClear); return;
+      setResumeBlockReason(ResumeBlockReason::BatchClear, now);
+      faults_.set(FaultCode::ResumeRtcWaitTooLong, false, now);
+      return;
     }
     if (safetyJournalFaultLatched_ || storageFaultLatched_ || storageDegraded_) {
-      setResumeBlockReason(ResumeBlockReason::Storage); return;
+      setResumeBlockReason(ResumeBlockReason::Storage, now);
+      faults_.set(FaultCode::ResumeRtcWaitTooLong, false, now);
+      return;
     }
     if (abnormalResetLatched_) {
-      setResumeBlockReason(ResumeBlockReason::ResetAck); return;
+      setResumeBlockReason(ResumeBlockReason::ResetAck, now);
+      faults_.set(FaultCode::ResumeRtcWaitTooLong, false, now);
+      return;
     }
     if (!in.autoMode) {
-      setResumeBlockReason(ResumeBlockReason::AutoMode); return;
+      setResumeBlockReason(ResumeBlockReason::AutoMode, now);
+      faults_.set(FaultCode::ResumeRtcWaitTooLong, false, now);
+      return;
     }
     if (!in.heaterEnable) {
-      setResumeBlockReason(ResumeBlockReason::HeaterSwitch); return;
+      setResumeBlockReason(ResumeBlockReason::HeaterSwitch, now);
+      faults_.set(FaultCode::ResumeRtcWaitTooLong, false, now);
+      return;
     }
     if (!sensorUsable_) {
-      setResumeBlockReason(ResumeBlockReason::Sensor); return;
+      setResumeBlockReason(ResumeBlockReason::Sensor, now);
+      faults_.set(FaultCode::ResumeRtcWaitTooLong, false, now);
+      return;
     }
     if (!rtc_.valid()) {
-      setResumeBlockReason(ResumeBlockReason::Rtc); return;
+      setResumeBlockReason(ResumeBlockReason::Rtc, now);
+      // Khac cac ly do khac o day (co the tu sua/nguoi dung sua duoc ngay) -
+      // truong hop nay may CHI CO THE CHO (auto-repair hoac NTP tu phuc hoi
+      // RTC), nen canh bao SOM hon nhieu (RESUME_RTC_WAIT_ALERT_MS, xem
+      // config.h) de nguoi dung/quan tri biet may dang treo cho vi RTC.
+      faults_.set(FaultCode::ResumeRtcWaitTooLong,
+                  elapsedMs(now, resumeBlockReasonAt_) >= RESUME_RTC_WAIT_ALERT_MS,
+                  now, static_cast<int16_t>(std::min<uint32_t>(
+                      elapsedMs(now, resumeBlockReasonAt_) / 60000UL, INT16_MAX)));
+      return;
     }
+    faults_.set(FaultCode::ResumeRtcWaitTooLong, false, now);
     if (turnFaultLatched_) {
-      setResumeBlockReason(ResumeBlockReason::TurnFault); return;
+      setResumeBlockReason(ResumeBlockReason::TurnFault, now); return;
     }
     if (in.limitLeft && in.limitRight) {
-      setResumeBlockReason(ResumeBlockReason::LimitConflict); return;
+      setResumeBlockReason(ResumeBlockReason::LimitConflict, now); return;
     }
     // Dong bo voi startBatch(): khong duoc phuc hoi neu "Tu dong dao" dang
     // tat - truoc day thieu dieu kien nay (khac voi startBatch), che do tu
@@ -4533,17 +4574,17 @@ class MachineController {
     // khoa truong nay - xem processHmiTransactions()), nen khong tao ra bi
     // ket "khong sua duoc, khong phuc hoi duoc".
     if (!config_.turningEnabled) {
-      setResumeBlockReason(ResumeBlockReason::TurningDisabled); return;
+      setResumeBlockReason(ResumeBlockReason::TurningDisabled, now); return;
     }
     if (highTemperatureActive_ || emergencyActive_) {
-      setResumeBlockReason(ResumeBlockReason::Temperature); return;
+      setResumeBlockReason(ResumeBlockReason::Temperature, now); return;
     }
     if (elapsedMs(now, bootAt_) <
         static_cast<uint32_t>(config_.powerRestoreDelaySec) * 1000UL) {
-      setResumeBlockReason(ResumeBlockReason::Delay); return;
+      setResumeBlockReason(ResumeBlockReason::Delay, now); return;
     }
 
-    setResumeBlockReason(ResumeBlockReason::None);
+    setResumeBlockReason(ResumeBlockReason::None, now);
     if (batchStartEpoch_ == 0U && rtc_.valid()) {
       const uint32_t nowEpoch = rtc_.epoch();
       batchStartEpoch_ = nowEpoch > elapsedBeforeStartSec_
@@ -6339,6 +6380,7 @@ class MachineController {
   // ap; giu nguyen suot phien chay (khong tu xoa) de cloud_alert_link.h doc.
   bool powerLossRecovery_ = false;
   ResumeBlockReason resumeBlockReason_ = ResumeBlockReason::None;
+  uint32_t resumeBlockReasonAt_ = 0U;
   bool batchClearPending_ = false;
   uint8_t batchClearAttemptCount_ = 0U;
   uint32_t batchClearRetryAt_ = 0U;
