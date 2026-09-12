@@ -1096,6 +1096,12 @@ struct MachineRuntime {
   bool lightOn = false;
   bool sirenOn = false;
   TurnState turnState = TurnState::Stopped;
+  // TurnState::Left/Right dung chung cho CA dao binh thuong LAN tim goc (khi
+  // chua biet vi tri khay, vd sau mat dien/loi RTC) - co gioi han vat ly
+  // giong het nhau nen dong co chay y het, nhung nguoi dung khong phan biet
+  // duoc tren man hinh phu neu chi nhin TRAI/PHAI. Co nay bat rieng khi dang
+  // THUC SU tim goc (xem moveIsHoming_ trong machine_control.h).
+  bool turnHoming = false;
   uint16_t nextTurnMinutes = 0;
   bool nextTurnScheduled = false;
   uint16_t turnCountToday = 0;
