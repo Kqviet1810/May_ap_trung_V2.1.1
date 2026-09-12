@@ -2789,6 +2789,10 @@ void drawHomeOutputs() {
 
   if (currentRuntime.turningLockdown) {
     snprintf(turnLine, sizeof(turnLine), "DAO TRUNG: KHOA");
+  } else if (currentRuntime.turnHoming) {
+    // Dong co dang chay tim goc (chua ro vi tri khay), KHAC voi dao dinh ky
+    // binh thuong - phai bao rieng de nguoi dung khong tuong nham dang dao.
+    snprintf(turnLine, sizeof(turnLine), "DAO TRUNG: TIM GOC");
   } else if (currentRuntime.turnState == TurnState::Left ||
             currentRuntime.turnState == TurnState::Right) {
     snprintf(turnLine, sizeof(turnLine), "DAO TRUNG: %s",
@@ -3972,6 +3976,7 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
              before.circulationFanOn != after.circulationFanOn ||
              before.ventFanOn != after.ventFanOn ||
              before.turnState != after.turnState ||
+             before.turnHoming != after.turnHoming ||
              before.turningLockdown != after.turningLockdown ||
              before.nextTurnMinutes != after.nextTurnMinutes ||
              before.nextTurnScheduled != after.nextTurnScheduled;

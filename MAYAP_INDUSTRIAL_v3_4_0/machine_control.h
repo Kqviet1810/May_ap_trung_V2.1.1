@@ -5895,6 +5895,10 @@ class MachineController {
              config_.turningEnabled && !runtime_.turningLockdown)
       runtime_.turnState = TurnState::Waiting;
     else runtime_.turnState = TurnState::Stopped;
+    // Dong co dang chay THUC SU vi tim goc (khong phai dao dinh ky binh
+    // thuong) - xem ghi chu tai MachineRuntime::turnHoming trong config.h.
+    runtime_.turnHoming = moveIsHoming_ &&
+        (turnPhase_ == TurnPhase::MovingLeft || turnPhase_ == TurnPhase::MovingRight);
 
     runtime_.nextTurnScheduled = batchRunning_ && config_.turningEnabled &&
                                  !runtime_.turningLockdown && nextTurnAt_ != 0U;
@@ -5950,7 +5954,12 @@ class MachineController {
         default: state = "CHO PHUC HOI"; break;
       }
       stateCode = MachineStateCode::ResumeWait;
-    } else if (batchRunning_ && batchPhase_ == BatchPhase::Homing) {
+    } else if (batchRunning_ &&
+               (batchPhase_ == BatchPhase::Homing || runtime_.turnHoming)) {
+      // runtime_.turnHoming bat luon truong hop tim goc GIUA me (needHome_,
+      // vd sau khi mat moc vi tri) - khong chi luc khoi dong me
+      // (batchPhase_==Homing), de man hinh chinh luon phan anh dung dong co
+      // dang thuc su lam gi.
       state = "DANG TIM GOC"; stateCode = MachineStateCode::Homing;
     } else if (batchRunning_ && batchPhase_ != BatchPhase::Running) {
       state = "KHOI DONG ME"; stateCode = MachineStateCode::Prestart;
