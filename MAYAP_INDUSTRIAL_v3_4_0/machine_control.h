@@ -263,7 +263,14 @@ class EventLog {
 
   void push(uint32_t now, EventType type, uint16_t code,
             int16_t value = 0, uint8_t flags = 0U) {
-    if (!loggingEnabled_) return;
+    // Boot (ly do khoi dong lai: PANIC/WATCHDOG/BROWNOUT/...) LUON duoc ghi
+    // bat ke logging co dang bat hay khong - day la thong tin chan doan quan
+    // trong ca khi may dang RANH (ngoai me), va thuc te BI GHI TRUOC khi
+    // setLoggingEnabled() lan dau duoc goi trong begin() (power_.begin() chay
+    // som hon, luc loggingEnabled_ con mac dinh false) - neu khong co ngoai
+    // le nay, su kien Boot se LUON bi mat ngay tu dau, khong bao gio thay
+    // duoc ly do reset that su tren man Nhat Ky.
+    if (!loggingEnabled_ && type != EventType::Boot) return;
     EventEntry &entry = entries_[head_];
     entry.sequence = ++sequence_;
     entry.atMs = now;
