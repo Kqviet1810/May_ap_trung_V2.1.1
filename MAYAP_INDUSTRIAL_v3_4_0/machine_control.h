@@ -6140,6 +6140,15 @@ class MachineController {
       mayapSerialPrintf(false, "[SER] CLEAR TURN=%s\n", turnOk ? "OK" : "BLOCKED");
     } else if (cmd && !strcmp(cmd, "FAULT") && arg1 && !strcmp(arg1, "LIST")) {
       faults_.print();
+    } else if (cmd && !strcmp(cmd, "LOG") && !arg1) {
+      // "LOG" khong tham so = bat debug Serial ngay (doi xung voi EXIT tat
+      // ngay ben duoi) - de nguoi dung chi can go 2 lenh don gian LOG/EXIT
+      // thay vi phai nho lenh SERIAL (toggle) hay cac lenh con LOG SHOW/FILES/
+      // CLEAR khac.
+      mayapSetSerialDebugEnabled(true);
+      mayapSerialPrintf(true, "[SERIAL] ON (LOG)\n");
+      printSerialHelp();
+      printStatus(now);
     } else if (cmd && !strcmp(cmd, "LOG") && arg1 && !strcmp(arg1, "SHOW")) {
       eventLog_.print(arg2 ? static_cast<uint8_t>(constrain(atoi(arg2), 1, 96)) : 20U);
     } else if (cmd && !strcmp(cmd, "LOG") && arg1 && !strcmp(arg1, "FILES")) {
@@ -6194,8 +6203,8 @@ class MachineController {
     mayapSerialPrintf(false, "TIME SET YYYY-MM-DD HH:MM:SS\n");
     mayapSerialPrintf(false, "BATCH START|STOP   ACK   FAULT LIST|CLEAR   STATUS   CONFIG   POWER\n");
     mayapSerialPrintf(false, "Nhap SERIAL de tat/bat toan bo debug. DIAG ON|OFF doi toc do STATUS.\n");
+    mayapSerialPrintf(false, "LOG = BAT debug Serial ngay. EXIT = TAT debug Serial ngay.\n");
     mayapSerialPrintf(false, "CONFIG = dump debug DAY DU (thong so + Wi-Fi/MQTT/Cloud Push + STATUS).\n");
-    mayapSerialPrintf(false, "EXIT = tat debug Serial ngay (tuong duong go lai SERIAL khi dang ON).\n");
     mayapSerialPrintf(false, "LOG SHOW [N]|FILES|CLEAR(RAM)   DIAG ON|OFF\n");
     mayapSerialPrintf(false, "PIN OUT: LEFT=D%u RIGHT=D%u LIGHT=D%u VENT=D%u MASTER=D%u SSR=D%u\n",
         PIN_OUT_TURN_LEFT, PIN_OUT_TURN_RIGHT, PIN_OUT_LIGHT,
