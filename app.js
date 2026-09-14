@@ -922,7 +922,6 @@
       updateOutput('outputCirculation', false);
       updateOutput('outputVent', false);
       updateOutput('outputTurn', false, 'ĐANG ĐẢO', 'CHỜ');
-      if ($('outputTurnEta')) $('outputTurnEta').textContent = '';
       updateOutput('outputLight', false);
       updateOutput('outputSiren', false);
       if ($('outputLightBtn')) $('outputLightBtn').disabled = true;
@@ -956,18 +955,16 @@
     const turnMap = { 0: 'DỪNG', 1: 'TRÁI', 2: 'PHẢI', 3: 'CHỜ', 4: 'LỖI' };
     const turn = Number(runtime.turnState);
     const outputTurn = $('outputTurn');
-    outputTurn.textContent = turnMap[turn] || '—';
+    // Dang dao (1/2) thi khong con "lan dao tiep theo" de dem nguoc; chi thay
+    // "CHO" bang so phut khi may dang CHO (3) va ESP32 that su co lich dao ke
+    // tiep (nextTurnMinutes > 0 - bang 0 nghia la dang khong lap lich, vd dao
+    // tay hoac dang o nhanh test tat dao) - van gon 1 dong nhu cac o khac.
+    const etaMinutes = Number(runtime.nextTurnMinutes) || 0;
+    outputTurn.textContent = (turn === 3 && etaMinutes > 0)
+      ? `Đảo sau ${etaMinutes} phút`
+      : (turnMap[turn] || '—');
     outputTurn.classList.toggle('on', turn === 1 || turn === 2);
     outputTurn.parentElement?.classList.toggle('on', turn === 1 || turn === 2);
-    // Dang dao (1/2) thi khong con "lan dao tiep theo" de dem nguoc; chi hien
-    // countdown khi may dang CHO (3) va ESP32 that su co lich dao ke tiep
-    // (nextTurnMinutes > 0 - bang 0 nghia la dang khong lap lich, vd dao tay
-    // hoac dang o nhanh test tat dao).
-    const turnEta = $('outputTurnEta');
-    if (turnEta) {
-      const etaMinutes = Number(runtime.nextTurnMinutes) || 0;
-      turnEta.textContent = (turn === 3 && etaMinutes > 0) ? `Còn ${etaMinutes} phút` : '';
-    }
 
     $('batchPill').textContent = runtime.batchRunning ? `NGÀY ${runtime.currentDay || 1}` : 'CHƯA BẮT ĐẦU';
     $('batchPill').className = runtime.batchRunning ? 'pill online' : 'pill soft';
