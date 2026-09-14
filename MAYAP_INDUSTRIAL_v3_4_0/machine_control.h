@@ -5030,6 +5030,15 @@ class MachineController {
     // (updateTestModeOutputs); may trang thai dao binh thuong tam dung hoan
     // toan de khong phat sinh loi dao "ao" trong luc thao tac thu nghiem.
     if (testModeActive_) { stopTurn(false); return; }
+    // [NHANH TEST] Vo hieu hoa dao trung (ca AUTO lan tay) trong nhanh test
+    // nay, de tap trung kiem tra cac chuc nang KHONG lien quan dao trung
+    // (nhiet, quat, canh bao, OTA, web...) trong luc mot me van dang chay
+    // binh thuong. CHI chan o day (dong co khong quay) - KHONG dung config_.
+    // turningEnabled: startBatch()/processResume() van doi hoi gia tri do la
+    // true de cho phep bat dau/phuc hoi me nhu thuong, tranh bi khoa mat
+    // luon ca tinh nang dang can test. KHONG merge nhanh nay vao main.
+    stopTurn(false);
+    return;
     const InputState &in = inputs_.state();
     if (in.limitLeft && in.limitRight) {
       latchTurnFault(FaultCode::TurnLimitConflict, "HAI HANH TRINH CUNG ON");

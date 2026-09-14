@@ -20,6 +20,21 @@ MAYAP là hệ thống điều khiển máy ấp trứng chạy trên **ESP32-S3
 
 Toàn bộ giao diện, log và tài liệu trong dự án đều bằng **tiếng Việt** (đối tượng sử dụng là người vận hành trại ấp trong nước).
 
+## ⚠️ Nhánh `test` - CHỈ để thử nghiệm, KHÔNG merge vào `main`
+
+Nhánh `test` (trước đây tên `test/tat-bao-loi-thanh-nhiet-khong-len`) được tạo ra **riêng cho việc thử nghiệm trên 1 máy ấp cụ thể** - không đại diện cho hành vi mặc định/an toàn của sản phẩm. Nhánh này **chủ động vô hiệu hóa** một số tính năng để rảnh tay kiểm tra các chức năng khác trong lúc mẻ ấp vẫn đang chạy. Tìm từ khóa `[NHANH TEST]` trong mã nguồn để thấy chính xác từng chỗ đã sửa.
+
+Các tính năng đang bị **tắt/thay đổi** so với `main`:
+
+| Tính năng | Thay đổi trên nhánh `test` | Vì sao vẫn an toàn để thử |
+| --- | --- | --- |
+| Cảnh báo E115 "Thanh nhiệt không lên" (`HeaterNotHeating`) | Vô hiệu hóa hoàn toàn - không bao giờ báo lỗi này nữa | Đây là cảnh báo Warning **thuần chẩn đoán** (nghi ngờ SSR/relay dính) - không cắt SSR, không nhả relay tổng (`inhibitSsr`/`dropHeatMaster` đều `false` trong `faultTable_`), nên tắt nó không ảnh hưởng an toàn nhiệt thực tế |
+| Đảo trứng (tự động lẫn tay) | Tắt hẳn - động cơ đảo **không bao giờ quay**, bất kể cấu hình "Tự động đảo" đang BẬT hay TẮT | Chỉ chặn ở bước thực thi (`updateTurning()`); việc bắt đầu/phục hồi mẻ (`startBatch()`/phục hồi sau mất điện) vẫn yêu cầu "Tự động đảo" = BẬT như bình thường, nên không bị khóa mất các tính năng khác đang cần test |
+
+**Vì sao 2 mục trên bị tắt**: để người thử nghiệm tập trung theo dõi các chức năng KHÔNG liên quan (nhiệt độ/PID, quạt, cảnh báo, web, OTA, HMI...) trong một mẻ ấp thật đang chạy, mà không bị nhiễu bởi cảnh báo E115 (dễ báo giả khi test) hoặc động cơ đảo trứng gây tiếng ồn/chuyển động không cần thiết.
+
+> Firmware build từ nhánh này **không được phát hành như bản chính thức** - nếu bạn không phải là người đang chủ động thử nghiệm, hãy dùng bản dựng từ nhánh `main`.
+
 ## Mục lục
 
 - [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
