@@ -318,7 +318,6 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .outputStrip strong{font-size:var(--fs-md);font-weight:700;margin-top:6px}
 .outputStrip strong.on{color:var(--successTextStrong)}
 .outputStrip strong:not(.on){color:var(--faint)}
-.outputStrip small{display:block;margin-top:2px;font-size:var(--fs-2xs);color:var(--muted);font-weight:600}
 #outputSiren.on{color:var(--danger)}
 /* Thiet bi dang bat: sang ca o (nen + vien mau) thay vi chi doi mau chu,
    de trang thai ON noi bat, de nhan biet tu xa hon la doc tung chu nho. */
