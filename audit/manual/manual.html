@@ -81,12 +81,12 @@ code{font-family:"Consolas",monospace;font-size:8pt;background:var(--wash);paddi
   </div>
   <div class="meta">
     <table>
-      <tr><th>Model</th><td>MAYAP INDUSTRIAL v3.4.0</td></tr>
-      <tr><th>Firmware</th><td>v3.4.0 (điều khiển) / v3.6.0 (HMI)</td></tr>
+      <tr><th>Model</th><td>MAYAP INDUSTRIAL v3.7.1</td></tr>
+      <tr><th>Firmware</th><td>v3.7.1 (điều khiển) / v3.7.1 (HMI)</td></tr>
       <tr><th>Hardware</th><td>CTRL-S3-N8-R1 (ESP32-S3)</td></tr>
       <tr><th>Document No.</th><td>MAYAP-OPS-A5-001</td></tr>
-      <tr><th>Revision</th><td>Rev. 1.0</td></tr>
-      <tr><th>Date</th><td>27/08/2026</td></tr>
+      <tr><th>Revision</th><td>Rev. 1.1</td></tr>
+      <tr><th>Date</th><td>15/09/2026</td></tr>
     </table>
     <p class="small" style="margin-top:3mm">Tài liệu được xây dựng dựa trên phân tích source code và cấu hình
     firmware tại thời điểm phát hành. Các hành vi thực tế trên phần cứng cần được xác nhận bằng kiểm thử thực tế
@@ -122,7 +122,9 @@ code{font-family:"Consolas",monospace;font-size:8pt;background:var(--wash);paddi
 <div class="toc-item l1"><span>20. Bảng tổng hợp Recovery Matrix</span><span data-page="p-matrix">31</span></div>
 <div class="toc-item l1"><span>21. Lịch sử phát hành</span><span data-page="p-rev">32</span></div>
 </div>
-<p class="small" style="margin-top:3mm">Số trang trong mục lục đã được cập nhật khớp với bản PDF cuối cùng (Rev. 1.0).</p>
+<p class="small" style="margin-top:3mm">Số trang trong mục lục là số trang tại thời điểm phát hành Rev. 1.0; nội dung Rev. 1.1 được chèn thêm vào các
+Phần 4/5/7/10/12/18/20 nên số trang thực tế của các phần phía sau Phần 4 có thể lệch nhẹ — dùng số Phần (1-21)
+để tra cứu thay vì số trang khi cần chính xác.</p>
 </section>
 
 <!-- ===================== 1. GIỚI THIỆU ===================== -->
@@ -131,7 +133,7 @@ code{font-family:"Consolas",monospace;font-size:8pt;background:var(--wash);paddi
 <h3>Mục đích</h3>
 <p>Tài liệu này hướng dẫn vận hành, theo dõi và xử lý sự cố cơ bản cho máy ấp trứng
 công nghiệp MAYAP INDUSTRIAL, dựa trên đúng hành vi của firmware điều khiển
-(v3.4.0) và firmware HMI (v3.6.0) đang chạy trên thiết bị.</p>
+(v3.7.1) và firmware HMI (v3.7.1) đang chạy trên thiết bị.</p>
 <h3>Đối tượng sử dụng</h3>
 <ul>
 <li>Người vận hành hằng ngày (không cần biết lập trình/điện tử).</li>
@@ -299,6 +301,35 @@ vào/thoát Test Mode, xác nhận công tắc hành trình (gỡ khoá 205), ch
 thể khởi động từ Web nhưng các thao tác Test Mode thì không). Đây là giới hạn thực tế của
 <code>mapCommandAction()</code> trong <code>realtime_link.h</code> — chỉ ánh xạ 5 lệnh: <code>batch_start</code>,
 <code>batch_stop</code>, <code>resume_yes</code>, <code>resume_no</code>, <code>autotune_start</code>.</div>
+<h3>Bù nhiệt độ cảm biến (menu NHIỆT ĐỘ)</h3>
+<p>Mục "Bù nhiệt độ" (<code>MachineConfig::tempOffset</code>, lưu EEPROM) cộng thêm một lượng bù cố định
+(-5.0 đến +5.0 °C, bước 0.1) vào giá trị đọc từ cảm biến trước khi dùng cho điều khiển/hiển thị — dùng khi
+cảm biến lệch một khoảng ổn định so với nhiệt độ thật trong buồng ấp (đã hiệu chuẩn tham chiếu). Trước đây chỉ
+chỉnh được qua Web, nay đã có trực tiếp trên HMI (menu CAI DAT CHUNG → NHIET DO). Chỉ kỹ thuật viên/người có
+thẩm quyền hiệu chuẩn nên thay đổi giá trị này.</p>
+<h3>Màn hình "NÂNG CAO" (cài đặt PID/chẩn đoán nâng cao)</h3>
+<p>Từ firmware v3.7.1, menu CAI DAT CHUNG có thêm nhóm "NÂNG CAO" (13 mục) gồm các tham số PID thủ công và
+các ngưỡng chẩn đoán nhiệt/AutoTune trước đây là hằng số cứng trong firmware — nay chỉnh được trực tiếp khi
+lắp máy thật mà không cần nạp lại firmware. Giá trị mặc định giữ nguyên như hằng số cũ.</p>
+<table class="nobreak">
+<tr><th>Mục trên HMI</th><th>Trường (MachineConfig)</th><th>Khoảng cho phép</th><th>Mặc định</th></tr>
+<tr><td>He so Kp</td><td><code>kp</code></td><td>0 – 100</td><td>18.0</td></tr>
+<tr><td>He so Ki</td><td><code>ki</code></td><td>0 – 20</td><td>0.8</td></tr>
+<tr><td>He so Kd</td><td><code>kd</code></td><td>0 – 200</td><td>45.0</td></tr>
+<tr><td>Chu ky SSR</td><td><code>pidCycleSec</code></td><td>1 – 60 s</td><td>10 s</td></tr>
+<tr><td>Tran cong suat</td><td><code>maxHeaterPower</code></td><td>10 – 100 %</td><td>100 %</td></tr>
+<tr><td>Nguong ket dinh</td><td><code>heaterStuckMinRiseC</code></td><td>0.05 – 5.0 °C</td><td>0.3 °C</td></tr>
+<tr><td>TG xac nhan ket</td><td><code>heaterStuckDurationSec</code></td><td>60 – 3600 s</td><td>900 s (15 phút)</td></tr>
+<tr><td>Nguong toc do</td><td><code>tempRateLimitC</code></td><td>0.1 – 10.0 °C</td><td>1.0 °C</td></tr>
+<tr><td>Khung toc do</td><td><code>tempRateWindowSec</code></td><td>30 – 1800 s</td><td>120 s</td></tr>
+<tr><td>So lan doi dau</td><td><code>tempOscillationCrossLimit</code></td><td>2 – 30 lần</td><td>6</td></tr>
+<tr><td>Khung dao dong</td><td><code>tempOscillationWindowSec</code></td><td>60 – 3600 s</td><td>600 s</td></tr>
+<tr><td>Cong suat tune</td><td><code>autotuneRelayPowerPercent</code></td><td>10 – 80 %</td><td>30 %</td></tr>
+<tr><td>Bien do tune</td><td><code>autotuneBandC</code></td><td>0.05 – 1.0 °C</td><td>0.20 °C</td></tr>
+</table>
+<div class="callout warn">Đây là thông số ảnh hưởng trực tiếp đến kiểm soát nhiệt và ngưỡng phát hiện lỗi
+(E113/E114/E115 ở Phần 12 dùng chính các ngưỡng này). Người vận hành thường không cần chỉnh nhóm này —
+chỉ kỹ thuật viên lắp đặt/hiệu chỉnh PID mới nên thay đổi, và nên ghi lại giá trị trước khi sửa.</div>
 </section>
 
 <!-- ===================== 5. WEB ===================== -->
@@ -320,6 +351,11 @@ nguồn giao diện trong repository.</p>
 <li>Xác nhận Áp lại mẻ cũ sau mất điện: Đồng ý/Huỷ (<code>resume_yes</code> / <code>resume_no</code>).</li>
 <li>Khởi động Tự chỉnh PID (<code>autotune_start</code>).</li>
 <li>Lưu thay đổi cấu hình (nhiệt độ đặt, chu kỳ đảo, ngưỡng an toàn...) qua kênh <code>config/set</code>.</li>
+<li>Chỉnh khối cấu hình "Nâng cao" (PID Kp/Ki/Kd, chu kỳ SSR, trần công suất nhiệt, ngưỡng chẩn đoán tốc độ/dao
+động nhiệt, ngưỡng nghi kẹt rơ-le nhiệt, công suất AutoTune) — cùng danh sách và giá trị với màn hình "NÂNG CAO"
+trên HMI (Phần 4), các ô nhập trên web dùng id <code>advKp/advKi/advKd/advPidCycleSec/advMaxHeaterPower/
+advTempRateLimitC/advTempRateWindowSec/advTempOscillationCrossLimit/advTempOscillationWindowSec/
+advHeaterStuckMinRiseC/advHeaterStuckDurationSec/advAutotuneRelayPowerPercent</code>.</li>
 </ul>
 <h3 class="nobreak">Web CHỈ giám sát (không điều khiển được)</h3>
 <div class="callout warn nobreak">
@@ -334,6 +370,16 @@ vận hành phải đến trực tiếp HMI tại máy để ACK. Tương tự: 
 <img src="images/web_notification.png" style="max-width:52%">
 <div class="figcaption"><span class="badge badge-real">GIAO DIỆN THỰC TẾ</span> — khối "Thông báo": bật nhận cảnh báo đẩy trên điện thoại (chỉ là kênh nhận tin, không phải nơi ACK lỗi máy).</div>
 </div>
+<div class="callout warn nobreak">Nếu chưa có điện thoại nào đăng ký nhận thông báo đẩy cho thiết bị đang chọn,
+khối "Thông báo" hiện băng cảnh báo: <b>"⚠️ Chưa có điện thoại nào nhận thông báo cho máy này."</b> — đây chỉ là
+nhắc bật thông báo, không phải lỗi máy.</div>
+<h3 class="nobreak">Trạng thái "Đảo trứng" trên Web</h3>
+<p>Ở khối điều khiển nhanh, khi máy đang chờ đến chu kỳ đảo kế tiếp (đã lên lịch, chưa có lỗi khoá đảo), Web hiện
+<b>"Đảo sau X phút"</b> (đếm ngược theo <code>runtime.nextTurnMinutes</code> từ thiết bị) thay vì chỉ hiện nhãn tĩnh
+"CHỜ" — giúp biết còn bao lâu tới lần đảo tiếp theo mà không cần đợi sự kiện đảo thực sự xảy ra.</p>
+<h3 class="nobreak">Giao diện Sáng/Tối</h3>
+<p>Mục Cài đặt → "Giao diện" cho chọn giao diện Sáng, Tối, hoặc theo Hệ thống (mặc định). Đây chỉ là tuỳ chọn
+hiển thị trên trình duyệt của người dùng, không ảnh hưởng đến vận hành hay dữ liệu máy.</p>
 </section>
 
 <!-- ===================== 6. KHỞI ĐỘNG ===================== -->
@@ -380,7 +426,11 @@ không có bước "chọn trên màn hình" tương đương.</li></ol>
 <tr><td>Công tắc đang ở AUTO</td><td>"HAY CHUYEN SANG AUTO"</td></tr>
 <tr><td>Cảm biến đang có dữ liệu tin cậy (<code>sensorUsable_</code>)</td><td>"CAM BIEN CHUA SAN SANG"</td></tr>
 <tr><td>RTC đang hợp lệ (<code>rtc_.valid()</code>)</td><td>"RTC CHUA HOP LE"</td></tr>
+<tr><td>Cấu hình "Tự động đảo" (<code>turningEnabled</code>) đang <b>bật</b></td><td>"HAY BAT TU DONG DAO"</td></tr>
 </table>
+<p class="small">Ngoài các điều kiện trên, <code>startBatch()</code> còn từ chối khi đang ở Test Mode, đang có mẻ
+chạy/chờ dừng, đang chờ Áp lại, đang có lỗi 2 hành trình/lỗi đảo đang latch, nhiệt đang cao/khẩn cấp, hoặc công
+tắc Heater đang tắt — mỗi trường hợp đều có thông báo riêng trên màn hình tương ứng lý do bị chặn.</p>
 <h3>Khi ở AUTO, máy tự làm gì (đúng logic firmware)</h3>
 <div class="flow nobreak">Cong tac AUTO dang bat?
      |
@@ -471,6 +521,10 @@ nếu mất điện đúng lúc đang dừng, máy sẽ KHÔNG tự áp lại m�
 <b>Huỷ</b> (<code>resume_no</code>) trên HMI hoặc Web.</li>
 <li>Nếu màn hình hỏi này bị bỏ quên quá 15 phút không ai thao tác → cảnh báo <b>135 — CHO XAC NHAN AP LAI</b>
 sẽ hiện thêm để nhắc (không tự động chọn thay người vận hành).</li>
+<li>Dù đã Đồng ý áp lại (hoặc auto-resume), máy vẫn <b>không</b> thực sự tiếp tục mẻ cho tới khi mọi điều kiện an
+toàn khác cũng đạt — bao gồm cấu hình <b>"Tự động đảo" (<code>turningEnabled</code>) phải đang bật</b> (giống
+hệt điều kiện bắt đầu mẻ mới ở Phần 7); nếu đang tắt, màn hình hiện <b>"HAY BAT TU DONG DAO"</b> và mẻ vẫn ở
+trạng thái chờ áp lại cho tới khi bật lại.</li>
 </ul>
 <h3>Kết thúc/dừng một mẻ ấp an toàn — các bước</h3>
 <ol>
@@ -668,6 +722,15 @@ cảnh báo này <b>tự xoá ngay khi nhiệt độ hạ xuống dưới ngư�
 </div>
 
 <div class="faultcard">
+<div class="fc-head"><span class="fc-code">E137</span><span class="fc-title">CHỜ RTC ĐỂ ÁP LẠI</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Quản lý mẻ ấp (Resume) · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Đang chờ áp lại mẻ cũ nhưng RTC chưa hợp lệ quá lâu — khác E135 (không ai bấm xác nhận), ở đây
+người vận hành <b>không tự làm gì được</b>, máy chỉ đang chờ RTC tự hồi phục (tự sửa giờ/NTP).</p>
+<h5>Người vận hành</h5>
+<ol><li>Không cần thao tác — chỉ theo dõi giờ hiển thị.</li><li>Nếu kéo dài, kiểm tra theo Fault Card E306.</li></ol>
+</div>
+
+<div class="faultcard">
 <div class="fc-head"><span class="fc-code">E201</span><span class="fc-title">LỖI 2 HÀNH TRÌNH</span><span class="tag tag-stop">STOP</span></div>
 <div class="fc-meta">Module: Cơ cấu đảo trứng · Latching: <b>Có — cần ACK trên HMI</b></div>
 <p><b>Ý nghĩa:</b> Cả 2 công tắc hành trình trái/phải cùng báo tích cực đồng thời — xung đột vật lý không hợp lý.</p>
@@ -799,6 +862,62 @@ hỏng cơ khí thật sự.</p>
 <p><b>Ý nghĩa:</b> Log chi tiết nhiệt/đảo của mẻ không ghi được — không ảnh hưởng an toàn vận hành.</p>
 <h5>Người vận hành</h5>
 <ol><li>Theo dõi thêm; nếu cần dữ liệu lịch sử đầy đủ để đánh giá mẻ → báo kỹ thuật.</li></ol>
+</div>
+
+<h3>Nhóm 400 — Giám sát sức khoẻ hệ thống (dự đoán sớm, không cắt an toàn)</h3>
+<p class="small">Các mã dưới đây (<code>serviceHealthMonitor()</code> trong <code>machine_control.h</code>) là
+cảnh báo <b>dự đoán sớm</b>, KHÔNG khoá SSR/contactor/đảo trứng nào — mục đích chỉ là để lại dấu vết trước khi
+sự cố thật (nếu có) xảy ra.</p>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E401</span><span class="fc-title">RAM THẤP</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Giám sát sức khoẻ hệ thống · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Bộ nhớ heap còn dưới ~30% mức nền, liên tục ≥3 lần kiểm tra (~90 giây).</p>
+<h5>Người vận hành</h5>
+<ol><li>Theo dõi thêm; nếu lặp lại thường xuyên dù đã khởi động lại nhiều lần → báo kỹ thuật.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E402</span><span class="fc-title">RAM NGUY CẤP</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Giám sát sức khoẻ hệ thống · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Bộ nhớ heap còn dưới ~6% — máy sẽ tự khởi động lại có kiểm soát (đưa về trạng thái an toàn
+trước) để tránh treo.</p>
+<h5>Người vận hành</h5>
+<ol><li>Không cần làm gì — máy tự xử lý.</li><li>Nếu lặp lại nhiều lần liên tục trong ngày → báo kỹ thuật.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E403</span><span class="fc-title">DỰ ĐOÁN CHẠM NGƯỠNG NHIỆT</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Giám sát sức khoẻ hệ thống · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Ngoại suy theo tốc độ đổi nhiệt hiện tại cho thấy sắp chạm ngưỡng cao/thấp trong ≤5 phút —
+chỉ cảnh báo sớm, không cắt gì (để E110/E111 thật sự xử lý khi ngưỡng bị chạm).</p>
+<h5>Người vận hành</h5>
+<ol><li>Theo dõi thêm; nếu báo liên tục ở nhiều mẻ khác nhau → báo kỹ thuật kiểm tra PID/cách nhiệt.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E404</span><span class="fc-title">EEPROM CẦN THỬ LẠI NHIỀU</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Giám sát sức khoẻ hệ thống · Latching: Không</div>
+<p><b>Ý nghĩa:</b> ≥5 lần phải thử lại đọc/ghi EEPROM trong một chu kỳ kiểm tra 30 giây — EEPROM vẫn hoạt động
+bình thường, đây chỉ là cảnh báo xu hướng suy giảm.</p>
+<h5>Người vận hành</h5>
+<ol><li>Theo dõi thêm; chuẩn bị kế hoạch thay module nếu tần suất tăng dần qua nhiều ngày.</li></ol>
+</div>
+
+<div class="callout nobreak">
+<b>Thông báo đẩy (Cloud Push) không có E-code riêng:</b> ngoài các mã lỗi trên, hệ thống còn gửi vài loại thông
+báo đẩy (qua <code>cloud_alert_link.h</code>) không gắn E-code và không hiện trên màn hình Alarm của HMI — chỉ
+xuất hiện dưới dạng thông báo đẩy trên điện thoại (nếu đã bật, xem Phần 5):
+<ul>
+<li><b>Đèn còn bật khi mẻ đang chạy</b> ("Đèn đang bật trong lúc mẻ ấp đang chạy...") — có thể bật/tắt riêng qua
+cấu hình, tự lặp nhắc mỗi 30 phút nếu vẫn còn bật.</li>
+<li><b>Đảo trứng ngừng bất thường</b> ("Không ghi nhận đảo trứng thành công quá lâu...") — số lần đảo thành công
+không tăng quá lâu so với chu kỳ đã cấu hình, dù không có lỗi cơ khí tức thời nào (201-205) đang latch.</li>
+<li><b>Sắp đến ngày nở</b> / <b>Mẻ quá hạn</b> — nhắc trước khi còn ≤2 ngày tới ngày dự kiến nở, và khi đã quá
+hạn (đi kèm/độc lập với cảnh báo tại chỗ E136).</li>
+<li><b>Tín hiệu Wi-Fi yếu kéo dài</b> ("Tín hiệu Wi-Fi yếu kéo dài...") — khi cường độ tín hiệu ≤ -82 dBm liên
+tục quá 5 phút trong lúc đang ở chế độ Online.</li>
+</ul>
 </div>
 
 </section>
@@ -1028,6 +1147,28 @@ là dấu hiệu cần gọi kỹ thuật ngay.</p>
 <div>Hành động khi trip</div><div><code>vTaskSuspend</code> control task → <code>mayapSafeOutputsEarly()</code> → chờ <code>SUPERVISOR_RESTART_FALLBACK_MS</code> (7000 ms) → <code>esp_restart()</code></div>
 <div>Ghi chú</div><div>HMI/Network task <b>không</b> có Task WDT riêng; heartbeat HMI được Supervisor đọc nhưng chỉ dùng để log, không có hành động phục hồi tương ứng.</div>
 </div>
+<h3>Console chẩn đoán qua cổng Serial</h3>
+<p class="small">Chỉ hoạt động khi firmware build với cờ <code>MAYAP_DIAGNOSTIC_SERIAL</code> — dùng cáp USB nối
+máy tính, mở terminal serial (baud theo cấu hình build), gõ lệnh và Enter. Xử lý trong
+<code>handleSerialLine()</code>, <code>machine_control.h</code>.</p>
+<table class="nobreak">
+<tr><th>Lệnh</th><th>Chức năng</th></tr>
+<tr><td><code>LOG</code></td><td>Bật ngay log debug ra Serial (không cần tham số) — tương ứng cờ debug nhắc tới ở Phần 19 (LCD).</td></tr>
+<tr><td><code>EXIT</code></td><td>Tắt log debug Serial (đối xứng với <code>LOG</code>).</td></tr>
+<tr><td><code>LOG SHOW / FILES / CLEAR</code></td><td>Xem/quản lý log chi tiết mẻ ấp đã ghi.</td></tr>
+<tr><td><code>STATUS</code></td><td>In nhanh trạng thái vận hành hiện tại.</td></tr>
+<tr><td><code>CONFIG</code></td><td>In toàn bộ cấu hình đang dùng (bao gồm các mục Nâng cao ở Phần 4).</td></tr>
+<tr><td><code>POWER</code></td><td>In thông tin nguồn/lý do khởi động lại gần nhất.</td></tr>
+<tr><td><code>BATCH START / STOP</code></td><td>Bắt đầu/dừng mẻ ấp từ dòng lệnh (tương đương HMI/Web).</td></tr>
+<tr><td><code>ACK</code></td><td>Xác nhận (ACK) cảnh báo latching từ dòng lệnh.</td></tr>
+<tr><td><code>FAULT LIST / CLEAR</code></td><td>Liệt kê / xoá cảnh báo hiện có.</td></tr>
+<tr><td><code>TIME SET &lt;ngày&gt; &lt;giờ&gt;</code></td><td>Đặt lại giờ RTC thủ công.</td></tr>
+<tr><td><code>DIAG ON / OFF</code></td><td>Bật/tắt các khối chẩn đoán mở rộng khác.</td></tr>
+<tr><td><code>HELP</code></td><td>In danh sách lệnh.</td></tr>
+</table>
+<div class="callout warn">Console này dành cho kỹ thuật viên có cáp USB kết nối trực tiếp — không phải kênh
+vận hành thường ngày. Các lệnh <code>BATCH</code>/<code>ACK</code>/<code>FAULT CLEAR</code> tác động thật lên
+máy giống hệt thao tác trên HMI/Web, cần cẩn trọng như khi thao tác tại chỗ.</div>
 <h3>Truy vết nguồn (Source Traceability)</h3>
 <p class="small">Mọi phát biểu quan trọng trong tài liệu này có thể truy ngược theo chuỗi: <i>Nội dung manual → E-code/function → file source → dòng logic cụ thể</i>. Chi tiết đầy đủ (kèm số dòng) nằm trong <code>audit/OPERATION_RECOVERY_MANUAL.md</code> — tài liệu audit gốc dùng làm nguồn cho manual này.</p>
 </section>
@@ -1063,7 +1204,8 @@ là dấu hiệu cần gọi kỹ thuật ngay.</p>
 <tr><td>Heater (nhiệt)</td><td>Có (qua sensor/công tắc)</td><td>—</td><td>Tự khi điều kiện hết (không latching)</td><td>Có</td><td>Không (trừ khi kèm 301/303/314)</td><td>110-115, 130</td><td>Theo Fault Card tương ứng</td></tr>
 <tr><td>Fan (quạt)</td><td>Gián tiếp (bị ép bật khi có lỗi nhiệt/sensor)</td><td>—</td><td>—</td><td>—</td><td>—</td><td>Không có E-code riêng cho quạt</td><td>—</td></tr>
 <tr><td>Output (interlock tổng)</td><td>Có</td><td>Không</td><td>Không tự — cần ACK + kiểm tra phần cứng</td><td>Không</td><td>Có</td><td>304</td><td>Dừng máy, gọi kỹ thuật ngay</td></tr>
-<tr><td>Batch (mẻ ấp)</td><td>Có</td><td>Có (ghi EEPROM)</td><td>Có điều kiện (resume tự động/hỏi xác nhận)</td><td>Có</td><td>Có (313)</td><td>132, 133, 134, 135, 136, 313</td><td>Xem Phần 10/14</td></tr>
+<tr><td>Batch (mẻ ấp)</td><td>Có</td><td>Có (ghi EEPROM)</td><td>Có điều kiện (resume tự động/hỏi xác nhận, cần <code>turningEnabled</code> bật)</td><td>Có</td><td>Có (313)</td><td>132, 133, 134, 135, 136, 137, 313</td><td>Xem Phần 10/14</td></tr>
+<tr><td>Giám sát sức khoẻ hệ thống (Heap/EEPROM/nhiệt dự đoán)</td><td>Có</td><td>—</td><td>Tự (theo xu hướng trở lại bình thường), riêng 402 tự khởi động lại</td><td>Có</td><td>Không</td><td>401, 402, 403, 404</td><td>Chỉ theo dõi, xem Phần 12</td></tr>
 </table>
 </section>
 
@@ -1073,6 +1215,7 @@ là dấu hiệu cần gọi kỹ thuật ngay.</p>
 <table>
 <tr><th>Revision</th><th>Date</th><th>Description</th><th>Author</th></tr>
 <tr><td>1.0</td><td>27/08/2026</td><td>Phát hành lần đầu — dựng từ phân tích static source code firmware v3.4.0 (điều khiển) / v3.6.0 (HMI) và <code>audit/OPERATION_RECOVERY_MANUAL.md</code>.</td><td>Claude Code (theo yêu cầu người dùng)</td></tr>
+<tr><td>1.1</td><td>15/09/2026</td><td>Cập nhật khớp firmware/HMI v3.7.1: thêm màn hình HMI/Web "Nâng cao" (PID Kp/Ki/Kd, chu kỳ SSR, trần công suất, ngưỡng chẩn đoán tốc độ/dao động nhiệt, ngưỡng nghi kẹt rơ-le nhiệt, công suất AutoTune); bổ sung Fault Card E137 và nhóm E401-E404 (giám sát sức khoẻ hệ thống) còn thiếu trong Phần 12/20; ghi nhận các thông báo đẩy Cloud Push không có E-code (đèn còn bật giữa mẻ, đảo trứng ngừng bất thường, sắp đến ngày nở/quá hạn, Wi-Fi yếu kéo dài, chưa có thiết bị nhận thông báo); mô tả "Bù nhiệt độ" nay có trên HMI; làm rõ điều kiện <code>turningEnabled</code> phải bật để bắt đầu/áp lại mẻ (Phần 7/10); Web nay hiện đếm ngược "Đảo sau X phút" và có giao diện Sáng/Tối; bổ sung mục lệnh <code>LOG/EXIT</code> vào console chẩn đoán Serial (Phần 18).</td><td>Claude Code (theo yêu cầu người dùng)</td></tr>
 </table>
 <div class="callout">
 Tài liệu được xây dựng dựa trên phân tích source code và cấu hình firmware tại thời điểm phát hành. Các hành
