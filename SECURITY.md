@@ -5,14 +5,14 @@ công là bằng chứng đủ để đưa máy vào vận hành thực tế.
 
 ## Báo cáo vấn đề
 
-Không đăng công khai credential, firmware production, ảnh tem có PIN hoặc log
+Không đăng công khai credential, ảnh tem có PIN hoặc log
 chứa dữ liệu nhận dạng thiết bị. Hãy báo riêng cho chủ repository và kèm phiên
 bản, commit, điều kiện tái hiện cùng ảnh/log đã che thông tin nhạy cảm.
 
 ## Bí mật và credential
 
-- Không commit `secrets.h`, `.dev.vars`, private key, CA private key hoặc file
-  `.bin` production.
+- Không commit `secrets.h`, `.dev.vars`, private key, CA private key hoặc dữ
+  liệu export từ NVS. Firmware release secret-free có thể phát hành công khai.
 - Mỗi máy dùng device secret và PIN xuất xưởng riêng; không tái sử dụng giữa
   các máy.
 - Broker MQTT production phải dùng TLS và ACL theo đúng topic thiết bị.
@@ -27,8 +27,8 @@ bản, commit, điều kiện tái hiện cùng ảnh/log đã che thông tin nh
 - Firmware từ chối TLS nếu thiếu CA, trừ bản test chủ động bật
   `MAYAP_ALLOW_INSECURE_TLS=1`.
 - Worker giới hạn origin browser, kích thước JSON và số lần thử PIN.
-- Kênh OTA qua GitHub công khai mặc định tắt vì firmware hiện vẫn có thể chứa
-  credential build-time.
+- Kênh OTA GitHub chỉ phát hành build secret-free từ tag thuộc `main`; có thể
+  khóa tức thời bằng `ENABLE_PUBLIC_GITHUB_OTA=0`.
 
 ## Điều kiện trước khi phát hành
 

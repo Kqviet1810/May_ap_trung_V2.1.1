@@ -33,6 +33,8 @@ test_js = read("config.test.example.js")
 index_html = read("index.html")
 sw_js = read("sw.js")
 realtime_h = read("MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h")
+provisioning_h = read("MAYAP_INDUSTRIAL_v3_4_0/provisioning.h")
+release_workflow = read(".github/workflows/release-firmware.yml")
 
 version_match = re.search(r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"([^"]+)"', config_h)
 require(version_match is not None, "Khong doc duoc MAYAP_FIRMWARE_VERSION")
@@ -84,9 +86,21 @@ for macro, expected in safe_defaults.items():
             f"Mac dinh {macro} phai de trong/fail-closed")
 require("broker.emqx.io" not in config_h + config_js + production_js,
         "Broker cong cong xuat hien trong cau hinh mac dinh/production")
+require("cdnjs.cloudflare.com/ajax/libs/mqtt" not in index_html,
+        "Web khong duoc tai MQTT.js truc tiep tu CDN")
+require((ROOT / "vendor/mqtt.min.js").stat().st_size > 100_000,
+        "Thieu MQTT.js noi bo hoac file vendor khong hop le")
 require("181020" not in config_h, "Con mat khau OTA cu trong config.h")
 require("#if MAYAP_MQTT_USE_TLS" in realtime_h,
         "Nhanh TLS MQTT phai dung macro preprocessor MAYAP_MQTT_USE_TLS")
+require("mayapMqttHost()" in realtime_h and "mayapMqttPassword()" in realtime_h,
+        "MQTT firmware chua doc credential tu provisioning NVS")
+require('constexpr char NVS_NAMESPACE[] = "mayap_conn"' in provisioning_h,
+        "Thieu namespace NVS provisioning")
+require("MAYAP-firmware-${VERSION}.bin" in release_workflow,
+        "Workflow release khong tao dung ten asset OTA")
+require('ENABLE_PUBLIC_GITHUB_OTA = "1"' in read("cloudflare/wrangler.toml"),
+        "OTA secret-free chua duoc bat trong Worker")
 
 enum_match = re.search(r"enum class FaultCode[^\{]*\{(.*?)\};", read("MAYAP_INDUSTRIAL_v3_4_0/machine_control.h"), re.S)
 titles_match = re.search(r"const FAULT_TITLES = \{(.*?)\n  \};", app_js, re.S)

@@ -4,9 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <math.h>
+#include "certificates.h"
 
-// File tuy chon, KHONG commit: dung de nap credential/CA theo tung may trong
-// pipeline production. Xem secrets.example.h va .github/workflows/.
+// File tuy chon, KHONG commit: chi dung de override khi bao tri/di tru. Ban
+// production chung khong nhung credential; xem provisioning.h.
 #if defined(__has_include)
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -101,8 +102,9 @@ static_assert(!MAYAP_ENABLE_ARDUINO_OTA || sizeof(OTA_PASSWORD) >= 13U,
               "ArduinoOTA can mat khau toi thieu 12 ky tu");
 
 // ------------------------- Web realtime (MQTT) --------------------------------
-// Khong co broker mac dinh de tranh firmware thuong mai vo tinh ket noi vao
-// broker cong cong. Ban test/production phai cap thong tin qua build flags.
+// Cac gia tri nay chi dung de di tru mot lan tu firmware cu. Ban phat hanh
+// chung de trong; broker/tai khoan duoc nguoi lap dat luu vao NVS qua cong
+// doi Wi-Fi va duoc giu nguyen qua moi lan OTA (xem provisioning.h).
 #ifndef MAYAP_MQTT_HOST
 #define MAYAP_MQTT_HOST ""
 #endif
@@ -121,16 +123,17 @@ static_assert(!MAYAP_ENABLE_ARDUINO_OTA || sizeof(OTA_PASSWORD) >= 13U,
 #ifndef MAYAP_MQTT_TOPIC_ROOT
 #define MAYAP_MQTT_TOPIC_ROOT "mayap/v1"
 #endif
-#ifndef MAYAP_MQTT_ROOT_CA
-#define MAYAP_MQTT_ROOT_CA ""
-#endif
 constexpr char MQTT_BROKER_HOST[] = MAYAP_MQTT_HOST;
 constexpr uint16_t MQTT_BROKER_PORT = MAYAP_MQTT_PORT;
 constexpr bool MQTT_USE_TLS = (MAYAP_MQTT_USE_TLS) != 0;
 constexpr char MQTT_USERNAME[] = MAYAP_MQTT_USERNAME;
 constexpr char MQTT_PASSWORD[] = MAYAP_MQTT_PASSWORD;
 constexpr char MQTT_TOPIC_ROOT[] = MAYAP_MQTT_TOPIC_ROOT;
+#ifdef MAYAP_MQTT_ROOT_CA
 constexpr char MQTT_ROOT_CA[] = MAYAP_MQTT_ROOT_CA;
+#else
+constexpr const char *MQTT_ROOT_CA = MAYAP_PUBLIC_ROOTS_PEM;
+#endif
 constexpr uint8_t MQTT_PROTOCOL_VERSION = 1U;
 
 // Reconnect MQTT dung BackoffTimer dung chung (xem phia duoi file) thay vi
@@ -157,8 +160,8 @@ constexpr uint32_t FIRMWARE_OTA_SLOT_SIZE_BYTES = 0x330000UL;
 // KENH RIENG, KHONG DI QUA MQTT/WEB: cloud_alert_link.h tu mo ket noi HTTPS
 // rieng toi Cloudflare Worker (xem thu muc cloudflare/), khong phu thuoc
 // broker MQTT hay Web con song hay khong. Thay the hoan toan kenh Telegram cu.
-// device_key la bi mat cua firmware (nhu mat khau Wi-Fi/MQTT o tren) - dat qua
-// build_flags, KHONG hard-code truc tiep truoc khi build ban thuong mai.
+// device_key la bi mat rieng cua tung may. Gia tri build-time chi de di tru;
+// ban phat hanh chung de trong va provision vao NVS tai luc lap dat.
 // KHAC Telegram truoc day (can nhap Chat ID): nguoi dung cuoi KHONG can cau
 // hinh gi tren ESP32/cong Wi-Fi cho kenh nay - device_id (tu MAC, xem
 // mayapDeviceIdText()) la dinh danh cong khai, viec "ghep" trinh duyet nhan
@@ -182,10 +185,11 @@ constexpr char CLOUD_FACTORY_PIN[] = MAYAP_FACTORY_PIN;
 // hoac "api.tenmiencuaban.vn" neu da gan custom domain cho Worker).
 constexpr char CLOUD_API_HOST[] = MAYAP_CLOUD_API_HOST;
 
-#ifndef MAYAP_CLOUD_ROOT_CA
-#define MAYAP_CLOUD_ROOT_CA ""
-#endif
+#ifdef MAYAP_CLOUD_ROOT_CA
 constexpr char CLOUD_ROOT_CA[] = MAYAP_CLOUD_ROOT_CA;
+#else
+constexpr const char *CLOUD_ROOT_CA = MAYAP_PUBLIC_ROOTS_PEM;
+#endif
 
 template <size_t N>
 constexpr bool mayapFactoryPinValid(const char (&pin)[N]) {
@@ -205,19 +209,6 @@ static_assert(MAYAP_ALLOW_INSECURE_TLS == 0,
               "Production khong duoc bo qua xac thuc TLS");
 static_assert(MAYAP_MQTT_USE_TLS == 1,
               "Production bat buoc dung MQTT TLS");
-static_assert(sizeof(MQTT_BROKER_HOST) > 1U,
-              "Production thieu MAYAP_MQTT_HOST");
-static_assert(sizeof(MQTT_USERNAME) > 1U && sizeof(MQTT_PASSWORD) > 1U,
-              "Production thieu tai khoan MQTT rieng cho thiet bi");
-static_assert(sizeof(MQTT_ROOT_CA) > 1U,
-              "Production thieu MAYAP_MQTT_ROOT_CA");
-static_assert(sizeof(CLOUD_DEVICE_SECRET) >= 33U &&
-              sizeof(CLOUD_DEVICE_SECRET) <= 129U,
-              "Production can device secret rieng toi thieu 32 ky tu");
-static_assert(mayapFactoryPinValid(CLOUD_FACTORY_PIN),
-              "Production can MAYAP_FACTORY_PIN dung 6 chu so");
-static_assert(sizeof(CLOUD_ROOT_CA) > 1U,
-              "Production thieu MAYAP_CLOUD_ROOT_CA");
 #endif
 
 // Nhip kiem tra dieu kien canh bao - rut tiep tu 2s xuong 0.5s de loi that

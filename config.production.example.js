@@ -1,9 +1,9 @@
-// Sao che file nay thanh config.js khi chuyen sang broker rieng.
+// Sao che file nay thanh config.js khi tao HiveMQ Cloud Serverless cluster.
 // LUU Y: website GitHub Pages la ma tinh. Moi mat khau dat trong file nay
 // deu co the bi xem. Ban thuong mai nen dung token ngan han do backend cap.
 window.MAYAP_WEB_CONFIG = Object.freeze({
   appVersion: '3.8.0',
-  mqttUrl: 'wss://mqtt.tenmiencuaban.vn:8084/mqtt',
+  mqttUrl: 'wss://TEN-CLUSTER.s1.eu.hivemq.cloud:8884/mqtt',
   mqttUsername: '',
   mqttPassword: '',
   topicRoot: 'mayap/v1',

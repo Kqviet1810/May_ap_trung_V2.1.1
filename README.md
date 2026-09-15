@@ -31,6 +31,8 @@ heartbeat gần nhất.
 | Đường dẫn | Vai trò |
 | --- | --- |
 | `MAYAP_INDUSTRIAL_v3_4_0/config.h` | Version, GPIO, cấu hình build, giới hạn an toàn |
+| `provisioning.h` | Broker, tài khoản MQTT, device secret và PIN lưu trong NVS |
+| `certificates.h` | CA công khai ISRG/GTS dùng cho TLS, không chứa bí mật |
 | `machine_control.h` | State machine, PID, lỗi, EEPROM/NVS và interlock |
 | `hmi.h` | LCD ST7567S, encoder, buzzer và luồng thao tác tại máy |
 | `network_service.h` | Wi-Fi, captive portal và trạng thái kết nối |
@@ -60,17 +62,22 @@ Mở `MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino` trong Arduino IDE,
 cài đúng các version trên rồi biên dịch. Build mặc định không chứa credential
 và không tự kết nối ra Internet.
 
-### Build production
+### Build và provision production
 
-1. Sao chép `MAYAP_INDUSTRIAL_v3_4_0/secrets.example.h` thành `secrets.h`.
-2. Điền broker riêng, tài khoản MQTT có ACL tối thiểu, CA PEM, device secret
-   ngẫu nhiên riêng từng máy và PIN xuất xưởng riêng đúng 6 chữ số.
-3. Giữ `MAYAP_PRODUCTION_BUILD=1`, `MAYAP_ENABLE_ARDUINO_OTA=0` và
-   `MAYAP_ALLOW_INSECURE_TLS=0`.
-4. Biên dịch. `static_assert` sẽ dừng build nếu thiếu điều kiện bắt buộc.
+Firmware production là một bản dùng chung, không chứa broker credential,
+device secret, PIN hay mật khẩu Wi-Fi. CA công khai ISRG/GTS đã nằm trong
+`certificates.h`; chỉ cần override nếu nhà cung cấp đổi chuỗi chứng thư.
 
-`secrets.h` đã bị Git bỏ qua. Không đưa file này, firmware `.bin` production
-hoặc ảnh tem có PIN vào issue/log công khai.
+1. Biên dịch với `MAYAP_PRODUCTION_BUILD=1`. GitHub Actions thực hiện việc này
+   tự động và chặn nếu có `secrets.h` trong source.
+2. Trên máy, chọn **Đổi Wi-Fi** để mở cổng `MAYAP-XXXX` bằng thao tác vật lý.
+3. Lần đầu, mở mục **Cấu hình dịch vụ (kỹ thuật viên)** và nhập hostname/port
+   HiveMQ Cloud, tài khoản MQTT, device secret 32–128 ký tự và PIN đúng 6 số.
+4. Dùng cùng device secret/PIN để provision D1 bằng script trong `cloudflare/`.
+
+Thông tin này nằm trong namespace NVS `mayap_conn`, được giữ nguyên khi OTA.
+`secrets.example.h` chỉ còn phục vụ override khi bảo trì/di trú firmware cũ.
+Không đưa ảnh tem có PIN hoặc dữ liệu provisioning vào issue/log công khai.
 
 ArduinoOTA chỉ dành cho bản bảo trì nội bộ trong LAN. Muốn bật phải đặt đồng
 thời `MAYAP_ENABLE_ARDUINO_OTA=1` và mật khẩu tối thiểu 12 ký tự; bản production
@@ -80,15 +87,14 @@ bị chặn bật cơ chế này.
 
 1. Sao chép `config.production.example.js` thành `config.js` trong pipeline
    triển khai.
-2. Điền URL broker WSS riêng và `cloudApiBase` của Worker.
+2. Điền URL WSS do HiveMQ Cloud cấp và `cloudApiBase` của Worker.
 3. Cấp cho trình duyệt credential/token chỉ được truy cập topic của thiết bị
    được phép. Không dùng broker công cộng cho máy thật.
 4. Triển khai lên HTTPS (GitHub Pages, Cloudflare Pages hoặc tương đương).
 
-`config.js` là mã công khai đối với trình duyệt. Không đặt mật khẩu quản trị
-broker hoặc credential dùng chung cho mọi máy trong file này. Phương án phát
-hành chính thức cần token ngắn hạn hoặc tài khoản browser có ACL rất hẹp do
-hạ tầng MQTT cấp.
+`config.js` là mã công khai đối với trình duyệt. Dùng một tài khoản web riêng,
+không có quyền quản trị, và ACL chỉ cho phép các topic MAYAP cần thiết. Thư viện
+MQTT.js v5.13.2 đã được lưu trong `vendor/`, không còn phụ thuộc CDN lúc chạy.
 
 Người dùng thêm máy bằng Device ID và PIN in trên tem. Không còn PIN mặc định
 dùng chung. Chức năng reset PIN trên HMI đưa PIN về đúng PIN xuất xưởng riêng
@@ -129,12 +135,12 @@ GitHub Actions chạy các kiểm tra trên và biên dịch firmware ở mọi 
 nhánh `main`, nhánh `release/**` và khi chạy thủ công. Dependency firmware được
 khóa version; file vượt khe OTA `0x330000` làm job thất bại.
 
-CI chỉ tạo artifact `MAYAP-firmware-ci-*` fail-closed, không có credential và
-không tự tạo GitHub Release. Không nhúng `secrets.h` vào một `.bin` rồi phát
-hành công khai: secret có thể bị trích xuất từ firmware. Kênh GitHub OTA trong
-Worker vì vậy mặc định tắt. Trước khi ban hành OTA production cần chọn một trong
-hai kiến trúc: chuyển credential riêng từng máy sang vùng lưu trữ được bảo toàn
-qua OTA, hoặc chuyển artifact sang kho riêng có xác thực.
+CI tạo artifact kiểm chứng `MAYAP-firmware-ci-*` bằng đúng chế độ production
+secret-free. Sau khi PR đã merge vào `main`, tạo tag khớp version, ví dụ
+`v3.8.0`; workflow `release-firmware.yml` chỉ chấp nhận tag thuộc `main`, build
+lại và tạo asset `MAYAP-firmware-3.8.0.bin` cùng SHA-256 trên GitHub Releases.
+Worker đã bật cổng OTA GitHub và vẫn có thể tắt tức thời bằng
+`ENABLE_PUBLIC_GITHUB_OTA=0`.
 
 ## Nguyên tắc an toàn khi sửa
 

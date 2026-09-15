@@ -1,0 +1,76 @@
+name: Release firmware OTA
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+env:
+  MAYAP_FQBN: esp32:esp32:esp32s3:PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
+  ESP32_CORE_VERSION: 3.3.11
+  U8G2_VERSION: 2.36.19
+  PUBSUBCLIENT_VERSION: '2.8'
+  ARDUINOJSON_VERSION: 7.4.2
+
+jobs:
+  release:
+    name: Build va phat hanh OTA secret-free
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout day du lich su
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Chi cho phep tag tu main va dung version
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
+          python3 scripts/check_consistency.py
+
+      - name: Chan credential bi dua vao ban phat hanh
+        run: test ! -e MAYAP_INDUSTRIAL_v3_4_0/secrets.h
+
+      - name: Cai dat arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Cai ESP32 core va thu vien da khoa version
+        run: |
+          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install "esp32:esp32@${ESP32_CORE_VERSION}" --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli lib install "U8g2@${U8G2_VERSION}"
+          arduino-cli lib install "PubSubClient@${PUBSUBCLIENT_VERSION}"
+          arduino-cli lib install "ArduinoJson@${ARDUINOJSON_VERSION}"
+
+      - name: Build firmware production secret-free
+        run: |
+          arduino-cli compile \
+            --fqbn "${MAYAP_FQBN}" \
+            --build-property compiler.cpp.extra_flags="-DMAYAP_PRODUCTION_BUILD=1" \
+            --output-dir ./build \
+            MAYAP_INDUSTRIAL_v3_4_0
+
+      - name: Dong goi va kiem tra firmware
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          cp build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "dist/MAYAP-firmware-${VERSION}.bin"
+          python3 - <<'PY'
+          from pathlib import Path
+          files = list(Path('dist').glob('MAYAP-firmware-*.bin'))
+          assert len(files) == 1
+          assert 0 < files[0].stat().st_size <= 0x330000
+          PY
+          sha256sum "dist/MAYAP-firmware-${VERSION}.bin" > "dist/MAYAP-firmware-${VERSION}.bin.sha256"
+
+      - name: Tao GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --verify-tag \
+            --generate-notes \
+            --title "MAYAP ${GITHUB_REF_NAME}"

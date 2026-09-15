@@ -2,7 +2,7 @@
 const CACHE = 'mayap-web-v3.8.0';
 const APP_SHELL = [
   './', './index.html', './setup.html', './config.js', './styles.css', './app.js', './push.js', './manifest.webmanifest',
-  './vendor/jsQR.min.js',
+  './vendor/mqtt.min.js', './vendor/jsQR.min.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/badge-72.png', './icons/apple-touch-icon.png'
 ];
 self.addEventListener('install', (event) => {

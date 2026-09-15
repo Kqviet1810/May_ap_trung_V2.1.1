@@ -612,8 +612,8 @@ inline bool postJson(const char *path, const JsonDocument &doc, const char *logT
 inline bool sendRegister() {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
-  doc["device_key"] = CLOUD_DEVICE_SECRET;
-  doc["factory_pin"] = CLOUD_FACTORY_PIN;
+  doc["device_key"] = mayapDeviceSecret();
+  doc["factory_pin"] = mayapFactoryPin();
   doc["device_name"] = mayapDeviceIdText();
   return postJson("/api/device/register", doc, "register");
 }
@@ -626,15 +626,15 @@ inline bool sendRegister() {
 inline bool sendResetPin() {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
-  doc["device_key"] = CLOUD_DEVICE_SECRET;
-  doc["factory_pin"] = CLOUD_FACTORY_PIN;
+  doc["device_key"] = mayapDeviceSecret();
+  doc["factory_pin"] = mayapFactoryPin();
   return postJson("/api/device/reset-pin", doc, "reset-pin");
 }
 
 inline bool sendHeartbeat() {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
-  doc["device_key"] = CLOUD_DEVICE_SECRET;
+  doc["device_key"] = mayapDeviceSecret();
   // Worker dung co nay de quyet dinh co bao "mat ket noi" hay khong - chi bao
   // khi dang co me ap chay tai lan heartbeat gan nhat (xem checkDeviceConnectivity
   // trong cloudflare/src/index.js). processingRuntime duoc lam moi moi chu ky
@@ -646,7 +646,7 @@ inline bool sendHeartbeat() {
 inline bool sendAlarm(const OutboxItem &item) {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
-  doc["device_key"] = CLOUD_DEVICE_SECRET;
+  doc["device_key"] = mayapDeviceSecret();
   doc["alarm_type"] = item.alarmType;
   doc["severity"] = severityText(item.severity);
   doc["state"] = item.resolved ? "resolved" : "active";
@@ -732,20 +732,16 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
   using namespace MayapCloudInternal;
 
   const bool tlsReady = CLOUD_ROOT_CA[0] || MAYAP_ALLOW_INSECURE_TLS;
-  if (!CLOUD_DEVICE_SECRET[0] || !CLOUD_FACTORY_PIN[0] ||
-      !CLOUD_API_HOST[0] || !tlsReady) {
-    // Nguyen nhan PHO BIEN NHAT khien khong co canh bao nao duoc gui: worker
-    // host/device_key la macro build-time trong config.h (MAYAP_CLOUD_API_HOST/
-    // MAYAP_DEVICE_SECRET), chua duoc dat luc build. In canh bao ro rang, lap
-    // lai dinh ky (khong lien tuc) de khong bi troi mat trong log nhung van
-    // chac chan duoc nhin thay.
+  if (!mayapCloudProvisioned() || !CLOUD_API_HOST[0] || !tlsReady) {
+    // Nguyen nhan pho bien: nguoi lap dat chua provision device secret/PIN vao
+    // NVS hoac host/CA khong hop le. In lai dinh ky de khong lam ngap log.
     static uint32_t lastConfigWarnAt = 0U;
     if (lastConfigWarnAt == 0U || MayapCloudInternal::timeReached(now, lastConfigWarnAt + 300000UL)) {
       lastConfigWarnAt = now;
       mayapSerialPrintf(false,
           "[CLOUD] CANH BAO: thieu host/device secret/factory PIN/CA TLS "
-          "trong firmware - se KHONG gui duoc canh bao nao cho toi khi "
-          "nguoi lap dat nap lai firmware voi cau hinh hop le.\n");
+          "trong NVS - se KHONG gui canh bao cho toi khi nguoi lap dat "
+          "hoan tat muc Dich vu trong cong cau hinh.\n");
     }
     return;
   }
@@ -844,7 +840,7 @@ inline void mayapPrintCloudStatus(uint32_t now) {
   mayapSerialPrintf(false,
       "[CLOUD] host=%s device_key=%s da_dang_ky=%u outbox=%u/%u backoff_step=%u/%u\n",
       CLOUD_API_HOST[0] ? CLOUD_API_HOST : "(chua cau hinh)",
-      CLOUD_DEVICE_SECRET[0] ? "DA CAU HINH" : "CHUA CAU HINH",
+      mayapCloudProvisioned() ? "DA CAU HINH" : "CHUA CAU HINH",
       registered, static_cast<unsigned>(outboxCount), static_cast<unsigned>(CLOUD_OUTBOX_SIZE),
       static_cast<unsigned>(cloudBackoff.step), static_cast<unsigned>(BACKOFF_STEP_COUNT - 1U));
   const long sendAgoSec = lastSendAt == 0U

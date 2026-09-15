@@ -24,7 +24,7 @@ npx wrangler secret put VAPID_PRIVATE_KEY
 npx wrangler secret put VAPID_SUBJECT
 npx wrangler secret put DEVICE_KEY_PEPPER
 npx wrangler secret put PIN_RATE_LIMIT_PEPPER
-npx wrangler secret put GITHUB_TOKEN          # tuỳ chọn, chỉ khi bật GitHub OTA
+npx wrangler secret put GITHUB_TOKEN          # tuỳ chọn, tăng hạn mức gọi GitHub
 ```
 
 - `DEVICE_KEY_PEPPER`: chuỗi ngẫu nhiên tối thiểu 32 ký tự; không được đổi sau
@@ -105,16 +105,11 @@ Không dùng dữ liệu production cho kiểm thử phá khóa.
 
 ## OTA qua GitHub Releases
 
-Các endpoint `/api/firmware/*` mặc định trả `503`. Không đặt
-`ENABLE_PUBLIC_GITHUB_OTA=1` khi file `.bin` còn chứa Wi-Fi/MQTT/device secret:
-credential có thể được trích xuất từ firmware công khai.
+Firmware phát hành không chứa Wi-Fi/MQTT/device secret; toàn bộ dữ liệu riêng
+từng máy nằm trong NVS `mayap_conn` và được giữ nguyên qua OTA. Vì vậy
+`ENABLE_PUBLIC_GITHUB_OTA="1"` được bật mặc định trong `wrangler.toml`; đổi về
+`"0"` và deploy lại nếu cần khóa cập nhật từ xa.
 
-Chỉ bật lại sau khi đã hoàn tất một trong hai phương án được review:
-
-1. Credential riêng từng máy nằm trong vùng provisioning/NVS được giữ nguyên
-   qua OTA, còn firmware phát hành không chứa secret; hoặc
-2. Artifact nằm trong kho riêng có xác thực và Worker kiểm soát quyền tải.
-
-Khi kênh này được phép bật, Worker chỉ nhận asset tên chính xác
+Workflow chỉ tạo Release từ tag `vX.Y.Z` thuộc nhánh `main`. Worker chỉ nhận asset tên chính xác
 `MAYAP-firmware-X.Y.Z.bin`, tự tải và băm SHA-256, từ chối file rỗng hoặc lớn
 hơn khe OTA `0x330000`, rồi cache metadata trong D1.

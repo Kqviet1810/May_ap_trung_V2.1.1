@@ -85,7 +85,7 @@ static WiFiClient netClient;
 static PubSubClient mqtt(netClient);
 
 inline bool mqttConfigReady() {
-  if (!MQTT_BROKER_HOST[0]) return false;
+  if (!mayapMqttProvisioned()) return false;
 #if MAYAP_MQTT_USE_TLS
   return MQTT_ROOT_CA[0] || MAYAP_ALLOW_INSECURE_TLS;
 #else
@@ -700,6 +700,10 @@ inline void subscribeAll() {
 inline void attemptConnect(uint32_t now) {
   if (!mqttBackoff.ready(now)) return;
 
+  // Goi lai moi lan ket noi de cau hinh NVS moi co hieu luc ngay sau khi
+  // cong provisioning dong, khong can build hay khoi dong lai firmware.
+  mqtt.setServer(mayapMqttHost(), mayapMqttPort());
+
   char clientId[32];
   snprintf(clientId, sizeof(clientId), "esp-%s", deviceId);
   char willTopic[80];
@@ -709,8 +713,8 @@ inline void attemptConnect(uint32_t now) {
   snprintf(willMessage, sizeof(willMessage),
            "{\"v\":%u,\"online\":false}", MQTT_PROTOCOL_VERSION);
 
-  const char *user = MQTT_USERNAME[0] ? MQTT_USERNAME : nullptr;
-  const char *pass = MQTT_PASSWORD[0] ? MQTT_PASSWORD : nullptr;
+  const char *user = mayapMqttUsername()[0] ? mayapMqttUsername() : nullptr;
+  const char *pass = mayapMqttPassword()[0] ? mayapMqttPassword() : nullptr;
   const bool ok = mqtt.connect(clientId, user, pass, willTopic, 0, true,
                                willMessage, true);
   if (!ok) {
@@ -883,7 +887,7 @@ inline void mayapWebLinkBegin() {
   using namespace MayapRealtimeInternal;
   ensureIdentity();
   mqtt.setBufferSize(1536);
-  mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+  mqtt.setServer(mayapMqttHost(), mayapMqttPort());
   mqtt.setCallback(mqttMessageCallback);
 #if MAYAP_MQTT_USE_TLS
   if (MQTT_ROOT_CA[0]) {

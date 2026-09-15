@@ -242,6 +242,11 @@ inline String buildConnectionInfo() {
     info += F("Chua cau hinh");
   }
   info += F("</b></div>");
+  info += F("<div class=info><span>Dich vu MQTT/Cloud</span><b>");
+  info += (mayapMqttProvisioned() && mayapCloudProvisioned())
+              ? F("Da cau hinh")
+              : F("Chua hoan tat");
+  info += F("</b></div>");
   return info;
 }
 
@@ -249,7 +254,7 @@ inline void handlePortalRoot() {
   const String connectionInfo = buildConnectionInfo();
   const String options = buildWifiOptions();
   String html;
-  html.reserve(5120);  // CSS dai hon ban cu (dong bo mau thuong hieu) - du cho + 1KB
+  html.reserve(7168);
   // Mang dung MAU/PHONG CACH giong het trang web chinh (index.html/styles.css)
   // de nguoi dung cam thay "cung 1 san pham" thay vi 1 trang ky thuat roi rac
   // - du day la trang RIENG, tu ESP32 host qua AP offline (khong the tai
@@ -277,6 +282,10 @@ inline void handlePortalRoot() {
     "font-size:15px;box-sizing:border-box}"
     "select:focus,input:focus{outline:0;border-color:#42aa9c;"
     "box-shadow:0 0 0 3px rgba(66,170,156,.15)}"
+    "details{margin-top:18px;border-top:1px solid #e2ece9;padding-top:14px}"
+    "summary{cursor:pointer;font-weight:800;font-size:13px}"
+    ".hint{display:block;color:#718783;font-size:11px;line-height:1.5;"
+    "margin-top:5px;text-transform:none;letter-spacing:0}"
     "button,a.reload{width:100%;height:48px;margin-top:18px;border:0;"
     "border-radius:14px;background:#0d8275;color:#fff;font-weight:800;"
     "font-size:15px;display:flex;align-items:center;justify-content:center;"
@@ -298,13 +307,27 @@ inline void handlePortalRoot() {
   html += F(
     "</select><label>Mat khau</label>"
     "<input name=password type=password maxlength=64 autocomplete=off>"
+    "<details><summary>Cau hinh dich vu (ky thuat vien)</summary>"
+    "<p>Nhap du 6 truong o lan cai dat dau. De trong o mat khau/khoa de giu "
+    "gia tri dang co khi chi doi Wi-Fi.</p>"
+    "<label>MQTT host<span class=hint>Vi du: abc.s1.eu.hivemq.cloud</span></label>"
+    "<input name=mqtt_host maxlength=127 autocomplete=off>"
+    "<label>MQTT port</label><input name=mqtt_port inputmode=numeric "
+    "maxlength=5 placeholder=8883>"
+    "<label>MQTT username</label><input name=mqtt_user maxlength=64 autocomplete=off>"
+    "<label>MQTT password</label><input name=mqtt_pass type=password "
+    "maxlength=128 autocomplete=new-password>"
+    "<label>Device secret<span class=hint>32-128 ky tu, tao rieng cho may</span></label>"
+    "<input name=device_key type=password minlength=32 maxlength=128 autocomplete=new-password>"
+    "<label>PIN xuat xuong<span class=hint>Dung 6 chu so, in tren nhan may</span></label>"
+    "<input name=factory_pin type=password inputmode=numeric pattern='[0-9]{6}' "
+    "maxlength=6 autocomplete=new-password></details>"
     "<button type=submit>Luu &amp; ket noi</button></form>"
     "<a class=reload href=/rescan>&#8635; Tim lai Wi-Fi</a>"
     "<p><b>Sau khi luu:</b> may se tu thu ket noi mang moi, kiem tra man "
-    "hinh may ap de biet ket qua. Bay gio ban co the chuyen dien thoai tro "
-    "lai mang Wi-Fi thuong (thoat khoi mang MAYAP-XXXX) va mo lai trang web "
-    "chinh nhu cu. Thong bao canh bao cua may nay duoc bat rieng qua trang "
-    "web chinh, khong can cau hinh gi them o day.</p></div>");
+    "hinh may ap de biet ket qua. Lan cai dat dau, ky thuat vien can mo muc "
+    "Cau hinh dich vu va nhap du thong tin MQTT/Cloud. Sau do co the chuyen "
+    "dien thoai ve Wi-Fi thuong va mo lai dashboard.</p></div>");
   html += F("</body></html>");
   portalServer.send(200, "text/html; charset=utf-8", html);
 }
@@ -330,6 +353,30 @@ inline void handlePortalSave() {
       pass.length() > WIFI_PORTAL_PASSWORD_MAX) {
     portalServer.send(400, "text/plain; charset=utf-8", "SSID/mat khau qua dai");
     return;
+  }
+
+  const String mqttHost = portalServer.arg("mqtt_host");
+  const String mqttPortText = portalServer.arg("mqtt_port");
+  const String mqttUser = portalServer.arg("mqtt_user");
+  const String mqttPass = portalServer.arg("mqtt_pass");
+  const String deviceKey = portalServer.arg("device_key");
+  const String factoryPin = portalServer.arg("factory_pin");
+  const bool hasServiceInput = !mqttHost.isEmpty() || !mqttPortText.isEmpty() ||
+      !mqttUser.isEmpty() || !mqttPass.isEmpty() || !deviceKey.isEmpty() ||
+      !factoryPin.isEmpty();
+  if (hasServiceInput) {
+    const long parsedPort = mqttPortText.isEmpty() ? 0L : mqttPortText.toInt();
+    if ((!mqttPortText.isEmpty() && parsedPort <= 0L) ||
+        parsedPort > 65535L ||
+        !mayapSaveServiceProvisioning(
+            mqttHost.c_str(), static_cast<uint16_t>(parsedPort),
+            mqttUser.c_str(), mqttPass.c_str(), deviceKey.c_str(),
+            factoryPin.c_str())) {
+      portalServer.send(400, "text/plain; charset=utf-8",
+          "Cau hinh dich vu khong hop le. Lan dau can host, port, tai khoan "
+          "MQTT, device secret 32-128 ky tu va PIN dung 6 so.");
+      return;
+    }
   }
   snprintf(pendingSsid, sizeof(pendingSsid), "%s", ssid.c_str());
   snprintf(pendingPassword, sizeof(pendingPassword), "%s", pass.c_str());
@@ -629,11 +676,11 @@ inline void mayapPrintNetworkConfig() {
       activeSsid[0] ? activeSsid : "(chua cau hinh)",
       activePassword[0] ? "CO" : "KHONG");
   mayapSerialPrintf(false, "[CONFIG] mqtt_broker=%s:%u tls=%s topic_root=%s\n",
-      MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_USE_TLS ? "BAT" : "TAT",
+      mayapMqttHost(), mayapMqttPort(), MQTT_USE_TLS ? "BAT" : "TAT",
       MQTT_TOPIC_ROOT);
   mayapSerialPrintf(false, "[CONFIG] cloud_api_host=%s cloud_device_key=%s\n",
       CLOUD_API_HOST[0] ? CLOUD_API_HOST : "(chua cau hinh)",
-      CLOUD_DEVICE_SECRET[0] ? "DA CAU HINH" : "CHUA CAU HINH (build flag rong)");
+      mayapCloudProvisioned() ? "DA CAU HINH" : "CHUA CAU HINH (NVS)");
 }
 
 inline void mayapSetConnectivityMode(ConnectivityMode mode) {

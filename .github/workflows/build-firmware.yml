@@ -44,7 +44,7 @@ jobs:
         run: npm --prefix cloudflare test
 
   firmware:
-    name: Bien dich ESP32-S3 fail-closed
+    name: Bien dich ESP32-S3 production secret-free
     needs: validate
     runs-on: ubuntu-latest
     steps:
@@ -72,6 +72,7 @@ jobs:
         run: |
           arduino-cli compile \
             --fqbn "${MAYAP_FQBN}" \
+            --build-property compiler.cpp.extra_flags="-DMAYAP_PRODUCTION_BUILD=1" \
             --output-dir ./build \
             MAYAP_INDUSTRIAL_v3_4_0
 
@@ -89,8 +90,8 @@ jobs:
           PY
           sha256sum "dist/MAYAP-firmware-ci-${VERSION}.bin" > "dist/MAYAP-firmware-ci-${VERSION}.bin.sha256"
 
-      # Artifact nay chi de review ket qua build, KHONG duoc nap cho may giao
-      # khach: no co chu dich khong chua broker/credential production.
+      # Artifact nay secret-free va dung cung code production, nhung chi de
+      # review. Ban phat hanh chinh thuc duoc tao boi release-firmware.yml.
       - name: Luu artifact kiem chung
         uses: actions/upload-artifact@v4
         with:

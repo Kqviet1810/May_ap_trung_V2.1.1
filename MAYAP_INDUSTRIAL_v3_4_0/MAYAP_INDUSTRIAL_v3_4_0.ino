@@ -1,4 +1,5 @@
 #include "config.h"
+#include "provisioning.h"
 #include <esp_timer.h>
 
 static volatile bool gMayapSystemTripLatched = false;
@@ -257,6 +258,11 @@ void supervisorTask(void *parameter) {
 void setup() {
   mayapSafeOutputsEarly();
   Serial.begin(115200);
+
+  if (!mayapProvisioningBegin()) {
+    mayapSerialPrintf(true,
+        "[PROVISION] Khong mo duoc NVS; MQTT/Cloud se giu fail-closed\n");
+  }
 
   i2cMutex = xSemaphoreCreateMutexStatic(&i2cMutexBuffer);
   if (!i2cMutex) fatalRestart("I2C MUTEX", ESP_ERR_NO_MEM);
