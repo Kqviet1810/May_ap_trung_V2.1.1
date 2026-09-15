@@ -10,6 +10,10 @@ function toHex(buffer) {
 // nguoi dung (khong can bcrypt/argon2 cham), la 1 chuoi bi mat co do ngau nhien
 // cao do firmware tu sinh/duoc cap luc san xuat, nen SHA-256 + pepper la du.
 export async function hashDeviceKey(deviceKey, pepper) {
+  if (typeof deviceKey !== 'string' || !deviceKey ||
+      typeof pepper !== 'string' || pepper.length < 32) {
+    throw new Error('DEVICE_KEY_PEPPER phai co it nhat 32 ky tu');
+  }
   const data = new TextEncoder().encode(`${pepper}:${deviceKey}`);
   const digest = await crypto.subtle.digest('SHA-256', data);
   return toHex(digest);
@@ -33,12 +37,27 @@ export async function verifyDeviceKey(deviceKey, pepper, storedHash) {
   return timingSafeEqual(computed, storedHash);
 }
 
-export function randomToken(byteLength = 16) {
-  const bytes = new Uint8Array(byteLength);
-  crypto.getRandomValues(bytes);
-  return toHex(bytes.buffer);
+export function isValidDeviceId(id) {
+  return typeof id === 'string' && /^MAP-[A-F0-9]{12}$/.test(id);
 }
 
-export function isValidDeviceId(id) {
-  return typeof id === 'string' && /^[A-Za-z0-9_-]{3,40}$/.test(id);
+export function isValidFactoryPin(pin) {
+  return typeof pin === 'string' && /^[0-9]{6}$/.test(pin);
+}
+
+export function isTrustedPushEndpoint(endpoint, env = {}) {
+  try {
+    const url = new URL(String(endpoint || ''));
+    if (url.protocol !== 'https:' || url.username || url.password ||
+        (url.port && url.port !== '443')) return false;
+    const defaults = [
+      'googleapis.com', 'mozilla.com', 'push.apple.com', 'notify.windows.com',
+    ];
+    const configured = String(env.PUSH_ENDPOINT_HOST_SUFFIXES || '')
+      .split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+    return [...defaults, ...configured].some((suffix) =>
+      url.hostname === suffix || url.hostname.endsWith(`.${suffix}`));
+  } catch (_) {
+    return false;
+  }
 }

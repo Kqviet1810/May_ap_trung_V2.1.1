@@ -1,7 +1,7 @@
 #pragma once
 
 /*
-  MAYAP HMI ST7567S 128x64 + rotary + buzzer - v3.7.0
+  MAYAP HMI ST7567S 128x64 + rotary + buzzer - v3.8.0
   Phan cung: LCD 0x3F SDA8/SCL9, rotary 38/39/40, buzzer GPIO41.
   File nay chi dung trong firmware tong; khong chua setup/loop demo, Wi-Fi,
   ket noi mang, luu flash noi hay dieu khien GPIO chap hanh.
@@ -1461,7 +1461,7 @@ void openAutoTuneConfirm() {
 }
 
 // Dat lai ma PIN web (dung khi them thiet bi/doi ten may tren dashboard)
-// ve mac dinh xuat xuong "1111". Day la duong duy nhat de khoi phuc quyen
+// ve PIN xuat xuong rieng cua may. Day la duong duy nhat de khoi phuc quyen
 // truy cap neu nguoi dung da doi PIN roi quen - co mat vat ly tai HMI (bam
 // nut xac nhan CO) la dieu kien duy nhat, khong can biet PIN cu.
 void openCloudPinResetConfirm() {
@@ -3573,7 +3573,7 @@ void drawConfirmScreen() {
     line1 = pendingTurningConfig.turningEnabled ? "BAT DAO TU DONG?" : "TAT DAO TU DONG?";
   } else if (confirmAction == ConfirmAction::CloudPinReset) {
     line1 = "DAT LAI MA PIN WEB";
-    line2 = "VE MAC DINH 1111?";
+    line2 = "VE PIN XUAT XUONG?";
   } else if (confirmAction == ConfirmAction::FirmwareRollback) {
     line1 = "QUAY LAI FIRMWARE CU?";
     line2 = "MAY SE KHOI DONG LAI";

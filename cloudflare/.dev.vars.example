@@ -1,0 +1,8 @@
+# Sao che thanh .dev.vars de chay `wrangler dev`; khong commit file that.
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:you@example.com
+DEVICE_KEY_PEPPER=
+PIN_RATE_LIMIT_PEPPER=
+# GITHUB_TOKEN=  # tuy chon, chi can quyen doc public repo
+# ALLOW_TOFU_REGISTRATION=1  # CHI lab co giam sat; production khong bat

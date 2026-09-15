@@ -1,103 +1,100 @@
-name: Build & release firmware
+name: Validate & build
 
-# Tu dong bien dich MAYAP_INDUSTRIAL_v3_4_0.ino thanh file .bin bang
-# arduino-cli tren may chu GitHub (co internet day du, khac han moi may local
-# dung de phat trien) - khong ai phai tu tay bien dich + upload file .bin
-# nua. Chi can day 1 tag dang "vX.Y.Z" (khop MAYAP_FIRMWARE_VERSION trong
-# config.h) len GitHub la workflow nay tu bien dich + tao GitHub Release +
-# dinh kem file .bin vao do. Cloudflare Worker (xem cloudflare/src/index.js:
-# handleFirmwareCheck/handleFirmwareDownload) doc phien ban/tai file firmware
-# THANG tu GitHub Releases API - khong can trang admin upload thu cong.
-#
-# Cach phat hanh 1 ban moi:
-#   git tag v3.5.0
-#   git push origin v3.5.0
-#
-# QUAN TRONG - cau hinh board (FQBN) da XAC MINH BANG CHUNG CU THE, khong con
-# doan mo ho (lich su: tung doan sai 2 lan - dau tien FlashSize=8M dua theo
-# ten module "N8", sau do doan nham chip chi co 4MB - CA HAI DEU SAI):
-#   - esptool.py flash_id tren thiet bi that: "Detected flash size: 8MB"
-#     -> chip THAT SU la 8MB, dung nhu ten module "N8".
-#   - Log loi boot thuc te ("partition 3 invalid - offset 0x340000 size
-#     0x330000 exceeds flash chip size 0x400000") khop CHINH XAC voi cach
-#     Partition Scheme "8M with spiffs (3MB APP/1.5MB SPIFFS)" bo tri 2 khe
-#     OTA (ota_0 tai 0x10000, ota_1 tai 0x10000+0x330000=0x340000, moi khe
-#     0x330000) - tuc la Partition Scheme DA DUNG cho chip 8MB that, chi co
-#     Flash Size trong Arduino IDE bi de nham "4MB" (0x400000) nen khe ota_1
-#     bi tinh la "vuot qua" gioi han khai bao sai do.
-#   - Da doi chieu danh sach gia tri hop le qua `arduino-cli board details -b
-#     esp32:esp32:esp32s3 --full`: FlashSize=8M hop le; ten "8M with spiffs
-#     (3MB APP/1.5MB SPIFFS)" co khoa noi bo la PartitionScheme=default_8MB
-#     (KHAC "huge_app" - "Huge APP" ghi ro "No OTA", chi 1 khe, khong phu
-#     hop tinh nang cap nhat firmware cua du an nay).
-# Board hien trong Arduino IDE: "ESP32S3 Dev Module" -> esp32:esp32:esp32s3.
 on:
+  pull_request:
   push:
-    tags:
-      - 'v*.*.*'
-  workflow_dispatch: {}
+    branches:
+      - main
+      - 'release/**'
+  workflow_dispatch:
 
-# Bat buoc phai co contents: write thi buoc "Tao GitHub Release" (softprops/
-# action-gh-release) moi tao duoc Release - mac dinh GITHUB_TOKEN cua repo
-# nay chi co quyen doc (Settings > Actions > Workflow permissions), thieu
-# khai bao nay se bi GitHub tra ve loi 403 "Resource not accessible by
-# integration" ngay khi vua goi tao Release (da gap thuc te o lan chay tag
-# v3.5.0 dau tien).
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: mayap-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   MAYAP_FQBN: esp32:esp32:esp32s3:PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
+  ESP32_CORE_VERSION: 3.3.11
+  U8G2_VERSION: 2.36.19
+  PUBSUBCLIENT_VERSION: '2.8'
+  ARDUINOJSON_VERSION: 7.4.2
 
 jobs:
-  build:
+  validate:
+    name: Kiem tra hop dong va Worker
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout ma nguon
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Kiem tra dong bo firmware, web, D1
+        run: python3 scripts/check_consistency.py
+
+      - name: Kiem tra cu phap JavaScript
+        run: |
+          node --check app.js
+          node --check push.js
+          node --check sw.js
+          npm --prefix cloudflare run check
+
+      - name: Unit test Worker
+        run: npm --prefix cloudflare test
+
+  firmware:
+    name: Bien dich ESP32-S3 fail-closed
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Chan credential bi dua vao CI
+        run: test ! -e MAYAP_INDUSTRIAL_v3_4_0/secrets.h
 
       - name: Cai dat arduino-cli
         uses: arduino/setup-arduino-cli@v2
 
-      - name: Cai loi ESP32 (Espressif)
+      - name: Cai ESP32 core da khoa version
         run: |
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          arduino-cli core install esp32:esp32 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install "esp32:esp32@${ESP32_CORE_VERSION}" --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-      - name: Cai thu vien (U8g2, PubSubClient, ArduinoJson)
-        run: arduino-cli lib install U8g2 PubSubClient ArduinoJson
+      - name: Cai thu vien da khoa version
+        run: |
+          arduino-cli lib install "U8g2@${U8G2_VERSION}"
+          arduino-cli lib install "PubSubClient@${PUBSUBCLIENT_VERSION}"
+          arduino-cli lib install "ArduinoJson@${ARDUINOJSON_VERSION}"
 
       - name: Bien dich firmware
         run: |
           arduino-cli compile \
-            --fqbn "${{ env.MAYAP_FQBN }}" \
+            --fqbn "${MAYAP_FQBN}" \
             --output-dir ./build \
-            --verbose \
             MAYAP_INDUSTRIAL_v3_4_0
 
-      - name: Bao cao kich thuoc (doi chieu voi log Arduino IDE tren may ban)
-        run: ls -la ./build/*.bin
-
-      - name: Doi ten file .bin theo tag
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Kiem tra kich thuoc va bam SHA-256
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
+          VERSION="$(sed -n 's/.*MAYAP_FIRMWARE_VERSION\[\].*"\([0-9][0-9.]*\)".*/\1/p' MAYAP_INDUSTRIAL_v3_4_0/config.h | head -1)"
+          test -n "$VERSION"
+          mkdir -p dist
+          cp build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "dist/MAYAP-firmware-ci-${VERSION}.bin"
+          python3 - <<'PY'
+          from pathlib import Path
+          files = list(Path('dist').glob('*.bin'))
+          assert len(files) == 1
+          assert 0 < files[0].stat().st_size <= 0x330000
+          PY
+          sha256sum "dist/MAYAP-firmware-ci-${VERSION}.bin" > "dist/MAYAP-firmware-ci-${VERSION}.bin.sha256"
 
-      # Chay tay (workflow_dispatch, khong co tag) chi de kiem tra bien dich
-      # con chay duoc khong - luu ket qua thanh artifact tai ve xem thu,
-      # KHONG tao Release/tag nao ca.
-      - name: Luu file .bin de kiem tra (chi khi chay tay)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      # Artifact nay chi de review ket qua build, KHONG duoc nap cho may giao
+      # khach: no co chu dich khong chua broker/credential production.
+      - name: Luu artifact kiem chung
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-bin-test
-          path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
+          name: mayap-firmware-ci-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
           retention-days: 7
-
-      - name: Tao GitHub Release + dinh kem file .bin
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ./MAYAP-firmware-*.bin
-          generate_release_notes: true

@@ -3,7 +3,7 @@
 #include "config.h"
 #include <Arduino.h>
 #include <WiFi.h>
-#if MQTT_USE_TLS
+#if MAYAP_MQTT_USE_TLS
 #include <WiFiClientSecure.h>
 #endif
 #include <PubSubClient.h>
@@ -77,12 +77,21 @@ inline void ensureIdentity() {
 // ------------------------------ MQTT client -----------------------------------
 // netClient/mqtt chi duoc dung tu networkTask (mayapWebLinkUpdate va cac ham
 // no goi truc tiep). Khong co ham nao khac trong file nay dung chung ngoai do.
-#if MQTT_USE_TLS
+#if MAYAP_MQTT_USE_TLS
 static WiFiClientSecure netClient;
 #else
 static WiFiClient netClient;
 #endif
 static PubSubClient mqtt(netClient);
+
+inline bool mqttConfigReady() {
+  if (!MQTT_BROKER_HOST[0]) return false;
+#if MAYAP_MQTT_USE_TLS
+  return MQTT_ROOT_CA[0] || MAYAP_ALLOW_INSECURE_TLS;
+#else
+  return true;
+#endif
+}
 
 // Backoff RIENG cho MQTT, doc lap hoan toan voi backoff cua STA Wi-Fi
 // (network_service.h) va Cloud Push (cloud_alert_link.h) - moi lop tu quan
@@ -216,6 +225,7 @@ inline void publishJson(const char *suffix, const JsonDocument &doc,
 
 inline void publishPresence(bool online) {
   JsonDocument doc;
+  doc["v"] = MQTT_PROTOCOL_VERSION;
   doc["online"] = online;
   doc["bootId"] = bootId;
   doc["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : "";
@@ -227,7 +237,7 @@ inline void publishPresence(bool online) {
 
 inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   JsonDocument doc;
-  doc["v"] = 1;
+  doc["v"] = MQTT_PROTOCOL_VERSION;
   doc["bootId"] = bootId;
   doc["revision"] = revision;
   JsonObject c = doc["config"].to<JsonObject>();
@@ -284,7 +294,7 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
 // trang/doi thiet bi (giong het vai tro cua "config/reported" voi MachineConfig).
 inline void publishReminderReport(const ReminderSet &reminders, uint32_t revision) {
   JsonDocument doc;
-  doc["v"] = 1;
+  doc["v"] = MQTT_PROTOCOL_VERSION;
   doc["bootId"] = bootId;
   doc["revision"] = revision;
   JsonArray items = doc["reminders"].to<JsonArray>();
@@ -299,6 +309,7 @@ inline void publishReminderReport(const ReminderSet &reminders, uint32_t revisio
 
 inline void publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
   JsonDocument doc;
+  doc["v"] = MQTT_PROTOCOL_VERSION;
   doc["bootId"] = bootId;
   doc["revision"] = revision;
   JsonObject r = doc["runtime"].to<JsonObject>();
@@ -334,6 +345,7 @@ inline void publishAck(const char *requestId, const char *result,
                        const char *message) {
   if (!requestId || !requestId[0]) return;
   JsonDocument doc;
+  doc["v"] = MQTT_PROTOCOL_VERSION;
   doc["requestId"] = requestId;
   doc["bootId"] = bootId;
   doc["result"] = result;
@@ -343,6 +355,7 @@ inline void publishAck(const char *requestId, const char *result,
 
 inline void publishLogEntry(const HmiEventItem &item) {
   JsonDocument doc;
+  doc["v"] = MQTT_PROTOCOL_VERSION;
   doc["sequence"] = item.sequence;
   doc["epoch"] = item.epoch;
   doc["code"] = item.code;
@@ -649,6 +662,13 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
   JsonDocument doc;
   if (deserializeJson(doc, buffer, length) != DeserializationError::Ok) return;
 
+  const uint8_t protocolVersion = doc["v"] | 0U;
+  if (protocolVersion != MQTT_PROTOCOL_VERSION) {
+    const char *requestId = doc["requestId"] | "";
+    publishAck(requestId, "unsupported", "SAI PHIEN BAN GIAO THUC");
+    return;
+  }
+
   // "config/set" co dau '/' o giua nen phai kiem tra ca doan, khong chi ky tu
   // sau dau '/' cuoi cung (se chi ra "set", trung voi cac topic khac khong).
   if (strstr(topic, "/config/set")) {
@@ -685,7 +705,9 @@ inline void attemptConnect(uint32_t now) {
   char willTopic[80];
   snprintf(willTopic, sizeof(willTopic), "%s/%s/presence", MQTT_TOPIC_ROOT,
            deviceId);
-  const char *willMessage = "{\"online\":false}";
+  char willMessage[48];
+  snprintf(willMessage, sizeof(willMessage),
+           "{\"v\":%u,\"online\":false}", MQTT_PROTOCOL_VERSION);
 
   const char *user = MQTT_USERNAME[0] ? MQTT_USERNAME : nullptr;
   const char *pass = MQTT_PASSWORD[0] ? MQTT_PASSWORD : nullptr;
@@ -863,8 +885,13 @@ inline void mayapWebLinkBegin() {
   mqtt.setBufferSize(1536);
   mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
   mqtt.setCallback(mqttMessageCallback);
-#if MQTT_USE_TLS
-  netClient.setInsecure();  // khong xac thuc CA: xem ghi chu o dau file cho ban thuong mai
+#if MAYAP_MQTT_USE_TLS
+  if (MQTT_ROOT_CA[0]) {
+    netClient.setCACert(MQTT_ROOT_CA);
+  } else if (MAYAP_ALLOW_INSECURE_TLS) {
+    netClient.setInsecure();
+    mayapSerialPrintf(true, "[WEBLINK] CANH BAO: MQTT TLS dang bo qua CA\n");
+  }
 #endif
   applyWifiPowerMode(false);
 }
@@ -877,6 +904,17 @@ inline void mayapWebLinkUpdate(uint32_t now) {
   // ngay ca khi STA (va vi vay MQTT) dang tat han, nhung AP van can duoc giu
   // WIFI_PS_NONE de phat song on dinh trong luc do.
   serviceWifiPowerMode();
+
+  if (!mqttConfigReady()) {
+    static uint32_t lastConfigWarnAt = 0U;
+    if (lastConfigWarnAt == 0U || timeReached(now, lastConfigWarnAt + 300000UL)) {
+      lastConfigWarnAt = now;
+      mayapSerialPrintf(false,
+          "[WEBLINK] Chua cau hinh broker/CA MQTT; ket noi realtime dang tat\n");
+    }
+    if (mqtt.connected()) mqtt.disconnect();
+    return;
+  }
 
   const NetworkStatus status = mayapGetNetworkStatus();
   const bool staOnline = status.requestedMode == ConnectivityMode::Online &&

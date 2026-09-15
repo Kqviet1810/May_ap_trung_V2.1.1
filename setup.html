@@ -29,6 +29,8 @@
   <h1>🔔 Bật thông báo cho máy ấp</h1>
   <p>Trang này liên kết thông báo cảnh báo (nhiệt độ, cảm biến, mất kết nối…) từ thiết bị bên dưới tới trình duyệt này.</p>
   <div class="setupDeviceId" id="setupDeviceId">…</div>
+  <label for="setupPin">PIN trên nhãn bàn giao của máy</label>
+  <input id="setupPin" inputmode="numeric" minlength="4" maxlength="8" pattern="[0-9]{4,8}" autocomplete="one-time-code" placeholder="4-8 chữ số"/>
   <div class="wifiGuide" id="setupIosGuide" hidden>
     <strong>iPhone/iPad: thêm vào Màn hình chính trước</strong>
     <small>Bước 1: Nhấn nút Chia sẻ trên Safari.<br/>Bước 2: Chọn "Thêm vào Màn hình chính".<br/>Bước 3: Mở lại đường dẫn này từ biểu tượng vừa tạo.<br/>Bước 4: Bấm "Bật thông báo" lại.</small>
@@ -49,6 +51,7 @@
   const idEl = $('setupDeviceId');
   const errEl = $('setupError');
   const btn = $('setupEnableBtn');
+  const pinEl = $('setupPin');
   const iosGuide = $('setupIosGuide');
 
   function showError(text) {
@@ -68,7 +71,14 @@
     btn.disabled = true;
     btn.textContent = 'Đang bật…';
     showError('');
-    const result = await window.MayapPush.enable(deviceId, { pairingToken });
+    const pin = String(pinEl.value || '').trim();
+    if (!pairingToken && !/^\d{4,8}$/.test(pin)) {
+      btn.disabled = false;
+      btn.textContent = 'Bật thông báo';
+      showError('PIN phải gồm 4-8 chữ số.');
+      return;
+    }
+    const result = await window.MayapPush.enable(deviceId, { pairingToken, pin });
     if (result.ok) {
       btn.textContent = '🔔 Đã bật thông báo';
       idEl.textContent = `${deviceId} — đã liên kết với trình duyệt này`;

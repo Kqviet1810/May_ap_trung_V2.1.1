@@ -94,7 +94,7 @@
   // dung ca khi bat thong bao lan dau LAN khi tu "vien lai" link cho mot
   // subscription da co san (vi du sau khi trinh duyet tu xoay subscription o
   // su kien pushsubscriptionchange, xem sw.js) ma khong can nguoi dung bam lai.
-  async function linkSubscription(deviceId, subscription, pairingToken) {
+  async function linkSubscription(deviceId, subscription, pairingToken, pin) {
     const url = apiUrl('/api/push/subscribe');
     if (!url) throw new Error('Chua cau hinh cloudApiBase trong config.js');
     const res = await fetch(url, {
@@ -103,6 +103,7 @@
       body: JSON.stringify({
         device_id: deviceId,
         pairing_token: pairingToken || '',
+        pin: pin || '',
         subscription: subscription.toJSON ? subscription.toJSON() : subscription,
       }),
     });
@@ -176,7 +177,7 @@
       let linkedAny = false;
       for (const id of ids) {
         try {
-          await linkSubscription(id, subscription, options.pairingToken);
+          await linkSubscription(id, subscription, options.pairingToken, options.pin);
           linkedAny = true;
         } catch (error) {
           lastError = error;
@@ -255,9 +256,8 @@
   // goi lai server duoc vi Service Worker khong co localStorage), ham nay TU
   // dang ky lai voi Worker (upsert, an toan goi nhieu lan) thay vi bao sai
   // trang thai cho nguoi dung.
-  // deviceIds: TOAN BO device_id hien co tren dashboard (khong chi may dang
-  // chon) - tu dong lien ket lai may nao chua khop/chua co (them may moi,
-  // subscription tu xoay...) ma khong can nguoi dung bam lai "Bat thong bao".
+  // Khong tu dong lien ket lai khi thieu: moi lan lien ket can PIN/pairing
+  // token hop le. Dieu nay ngan nguoi chi biet Device ID nhan canh bao.
   async function getState(deviceIds) {
     if (!isSupported()) return { status: 'unsupported' };
     if (!cloudApiBase()) return { status: 'not-configured' };
@@ -271,13 +271,7 @@
     if (ids.length) {
       const linked = loadLinked();
       const missing = ids.filter((id) => linked[id]?.endpoint !== subscription.endpoint);
-      if (missing.length) {
-        try {
-          for (const id of missing) await linkSubscription(id, subscription);
-        } catch (_) {
-          return { status: 'error', endpoint: subscription.endpoint };
-        }
-      }
+      if (missing.length) return { status: 'needs-link', endpoint: subscription.endpoint };
     }
     return { status: 'enabled', endpoint: subscription.endpoint };
   }

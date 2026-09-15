@@ -1,4 +1,4 @@
-# MAYAP INDUSTRIAL v3.4.0 — Phân tích cơ chế tự phục hồi & Tài liệu vận hành
+# MAYAP INDUSTRIAL v3.8.0 — Phân tích cơ chế tự phục hồi & Tài liệu vận hành
 
 > Tài liệu này được xây dựng bằng cách đọc trực tiếp source code firmware hiện tại
 > (`MAYAP_INDUSTRIAL_v3_4_0.ino`, `machine_control.h`, `hmi.h`, `network_service.h`,
@@ -184,6 +184,7 @@ Cột "Loại phục hồi trước khi báo" phân biệt rõ 2 hành vi theo y
 | 134 | TU DONG DAO BI TAT | Stop | Không | Cấu hình `turningEnabled` bị tắt giữa mẻ | Báo ngay | Khoá đảo |
 | 135 | CHO XAC NHAN AP LAI | Warning | Không | Màn hình "Áp lại mẻ cũ" chờ quá `RESUME_CONFIRM_ALERT_MS` (15 phút) không ai thao tác | Chờ đủ thời gian mới báo (không phải ngay khi hiện màn hình) | Không khoá gì (chỉ nhắc) |
 | 136 | ME QUA HAN AP | Warning | Không | Số ngày ấp thực tế vượt `totalIncubationDays` cấu hình | Báo ngay khi qua ngưỡng | Không khoá gì |
+| 137 | CHO RTC DE AP LAI | Warning | Không | Đang chờ áp lại mẻ cũ nhưng RTC chưa hợp lệ quá `RESUME_RTC_WAIT_ALERT_MS` | Chờ đủ thời gian để RTC tự sửa/NTP trước khi báo | Không khoá thêm; hành động Resume tiếp tục chờ RTC |
 | 201 | LOI 2 HANH TRINH | Stop | **Có** | Cả 2 công tắc hành trình cùng báo tích cực (xung đột vật lý) | Báo ngay | Khoá đảo |
 | 202 | DAO QUA THOI GIAN | Stop | **Có** | Motor đảo chạy quá `turnMaxRunSec` mà không tới công tắc hành trình | Có timeout theo dõi trước khi báo | Khoá đảo |
 | 203 | HANH TRINH BI KET | Stop | **Có** | Công tắc hành trình không nhả sau khi đã dừng lệnh đảo | Có theo dõi trước khi báo | Khoá đảo |

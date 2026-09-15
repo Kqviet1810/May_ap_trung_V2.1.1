@@ -74,7 +74,9 @@ inline void setError(const char *text) {
 // cloud_alert_link.h ve ly do khong dung chung ham giua cac file de doc lap
 // thu tu include. Giong het beginCloudRequest() trong cloud_alert_link.h.
 inline bool beginRequest(HTTPClient &http, WiFiClientSecure &client, const char *path) {
-  client.setInsecure();
+  if (CLOUD_ROOT_CA[0]) client.setCACert(CLOUD_ROOT_CA);
+  else if (MAYAP_ALLOW_INSECURE_TLS) client.setInsecure();
+  else return false;
   http.setConnectTimeout(CLOUD_HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(CLOUD_HTTP_TIMEOUT_MS);
   char url[192];
@@ -138,6 +140,16 @@ inline bool mayapFirmwareVersionNewer(const char *a, const char *b) {
   return false;
 }
 
+inline bool mayapFirmwareSha256Valid(const char *value) {
+  if (!value || strlen(value) != 64U) return false;
+  for (uint8_t i = 0U; i < 64U; ++i) {
+    const char c = value[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+          (c >= 'A' && c <= 'F'))) return false;
+  }
+  return true;
+}
+
 // Chi HOI Worker "co ban moi khong" - KHONG tai ve. An toan goi thuong
 // xuyen (chi 1 request JSON nho).
 inline bool mayapFirmwareWebCheck() {
@@ -167,7 +179,8 @@ inline bool mayapFirmwareWebCheck() {
         const char *version = respDoc["version"] | "";
         const char *sha256 = respDoc["sha256"] | "";
         const uint32_t size = respDoc["size"] | 0U;
-        if (version[0] && sha256[0] && size > 0U &&
+        if (version[0] && mayapFirmwareSha256Valid(sha256) && size > 0U &&
+            size <= FIRMWARE_OTA_SLOT_SIZE_BYTES &&
             mayapFirmwareVersionNewer(version, MAYAP_FIRMWARE_VERSION)) {
           publishPending(true, version, sha256, size);
           mayapSerialPrintf(true, "[FWWEB] Co ban moi: v%s (%lu bytes)\n",

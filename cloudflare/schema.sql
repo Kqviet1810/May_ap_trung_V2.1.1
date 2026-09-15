@@ -19,8 +19,9 @@ CREATE TABLE IF NOT EXISTS devices (
   -- Ma PIN rieng cua nguoi dung (4-8 so, KHAC device_key/CLOUD_DEVICE_SECRET
   -- cua firmware) - dung khi THEM thiet bi tren web va khi DOI TEN may, tranh
   -- nguoi la biet duoc device_id la them/doi ten duoc thiet bi cua nguoi khac.
-  -- NULL = chua tung doi, coi nhu dang la mac dinh xuat xuong "1111" (xem
-  -- verifyDevicePin trong src/index.js). Neu D1 da co tu truoc, chay them:
+  -- NULL = ban ghi cu chua duoc nang cap; khong co PIN fallback dung chung.
+  -- Lan dang ky xac thuc tiep theo tu firmware se dien PIN xuat xuong rieng.
+  -- Neu D1 da co tu truoc, chay them:
   --   ALTER TABLE devices ADD COLUMN web_pin_hash TEXT;
   web_pin_hash        TEXT
 );
@@ -78,6 +79,18 @@ CREATE TABLE IF NOT EXISTS alarm_log (
   created_at          INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_alarm_log_device ON alarm_log(device_id, created_at DESC);
+
+-- Chong brute-force PIN theo cap (device, client da bam). Dia chi IP khong
+-- luu truc tiep; Worker bam no voi pepper truoc khi ghi client_key.
+CREATE TABLE IF NOT EXISTS pin_attempts (
+  device_id       TEXT NOT NULL,
+  client_key      TEXT NOT NULL,
+  window_started  INTEGER NOT NULL,
+  failures        INTEGER NOT NULL DEFAULT 0,
+  blocked_until   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (device_id, client_key)
+);
+CREATE INDEX IF NOT EXISTS idx_pin_attempts_expiry ON pin_attempts(blocked_until);
 
 -- Cap nhat firmware TU XA (ESP32 tu tai qua HTTPS, khac han nap qua Arduino
 -- IDE cung mang LAN) - xem ota_web_update.h. Nguon la GitHub Releases cua

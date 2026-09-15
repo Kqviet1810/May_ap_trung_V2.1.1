@@ -7,13 +7,13 @@ export async function getDeviceByDeviceId(db, deviceId) {
     .first();
 }
 
-export async function insertDevice(db, { deviceId, deviceName, deviceKeyHash, pairingToken, now }) {
+export async function insertDevice(db, { deviceId, deviceName, deviceKeyHash, pairingToken, webPinHash, now }) {
   await db
     .prepare(
-      `INSERT INTO devices (device_id, device_name, device_key_hash, pairing_token, created_at, last_seen, status)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?5, 'online')`
+      `INSERT INTO devices (device_id, device_name, device_key_hash, pairing_token, web_pin_hash, created_at, last_seen, status)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 'online')`
     )
-    .bind(deviceId, deviceName || '', deviceKeyHash, pairingToken, now)
+    .bind(deviceId, deviceName || '', deviceKeyHash, pairingToken, webPinHash, now)
     .run();
 }
 
@@ -47,10 +47,42 @@ export async function renameDevice(db, deviceId, name) {
   await db.prepare('UPDATE devices SET device_name = ?2 WHERE device_id = ?1').bind(deviceId, name).run();
 }
 
-// Luu hash PIN moi (web_pin_hash) - null truoc do coi nhu dang la PIN mac
-// dinh xuat xuong "1111" (xem verifyDevicePin trong index.js).
+// Luu hash PIN moi (web_pin_hash). NULL nghia la ban ghi cu chua duoc nang
+// cap; Worker khong chap nhan bat ky PIN fallback dung chung nao.
 export async function setDevicePinHash(db, deviceId, pinHash) {
   await db.prepare('UPDATE devices SET web_pin_hash = ?2 WHERE device_id = ?1').bind(deviceId, pinHash).run();
+}
+
+export async function getPinAttempt(db, deviceId, clientKey) {
+  return db.prepare(
+    'SELECT * FROM pin_attempts WHERE device_id = ?1 AND client_key = ?2'
+  ).bind(deviceId, clientKey).first();
+}
+
+export async function recordPinFailure(db, deviceId, clientKey, now, windowMs, maxFailures, blockMs) {
+  const windowStart = now - windowMs;
+  await db.prepare(
+    `INSERT INTO pin_attempts (device_id, client_key, window_started, failures, blocked_until)
+     VALUES (?1, ?2, ?3, 1, 0)
+     ON CONFLICT(device_id, client_key) DO UPDATE SET
+       window_started = CASE WHEN pin_attempts.window_started < ?4 THEN ?3 ELSE pin_attempts.window_started END,
+       failures = CASE WHEN pin_attempts.window_started < ?4 THEN 1 ELSE pin_attempts.failures + 1 END,
+       blocked_until = CASE
+         WHEN (CASE WHEN pin_attempts.window_started < ?4 THEN 1 ELSE pin_attempts.failures + 1 END) >= ?5
+         THEN ?6 ELSE pin_attempts.blocked_until END`
+  ).bind(deviceId, clientKey, now, windowStart, maxFailures, now + blockMs).run();
+}
+
+export async function clearPinFailures(db, deviceId, clientKey) {
+  await db.prepare(
+    'DELETE FROM pin_attempts WHERE device_id = ?1 AND client_key = ?2'
+  ).bind(deviceId, clientKey).run();
+}
+
+export async function deleteExpiredPinAttempts(db, olderThan) {
+  await db.prepare(
+    'DELETE FROM pin_attempts WHERE blocked_until < ?1 AND window_started < ?1'
+  ).bind(olderThan).run();
 }
 
 // Doi status ma KHONG dung toi last_seen (touchDevice() dung khi that su co
@@ -159,6 +191,10 @@ export async function insertAlarmLog(db, entry) {
       entry.now
     )
     .run();
+}
+
+export async function deleteOldAlarmLogs(db, olderThan) {
+  await db.prepare('DELETE FROM alarm_log WHERE created_at < ?1').bind(olderThan).run();
 }
 
 // -------------------------- Cap nhat firmware tu xa (xem index.js) --------------------------

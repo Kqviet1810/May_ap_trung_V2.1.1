@@ -35,10 +35,8 @@
 // Tai nguyen: moi lan goi tao MOI mot WiFiClientSecure NGAN HAN (huy ngay sau
 // khi xong), khong giu ket noi thuong truc nhu MQTT - phu hop voi tan suat
 // thap (vai phut/lan) va tranh chiem RAM lau dai tren thiet bi khong PSRAM.
-// setInsecure() bo qua xac thuc CA (giong lop MQTT/Telegram truoc day) - du
-// Cloudflare dung chung chi hop le, ESP32 Arduino core khong co san bo goc
-// CA de xac thuc day du ma khong tang dang ke dung luong firmware; day la
-// danh doi bao mat da duoc ghi nhan, xem bao cao audit.
+// Production xac thuc CA qua MAYAP_CLOUD_ROOT_CA. Chi ban test co kiem soat
+// moi duoc phep bo qua CA bang MAYAP_ALLOW_INSECURE_TLS=1.
 // ============================================================================
 
 namespace MayapCloudInternal {
@@ -577,7 +575,9 @@ inline void checkWifiSignal(uint32_t now) {
 
 // ------------------------------- Goi HTTPS ---------------------------------------
 inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const char *path) {
-  client.setInsecure();
+  if (CLOUD_ROOT_CA[0]) client.setCACert(CLOUD_ROOT_CA);
+  else if (MAYAP_ALLOW_INSECURE_TLS) client.setInsecure();
+  else return false;
   http.setConnectTimeout(CLOUD_HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(CLOUD_HTTP_TIMEOUT_MS);
   char url[160];
@@ -613,12 +613,13 @@ inline bool sendRegister() {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
   doc["device_key"] = CLOUD_DEVICE_SECRET;
+  doc["factory_pin"] = CLOUD_FACTORY_PIN;
   doc["device_name"] = mayapDeviceIdText();
   return postJson("/api/device/register", doc, "register");
 }
 
-// Dat lai ma PIN web (danh cho "them thiet bi"/"doi ten may" tren web) ve
-// mac dinh xuat xuong "1111" - xac thuc bang device_key (bi mat cua firmware,
+// Dat lai ma PIN web ve PIN xuat xuong rieng cua may - xac thuc bang
+// device_key (bi mat cua firmware,
 // KHONG PHAI PIN web dang muon dat lai), nen chi thiet bi that (qua nut bam
 // vat ly tren HMI) moi kich hoat duoc, khong ai tu web goi duoc lenh nay du
 // co biet device_id. Xem cloudflare/src/index.js::handleResetPin.
@@ -626,6 +627,7 @@ inline bool sendResetPin() {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
   doc["device_key"] = CLOUD_DEVICE_SECRET;
+  doc["factory_pin"] = CLOUD_FACTORY_PIN;
   return postJson("/api/device/reset-pin", doc, "reset-pin");
 }
 
@@ -729,7 +731,9 @@ inline void mayapRequestCloudPinReset() {
 inline void mayapCloudAlertUpdate(uint32_t now) {
   using namespace MayapCloudInternal;
 
-  if (!CLOUD_DEVICE_SECRET[0] || !CLOUD_API_HOST[0]) {
+  const bool tlsReady = CLOUD_ROOT_CA[0] || MAYAP_ALLOW_INSECURE_TLS;
+  if (!CLOUD_DEVICE_SECRET[0] || !CLOUD_FACTORY_PIN[0] ||
+      !CLOUD_API_HOST[0] || !tlsReady) {
     // Nguyen nhan PHO BIEN NHAT khien khong co canh bao nao duoc gui: worker
     // host/device_key la macro build-time trong config.h (MAYAP_CLOUD_API_HOST/
     // MAYAP_DEVICE_SECRET), chua duoc dat luc build. In canh bao ro rang, lap
@@ -739,8 +743,8 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
     if (lastConfigWarnAt == 0U || MayapCloudInternal::timeReached(now, lastConfigWarnAt + 300000UL)) {
       lastConfigWarnAt = now;
       mayapSerialPrintf(false,
-          "[CLOUD] CANH BAO: chua cau hinh MAYAP_CLOUD_API_HOST/MAYAP_DEVICE_SECRET "
-          "trong firmware (config.h) - se KHONG gui duoc canh bao nao cho toi khi "
+          "[CLOUD] CANH BAO: thieu host/device secret/factory PIN/CA TLS "
+          "trong firmware - se KHONG gui duoc canh bao nao cho toi khi "
           "nguoi lap dat nap lai firmware voi cau hinh hop le.\n");
     }
     return;
@@ -785,12 +789,15 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
   // hanh dong don, ket qua xem qua log serial). Chi thu khi dang online,
   // tranh HTTPClient.begin() bi treo lau luc mat mang.
   if (__atomic_load_n(&pinResetRequestFlag, __ATOMIC_ACQUIRE)) {
-    __atomic_store_n(&pinResetRequestFlag, 0U, __ATOMIC_RELEASE);
     const NetworkStatus netStatus = mayapGetNetworkStatus();
-    if (netStatus.requestedMode == ConnectivityMode::Online && netStatus.connected) {
-      sendResetPin();
-    } else {
-      mayapSerialPrintf(false, "[CLOUD] reset-pin bi huy: khong online luc yeu cau\n");
+    if (netStatus.requestedMode == ConnectivityMode::Online && netStatus.connected &&
+        cloudBackoff.ready(now)) {
+      if (sendResetPin()) {
+        __atomic_store_n(&pinResetRequestFlag, 0U, __ATOMIC_RELEASE);
+        cloudBackoff.onSuccess();
+      } else {
+        cloudBackoff.onFailure(now);
+      }
     }
   }
 }

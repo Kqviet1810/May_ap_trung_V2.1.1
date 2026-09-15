@@ -1,87 +1,120 @@
 # MAYAP Push Worker
 
-Backend Cloudflare Worker + D1 cho kenh thong bao ESP32 -> Web Push (thay the Telegram).
-Huong dan day du (VAPID, secrets, D1, deploy, test) nam trong bao cao chinh cua phien lam viec -
-file nay chi tom tat lenh de chay nhanh.
+Cloudflare Worker + D1 cho đăng ký thiết bị, PIN, heartbeat, Web Push và cổng
+OTA. Luồng điều khiển thời gian thực vẫn đi trực tiếp qua MQTT.
 
-## Cai dat
+## Cài đặt
 
 ```bash
 cd cloudflare
 npm install
-```
-
-## Tao D1 database
-
-```bash
+npm run check
+npm test
 npx wrangler d1 create mayap_push
-# Dan database_id tra ve vao wrangler.toml (o [[d1_databases]])
+# Dán database_id được trả về vào wrangler.toml
 npm run db:migrate:remote
 ```
 
-## Tao VAPID keys
-
-```bash
-npx web-push generate-vapid-keys
-```
-
-## Dat secrets (KHONG dua vao wrangler.toml)
+Tạo VAPID key bằng công cụ tin cậy, sau đó lưu toàn bộ bí mật bằng Wrangler;
+không đặt giá trị thật trong `wrangler.toml`:
 
 ```bash
 npx wrangler secret put VAPID_PUBLIC_KEY
 npx wrangler secret put VAPID_PRIVATE_KEY
-npx wrangler secret put VAPID_SUBJECT      # vi du: mailto:ban@example.com
-npx wrangler secret put DEVICE_KEY_PEPPER  # chuoi ngau nhien dai, tu sinh 1 lan
-npx wrangler secret put GITHUB_TOKEN       # TUY CHON - xem "Cap nhat firmware tu xa" ben duoi
+npx wrangler secret put VAPID_SUBJECT
+npx wrangler secret put DEVICE_KEY_PEPPER
+npx wrangler secret put PIN_RATE_LIMIT_PEPPER
+npx wrangler secret put GITHUB_TOKEN          # tuỳ chọn, chỉ khi bật GitHub OTA
 ```
 
-## Sua wrangler.toml
+- `DEVICE_KEY_PEPPER`: chuỗi ngẫu nhiên tối thiểu 32 ký tự; không được đổi sau
+  khi đã có dữ liệu nếu chưa có kế hoạch băm lại toàn bộ key/PIN.
+- `PIN_RATE_LIMIT_PEPPER`: chuỗi ngẫu nhiên riêng dùng băm định danh client.
+  Nếu bỏ trống, Worker dùng `DEVICE_KEY_PEPPER`.
+- `ALLOWED_ORIGIN`: đặt đúng origin HTTPS của dashboard, không có `/` cuối.
+  Request browser từ origin khác sẽ bị từ chối; ESP32 không gửi `Origin` nên
+  không bị ảnh hưởng.
+- `PUSH_ENDPOINT_HOST_SUFFIXES`: chỉ bổ sung khi nhà cung cấp Push hợp lệ không
+  thuộc danh sách Google/Mozilla/Apple/Microsoft mặc định; review hostname trước.
 
-- `ALLOWED_ORIGIN`: dung origin GitHub Pages cua ban (vi du `https://ten-user.github.io`).
-- `database_id`: id D1 vua tao o buoc tren.
+Để chạy local, sao chép `.dev.vars.example` thành `.dev.vars`, điền giá trị test
+và chạy `npm run dev`.
 
-## Cap nhat firmware tu xa (qua GitHub Releases)
+## D1 và nâng cấp cơ sở dữ liệu
 
-Cho phep thiet bi dang ONLINE tu kiem tra + tai firmware moi TU XA (khong
-can cung mang LAN nhu OTA qua Arduino IDE) - xem `ota_web_update.h` phia
-firmware va `.github/workflows/build-firmware.yml` o repo goc.
-
-Nguon duy nhat la GitHub Releases cua chinh repo nay - khong can trang quan
-tri/upload thu cong, khong can R2:
-
-1. Sua code nhu binh thuong, commit + push (Claude Code hoac ban tu lam).
-2. Khi san sang phat hanh 1 ban firmware moi, day 1 tag dang `vX.Y.Z` (khop
-   `MAYAP_FIRMWARE_VERSION` trong `config.h`):
-   ```bash
-   git tag v3.5.0
-   git push origin v3.5.0
-   ```
-3. GitHub Actions tu dong bien dich (arduino-cli tren may chu GitHub, co
-   internet day du) va tao 1 GitHub Release moi voi file `.bin` dinh kem -
-   khong ai phai tu tay build/upload.
-4. Worker tu hoi GitHub Releases API khi co thiet bi/trinh duyet hoi phien
-   ban, TU TAI va TU BAM LAI SHA-256 that su cua file .bin (khong tin bat ky
-   checksum co san nao), cache ket qua trong D1 (bang `firmware_cache`,
-   lam moi moi 10 phut) de khong phai tai lai lien tuc.
-5. `GITHUB_TOKEN` (secret o tren) la TUY CHON - khong dat van hoat dong binh
-   thuong (goi GitHub API khong xac thuc, gioi han 60 request/gio - du dung
-   cho vai thiet bi); dat 1 Personal Access Token (khong can quyen gi dac
-   biet, chi doc public repo) neu co nhieu thiet bi de nang gioi han len
-   5000 request/gio.
-6. Thiet bi dang ONLINE tu kiem tra moi 6 gio; nguoi dung cung co the bam
-   nut "Cap nhat" trong dashboard web (yeu cau kiem tra ngay qua MQTT).
-   CA HAI truong hop deu chi hien "Cap nhat firmware" tren HMI (muc KET
-   NOI) - nguoi van hanh phai tu xac nhan tai may moi thuc su tai ve/nap,
-   khong bao gio tu dong ngoai y muon.
-
-## Chay thu local
+`schema.sql` tạo mới đầy đủ các bảng và có thể chạy lại để bổ sung bảng/index
+dùng `IF NOT EXISTS`. Với database rất cũ, kiểm tra cột trước:
 
 ```bash
-npm run dev
+npx wrangler d1 execute mayap_push --remote \
+  --command="PRAGMA table_info(devices)"
 ```
+
+Nếu thiếu, chạy mỗi lệnh đúng một lần:
+
+```sql
+ALTER TABLE devices ADD COLUMN batch_running INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE devices ADD COLUMN web_pin_hash TEXT;
+```
+
+Sau đó chạy `npm run db:migrate:remote` để tạo `pin_attempts` và các index còn
+thiếu. Thiết bị cũ có `web_pin_hash IS NULL` sẽ chưa chấp nhận PIN fallback;
+lần đăng ký hợp lệ kế tiếp từ firmware v3.8.0 sẽ ghi PIN xuất xưởng riêng.
+
+## Mô hình xác thực
+
+- Device ID phải đúng `MAP-` + 12 ký tự hex viết hoa.
+- Firmware xác thực bằng device secret ngẫu nhiên 32–128 ký tự. D1 chỉ lưu
+  SHA-256 đã trộn pepper.
+- Mỗi máy có PIN xuất xưởng riêng đúng 6 chữ số. Người dùng có thể đổi thành
+  PIN 4–8 chữ số; không còn fallback `1111`.
+- Production phải provision hash của Device ID/secret/PIN vào D1 trước khi máy
+  khởi động lần đầu; Worker không tự tạo Device ID lạ. `ALLOW_TOFU_REGISTRATION=1`
+  chỉ dành cho lab có giám sát.
+- Đăng ký Push cần PIN hợp lệ hoặc pairing token cũ còn hiệu lực.
+- Sau 5 lần sai PIN trong 10 phút, cặp thiết bị/client bị khóa 15 phút. IP chỉ
+  được lưu dưới dạng hash có pepper.
+- JSON request tối đa 16 KiB; Push endpoint phải là HTTPS; lỗi nội bộ không lộ
+  chi tiết trừ khi chủ động đặt `DEBUG_ERRORS=1` trong môi trường test.
+
+Provision một máy mà không đưa secret/PIN vào câu lệnh SQL hoặc D1:
+
+```bash
+export MAYAP_DEVICE_ID='MAP-XXXXXXXXXXXX'
+export MAYAP_DEVICE_SECRET='chuoi-ngau-nhien-rieng-32-128-ky-tu'
+export MAYAP_FACTORY_PIN='123456'
+export DEVICE_KEY_PEPPER='dung-chinh-pepper-cua-worker'
+npm run provision:sql > provision.sql
+npx wrangler d1 execute mayap_push --remote --file=./provision.sql
+```
+
+`provision.sql` chỉ chứa hash nhưng vẫn là dữ liệu vận hành; xóa an toàn sau
+khi chạy và không commit. Không đặt secret thật trực tiếp trên command line.
 
 ## Deploy
 
 ```bash
+npm run db:migrate:remote
 npm run deploy
+npx wrangler tail
 ```
+
+Sau deploy, kiểm tra tối thiểu: đăng ký thiết bị, thử PIN đúng/sai, khóa sau 5
+lần sai, bật/tắt Push, gửi thông báo test, heartbeat và Cron đánh dấu offline.
+Không dùng dữ liệu production cho kiểm thử phá khóa.
+
+## OTA qua GitHub Releases
+
+Các endpoint `/api/firmware/*` mặc định trả `503`. Không đặt
+`ENABLE_PUBLIC_GITHUB_OTA=1` khi file `.bin` còn chứa Wi-Fi/MQTT/device secret:
+credential có thể được trích xuất từ firmware công khai.
+
+Chỉ bật lại sau khi đã hoàn tất một trong hai phương án được review:
+
+1. Credential riêng từng máy nằm trong vùng provisioning/NVS được giữ nguyên
+   qua OTA, còn firmware phát hành không chứa secret; hoặc
+2. Artifact nằm trong kho riêng có xác thực và Worker kiểm soát quyền tải.
+
+Khi kênh này được phép bật, Worker chỉ nhận asset tên chính xác
+`MAYAP-firmware-X.Y.Z.bin`, tự tải và băm SHA-256, từ chối file rỗng hoặc lớn
+hơn khe OTA `0x330000`, rồi cache metadata trong D1.

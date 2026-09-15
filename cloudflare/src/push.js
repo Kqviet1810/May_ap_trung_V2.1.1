@@ -1,10 +1,14 @@
 import { buildPushPayload } from '@block65/webcrypto-web-push';
+import { isTrustedPushEndpoint } from './auth.js';
 
 // Gui 1 thong bao Web Push toi 1 subscription. Tra ve:
 //  { ok: true }                       - gui thanh cong
 //  { ok: false, gone: true }          - subscription het han/bi thu hoi (404/410) -> nen xoa khoi DB
 //  { ok: false, gone: false, status } - loi khac (mang, 5xx tu push service...) - KHONG xoa, co the thu lai sau
 export async function sendWebPush(env, subscriptionRow, notification) {
+  if (!isTrustedPushEndpoint(subscriptionRow?.endpoint, env)) {
+    return { ok: false, gone: false, status: 0, error: 'push endpoint khong duoc phep' };
+  }
   const vapid = {
     subject: env.VAPID_SUBJECT,
     publicKey: env.VAPID_PUBLIC_KEY,

@@ -13,6 +13,13 @@ compatibility_flags = ["nodejs_compat"]
 # Doi thanh dung origin cua trang GitHub Pages, vi du:
 # "https://ten-user.github.io"  (khong co dau / o cuoi)
 ALLOWED_ORIGIN = "https://kqviet1810.github.io"
+# Neu nha cung cap Push moi khong thuoc Google/Mozilla/Apple/Microsoft, them
+# suffix hostname sau khi review, phan tach bang dau phay.
+PUSH_ENDPOINT_HOST_SUFFIXES = ""
+# MAC DINH KHONG KHAI BAO ENABLE_PUBLIC_GITHUB_OTA: firmware production co
+# credential khong duoc phep phat tan qua GitHub Release cong khai. Chi dat
+# thanh "1" sau khi artifact OTA khong con chua secret hoac repo phan phoi
+# da duoc chuyen sang kenh rieng co xac thuc.
 
 [[d1_databases]]
 binding = "DB"

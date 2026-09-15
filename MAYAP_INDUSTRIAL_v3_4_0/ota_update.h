@@ -73,7 +73,7 @@ inline void onError(ota_error_t error) {
 }  // namespace MayapOtaInternal
 
 inline bool mayapOtaEnabled() {
-  return sizeof(OTA_PASSWORD) > 1U;  // build flag rong = tinh nang tat
+  return MAYAP_ENABLE_ARDUINO_OTA != 0 && sizeof(OTA_PASSWORD) >= 13U;
 }
 
 inline bool mayapOtaInProgress() {

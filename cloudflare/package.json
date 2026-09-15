@@ -1,16 +1,19 @@
 {
   "name": "mayap-push-worker",
-  "version": "1.0.0",
+  "version": "3.8.0",
   "private": true,
   "type": "module",
   "scripts": {
+    "check": "node --check src/auth.js && node --check src/db.js && node --check src/index.js && node --check src/push.js && node --check scripts/provision-device.mjs",
+    "test": "node --test test/*.test.mjs",
+    "provision:sql": "node scripts/provision-device.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:migrate:local": "wrangler d1 execute mayap_push --local --file=./schema.sql",
     "db:migrate:remote": "wrangler d1 execute mayap_push --remote --file=./schema.sql"
   },
   "dependencies": {
-    "@block65/webcrypto-web-push": "^1.0.2"
+    "@block65/webcrypto-web-push": "1.0.2"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

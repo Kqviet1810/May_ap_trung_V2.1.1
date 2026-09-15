@@ -1,9 +1,9 @@
 'use strict';
-const CACHE = 'mayap-web-v11.7.0';
+const CACHE = 'mayap-web-v3.8.0';
 const APP_SHELL = [
-  './', './index.html', './styles.css', './app.js', './push.js', './manifest.webmanifest',
+  './', './index.html', './setup.html', './config.js', './styles.css', './app.js', './push.js', './manifest.webmanifest',
   './vendor/jsQR.min.js',
-  './icons/icon-192.png', './icons/icon-512.png', './icons/badge-72.png'
+  './icons/icon-192.png', './icons/icon-512.png', './icons/badge-72.png', './icons/apple-touch-icon.png'
 ];
 self.addEventListener('install', (event) => {
   // Dung tung cache.add() + catch rieng thay vi cache.addAll() (all-or-nothing):
@@ -28,7 +28,13 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.pathname.endsWith('/config.js')) {
-    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+    event.respondWith(fetch(event.request).then((response) => {
+      if (response.ok) {
+        const copy = response.clone();
+        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+      }
+      return response;
+    }).catch(() => caches.match(event.request)));
     return;
   }
   if (url.origin !== self.location.origin) return;
@@ -41,16 +47,20 @@ self.addEventListener('fetch', (event) => {
   if (isCoreAsset) {
     event.respondWith(
       fetch(event.request).then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        }
         return response;
       }).catch(() => caches.match(event.request))
     );
     return;
   }
   event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
-    const copy = response.clone();
-    caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+    if (response.ok) {
+      const copy = response.clone();
+      caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+    }
     return response;
   })));
 });

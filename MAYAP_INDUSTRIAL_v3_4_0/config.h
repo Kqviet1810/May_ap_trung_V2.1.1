@@ -5,8 +5,16 @@
 #include <stddef.h>
 #include <math.h>
 
+// File tuy chon, KHONG commit: dung de nap credential/CA theo tung may trong
+// pipeline production. Xem secrets.example.h va .github/workflows/.
+#if defined(__has_include)
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+#endif
+
 // ============================================================================
-// MAY AP TRUNG INDUSTRIAL v3.4.0 - CAU HINH DUY NHAT CAN SUA
+// MAY AP TRUNG INDUSTRIAL v3.8.0 - CAU HINH DUY NHAT CAN SUA
 // MCU: ESP32-S3-WROOM-1U-N8, FLASH THAT 8MB (da xac nhan qua "esptool.py
 // flash_id" -> "Detected flash size: 8MB"), KHONG PSRAM.
 //
@@ -29,10 +37,26 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.7.0";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.0";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
-constexpr char HMI_FIRMWARE_VERSION[] = "3.7.0";
+constexpr const char *HMI_FIRMWARE_VERSION = MAYAP_FIRMWARE_VERSION;
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
+
+// Build production phai duoc bat TUONG MINH qua build flag. Mac dinh la
+// ban phat trien fail-closed: khong broker, khong secret, khong ArduinoOTA.
+#ifndef MAYAP_PRODUCTION_BUILD
+#define MAYAP_PRODUCTION_BUILD 0
+#endif
+
+// Chi bat cho firmware bao tri tai xuong. Firmware giao khach bat buoc tat.
+#ifndef MAYAP_ENABLE_ARDUINO_OTA
+#define MAYAP_ENABLE_ARDUINO_OTA 0
+#endif
+
+// Chi dung tam tren ban thu nghiem co kiem soat. Production cam bo qua CA.
+#ifndef MAYAP_ALLOW_INSECURE_TLS
+#define MAYAP_ALLOW_INSECURE_TLS 0
+#endif
 
 // ----------------------------- BUILD -----------------------------------------
 // 1: mo phong 8 input bang Serial. 0: doc input 12 V that qua opto.
@@ -42,7 +66,7 @@ constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
 
 // Log chan doan khong tham gia dieu khien. Nen de 0 o ban giao thuong mai.
 #ifndef MAYAP_DIAGNOSTIC_SERIAL
-#define MAYAP_DIAGNOSTIC_SERIAL 1
+#define MAYAP_DIAGNOSTIC_SERIAL 0
 #endif
 
 // Thong tin Wi-Fi chi duoc dung khi nguoi van hanh chon ONLINE tren HMI.
@@ -65,30 +89,28 @@ static_assert(sizeof(NETWORK_WIFI_HOSTNAME) <= 33U,
               "Wi-Fi hostname toi da 32 ky tu");
 
 // ------------------------- Nap firmware qua Wi-Fi (OTA) -----------------------
-// Cho phep nap code tu Arduino IDE qua mang (Tools > Port > chon may hien qua
-// mDNS) thay vi phai thao vo cam cap USB - xem ota_update.h. Mat khau mac
-// dinh theo yeu cau - co the doi rieng cho tung ban build qua build_flags
-// (-D MAYAP_OTA_PASSWORD=\"...\") ma khong can sua file nay. De trong se TU
-// DONG TAT ca tinh nang OTA (khong mo cong khong mat khau tren mang LAN).
+// Cho phep nap code tu Arduino IDE qua mang chi tren ban BAO TRI. Phai bat
+// MAYAP_ENABLE_ARDUINO_OTA=1 va cap mat khau manh qua build flag; de trong
+// hoac khong bat co se tat hoan toan dich vu.
 #ifndef MAYAP_OTA_PASSWORD
-#define MAYAP_OTA_PASSWORD "181020"
+#define MAYAP_OTA_PASSWORD ""
 #endif
 constexpr char OTA_PASSWORD[] = MAYAP_OTA_PASSWORD;
 static_assert(sizeof(OTA_PASSWORD) <= 64U, "Mat khau OTA toi da 63 ky tu");
+static_assert(!MAYAP_ENABLE_ARDUINO_OTA || sizeof(OTA_PASSWORD) >= 13U,
+              "ArduinoOTA can mat khau toi thieu 12 ky tu");
 
 // ------------------------- Web realtime (MQTT) --------------------------------
-// Broker mac dinh la broker cong cong (chi de kiem tra, xem canh bao trong
-// config.js ban web). May thuong mai PHAI doi sang broker rieng + tai khoan
-// bang cach dinh nghia lai cac macro nay truoc khi include config.h (vi du
-// qua build_flags), khong sua truc tiep gia tri mac dinh o day.
+// Khong co broker mac dinh de tranh firmware thuong mai vo tinh ket noi vao
+// broker cong cong. Ban test/production phai cap thong tin qua build flags.
 #ifndef MAYAP_MQTT_HOST
-#define MAYAP_MQTT_HOST "broker.emqx.io"
+#define MAYAP_MQTT_HOST ""
 #endif
 #ifndef MAYAP_MQTT_PORT
-#define MAYAP_MQTT_PORT 1883
+#define MAYAP_MQTT_PORT 8883
 #endif
 #ifndef MAYAP_MQTT_USE_TLS
-#define MAYAP_MQTT_USE_TLS 0
+#define MAYAP_MQTT_USE_TLS 1
 #endif
 #ifndef MAYAP_MQTT_USERNAME
 #define MAYAP_MQTT_USERNAME ""
@@ -99,12 +121,17 @@ static_assert(sizeof(OTA_PASSWORD) <= 64U, "Mat khau OTA toi da 63 ky tu");
 #ifndef MAYAP_MQTT_TOPIC_ROOT
 #define MAYAP_MQTT_TOPIC_ROOT "mayap/v1"
 #endif
+#ifndef MAYAP_MQTT_ROOT_CA
+#define MAYAP_MQTT_ROOT_CA ""
+#endif
 constexpr char MQTT_BROKER_HOST[] = MAYAP_MQTT_HOST;
 constexpr uint16_t MQTT_BROKER_PORT = MAYAP_MQTT_PORT;
 constexpr bool MQTT_USE_TLS = (MAYAP_MQTT_USE_TLS) != 0;
 constexpr char MQTT_USERNAME[] = MAYAP_MQTT_USERNAME;
 constexpr char MQTT_PASSWORD[] = MAYAP_MQTT_PASSWORD;
 constexpr char MQTT_TOPIC_ROOT[] = MAYAP_MQTT_TOPIC_ROOT;
+constexpr char MQTT_ROOT_CA[] = MAYAP_MQTT_ROOT_CA;
+constexpr uint8_t MQTT_PROTOCOL_VERSION = 1U;
 
 // Reconnect MQTT dung BackoffTimer dung chung (xem phia duoi file) thay vi
 // chu ky co dinh - khong con hang so rieng o day.
@@ -122,6 +149,9 @@ constexpr uint32_t WEB_CONFIG_SAVE_ACK_TIMEOUT_MS = 8000UL;
 // chinh (xem "reminders/set" trong realtime_link.h) don gian hon nhieu (chi
 // 1 mang nho, khong dan xen voi dieu khien) nen khong can hang so rieng.
 constexpr uint32_t WEB_REMINDER_SAVE_ACK_TIMEOUT_MS = WEB_CONFIG_SAVE_ACK_TIMEOUT_MS;
+// Kich thuoc moi app partition cua default_8MB (0x330000). Metadata OTA
+// vuot tran nay bi tu choi truoc khi tai/ghi flash.
+constexpr uint32_t FIRMWARE_OTA_SLOT_SIZE_BYTES = 0x330000UL;
 
 // --------------------------- Cloud Push (Cloudflare Worker, doc lap voi Web) ---
 // KENH RIENG, KHONG DI QUA MQTT/WEB: cloud_alert_link.h tu mo ket noi HTTPS
@@ -134,9 +164,16 @@ constexpr uint32_t WEB_REMINDER_SAVE_ACK_TIMEOUT_MS = WEB_CONFIG_SAVE_ACK_TIMEOU
 // mayapDeviceIdText()) la dinh danh cong khai, viec "ghep" trinh duyet nhan
 // thong bao hoan toan thuc hien o phia trang web (xem push.js/setup.html).
 #ifndef MAYAP_DEVICE_SECRET
-#define MAYAP_DEVICE_SECRET "ddd731ab21ea9024e9c69abbe67b63e9"
+#define MAYAP_DEVICE_SECRET ""
 #endif
 constexpr char CLOUD_DEVICE_SECRET[] = MAYAP_DEVICE_SECRET;
+
+// PIN xuat xuong rieng tung may, in tren tem/ho so ban giao. Khong dung
+// "1111" chung. Worker chi nhan PIN nay qua TLS luc dang ky/reset vat ly.
+#ifndef MAYAP_FACTORY_PIN
+#define MAYAP_FACTORY_PIN ""
+#endif
+constexpr char CLOUD_FACTORY_PIN[] = MAYAP_FACTORY_PIN;
 
 #ifndef MAYAP_CLOUD_API_HOST
 #define MAYAP_CLOUD_API_HOST "mayap-push-worker.vietk-mayaptrung.workers.dev"
@@ -144,6 +181,44 @@ constexpr char CLOUD_DEVICE_SECRET[] = MAYAP_DEVICE_SECRET;
 // Chi ten host, KHONG "https://" o dau (vd: "mayap-push-worker.abc.workers.dev"
 // hoac "api.tenmiencuaban.vn" neu da gan custom domain cho Worker).
 constexpr char CLOUD_API_HOST[] = MAYAP_CLOUD_API_HOST;
+
+#ifndef MAYAP_CLOUD_ROOT_CA
+#define MAYAP_CLOUD_ROOT_CA ""
+#endif
+constexpr char CLOUD_ROOT_CA[] = MAYAP_CLOUD_ROOT_CA;
+
+template <size_t N>
+constexpr bool mayapFactoryPinValid(const char (&pin)[N]) {
+  if (N != 7U) return false;
+  for (size_t i = 0U; i < 6U; ++i) {
+    if (pin[i] < '0' || pin[i] > '9') return false;
+  }
+  return pin[6] == '\0';
+}
+
+// Cac rang buoc nay chi kich hoat cho ban production. CI van co the bien
+// dich ban fail-closed khong mang de kiem tra logic ma khong can secret.
+#if MAYAP_PRODUCTION_BUILD
+static_assert(MAYAP_ENABLE_ARDUINO_OTA == 0,
+              "Production phai tat ArduinoOTA");
+static_assert(MAYAP_ALLOW_INSECURE_TLS == 0,
+              "Production khong duoc bo qua xac thuc TLS");
+static_assert(MAYAP_MQTT_USE_TLS == 1,
+              "Production bat buoc dung MQTT TLS");
+static_assert(sizeof(MQTT_BROKER_HOST) > 1U,
+              "Production thieu MAYAP_MQTT_HOST");
+static_assert(sizeof(MQTT_USERNAME) > 1U && sizeof(MQTT_PASSWORD) > 1U,
+              "Production thieu tai khoan MQTT rieng cho thiet bi");
+static_assert(sizeof(MQTT_ROOT_CA) > 1U,
+              "Production thieu MAYAP_MQTT_ROOT_CA");
+static_assert(sizeof(CLOUD_DEVICE_SECRET) >= 33U &&
+              sizeof(CLOUD_DEVICE_SECRET) <= 129U,
+              "Production can device secret rieng toi thieu 32 ky tu");
+static_assert(mayapFactoryPinValid(CLOUD_FACTORY_PIN),
+              "Production can MAYAP_FACTORY_PIN dung 6 chu so");
+static_assert(sizeof(CLOUD_ROOT_CA) > 1U,
+              "Production thieu MAYAP_CLOUD_ROOT_CA");
+#endif
 
 // Nhip kiem tra dieu kien canh bao - rut tiep tu 2s xuong 0.5s de loi that
 // (cam bien, cong tac nhiet...) duoc phat hien va day vao hang doi gui nhanh

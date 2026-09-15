@@ -1,10 +1,11 @@
 // ============================================================================
-// MAYAP WEB CONFIG - BAN KIEM TRA GITHUB PAGES
-// Firmware ESP32 phai bat MAYAP_USE_PUBLIC_TEST_BROKER = 1 de test cung broker.
-// KHONG dung broker cong cong cho may thuong mai.
+// MAYAP WEB CONFIG - MAC DINH AN TOAN (FAIL-CLOSED)
+// File duoc commit khong chua broker/credential production. Khi trien khai,
+// tao file nay tu config.production.example.js trong pipeline rieng.
 // ============================================================================
 window.MAYAP_WEB_CONFIG = Object.freeze({
-  mqttUrl: 'wss://broker.emqx.io:8084/mqtt',
+  appVersion: '3.8.0',
+  mqttUrl: '',
   mqttUsername: '',
   mqttPassword: '',
   topicRoot: 'mayap/v1',
@@ -20,5 +21,5 @@ window.MAYAP_WEB_CONFIG = Object.freeze({
   // 'https://mayap-push-worker.<ten-tai-khoan>.workers.dev' hoac
   // 'https://api.tenmiencuatoi.com' neu da gan custom domain.
   // De trong ('') se khien card "Thong bao" bao "Chua cau hinh" (xem push.js).
-  cloudApiBase: 'https://mayap-push-worker.vietk-mayaptrung.workers.dev'
+  cloudApiBase: ''
 });

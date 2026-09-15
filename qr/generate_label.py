@@ -4,7 +4,7 @@ may tren web). Dung khi co may moi (ID khac, lay theo dia chi MAC ESP32 -
 xem man hinh "Ket noi" tren HMI hoac o "May dang dieu khien" tren web).
 
 Cai dat:  pip install "qrcode[pil]"
-Chay:     python3 generate_label.py MAP-XXXXXXXXXXXX
+Chay:     python3 generate_label.py MAP-XXXXXXXXXXXX PIN_6_SO
 
 Ket qua (trong cung thu muc nay):
   <ID>-qr-only.png   - chi rieng ma QR, dung khi tu dat vao mau tem khac
@@ -30,12 +30,14 @@ def load_font(paths, size):
     return ImageFont.load_default()
 
 
-def generate(device_id: str, out_dir: Path) -> None:
+def generate(device_id: str, factory_pin: str, out_dir: Path) -> None:
     device_id = device_id.strip().upper()
     if not device_id.startswith(DEVICE_ID_PREFIX) or len(device_id) != 16:
         raise SystemExit(
             f"ID khong dung dinh dang (vd MAP-441BF6E051D0), nhan duoc: {device_id!r}"
         )
+    if not factory_pin.isdigit() or len(factory_pin) != 6:
+        raise SystemExit("PIN phai gom dung 6 chu so")
 
     qr = qrcode.QRCode(
         # 30% du thua - tem dan NGOAI may de tray xuoc/bam bui theo thoi
@@ -54,7 +56,7 @@ def generate(device_id: str, out_dir: Path) -> None:
     pad = 40
     qr_size = qr_img.size[0]
     label_w = qr_size + pad * 2
-    label_h = qr_size + pad * 2 + 130
+    label_h = qr_size + pad * 2 + 180
     label = Image.new("RGB", (label_w, label_h), "white")
     label.paste(qr_img, (pad, pad + 70))
 
@@ -85,6 +87,14 @@ def generate(device_id: str, out_dir: Path) -> None:
         font=id_font,
         fill="black",
     )
+    pin_text = f"PIN: {factory_pin}"
+    pinb = draw.textbbox((0, 0), pin_text, font=id_font)
+    draw.text(
+        ((label_w - (pinb[2] - pinb[0])) / 2, pad + 70 + qr_size + 72),
+        pin_text,
+        font=id_font,
+        fill="black",
+    )
 
     label_path = out_dir / f"{device_id}-nhan-in.png"
     label.save(label_path, dpi=(300, 300))
@@ -94,6 +104,6 @@ def generate(device_id: str, out_dir: Path) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise SystemExit(f"Dung: python3 {sys.argv[0]} MAP-XXXXXXXXXXXX")
-    generate(sys.argv[1], Path(__file__).resolve().parent)
+    if len(sys.argv) != 3:
+        raise SystemExit(f"Dung: python3 {sys.argv[0]} MAP-XXXXXXXXXXXX PIN_6_SO")
+    generate(sys.argv[1], sys.argv[2], Path(__file__).resolve().parent)

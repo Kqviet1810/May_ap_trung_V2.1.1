@@ -1,4 +1,11 @@
-import { hashDeviceKey, verifyDeviceKey, randomToken, isValidDeviceId } from './auth.js';
+import {
+  hashDeviceKey,
+  verifyDeviceKey,
+  isValidDeviceId,
+  isValidFactoryPin,
+  isTrustedPushEndpoint,
+  timingSafeEqual,
+} from './auth.js';
 import {
   getDeviceByDeviceId,
   insertDevice,
@@ -7,6 +14,10 @@ import {
   setDeviceStatus,
   renameDevice,
   setDevicePinHash,
+  getPinAttempt,
+  recordPinFailure,
+  clearPinFailures,
+  deleteExpiredPinAttempts,
   getStaleOnlineDevices,
   getRecoveredOfflineDevices,
   getSubscriptionsForDevice,
@@ -16,6 +27,7 @@ import {
   getAlarmState,
   upsertAlarmState,
   insertAlarmLog,
+  deleteOldAlarmLogs,
   getCachedFirmware,
   setFirmwareCache,
   touchFirmwareCache,
@@ -45,12 +57,22 @@ const MIN_ALARM_COOLDOWN_MS = 15_000;
 const DEVICE_OFFLINE_THRESHOLD_MS = 180 * 1000;
 
 function corsHeaders(env) {
-  return {
-    'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
+  const headers = {
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
+    Vary: 'Origin',
   };
+  const allowedOrigin = String(env.ALLOWED_ORIGIN || '').replace(/\/$/, '');
+  if (allowedOrigin) headers['Access-Control-Allow-Origin'] = allowedOrigin;
+  return headers;
+}
+
+function requestOriginAllowed(request, env) {
+  const origin = request.headers.get('Origin');
+  if (!origin) return true; // ESP32/server-to-server khong gui Origin.
+  const allowedOrigin = String(env.ALLOWED_ORIGIN || '').replace(/\/$/, '');
+  return Boolean(allowedOrigin) && origin === allowedOrigin;
 }
 
 // Repo GitHub luu ma nguon firmware - noi phat hanh cac ban ".bin" (xem
@@ -62,48 +84,129 @@ const GITHUB_REPO = 'May_ap_trung_V2.1.1';
 // Bao lau thi coi cache la "cu", can hoi lai GitHub xem tag co doi khong
 // (hoi nhe, khong tai file - chi tai+bam lai file khi THAT SU co tag moi).
 const FIRMWARE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
+const MAX_JSON_BODY_BYTES = 16 * 1024;
+const MAX_FIRMWARE_BYTES = 0x330000; // kich thuoc moi khe OTA default_8MB
+const PIN_WINDOW_MS = 10 * 60 * 1000;
+const PIN_MAX_FAILURES = 5;
+const PIN_BLOCK_MS = 15 * 60 * 1000;
+const ALARM_LOG_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+function publicGithubOtaEnabled(env) {
+  return env.ENABLE_PUBLIC_GITHUB_OTA === '1';
+}
+
+function isValidDeviceKey(value) {
+  return typeof value === 'string' && value.length >= 32 && value.length <= 128;
+}
+
+function cleanDeviceName(value) {
+  return String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 64);
+}
 
 function json(env, data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders(env) },
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      ...corsHeaders(env),
+    },
   });
 }
 
-async function readJson(request) {
+function isValidPushSubscription(subscription, env) {
+  if (!subscription || typeof subscription !== 'object') return false;
+  const endpoint = String(subscription.endpoint || '');
+  const p256dh = String(subscription.keys?.p256dh || '');
+  const auth = String(subscription.keys?.auth || '');
+  if (!endpoint || endpoint.length > 2048 || !/^[A-Za-z0-9_-]{40,256}$/.test(p256dh) ||
+      !/^[A-Za-z0-9_-]{8,128}$/.test(auth)) return false;
   try {
-    return await request.json();
+    const url = new URL(endpoint);
+    return Boolean(url.hostname) && isTrustedPushEndpoint(endpoint, env);
+  } catch (_) {
+    return false;
+  }
+}
+
+async function readJson(request) {
+  const contentType = String(request.headers.get('Content-Type') || '').toLowerCase();
+  if (!contentType.startsWith('application/json')) return null;
+  const declaredLength = Number(request.headers.get('Content-Length') || 0);
+  if (declaredLength > MAX_JSON_BODY_BYTES) return null;
+  try {
+    const raw = await request.text();
+    if (!raw || new TextEncoder().encode(raw).byteLength > MAX_JSON_BODY_BYTES) return null;
+    return JSON.parse(raw);
   } catch (_) {
     return null;
   }
 }
 
+async function pinClientKey(request, env) {
+  const address = String(request.headers.get('CF-Connecting-IP') || 'unknown');
+  const digest = await hashDeviceKey(address, env.PIN_RATE_LIMIT_PEPPER || env.DEVICE_KEY_PEPPER);
+  return digest.slice(0, 32);
+}
+
+async function verifyPinForRequest(request, env, device, pin) {
+  const clientKey = await pinClientKey(request, env);
+  const now = Date.now();
+  const attempt = await getPinAttempt(env.DB, device.device_id, clientKey);
+  if (attempt && Number(attempt.blocked_until) > now) {
+    return { ok: false, blocked: true };
+  }
+  const ok = await verifyDevicePin(env, device, pin);
+  if (ok) {
+    await clearPinFailures(env.DB, device.device_id, clientKey);
+    return { ok: true, blocked: false };
+  }
+  await recordPinFailure(
+    env.DB, device.device_id, clientKey, now,
+    PIN_WINDOW_MS, PIN_MAX_FAILURES, PIN_BLOCK_MS
+  );
+  const stillInWindow = attempt && Number(attempt.window_started) >= now - PIN_WINDOW_MS;
+  const nextFailures = stillInWindow ? Number(attempt.failures || 0) + 1 : 1;
+  return { ok: false, blocked: nextFailures >= PIN_MAX_FAILURES };
+}
+
 // -------------------------- Endpoint: dang ky thiet bi --------------------------
-// Trust-on-first-use: lan dau goi voi 1 device_id chua ton tai se TAO thiet bi
-// va luu hash cua device_key gui len; cac lan sau PHAI gui dung device_key cu
-// (khong cho ai "chiem" mot device_id da co bang cach dang ky de len lai).
+// Production chi chap nhan thiet bi da provision truoc trong D1. TOFU chi co
+// the bat tuong minh cho ban test co giam sat; mac dinh fail-closed de tranh
+// ke la doan Device ID va dang ky chiem truoc khi may that khoi dong lan dau.
 async function handleRegister(request, env) {
   const body = await readJson(request);
   const deviceId = String(body?.device_id || '').trim();
   const deviceKey = String(body?.device_key || '');
-  const deviceName = body?.device_name ? String(body.device_name).slice(0, 64) : '';
+  const factoryPin = String(body?.factory_pin || '');
+  const deviceName = cleanDeviceName(body?.device_name);
 
-  if (!isValidDeviceId(deviceId) || deviceKey.length < 8) {
-    return json(env, { success: false, error: 'device_id/device_key khong hop le' }, 400);
+  if (!isValidDeviceId(deviceId) || !isValidDeviceKey(deviceKey) || !isValidFactoryPin(factoryPin)) {
+    return json(env, { success: false, error: 'device_id/device_key/factory_pin khong hop le' }, 400);
   }
 
   const now = Date.now();
   const existing = await getDeviceByDeviceId(env.DB, deviceId);
   if (!existing) {
+    if (env.ALLOW_TOFU_REGISTRATION !== '1') {
+      return json(env, { success: false, error: 'device chua duoc provision' }, 403);
+    }
     const deviceKeyHash = await hashDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER);
-    const pairingToken = randomToken(12);
-    await insertDevice(env.DB, { deviceId, deviceName, deviceKeyHash, pairingToken, now });
-    return json(env, { success: true, device_id: deviceId, pairing_token: pairingToken, created: true });
+    const webPinHash = await hashDeviceKey(factoryPin, env.DEVICE_KEY_PEPPER);
+    await insertDevice(env.DB, {
+      deviceId, deviceName, deviceKeyHash, pairingToken: null, webPinHash, now,
+    });
+    return json(env, { success: true, device_id: deviceId, created: true });
   }
 
   const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, existing.device_key_hash);
   if (!valid) {
     return json(env, { success: false, error: 'device_key khong khop voi thiet bi da dang ky' }, 401);
+  }
+  if (!existing.web_pin_hash) {
+    const webPinHash = await hashDeviceKey(factoryPin, env.DEVICE_KEY_PEPPER);
+    await setDevicePinHash(env.DB, deviceId, webPinHash);
   }
   // KHONG truyen deviceName o day: ESP32 luon gui device_name = chinh
   // device_id cua no (khong co gia tri gi hon), truyen vao se GHI DE mat ten
@@ -111,7 +214,7 @@ async function handleRegister(request, env) {
   // lan khoi dong lai). Ten hien thi gio HOAN TOAN do web quan ly (xem
   // handleRenameDevice) - firmware khong con vai tro gi voi truong nay.
   await touchDevice(env.DB, deviceId, 'online', now);
-  return json(env, { success: true, device_id: deviceId, pairing_token: existing.pairing_token, created: false });
+  return json(env, { success: true, device_id: deviceId, created: false });
 }
 
 // -------------------------- Endpoint: heartbeat --------------------------
@@ -119,6 +222,10 @@ async function handleHeartbeat(request, env) {
   const body = await readJson(request);
   const deviceId = String(body?.device_id || '').trim();
   const deviceKey = String(body?.device_key || '');
+
+  if (!isValidDeviceId(deviceId) || !isValidDeviceKey(deviceKey)) {
+    return json(env, { success: false, error: 'device_id/device_key khong hop le' }, 400);
+  }
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
@@ -140,13 +247,22 @@ async function handleResetPin(request, env) {
   const body = await readJson(request);
   const deviceId = String(body?.device_id || '').trim();
   const deviceKey = String(body?.device_key || '');
+  const factoryPin = String(body?.factory_pin || '');
+
+  if (!isValidDeviceId(deviceId) || !isValidDeviceKey(deviceKey)) {
+    return json(env, { success: false, error: 'device_id/device_key khong hop le' }, 400);
+  }
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
   const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, device.device_key_hash);
   if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
+  if (!isValidFactoryPin(factoryPin)) {
+    return json(env, { success: false, error: 'factory_pin khong hop le' }, 400);
+  }
 
-  await setDevicePinHash(env.DB, deviceId, null);
+  const factoryPinHash = await hashDeviceKey(factoryPin, env.DEVICE_KEY_PEPPER);
+  await setDevicePinHash(env.DB, deviceId, factoryPinHash);
   return json(env, { success: true });
 }
 
@@ -162,7 +278,7 @@ async function handleAlarm(request, env) {
   const temperature = Number.isFinite(Number(body?.temperature)) ? Number(body.temperature) : null;
   const humidity = Number.isFinite(Number(body?.humidity)) ? Number(body.humidity) : null;
 
-  if (!isValidDeviceId(deviceId) || !alarmType || !message) {
+  if (!isValidDeviceId(deviceId) || !/^[A-Z0-9_]{2,64}$/.test(alarmType) || !message) {
     return json(env, { success: false, error: 'thieu device_id/alarm_type/message' }, 400);
   }
 
@@ -243,9 +359,10 @@ async function handleSubscribe(request, env) {
   const body = await readJson(request);
   const deviceId = String(body?.device_id || '').trim();
   const pairingToken = body?.pairing_token ? String(body.pairing_token) : '';
+  const pin = body?.pin ? String(body.pin) : '';
   const sub = body?.subscription;
 
-  if (!isValidDeviceId(deviceId) || !sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
+  if (!isValidDeviceId(deviceId) || !isValidPushSubscription(sub, env)) {
     return json(env, { success: false, error: 'thieu device_id hoac subscription khong hop le' }, 400);
   }
 
@@ -253,12 +370,16 @@ async function handleSubscribe(request, env) {
   if (!device) {
     return json(env, { success: false, error: 'device chua dang ky - hay bat may va cho ket noi mang truoc' }, 404);
   }
-  // pairing_token la lop bao ve TUY CHON (dung khi co QR dan tren may): neu
-  // thiet bi co pairing_token va nguoi goi CO gui token, phai khop. Neu
-  // nguoi goi khong gui token (luong don gian, chi biet device_id), van cho
-  // qua - danh doi da duoc noi ro trong tai lieu bao mat.
-  if (pairingToken && device.pairing_token && pairingToken !== device.pairing_token) {
-    return json(env, { success: false, error: 'pairing_token sai' }, 401);
+  const pairingOk = pairingToken && device.pairing_token &&
+    timingSafeEqual(pairingToken, device.pairing_token);
+  const pinResult = pairingOk ? { ok: true, blocked: false }
+    : await verifyPinForRequest(request, env, device, pin);
+  const pinOk = pinResult.ok;
+  if (!pairingOk && !pinOk) {
+    return json(env, {
+      success: false,
+      error: pinResult.blocked ? 'Thu PIN qua nhieu lan; hay doi 15 phut' : 'Can PIN hoac pairing token hop le',
+    }, pinResult.blocked ? 429 : 401);
   }
 
   await upsertSubscription(env.DB, {
@@ -266,7 +387,7 @@ async function handleSubscribe(request, env) {
     endpoint: sub.endpoint,
     p256dh: sub.keys.p256dh,
     auth: sub.keys.auth,
-    userAgent: request.headers.get('User-Agent') || '',
+    userAgent: String(request.headers.get('User-Agent') || '').slice(0, 300),
     now: Date.now(),
   });
 
@@ -276,7 +397,11 @@ async function handleSubscribe(request, env) {
 async function handleUnsubscribe(request, env) {
   const body = await readJson(request);
   const endpoint = String(body?.endpoint || '');
-  if (!endpoint) return json(env, { success: false, error: 'thieu endpoint' }, 400);
+  let endpointUrl;
+  try { endpointUrl = new URL(endpoint); } catch (_) { endpointUrl = null; }
+  if (!endpointUrl || endpointUrl.protocol !== 'https:' || endpoint.length > 2048) {
+    return json(env, { success: false, error: 'endpoint khong hop le' }, 400);
+  }
   await deleteSubscriptionByEndpoint(env.DB, endpoint);
   return json(env, { success: true });
 }
@@ -285,7 +410,11 @@ async function handleUnsubscribe(request, env) {
 async function handleTestPush(request, env) {
   const body = await readJson(request);
   const endpoint = String(body?.endpoint || '');
-  if (!endpoint) return json(env, { success: false, error: 'thieu endpoint' }, 400);
+  let endpointUrl;
+  try { endpointUrl = new URL(endpoint); } catch (_) { endpointUrl = null; }
+  if (!endpointUrl || endpointUrl.protocol !== 'https:' || endpoint.length > 2048) {
+    return json(env, { success: false, error: 'endpoint khong hop le' }, 400);
+  }
 
   const sub = await getSubscriptionByEndpoint(env.DB, endpoint);
   if (!sub) return json(env, { success: false, error: 'chua dang ky thong bao tren trinh duyet nay' }, 404);
@@ -315,11 +444,11 @@ async function handleTestPush(request, env) {
 
 // PIN rieng cua nguoi dung (KHAC device_key cua firmware) - gate cho "them
 // thiet bi" va "doi ten may" tren web, tranh nguoi la biet device_id la them/
-// sua duoc thiet bi cua nguoi khac. NULL = chua tung doi, coi nhu dang la
-// PIN mac dinh xuat xuong "1111".
+// sua duoc thiet bi cua nguoi khac. Moi thiet bi phai co PIN xuat xuong
+// rieng; web_pin_hash NULL bi tu choi, khong co fallback dung chung.
 async function verifyDevicePin(env, device, pin) {
   const value = String(pin || '');
-  if (!device.web_pin_hash) return value === '1111';
+  if (!device.web_pin_hash || !isValidPin(value)) return false;
   return verifyDeviceKey(value, env.DEVICE_KEY_PEPPER, device.web_pin_hash);
 }
 
@@ -336,8 +465,11 @@ async function handleVerifyPin(request, env) {
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky - hay bat may va cho ket noi mang truoc' }, 404);
-  const valid = await verifyDevicePin(env, device, pin);
-  if (!valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
+  const result = await verifyPinForRequest(request, env, device, pin);
+  if (!result.ok) return json(env, {
+    success: false,
+    error: result.blocked ? 'Thử PIN quá nhiều lần; hãy đợi 15 phút' : 'Sai mã PIN của thiết bị',
+  }, result.blocked ? 429 : 401);
   return json(env, { success: true, device_name: device.device_name || device.device_id });
 }
 
@@ -346,15 +478,18 @@ async function handleRenameDevice(request, env) {
   const body = await readJson(request);
   const deviceId = String(body?.device_id || '').trim();
   const pin = String(body?.pin || '');
-  const name = String(body?.name || '').trim().slice(0, 64);
+  const name = cleanDeviceName(body?.name);
   if (!isValidDeviceId(deviceId) || !name) {
     return json(env, { success: false, error: 'thieu device_id/pin/name hop le' }, 400);
   }
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
-  const valid = await verifyDevicePin(env, device, pin);
-  if (!valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
+  const result = await verifyPinForRequest(request, env, device, pin);
+  if (!result.ok) return json(env, {
+    success: false,
+    error: result.blocked ? 'Thử PIN quá nhiều lần; hãy đợi 15 phút' : 'Sai mã PIN của thiết bị',
+  }, result.blocked ? 429 : 401);
 
   await renameDevice(env.DB, deviceId, name);
   return json(env, { success: true, device_name: name });
@@ -373,8 +508,11 @@ async function handleChangePin(request, env) {
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
-  const valid = await verifyDevicePin(env, device, oldPin);
-  if (!valid) return json(env, { success: false, error: 'Sai mã PIN hiện tại' }, 401);
+  const result = await verifyPinForRequest(request, env, device, oldPin);
+  if (!result.ok) return json(env, {
+    success: false,
+    error: result.blocked ? 'Thử PIN quá nhiều lần; hãy đợi 15 phút' : 'Sai mã PIN hiện tại',
+  }, result.blocked ? 429 : 401);
 
   const newHash = await hashDeviceKey(newPin, env.DEVICE_KEY_PEPPER);
   await setDevicePinHash(env.DB, deviceId, newHash);
@@ -425,14 +563,18 @@ async function fetchGithubJson(env, path) {
 async function refreshFirmwareCache(env, release) {
   const version = String(release.tag_name || '').replace(/^v/, '');
   if (!isValidFirmwareVersion(version)) return null;
-  const asset = (release.assets || []).find((a) => a.name && a.name.endsWith('.bin'));
+  const expectedAssetName = `MAYAP-firmware-${version}.bin`;
+  const asset = (release.assets || []).find((a) => a.name === expectedAssetName);
   if (!asset || !asset.browser_download_url) return null;
 
   const assetRes = await fetch(asset.browser_download_url, {
     headers: { 'User-Agent': 'mayap-push-worker' },
   });
   if (!assetRes.ok) return null;
+  const declaredSize = Number(assetRes.headers.get('Content-Length') || asset.size || 0);
+  if (declaredSize > MAX_FIRMWARE_BYTES) return null;
   const buffer = await assetRes.arrayBuffer();
+  if (!buffer.byteLength || buffer.byteLength > MAX_FIRMWARE_BYTES) return null;
   const digest = await crypto.subtle.digest('SHA-256', buffer);
 
   const cache = {
@@ -484,7 +626,9 @@ async function handleFirmwareCheck(request, env) {
   const deviceId = String(body?.device_id || '').trim();
   const deviceKey = String(body?.device_key || '');
   const currentVersion = String(body?.current_version || '');
-  if (!isValidDeviceId(deviceId)) return json(env, { success: false, error: 'device_id khong hop le' }, 400);
+  if (!isValidDeviceId(deviceId) || !isValidFirmwareVersion(currentVersion)) {
+    return json(env, { success: false, error: 'device_id/current_version khong hop le' }, 400);
+  }
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
@@ -521,7 +665,8 @@ async function handleFirmwareDownload(env, version, request) {
   if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
 
   const cache = await getFirmwareCache(env);
-  if (!cache || cache.version !== version) {
+  if (!cache || cache.version !== version || Number(cache.size) <= 0 ||
+      Number(cache.size) > MAX_FIRMWARE_BYTES) {
     return json(env, { success: false, error: 'phien ban khong ton tai hoac khong con la ban moi nhat' }, 404);
   }
   const assetRes = await fetch(cache.asset_url, { headers: { 'User-Agent': 'mayap-push-worker' } });
@@ -634,13 +779,28 @@ async function checkDeviceConnectivity(env) {
   }
 }
 
+async function runScheduledMaintenance(env) {
+  await checkDeviceConnectivity(env);
+  const now = Date.now();
+  // Cron ket noi can chay moi phut, nhung don du lieu chi can moi gio de
+  // tranh ton write D1 khong can thiet.
+  if (new Date(now).getUTCMinutes() !== 0) return;
+  await Promise.all([
+    deleteExpiredPinAttempts(env.DB, now - PIN_WINDOW_MS - PIN_BLOCK_MS),
+    deleteOldAlarmLogs(env.DB, now - ALARM_LOG_RETENTION_MS),
+  ]);
+}
+
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(checkDeviceConnectivity(env));
+    ctx.waitUntil(runScheduledMaintenance(env));
   },
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    if (!requestOriginAllowed(request, env)) {
+      return json(env, { success: false, error: 'origin khong duoc phep' }, 403);
+    }
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(env) });
     }
@@ -679,26 +839,37 @@ export default {
       if (url.pathname === '/api/push/test' && request.method === 'POST') {
         return await handleTestPush(request, env);
       }
-      const statusMatch = url.pathname.match(/^\/api\/device\/([A-Za-z0-9_-]{3,40})\/status$/);
+      const statusMatch = url.pathname.match(/^\/api\/device\/(MAP-[A-F0-9]{12})\/status$/);
       if (statusMatch && request.method === 'GET') {
         return await handleDeviceStatus(env, statusMatch[1]);
       }
 
       // ---- Cap nhat firmware tu xa (nguon: GitHub Releases, xem ota_web_update.h) ----
       if (url.pathname === '/api/firmware/latest' && request.method === 'GET') {
+        if (!publicGithubOtaEnabled(env)) {
+          return json(env, { success: false, error: 'kenh OTA cong khai dang tat' }, 503);
+        }
         return await handleFirmwareLatestPublic(env);
       }
       if (url.pathname === '/api/firmware/check' && request.method === 'POST') {
+        if (!publicGithubOtaEnabled(env)) {
+          return json(env, { success: false, error: 'kenh OTA cong khai dang tat' }, 503);
+        }
         return await handleFirmwareCheck(request, env);
       }
       const firmwareDownloadMatch = url.pathname.match(/^\/api\/firmware\/download\/(\d{1,4}\.\d{1,4}\.\d{1,4})$/);
       if (firmwareDownloadMatch && request.method === 'GET') {
+        if (!publicGithubOtaEnabled(env)) {
+          return json(env, { success: false, error: 'kenh OTA cong khai dang tat' }, 503);
+        }
         return await handleFirmwareDownload(env, firmwareDownloadMatch[1], request);
       }
 
       return json(env, { success: false, error: 'not found' }, 404);
     } catch (error) {
-      return json(env, { success: false, error: 'internal error', detail: String(error && error.message ? error.message : error) }, 500);
+      const payload = { success: false, error: 'internal error' };
+      if (env.DEBUG_ERRORS === '1') payload.detail = String(error && error.message ? error.message : error);
+      return json(env, payload, 500);
     }
   },
 };

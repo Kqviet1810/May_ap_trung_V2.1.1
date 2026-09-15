@@ -16,6 +16,7 @@ E-code,Ten loi,Module,Muc do,Latching,Trigger,Firmware da tu lam gi,Interlock,Ng
 134,TU DONG DAO BI TAT,Dao trung,Stop,Khong,"turningEnabled tat giua me","Bao ngay","Khoa dao trung","Bat lai Tu dong dao neu nham",""
 135,CHO XAC NHAN AP LAI,Quan ly me ap (Resume),Canh bao,Khong,"Man hinh Ap lai me cu qua 15 phut chua xac nhan","Cho du 900000 ms moi bao","Khong khoa gi","Xac nhan Dong y/Huy tren HMI/Web",""
 136,ME QUA HAN AP,Quan ly me ap,Canh bao,Khong,"So ngay ap thuc te vuot cau hinh","Bao ngay khi qua nguong","Khong khoa gi","Kiem tra ke hoach ap thuc te",""
+137,CHO RTC DE AP LAI,Quan ly me ap (Resume),Canh bao,Khong,"Cho ap lai me cu nhung RTC chua hop le qua lau","Cho qua nguong RESUME_RTC_WAIT_ALERT_MS moi bao","Khong khoa gi (Resume da dang cho RTC)","Theo doi gio; neu keo dai, xu ly theo E306","Keo dai sau khi da kiem tra RTC/NTP"
 201,LOI 2 HANH TRINH,Co cau dao trung,Stop,Co (can ACK HMI),"Ca 2 cong tac hanh trinh cung tich cuc","Bao ngay","Khoa dao trung","Kiem tra 2 cong tac hanh trinh/day, ACK","Tai dien ngay sau ACK"
 202,DAO QUA THOI GIAN,Co cau dao trung,Stop,Co (can ACK HMI),"Chay qua turnMaxRunSec chua cham hanh trinh","Theo doi timeout truoc khi bao","Khoa dao trung","Kiem tra co cau/day dai/dong co, ACK","Lap lai - co the la dau hieu som cua E205"
 203,HANH TRINH BI KET,Co cau dao trung,Stop,Co (can ACK HMI),"Cong tac hanh trinh khong nha sau khi dung lenh","Theo doi truoc khi bao","Khoa dao trung","Kiem tra cong tac hanh trinh, ACK","Lap lai - co the la dau hieu som cua E205"

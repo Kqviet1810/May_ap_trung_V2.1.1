@@ -3,6 +3,7 @@
 
   const $ = (id) => document.getElementById(id);
   const WEB = Object.freeze({
+    appVersion: '3.8.0',
     mqttUrl: '',
     mqttUsername: '',
     mqttPassword: '',
@@ -17,6 +18,8 @@
     configTimeoutMs: 15000,
     ...window.MAYAP_WEB_CONFIG
   });
+
+  document.documentElement.dataset.appVersion = WEB.appVersion;
 
   const STORAGE = 'mayap.web.v9';
   const THEME_STORAGE = 'mayap.theme';
@@ -1691,6 +1694,7 @@
     130: 'Tắt công tắc nhiệt', 132: 'Cần chuyển sang AUTO',
     133: 'AUTO bị tắt giữa mẻ', 134: 'Tự động đảo bị tắt',
     135: 'Chờ xác nhận áp lại quá lâu', 136: 'Mẻ ấp quá hạn',
+    137: 'Chờ RTC để áp lại mẻ',
     201: 'Lỗi 2 hành trình', 202: 'Đảo quá thời gian', 203: 'Hành trình bị kẹt',
     204: 'Xung đột lệnh đảo', 205: 'Cần kiểm tra cơ khí đảo',
     301: 'Mất EEPROM', 302: 'EEPROM suy giảm',
@@ -1722,6 +1726,7 @@
     134: 'Cấu hình tự động đảo bị tắt trong lúc mẻ đang chạy.',
     135: 'Màn hình "Áp lại mẻ cũ?" đã hiện quá lâu chưa ai xác nhận.',
     136: 'Số ngày ấp thực tế đã vượt số ngày cấu hình.',
+    137: 'Máy đang chờ áp lại mẻ cũ nhưng đồng hồ RTC chưa có thời gian hợp lệ quá lâu.',
     201: 'Cả 2 công tắc hành trình cùng báo tích cực — xung đột vật lý.',
     202: 'Động cơ đảo chạy quá thời gian tối đa mà chưa chạm công tắc hành trình.',
     203: 'Công tắc hành trình không nhả ra sau khi lệnh đảo đã dừng.',
@@ -1860,6 +1865,7 @@
     if (!state.mqttConnected || !deviceId) return;
     try {
       publish(topics(deviceId).session, {
+        v: PROTOCOL_VERSION,
         active,
         ttlMs: active ? WEB.sessionTtlMs : 1000,
         sync
@@ -1997,6 +2003,11 @@
       if (!device) return;
       let payload;
       try { payload = JSON.parse(data.toString()); } catch (_) { return; }
+      if (Number(payload.v) !== PROTOCOL_VERSION) {
+        state.mqttMessage = `Bỏ qua dữ liệu giao thức v${String(payload.v ?? '?')}`;
+        renderDevice();
+        return;
+      }
       if (Number.isFinite(Number(payload.bootId))) device.bootId = Number(payload.bootId);
       if (parsedTopic.channel === 'presence') handlePresence(device, payload);
       else if (parsedTopic.channel === 'snapshot') handleSnapshot(device, payload);
@@ -2500,6 +2511,7 @@
     'ios-needs-install': ['Cần thêm vào Màn hình chính', 'pill soft', ''],
     denied: ['Bị chặn', 'pill offline', 'Trình duyệt đang chặn thông báo - vào cài đặt trình duyệt để cho phép lại.'],
     'not-enabled': ['Chưa cấp quyền', 'pill soft', ''],
+    'needs-link': ['Cần xác thực lại', 'pill soft', 'Nhập PIN của máy để liên kết thông báo.'],
     enabled: ['Đã bật', 'pill online', ''],
     error: ['Lỗi kết nối', 'pill offline', 'Không liên lạc được với máy chủ thông báo, thử lại sau.']
   };
@@ -2529,10 +2541,9 @@
     }
     if (!window.MayapPush) return;
 
-    // Truyen TOAN BO device_id dang co (khong chi may dang chon) - "bat thong
-    // bao" ap dung cho ca dashboard, tu dong lien ket may moi neu thieu.
-    const allDeviceIds = state.devices.map((item) => item.id);
-    const pushState = await window.MayapPush.getState(allDeviceIds);
+    // Moi thiet bi can PIN rieng; hien trang thai cho may dang chon de khong
+    // tu dong lien ket may moi ma khong co xac thuc.
+    const pushState = await window.MayapPush.getState(device.id);
     if (myToken !== pushStatusToken) return; // co yeu cau moi hon xen vao, bo ket qua cu
 
     const [text, cls, desc] = PUSH_STATUS_TEXT[pushState.status] || PUSH_STATUS_TEXT['not-enabled'];
@@ -2582,9 +2593,14 @@
         await window.MayapPush.disable();
         toast('Đã tắt thông báo trên trình duyệt này');
       } else {
-        const allDeviceIds = state.devices.map((item) => item.id);
-        const result = await window.MayapPush.enable(allDeviceIds);
-        toast(result.ok ? '🔔 Đã bật thông báo cho tất cả thiết bị trên dashboard này' : pushReasonText(result.reason, result.error));
+        const pin = window.prompt(`Nhập PIN 4-8 chữ số của ${device.name || device.id} để bật thông báo:`);
+        if (pin === null) return;
+        if (!/^\d{4,8}$/.test(pin)) {
+          toast('PIN phải gồm 4-8 chữ số');
+          return;
+        }
+        const result = await window.MayapPush.enable(device.id, { pin });
+        toast(result.ok ? `🔔 Đã bật thông báo cho ${device.name || device.id}` : pushReasonText(result.reason, result.error));
       }
     } finally {
       await renderPushStatus();

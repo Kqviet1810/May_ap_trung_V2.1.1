@@ -81,11 +81,11 @@ code{font-family:"Consolas",monospace;font-size:8pt;background:var(--wash);paddi
   </div>
   <div class="meta">
     <table>
-      <tr><th>Model</th><td>MAYAP INDUSTRIAL v3.7.1</td></tr>
-      <tr><th>Firmware</th><td>v3.7.1 (điều khiển) / v3.7.1 (HMI)</td></tr>
+      <tr><th>Model</th><td>MAYAP INDUSTRIAL v3.8.0</td></tr>
+      <tr><th>Firmware</th><td>v3.8.0 (điều khiển) / v3.8.0 (HMI)</td></tr>
       <tr><th>Hardware</th><td>CTRL-S3-N8-R1 (ESP32-S3)</td></tr>
       <tr><th>Document No.</th><td>MAYAP-OPS-A5-001</td></tr>
-      <tr><th>Revision</th><td>Rev. 1.1</td></tr>
+      <tr><th>Revision</th><td>Rev. 1.2</td></tr>
       <tr><th>Date</th><td>15/09/2026</td></tr>
     </table>
     <p class="small" style="margin-top:3mm">Tài liệu được xây dựng dựa trên phân tích source code và cấu hình
@@ -122,7 +122,7 @@ code{font-family:"Consolas",monospace;font-size:8pt;background:var(--wash);paddi
 <div class="toc-item l1"><span>20. Bảng tổng hợp Recovery Matrix</span><span data-page="p-matrix">31</span></div>
 <div class="toc-item l1"><span>21. Lịch sử phát hành</span><span data-page="p-rev">32</span></div>
 </div>
-<p class="small" style="margin-top:3mm">Số trang trong mục lục là số trang tại thời điểm phát hành Rev. 1.0; nội dung Rev. 1.1 được chèn thêm vào các
+<p class="small" style="margin-top:3mm">Số trang trong mục lục là số trang tham khảo; nội dung Rev. 1.1-1.2 được chèn thêm vào các
 Phần 4/5/7/10/12/18/20 nên số trang thực tế của các phần phía sau Phần 4 có thể lệch nhẹ — dùng số Phần (1-21)
 để tra cứu thay vì số trang khi cần chính xác.</p>
 </section>
@@ -133,7 +133,7 @@ Phần 4/5/7/10/12/18/20 nên số trang thực tế của các phần phía sau
 <h3>Mục đích</h3>
 <p>Tài liệu này hướng dẫn vận hành, theo dõi và xử lý sự cố cơ bản cho máy ấp trứng
 công nghiệp MAYAP INDUSTRIAL, dựa trên đúng hành vi của firmware điều khiển
-(v3.7.1) và firmware HMI (v3.7.1) đang chạy trên thiết bị.</p>
+(v3.8.0) và firmware HMI (v3.8.0) đang chuẩn bị kiểm thử trước phát hành.</p>
 <h3>Đối tượng sử dụng</h3>
 <ul>
 <li>Người vận hành hằng ngày (không cần biết lập trình/điện tử).</li>
@@ -1216,6 +1216,7 @@ máy giống hệt thao tác trên HMI/Web, cần cẩn trọng như khi thao t�
 <tr><th>Revision</th><th>Date</th><th>Description</th><th>Author</th></tr>
 <tr><td>1.0</td><td>27/08/2026</td><td>Phát hành lần đầu — dựng từ phân tích static source code firmware v3.4.0 (điều khiển) / v3.6.0 (HMI) và <code>audit/OPERATION_RECOVERY_MANUAL.md</code>.</td><td>Claude Code (theo yêu cầu người dùng)</td></tr>
 <tr><td>1.1</td><td>15/09/2026</td><td>Cập nhật khớp firmware/HMI v3.7.1: thêm màn hình HMI/Web "Nâng cao" (PID Kp/Ki/Kd, chu kỳ SSR, trần công suất, ngưỡng chẩn đoán tốc độ/dao động nhiệt, ngưỡng nghi kẹt rơ-le nhiệt, công suất AutoTune); bổ sung Fault Card E137 và nhóm E401-E404 (giám sát sức khoẻ hệ thống) còn thiếu trong Phần 12/20; ghi nhận các thông báo đẩy Cloud Push không có E-code (đèn còn bật giữa mẻ, đảo trứng ngừng bất thường, sắp đến ngày nở/quá hạn, Wi-Fi yếu kéo dài, chưa có thiết bị nhận thông báo); mô tả "Bù nhiệt độ" nay có trên HMI; làm rõ điều kiện <code>turningEnabled</code> phải bật để bắt đầu/áp lại mẻ (Phần 7/10); Web nay hiện đếm ngược "Đảo sau X phút" và có giao diện Sáng/Tối; bổ sung mục lệnh <code>LOG/EXIT</code> vào console chẩn đoán Serial (Phần 18).</td><td>Claude Code (theo yêu cầu người dùng)</td></tr>
+<tr><td>1.2</td><td>15/09/2026</td><td>Đồng bộ firmware/HMI/Web v3.8.0; bổ sung E137 còn thiếu trên dashboard và bảng CSV; bỏ PIN dùng chung, chuyển sang PIN xuất xưởng riêng từng máy; ghi nhận TLS/credential fail-closed, ArduinoOTA production tắt và GitHub OTA công khai tạm khóa chờ kiến trúc phân phối an toàn.</td><td>OpenAI Codex (bản chuẩn bị kiểm thử)</td></tr>
 </table>
 <div class="callout">
 Tài liệu được xây dựng dựa trên phân tích source code và cấu hình firmware tại thời điểm phát hành. Các hành
