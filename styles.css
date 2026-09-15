@@ -39,54 +39,54 @@
 @media(prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
     color-scheme:dark;
-    --ink:#eaf3f0;--muted:#9fb6b0;--label:#bcd4ce;
-    --line:#2c4941;--lineSoft:#203832;--tile:#122723;
-    --surface:#132a25;--wash:#17332d;
-    --primary:#28c2ac;--primary2:#5fe3cf;--primarySoft:#12352f;
-    --danger:#ff7f85;--dangerSoft:#3a1a1c;
-    --warning:#f0b046;--warningDark:#f0b046;--warningSoft:#3a2c14;
-    --emergency:#ff8f8f;--emergencySoft:#3a1616;
-    --faint:#7f9691;
-    --ring:#3fd0ba;
-    --shadow:0 10px 28px rgba(0,0,0,.35);--shadowSm:0 3px 10px rgba(0,0,0,.28);
-    --bodyBg1:#0a1a17;--bodyBg2:#081412;--topbarBg:#0d211ee6;
-    --softBg:#193631;--softText:#a9c2bc;
-    --successText:#4fd88a;--successTextStrong:#3fdb9e;--successTextSoft:#39c78e;
-    --dangerTextStrong:#ff9a9d;
-    --onBorder:#2f6b5c;--dangerBorder:#6b3336;--warningBorder:#6b5326;--emergencyBorder:#6b3a3a;
-    --invalidBorder:#ff8286;--invalidBg:#3a1c1e;--invalidRing:#ff828633;
-    --chipBg:#183530
+    --ink:#eef2f8;--muted:#8b96ac;--label:#b9c4da;
+    --line:#232c40;--lineSoft:#1a2233;--tile:#101728;
+    --surface:#131b2c;--wash:#161f33;
+    --primary:#2dd4bf;--primary2:#5eead4;--primarySoft:#0f2e2a;
+    --danger:#ff7a7a;--dangerSoft:#2a151a;
+    --warning:#f5a742;--warningDark:#f5a742;--warningSoft:#332512;
+    --emergency:#ff8a8a;--emergencySoft:#331515;
+    --faint:#6b7690;
+    --ring:#2dd4bf;
+    --shadow:0 10px 28px rgba(0,0,0,.45);--shadowSm:0 3px 10px rgba(0,0,0,.35);
+    --bodyBg1:#0a0e17;--bodyBg2:#05070d;--topbarBg:#0b101ce6;
+    --softBg:#141c2e;--softText:#a9b4c9;
+    --successText:#4ade80;--successTextStrong:#34d399;--successTextSoft:#2dd4a0;
+    --dangerTextStrong:#ff9a9a;
+    --onBorder:#1f4a44;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
+    --invalidBorder:#ff7a7a;--invalidBg:#2a151a;--invalidRing:#ff7a7a33;
+    --chipBg:#141c2e
   }
   /* Mui ten <select> la SVG data-URI (khong doi mau qua var duoc) - doi rieng
      sang net sang de con thay ro tren nen input toi. */
   :root:not([data-theme="light"]) select,
   :root:not([data-theme="light"]) .customSelectTrigger{
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235fe3cf' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235eead4' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")
   }
 }
 :root[data-theme="dark"]{
   color-scheme:dark;
-  --ink:#eaf3f0;--muted:#9fb6b0;--label:#bcd4ce;
-  --line:#2c4941;--lineSoft:#203832;--tile:#122723;
-  --surface:#132a25;--wash:#17332d;
-  --primary:#28c2ac;--primary2:#5fe3cf;--primarySoft:#12352f;
-  --danger:#ff7f85;--dangerSoft:#3a1a1c;
-  --warning:#f0b046;--warningDark:#f0b046;--warningSoft:#3a2c14;
-  --emergency:#ff8f8f;--emergencySoft:#3a1616;
-  --faint:#7f9691;
-  --ring:#3fd0ba;
-  --shadow:0 10px 28px rgba(0,0,0,.35);--shadowSm:0 3px 10px rgba(0,0,0,.28);
-  --bodyBg1:#0a1a17;--bodyBg2:#081412;--topbarBg:#0d211ee6;
-  --softBg:#193631;--softText:#a9c2bc;
-  --successText:#4fd88a;--successTextStrong:#3fdb9e;--successTextSoft:#39c78e;
-  --dangerTextStrong:#ff9a9d;
-  --onBorder:#2f6b5c;--dangerBorder:#6b3336;--warningBorder:#6b5326;--emergencyBorder:#6b3a3a;
-  --invalidBorder:#ff8286;--invalidBg:#3a1c1e;--invalidRing:#ff828633;
-  --chipBg:#183530
+  --ink:#eef2f8;--muted:#8b96ac;--label:#b9c4da;
+  --line:#232c40;--lineSoft:#1a2233;--tile:#101728;
+  --surface:#131b2c;--wash:#161f33;
+  --primary:#2dd4bf;--primary2:#5eead4;--primarySoft:#0f2e2a;
+  --danger:#ff7a7a;--dangerSoft:#2a151a;
+  --warning:#f5a742;--warningDark:#f5a742;--warningSoft:#332512;
+  --emergency:#ff8a8a;--emergencySoft:#331515;
+  --faint:#6b7690;
+  --ring:#2dd4bf;
+  --shadow:0 10px 28px rgba(0,0,0,.45);--shadowSm:0 3px 10px rgba(0,0,0,.35);
+  --bodyBg1:#0a0e17;--bodyBg2:#05070d;--topbarBg:#0b101ce6;
+  --softBg:#141c2e;--softText:#a9b4c9;
+  --successText:#4ade80;--successTextStrong:#34d399;--successTextSoft:#2dd4a0;
+  --dangerTextStrong:#ff9a9a;
+  --onBorder:#1f4a44;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
+  --invalidBorder:#ff7a7a;--invalidBg:#2a151a;--invalidRing:#ff7a7a33;
+  --chipBg:#141c2e
 }
 :root[data-theme="dark"] select,
 :root[data-theme="dark"] .customSelectTrigger{
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235fe3cf' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235eead4' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")
 }
 /* text-size-adjust khai bao tren html{} khong du: Chrome/Safari dien thoai
    "font boosting" (TextAutosizer) danh gia RIENG tung khoi/cum chu hep (vd
