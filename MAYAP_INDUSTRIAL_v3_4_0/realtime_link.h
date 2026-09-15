@@ -907,7 +907,8 @@ inline void mayapWebLinkUpdate(uint32_t now) {
 
   if (!mqttConfigReady()) {
     static uint32_t lastConfigWarnAt = 0U;
-    if (lastConfigWarnAt == 0U || timeReached(now, lastConfigWarnAt + 300000UL)) {
+    if (lastConfigWarnAt == 0U ||
+        MayapRealtimeInternal::timeReached(now, lastConfigWarnAt + 300000UL)) {
       lastConfigWarnAt = now;
       mayapSerialPrintf(false,
           "[WEBLINK] Chua cau hinh broker/CA MQTT; ket noi realtime dang tat\n");
