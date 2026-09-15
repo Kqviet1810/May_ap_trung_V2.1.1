@@ -4,7 +4,8 @@
   --ink:#0c2f2a;--muted:#5c716c;--label:#3f5d57;
   --line:#bccdc8;--lineSoft:#e4ede9;--tile:#f7fbfa;
   --surface:#fff;--wash:#eef5f3;
-  --primary:#0d8275;--primary2:#095f56;--primarySoft:#dff3ef;
+  --primary:#0d9488;--primary2:#0c6b52;--primarySoft:#dff3ef;
+  --primaryGradient:linear-gradient(135deg,#14b8a6,#0d9488 55%,#0c6b52);--primaryGlow:rgba(13,148,136,.32);
   --danger:#be4147;--dangerSoft:#fff0f1;
   --warning:#e29b1d;--warningDark:#8a5a0a;--warningSoft:#fdf1de;
   --emergency:#7a1f1f;--emergencySoft:#f6dede;
@@ -43,6 +44,7 @@
     --line:#232c40;--lineSoft:#1a2233;--tile:#101728;
     --surface:#131b2c;--wash:#161f33;
     --primary:#2dd4bf;--primary2:#5eead4;--primarySoft:#0f2e2a;
+    --primaryGradient:linear-gradient(135deg,#5eead4,#2dd4bf 55%,#14b8a6);--primaryGlow:rgba(45,212,191,.35);
     --danger:#ff7a7a;--dangerSoft:#2a151a;
     --warning:#f5a742;--warningDark:#f5a742;--warningSoft:#332512;
     --emergency:#ff8a8a;--emergencySoft:#331515;
@@ -70,6 +72,7 @@
   --line:#232c40;--lineSoft:#1a2233;--tile:#101728;
   --surface:#131b2c;--wash:#161f33;
   --primary:#2dd4bf;--primary2:#5eead4;--primarySoft:#0f2e2a;
+  --primaryGradient:linear-gradient(135deg,#5eead4,#2dd4bf 55%,#14b8a6);--primaryGlow:rgba(45,212,191,.35);
   --danger:#ff7a7a;--dangerSoft:#2a151a;
   --warning:#f5a742;--warningDark:#f5a742;--warningSoft:#332512;
   --emergency:#ff8a8a;--emergencySoft:#331515;
@@ -100,7 +103,7 @@ body{width:100%;max-width:100%;overflow-x:clip}
 /* Cam bam giu/sao chep chu de tao cam giac ung dung, khong phai trang wed - giu lai cho o nhap lieu de con go/dan duoc. */
 html,body{-webkit-user-select:none;-moz-user-select:none;user-select:none;-webkit-touch-callout:none}
 input,textarea,[contenteditable]{-webkit-user-select:text;-moz-user-select:text;user-select:text;-webkit-touch-callout:default}
-body{margin:0;color:var(--ink);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;font-size:var(--fs-base);line-height:1.4;background:linear-gradient(180deg,var(--bodyBg1),var(--bodyBg2));min-height:100vh;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transition:background var(--ease),color var(--ease)}
+body{margin:0;color:var(--ink);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;font-size:var(--fs-base);line-height:1.4;background:radial-gradient(120% 60% at 15% -10%,var(--primarySoft),transparent 55%),linear-gradient(160deg,var(--bodyBg1),var(--bodyBg2));background-attachment:fixed;min-height:100vh;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transition:background var(--ease),color var(--ease)}
 /* Khóa chiều ngang: mọi khối co theo viewport, không sinh thanh cuộn ngang. */
 .appShell,.main,.topbar,.page,.panel,.batchPanel,.batchGrid,.batchGrid>*,
 .compactTile,.compactTile input,.batchActions,.batchActions>*{min-width:0;max-width:100%}
@@ -194,7 +197,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .page{display:none;min-width:0;width:100%}
 .page.active{display:grid;gap:20px;min-width:0;width:100%}
 .page#page-batch.active{display:block}
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow)}
+.panel{background:linear-gradient(165deg,var(--surface),var(--wash));border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow)}
 
 .panelHead,.deviceTop,.dialogHead{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
 .panel h2,.dialogHead h2,.confirmBody h2{margin:2px 0 0;font-size:var(--fs-xl);font-weight:700;letter-spacing:-.3px}
@@ -328,7 +331,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .outputStrip>button:disabled{cursor:not-allowed;opacity:.6}
 
 .primary,.ghost{min-height:50px;border-radius:var(--radius-md);padding:0 18px;font-weight:700;font-size:var(--fs-sm);cursor:pointer;transition:filter var(--ease),transform var(--ease),background var(--ease),border-color var(--ease),box-shadow var(--ease)}
-.primary{border:0;background:var(--primary);color:#fff;box-shadow:0 8px 18px #0d827522}
+.primary{border:0;background:var(--primaryGradient);color:#fff;box-shadow:0 8px 18px var(--primaryGlow)}
 .primary.dark{background:#103a33;box-shadow:0 8px 18px #0a201c33}
 .ghost{border:1px solid var(--line);background:var(--surface);color:var(--label)}
 .primary:hover{filter:brightness(1.05)}
@@ -345,7 +348,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .switchRow input,.toggle input{position:absolute;opacity:0;pointer-events:none}
 .switchRow i,.toggle i{display:block;width:48px;height:28px;border-radius:999px;background:#cbd8d5;position:relative;cursor:pointer;transition:background var(--ease)}
 .switchRow i:after,.toggle i:after{content:"";position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 2px 6px #0002;transition:transform var(--ease)}
-.switchRow input:checked+i,.toggle input:checked+i{background:var(--primary)}
+.switchRow input:checked+i,.toggle input:checked+i{background:var(--primaryGradient)}
 .switchRow input:checked+i:after,.toggle input:checked+i:after{transform:translateX(20px)}
 .switchRow input:focus-visible+i,.toggle input:focus-visible+i{outline:2px solid var(--primary2);outline-offset:2px}
 .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
@@ -430,7 +433,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .tuneState{display:grid;gap:8px}
 .tuneState span{font-size:var(--fs-sm);font-weight:700;color:var(--label)}
 .tuneState>div{height:8px;border-radius:999px;background:#e2eeeb;overflow:hidden}
-.tuneState i{display:block;width:0;height:100%;background:linear-gradient(90deg,#0d8275,#55d5c1);transition:width .25s ease}
+.tuneState i{display:block;width:0;height:100%;background:var(--primaryGradient);transition:width .25s ease}
 
 /* Wi-Fi (một số class dưới đây không còn được dùng trong markup hiện tại,
    giữ lại đồng bộ token cho an toàn nếu được tái sử dụng sau này) */
