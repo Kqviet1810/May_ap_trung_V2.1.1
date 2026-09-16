@@ -31,6 +31,7 @@ void mayapI2cUnlock() {
 #include "hmi.h"
 #include "realtime_link.h"
 #include "cloud_alert_link.h"
+#include "attiny_bus.h"
 #include "machine_control.h"
 
 using namespace Mayap;

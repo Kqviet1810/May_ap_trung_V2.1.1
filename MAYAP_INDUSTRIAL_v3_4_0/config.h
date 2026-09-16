@@ -281,7 +281,7 @@ constexpr uint8_t PIN_OUT_HEATER_SSR   = 1;   // KAO3400 - SSR thanh nhiet
 // Chan 2 truoc day du phong (PULSE_SPARE), sau do gan LED xanh bao "dang co
 // me ap" - nay bo han tinh nang LED nay, chan 2 chuyen thanh coi HMI (xem
 // PIN_BUZZER ben duoi). GPIO41 (coi HMI cu) tung de trong, nay da dung lai
-// cho PIN_ATTINY_BATCH_FLAG (xem duoi).
+// cho PIN_ATTINY_BUS (xem duoi).
 // Pinmap thuc te da doi lai theo dung board dang lap (xem anh pinmap):
 // TRAI <-> QUAT, PHAI <-> NHIET van giu nguyen tu v3.2.8.
 // (Nghi ngo truoc do ve cheo chan HEAT_MASTER/TURN_RIGHT da duoc loai bo:
@@ -297,13 +297,44 @@ constexpr uint8_t PIN_OUT_TURN_LEFT    = 10;
 constexpr uint8_t PIN_OUT_SIREN        = 47;
 constexpr uint8_t PIN_OUT_RELAY_SPARE  = 48;  // rele du, chua gan chuc nang
 constexpr uint8_t PIN_STATUS_RGB       = 42;  // SK6812MINI-C
-// Bao mat dien qua ATtiny13A (mach doc lap dung pin CR2032, xem
-// doc/attiny_power_alarm.md) - GPIO nay CHI de bao trang thai "dang co me
-// ap hay khong" sang ATtiny (muc HIGH = dang ap), KHONG doc nguoc lai tu
-// ATtiny trong ban nay (ATtiny khong bao gio drive chan nay, tranh dung do
-// 2 ben cung keo). Dien tro noi tiep 470k phia ATtiny (PB0) da gioi han
-// dong du an toan neu vo tinh cau hinh nham chieu.
-constexpr uint8_t PIN_ATTINY_BATCH_FLAG = 41;
+// Bus giao tiep 2 chieu voi ATtiny13A (mach bao mat dien doc lap dung pin
+// CR2032, xem doc/attiny_power_alarm.md). La bus "ho tro" (open-drain) dung
+// chung 1 day: ca 2 ben CHI duoc keo LOW hoac tha noi (INPUT) de nghi len
+// HIGH qua dien tro keo len R8 - KHONG BAO GIO chu dong ghi HIGH - tranh
+// dung do neu ca 2 cung "noi" mot luc. Giao thuc dem xung (xem
+// ATTINY_BUS_* ben duoi va attiny_bus.h).
+constexpr uint8_t PIN_ATTINY_BUS = 41;
+
+// ---- Giao thuc bus voi ATtiny13A (dem xung, co ACK, xem doc/attiny_power_alarm.md) ----
+// 1 xung = keo LOW trong ATTINY_BUS_PULSE_MS roi tha len lai HIGH trong tung
+// do; het 1 ban tin thi im lang (HIGH) it nhat ATTINY_BUS_END_GAP_MS. Xung
+// ngan hon ATTINY_BUS_MIN_PULSE_MS bi coi la nhieu, bo qua. Ben nhan tra loi
+// dung 1 xung ACK trong vong ATTINY_BUS_ACK_TIMEOUT_MS; ben gui khong thay
+// ACK thi gui lai toi da ATTINY_BUS_MAX_RETRY lan.
+constexpr uint32_t ATTINY_BUS_PULSE_MS = 30UL;
+constexpr uint32_t ATTINY_BUS_MIN_PULSE_MS = 15UL;
+constexpr uint32_t ATTINY_BUS_END_GAP_MS = 150UL;
+constexpr uint32_t ATTINY_BUS_ACK_TIMEOUT_MS = 200UL;
+constexpr uint8_t ATTINY_BUS_MAX_RETRY = 3U;
+
+// Bang ma ban tin (so xung). Chieu ESP32->Tiny: 1-5. Chieu Tiny->ESP32: 6.
+constexpr uint8_t ATTINY_MSG_BATCH_START = 1U;  // ESP32->Tiny: me ap vua bat dau
+constexpr uint8_t ATTINY_MSG_BATCH_END   = 2U;  // ESP32->Tiny: me ap vua ket thuc
+constexpr uint8_t ATTINY_MSG_SIREN_ON    = 3U;  // ESP32->Tiny: bat coi (bao nhiet khan cap)
+constexpr uint8_t ATTINY_MSG_SIREN_OFF   = 4U;  // ESP32->Tiny: tat coi
+constexpr uint8_t ATTINY_MSG_PING        = 5U;  // ESP32->Tiny: kiem tra con song khong
+constexpr uint8_t ATTINY_MSG_9V_LOW      = 6U;  // Tiny->ESP32: nguon 9V da yeu (~7V)
+constexpr uint8_t ATTINY_MSG_MAX_CODE    = 6U;
+
+// Kiem tra dinh ky "con song khong" trong luc dang co me ap (khong chi luc
+// bat dau) - phat hien som neu mach ATtiny/pin CR2032 da hong giua chung
+// ma khong ai biet trong suot 18-21 ngay ap.
+constexpr uint32_t ATTINY_PING_INTERVAL_MS = 6UL * 3600UL * 1000UL;
+
+// Canh bao "9V yeu" tu ATtiny chi bao 1 chieu (khong co ban tin "da het
+// yeu") - tu het hien thi sau tung nay neu khong duoc bao lai (xem
+// updateAttinyLink() trong machine_control.h).
+constexpr uint32_t ATTINY_9V_LOW_DISPLAY_MS = 24UL * 3600UL * 1000UL;
 
 // Input opto ACTIVE-LOW: kich 12 V => ngo ra opto keo GPIO xuong GND.
 constexpr uint8_t PIN_IN_LIMIT_LEFT    = 4;
@@ -342,7 +373,7 @@ constexpr uint8_t MAYAP_USED_PINS[] = {
   PIN_OUT_HEATER_SSR, PIN_OUT_TURN_RIGHT,
   PIN_OUT_TURN_LEFT, PIN_OUT_VENT_FAN, PIN_OUT_LIGHT,
   PIN_OUT_HEAT_MASTER, PIN_OUT_CIRC_FAN, PIN_OUT_SIREN,
-  PIN_OUT_RELAY_SPARE, PIN_STATUS_RGB, PIN_ATTINY_BATCH_FLAG,
+  PIN_OUT_RELAY_SPARE, PIN_STATUS_RGB, PIN_ATTINY_BUS,
   PIN_IN_LIMIT_LEFT, PIN_IN_LIMIT_RIGHT, PIN_IN_AUTO,
   PIN_IN_HEATER_ENABLE, PIN_IN_CIRC_FAN, PIN_IN_LIGHT,
   PIN_IN_TURN_LEFT, PIN_IN_TURN_RIGHT,

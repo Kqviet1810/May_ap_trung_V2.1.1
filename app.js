@@ -1760,7 +1760,8 @@
     306: 'Lỗi đồng hồ RTC', 313: 'Chưa xoá dữ liệu mẻ',
     314: 'Lỗi nhật ký an toàn', 315: 'Mất nhật ký mẻ',
     401: 'RAM thấp (cảnh báo sớm)', 402: 'RAM cạn - tự khởi động lại',
-    403: 'Dự đoán sắp chạm ngưỡng nhiệt', 404: 'EEPROM cần thử lại nhiều'
+    403: 'Dự đoán sắp chạm ngưỡng nhiệt', 404: 'EEPROM cần thử lại nhiều',
+    501: 'Mất liên lạc mạch báo mất điện (ATtiny)', 502: 'Pin 9V còi báo yếu'
   };
 
   // Mô tả ngắn dùng cho popup chi tiết khi bấm vào ô Trạng thái (Phần "Ý
@@ -1801,7 +1802,9 @@
     401: 'Bộ nhớ RAM còn lại thấp hơn ngưỡng an toàn - hệ thống đang tự theo dõi, chưa ảnh hưởng vận hành.',
     402: 'RAM cạn kiệt nghiêm trọng - máy tự khởi động lại có kiểm soát để phòng tránh treo máy đột ngột. Nhiệt/đảo trứng phục hồi ngay sau khi khởi động lại xong.',
     403: 'Theo tốc độ thay đổi nhiệt độ hiện tại, dự đoán sắp chạm ngưỡng cảnh báo trong ít phút tới - cảnh báo sớm, không phải đã vượt ngưỡng.',
-    404: 'Bộ nhớ EEPROM phải thử lại nhiều lần bất thường khi đọc/ghi - dấu hiệu suy giảm sớm của chip nhớ, nên theo dõi thêm.'
+    404: 'Bộ nhớ EEPROM phải thử lại nhiều lần bất thường khi đọc/ghi - dấu hiệu suy giảm sớm của chip nhớ, nên theo dõi thêm.',
+    501: 'Mạch báo mất điện độc lập (ATtiny13A) không phản hồi lệnh/ping từ ESP32 - có thể mạch mất nguồn pin dự phòng hoặc dây tín hiệu bị đứt. Không ảnh hưởng nhiệt/đảo trứng, nhưng nếu mất điện lưới xảy ra lúc này, còi báo dự phòng có thể không kêu.',
+    502: 'Mạch báo mất điện độc lập phát hiện pin 9V nuôi còi báo đã tụt dưới khoảng 7V - nên thay pin sớm để đảm bảo còi vẫn kêu được khi mất điện.'
   };
 
   // severity: 0=Info,1=Warning,2=Stop,3=Emergency (khop enum FaultSeverity

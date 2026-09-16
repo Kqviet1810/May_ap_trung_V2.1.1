@@ -2577,6 +2577,7 @@ uint32_t alarmBitForFaultCode(uint16_t code) {
     case 201: case 202: case 203: case 204: case 205: return AlarmTurning;
     case 301: case 302: case 303: case 304: case 305: case 306:
     case 313: case 314: case 315: return AlarmSystem;
+    case 501: case 502: return AlarmSystem;
     default: return AlarmSystem;
   }
 }
@@ -2616,6 +2617,8 @@ const char *faultTitle(uint16_t code) {
     case 313: return "CHUA XOA DU LIEU ME";
     case 314: return "LOI NHAT KY AN TOAN";
     case 315: return "MAT NHAT KY ME";
+    case 501: return "MAT LIEN LAC ATTINY";
+    case 502: return "PIN 9V COI YEU";
     default: return "LOI KHONG XAC DINH";
   }
 }
@@ -2664,6 +2667,8 @@ void faultDetail(const HmiFaultItem &fault, char *out, size_t size) {
     case 313: snprintf(out, size, "DANG THU LAI EEPROM"); break;
     case 314: snprintf(out, size, "NVS NOI BO KHONG SAN SANG"); break;
     case 315: snprintf(out, size, "FLASH LOG KHONG GHI DUOC"); break;
+    case 501: snprintf(out, size, "ATTINY KHONG PHAN HOI"); break;
+    case 502: snprintf(out, size, "PIN 9V DUOI 7V"); break;
     default: snprintf(out, size, "CHI TIET %d", fault.detail); break;
   }
 }
