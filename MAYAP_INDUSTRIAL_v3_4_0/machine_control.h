@@ -3610,6 +3610,15 @@ class MachineController {
     }
     outputs_.begin();
     led_.begin();
+    // Bao mat dien qua ATtiny13A (mach doc lap dung pin CR2032, xem
+    // doc/attiny_power_alarm.md) - chan nay LUON o muc LOW luc khoi dong
+    // (an toan mac dinh: "khong co me dang chay"), chi len HIGH khi thuc su
+    // co me ap dang chay (dong bo moi chu ky, xem gan runtime_.batchRunning
+    // ben duoi). ATtiny doc muc nay lien tuc va GHI NHO trang thai cuoi cung
+    // TRUOC khi ESP32 mat dien - neu luc do la HIGH, ATtiny tu bat coi bao
+    // dung nguon 9V rieng, hoan toan khong phu thuoc ESP32 con song hay khong.
+    pinMode(PIN_ATTINY_BATCH_FLAG, OUTPUT);
+    digitalWrite(PIN_ATTINY_BATCH_FLAG, LOW);
     inputs_.begin();
     sensor_.begin();
     rtc_.begin(bootAt_);
@@ -6284,6 +6293,12 @@ class MachineController {
       snprintf(runtime_.timeText, sizeof(runtime_.timeText), "--:--");
     }
     runtime_.batchRunning = batchRunning_ || resumePending_;
+    // Bao mat dien qua ATtiny13A (xem doc/attiny_power_alarm.md): chi bao
+    // dung batchRunning_ (dang thuc su ap - nhiet/dao dang chay), KHONG tinh
+    // resumePending_ (dang cho xac nhan, chua thuc su ap lai) - dung dinh
+    // nghia "dang co me ap chay" ma ATtiny can biet de quyet dinh co bao khi
+    // mat dien hay khong.
+    digitalWrite(PIN_ATTINY_BATCH_FLAG, batchRunning_ ? HIGH : LOW);
     if (resumePending_ && !batchRunning_) {
       const uint32_t dayIndex = elapsedBeforeStartSec_ / 86400UL;
       runtime_.currentDay = static_cast<uint8_t>(std::min<uint32_t>(255U, dayIndex + 1U));
