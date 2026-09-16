@@ -56,7 +56,8 @@
     'lightAfterBatchAlarmEnabled', 'highTempAlarmWithoutBatch', 'controlMode',
     'nextDirection', 'heaterStuckMinRiseC', 'heaterStuckDurationSec',
     'tempRateLimitC', 'tempRateWindowSec', 'tempOscillationCrossLimit',
-    'tempOscillationWindowSec', 'autotuneRelayPowerPercent', 'autotuneBandC'
+    'tempOscillationWindowSec', 'autotuneRelayPowerPercent', 'autotuneBandC',
+    'manualTurnReanchorsSchedule'
   ]);
 
   const DEFAULT_BATCH_META = Object.freeze({
@@ -1145,6 +1146,7 @@
     check('temperatureForm', 'highTempAlarmWithoutBatch', config.highTempAlarmWithoutBatch);
 
     check('turningForm', 'turningEnabled', config.turningEnabled);
+    check('turningForm', 'manualTurnReanchorsSchedule', config.manualTurnReanchorsSchedule);
     assign('turningForm', 'turnInterval', config.turnIntervalMin);
     assign('turningForm', 'limitAlarmTime', config.turnMaxRunSec);
     assign('turningForm', 'nextDirection', Number(config.nextDirection) === 1 ? 'right' : 'left');
@@ -1235,6 +1237,7 @@
       config.highTempAlarmWithoutBatch = $('highTempAlarmWithoutBatch').checked;
     } else if (group === 'turning') {
       config.turningEnabled = $('turningEnabled').checked;
+      config.manualTurnReanchorsSchedule = $('manualTurnReanchorsSchedule').checked;
       config.turnIntervalMin = Number($('turnInterval').value);
       config.turnMaxRunSec = Number($('limitAlarmTime').value);
       config.nextDirection = $('nextDirection').value === 'right' ? 1 : 0;

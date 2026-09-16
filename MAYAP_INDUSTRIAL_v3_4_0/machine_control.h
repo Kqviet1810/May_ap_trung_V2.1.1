@@ -1453,6 +1453,8 @@ struct PackedMachineConfigV1 {
   uint16_t tempOscillationWindowSec;
   uint8_t autotuneRelayPowerPercent;
   float autotuneBandC;
+  // schema 9+: F-13 - dao tay co dong lich dao tu dong hay khong.
+  uint8_t manualTurnReanchorsSchedule;
 };
 struct ConfigRecordV1 {
   uint32_t magic;
@@ -1546,15 +1548,32 @@ static_assert(CONFIG_V6_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
               "schema 6 va schema 7");
 static_assert(CONFIG_V7_PAYLOAD_BYTES + 3U * sizeof(float) + 3U * sizeof(uint16_t) +
                   2U * sizeof(uint8_t) ==
-                  sizeof(PackedMachineConfigV1),
-              "8 truong Nang cao phai la cac truong cuoi cung cua "
-              "PackedMachineConfigV1");
+                  offsetof(PackedMachineConfigV1, manualTurnReanchorsSchedule),
+              "8 truong Nang cao phai nam ngay truoc "
+              "manualTurnReanchorsSchedule (schema 9) trong PackedMachineConfigV1");
 struct ConfigRecordLegacyV7 {
   uint32_t magic;
   uint16_t schema;
   uint16_t size;
   uint32_t sequence;
   uint8_t payload[CONFIG_V7_PAYLOAD_BYTES];
+  uint32_t crc;
+};
+// Config schema 8 (ban truoc F-13: dao tay co dong lich hay khong) co payload
+// giong schema 9 tru manualTurnReanchorsSchedule. Dung de nang cap tai cho
+// khong mat cau hinh cu, giong het cach lam voi cac schema truoc do.
+constexpr size_t CONFIG_V8_PAYLOAD_BYTES =
+    offsetof(PackedMachineConfigV1, manualTurnReanchorsSchedule);
+static_assert(CONFIG_V8_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
+                  sizeof(PackedMachineConfigV1),
+              "manualTurnReanchorsSchedule phai la truong cuoi cung cua "
+              "PackedMachineConfigV1");
+struct ConfigRecordLegacyV8 {
+  uint32_t magic;
+  uint16_t schema;
+  uint16_t size;
+  uint32_t sequence;
+  uint8_t payload[CONFIG_V8_PAYLOAD_BYTES];
   uint32_t crc;
 };
 // Schema batch v3 bo sung moc bat dau me va lan dao thanh cong gan nhat.
@@ -1618,12 +1637,13 @@ constexpr uint32_t CONFIG_MAGIC = 0x4D415943UL; // MAYC
 constexpr uint32_t BATCH_MAGIC  = 0x4D415942UL; // MAYB
 constexpr uint32_t REMINDER_MAGIC = 0x4D415952UL; // MAYR
 constexpr uint16_t REMINDER_SCHEMA = 1;
-constexpr uint16_t CONFIG_SCHEMA = 8;
+constexpr uint16_t CONFIG_SCHEMA = 9;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V4 = 4;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V5 = 5;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V6 = 6;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V7 = 7;
+constexpr uint16_t CONFIG_SCHEMA_LEGACY_V8 = 8;
 constexpr uint16_t BATCH_SCHEMA = 3;
 constexpr uint16_t BATCH_SCHEMA_LEGACY = 2;
 
@@ -1666,6 +1686,7 @@ inline PackedMachineConfigV1 packConfig(const MachineConfig &c) {
   p.tempOscillationWindowSec = c.tempOscillationWindowSec;
   p.autotuneRelayPowerPercent = c.autotuneRelayPowerPercent;
   p.autotuneBandC = c.autotuneBandC;
+  p.manualTurnReanchorsSchedule = c.manualTurnReanchorsSchedule ? 1U : 0U;
   return p;
 }
 inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
@@ -1707,6 +1728,7 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.tempOscillationWindowSec = p.tempOscillationWindowSec;
   c.autotuneRelayPowerPercent = p.autotuneRelayPowerPercent;
   c.autotuneBandC = p.autotuneBandC;
+  c.manualTurnReanchorsSchedule = p.manualTurnReanchorsSchedule != 0U;
   sanitizeMachineConfig(c);
   return c;
 }
@@ -2147,6 +2169,12 @@ class PersistentStore {
            r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
                             offsetof(ConfigRecordLegacyV7, crc));
   }
+  static bool validConfigLegacyV8(const ConfigRecordLegacyV8 &r) {
+    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V8 &&
+           r.size == sizeof(r) &&
+           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
+                            offsetof(ConfigRecordLegacyV8, crc));
+  }
   static bool validBatch(const BatchRecordV1 &r) {
     return r.magic == BATCH_MAGIC && r.schema == BATCH_SCHEMA &&
            r.size == sizeof(r) &&
@@ -2177,6 +2205,28 @@ class PersistentStore {
       configCurrentIsA_ = useA;
       configSequence_ = best.sequence;
       configPayload_ = best.payload;
+      return true;
+    }
+
+    // Fallback config schema 8 (ban truoc F-13: dao tay co dong lich hay
+    // khong). Truong moi mac dinh TAT (khop dung default cua
+    // MachineConfig::manualTurnReanchorsSchedule - giu nguyen hanh vi cu, dao
+    // tay khong dong lich); lan luu cau hinh tiep theo se ghi schema 9 vao
+    // khe doi dien.
+    ConfigRecordLegacyV8 la8{}, lb8{};
+    const bool vla8 = readRecord(EEPROM_ADDR_CONFIG_A, la8) &&
+                      validConfigLegacyV8(la8);
+    const bool vlb8 = readRecord(EEPROM_ADDR_CONFIG_B, lb8) &&
+                      validConfigLegacyV8(lb8);
+    if (vla8 || vlb8) {
+      const bool useA8 = !vlb8 || (vla8 && newer(la8.sequence, lb8.sequence));
+      const ConfigRecordLegacyV8 &best8 = useA8 ? la8 : lb8;
+      configPayload_ = PackedMachineConfigV1{};
+      memcpy(&configPayload_, best8.payload, sizeof(best8.payload));
+      configPayload_.manualTurnReanchorsSchedule = 0U;
+      configCacheValid_ = true;
+      configCurrentIsA_ = useA8;
+      configSequence_ = best8.sequence;
       return true;
     }
 
@@ -5443,6 +5493,17 @@ class MachineController {
           ? TurnDirection::Right : TurnDirection::Left;
       setTurnScheduleAnchor(now);
       (void)saveBatchRecord();
+    } else if (config_.manualTurnReanchorsSchedule) {
+      // F-13: dao TAY (moveCounts_ false) nhung cau hinh yeu cau dong lich -
+      // chi doi lai moc thoi gian dao tu dong (lastTurnAt_/nextTurnAt_) de
+      // tranh dao tu dong THEM 1 lan gan nhu ngay lap tuc sau khi vua dao
+      // tay (truoc day luon xay ra neu chu ky da het han trong luc dao tay).
+      // KHONG dem vao turnCountToday_/turnCountBatch_ va KHONG doi
+      // config_.nextDirection - 2 gia tri do van danh rieng cho thong ke/
+      // hien thi dao TU DONG, khong lien quan huong dao tay vua roi. Huong
+      // dao tu dong ke tiep van tu tinh dung tu trayPosition_ vat ly (xem
+      // updateTurning()), khong phu thuoc gia tri nay.
+      setTurnScheduleAnchor(now);
     }
     moveIsHoming_ = false;
     moveCounts_ = false;

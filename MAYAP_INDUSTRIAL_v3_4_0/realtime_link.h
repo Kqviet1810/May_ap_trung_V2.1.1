@@ -254,6 +254,7 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   c["totalIncubationDays"] = cfg.totalIncubationDays;
   c["circulationFanEnabled"] = cfg.circulationFanEnabled;
   c["turningEnabled"] = cfg.turningEnabled;
+  c["manualTurnReanchorsSchedule"] = cfg.manualTurnReanchorsSchedule;
   // Ten field khac firmware (autoResumeOnPowerLoss) vi web da dung ten nay
   // truoc: giu nguyen giao thuc web, chi anh xa ten trong firmware.
   c["autoResumeAfterPower"] = cfg.autoResumeOnPowerLoss;
@@ -533,6 +534,8 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   candidate.circulationFanEnabled =
       configObj["circulationFanEnabled"] | candidate.circulationFanEnabled;
   candidate.turningEnabled = configObj["turningEnabled"] | candidate.turningEnabled;
+  candidate.manualTurnReanchorsSchedule =
+      configObj["manualTurnReanchorsSchedule"] | candidate.manualTurnReanchorsSchedule;
   candidate.autoResumeOnPowerLoss =
       configObj["autoResumeAfterPower"] | candidate.autoResumeOnPowerLoss;
   candidate.allowHeatWithoutBatch =
