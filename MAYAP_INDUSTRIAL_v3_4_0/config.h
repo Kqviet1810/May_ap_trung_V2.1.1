@@ -221,6 +221,13 @@ constexpr float HUMIDITY_HIGH_HYSTERESIS_C = 2.0f;
 // Bo lo lich dao: khong ghi nhan lan dao nao thanh cong qua
 // TURN_MISSED_MULTIPLIER x chu ky dao da cau hinh.
 constexpr uint8_t TURN_MISSED_MULTIPLIER = 2U;
+// Nguong severity duoc coi la "nghiem trong" (may KHONG con ap duoc binh
+// thuong nua) dung de hmi.h quyet dinh co bat buoc ngat ngang man hinh
+// nguoi dung ve man Canh bao hay khong (xem applyRuntime() trong hmi.h).
+// Khop dung FaultSeverity::Stop trong machine_control.h (0=Info,1=Warning,
+// 2=Stop,3=Emergency) - dat rieng o day (config.h duoc include TRUOC hmi.h
+// va machine_control.h) vi hmi.h khong the thay enum FaultSeverity luc do.
+constexpr uint8_t FAULT_SEVERITY_STOP_THRESHOLD = 2U;
 // Nhac truoc khi den ngay du kien no.
 constexpr uint8_t BATCH_NEARING_END_DAYS_LEFT = 2U;
 // Wi-Fi yeu keo dai (dBm cang am cang yeu) truoc khi bao, tranh bao ngay khi
