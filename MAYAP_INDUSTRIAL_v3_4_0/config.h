@@ -31,7 +31,7 @@
 
 constexpr char MAYAP_FIRMWARE_VERSION[] = "3.7.1";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
-constexpr char HMI_FIRMWARE_VERSION[] = "3.7.0";
+constexpr char HMI_FIRMWARE_VERSION[] = "3.7.1";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
 
 // ----------------------------- BUILD -----------------------------------------

@@ -1,8 +1,8 @@
 #pragma once
 
 /*
-  MAYAP HMI ST7567S 128x64 + rotary + buzzer - v3.7.0
-  Phan cung: LCD 0x3F SDA8/SCL9, rotary 38/39/40, buzzer GPIO41.
+  MAYAP HMI ST7567S 128x64 + rotary + buzzer - v3.7.1
+  Phan cung: LCD 0x3F SDA8/SCL9, rotary 38/39/40, buzzer GPIO2.
   File nay chi dung trong firmware tong; khong chua setup/loop demo, Wi-Fi,
   ket noi mang, luu flash noi hay dieu khien GPIO chap hanh.
 */
