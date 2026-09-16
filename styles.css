@@ -419,7 +419,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .settingBody{padding:16px;display:grid;gap:12px}
 .settingBody .grid2{margin-top:0}
 .manualActions{gap:12px}
-.settingBody .documentButton{display:flex;align-items:center;justify-content:center;min-height:50px;padding:0 18px;box-sizing:border-box;text-align:center;text-decoration:none;line-height:1.25}
+.manualActions button{width:100%;min-height:50px;text-align:center}
 .settingFootnote{margin:0;color:var(--muted);font-size:var(--fs-sm);line-height:1.5}
 .stackForm{display:grid;gap:10px}
 .settingDivider{border:none;border-top:1px solid var(--line);margin:12px 0}
