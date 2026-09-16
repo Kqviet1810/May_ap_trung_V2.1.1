@@ -432,7 +432,7 @@ enum class FaultCode : uint16_t {
   // doc/attiny_power_alarm.md) - CHI CANH BAO CHAN DOAN, khong anh huong
   // dieu khien nhiet/dao (dropHeatMaster/inhibitSsr deu false).
   AttinyBusUnresponsive = 501,  // khong ACK ping/lenh - kiem tra pin CR2032/day noi
-  Attiny9VLow = 502             // ATtiny bao nguon 9V (cap coi du phong) da yeu
+  SirenBatteryLow = 502          // ATtiny bao pin 9V cap coi sap het - can thay pin
 };
 
 // So luong gia tri FaultCode THUC (khong tinh None) - dem tay tu enum o tren.
@@ -567,7 +567,7 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // Nhom 500: bao mat dien qua ATtiny13A - chi chan doan, khong dropHeatMaster/
     // inhibitSsr/inhibitsTurning (mach nay hoan toan tach biet dieu khien chinh).
     {FaultCode::AttinyBusUnresponsive, FaultSeverity::Warning, 73U, AlarmSystem, false, false, false, false, false, false, "ATTINY BUS UNRESPONSIVE"},
-    {FaultCode::Attiny9VLow, FaultSeverity::Warning, 74U, AlarmSystem, false, false, false, false, false, false, "ATTINY 9V LOW"}
+    {FaultCode::SirenBatteryLow, FaultSeverity::Warning, 40U, AlarmSystem, false, false, false, false, false, false, "SIREN BATTERY LOW"}
   };
   for (const auto &item : table) if (item.code == code) return item;
   return unknown;
@@ -6088,8 +6088,9 @@ class MachineController {
   //     biet (mot me keo dai 18-21 ngay, kiem tra 1 lan luc bat dau la chua
   //     du). Khong ACK -> bao FaultCode::AttinyBusUnresponsive (chi canh
   //     bao, khong khoa gi).
-  //  3) Nhan ban tin ATtiny tu gui toi (hien tai chi co ATTINY_MSG_9V_LOW) ->
-  //     bao FaultCode::Attiny9VLow.
+  //  3) Nhan ATTINY_MSG_9V_LOW/ATTINY_MSG_9V_RECOVERED tu ATtiny de
+  //     bat/go FaultCode::SirenBatteryLow. Day la canh bao nhe (Warning),
+  //     khong khoa van hanh; Cloud Push nhac lai dinh ky nhu canh bao do am.
   void updateAttinyLink(uint32_t now) {
     const bool emergencySirenOn =
         emergencyActive_ && timeReached(now, sirenMutedUntil_);
@@ -6112,18 +6113,11 @@ class MachineController {
 
     const uint8_t incoming = mayapAttinyBusPollIncoming();
     if (incoming == ATTINY_MSG_9V_LOW) {
-      // ATtiny chi bao 1 chieu luc PHAT HIEN yeu, khong co ban tin "da het
-      // yeu" rieng (ben ATtiny tu co hysteresis de khong bao lap lai lien
-      // tuc - xem doc/attiny_power_alarm.md). Vi ESP32 khong co cach nao tu
-      // biet khi nao 9V da hoi phuc, dat mot "han hien thi" 24h - neu van
-      // con yeu that, ATtiny se lai bao (ping dinh ky/su kien khac) lam moi
-      // han nay; neu khong bao lai nua thi tu het sau 24h thay vi ton tai
-      // vinh vien tren HMI/web.
-      attinyNineVLowUntil_ = now + ATTINY_9V_LOW_DISPLAY_MS;
+      sirenBatteryLow_ = true;
+    } else if (incoming == ATTINY_MSG_9V_RECOVERED) {
+      sirenBatteryLow_ = false;
     }
-    faults_.set(FaultCode::Attiny9VLow,
-                attinyNineVLowUntil_ != 0U && !timeReached(now, attinyNineVLowUntil_),
-                now);
+    faults_.set(FaultCode::SirenBatteryLow, sirenBatteryLow_, now);
   }
 
   void updateBatchTime(uint32_t now) {
@@ -6958,7 +6952,7 @@ class MachineController {
   // trong luc dang co me ap (xem updateAttinyLink()).
   bool attinySirenMirrorOn_ = false;
   uint32_t attinyLastPingAt_ = 0U;
-  uint32_t attinyNineVLowUntil_ = 0U;
+  bool sirenBatteryLow_ = false;
   bool testLimitVerifiedLeft_ = false;
   bool testLimitVerifiedRight_ = false;
   uint32_t moveStartedAt_ = 0;
