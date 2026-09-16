@@ -517,18 +517,21 @@ const SettingItem SETTINGS[] = {
   ITEM_U16("Khung dao dong", tempOscillationWindowSec, 60, 3600, 30, "s"),   // 25
   ITEM_U8("Cong suat tune", autotuneRelayPowerPercent, 10, 80, 5, "%"),      // 26
   ITEM_FLOAT("Bien do tune", autotuneBandC, 0.05f, 1.0f, 0.05f, 2, "C"),     // 27
-  ITEM_BOOL("Dao tay dong lich", manualTurnReanchorsSchedule)               // 28
+  ITEM_BOOL("Dao tay dong lich", manualTurnReanchorsSchedule),              // 28
+  // Backlog (khong thuoc audit v3.7.1): tu kiem tra coi dinh ky, opt-in,
+  // mac dinh TAT - xem sirenSelfTestEnabled trong config.h.
+  ITEM_BOOL("Tu kiem tra coi", sirenSelfTestEnabled)                        // 29
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 29, "Bang SETTINGS phai co 29 thong so");
+static_assert(SETTING_COUNT == 30, "Bang SETTINGS phai co 30 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
   4,5,6,7,8,9,10,                      // Nhiet do (gop them Quat hut - lien
                                        // quan truc tiep den dieu khien nhiet)
   11,12,13,28,                          // Dao trung
-  14,                                   // He thong
+  14,29,                                 // He thong
   15,16,17,18,19,20,21,22,23,24,25,26,27 // Nang cao
 };
 
@@ -549,8 +552,8 @@ const SettingGroup GROUPS[] = {
   // Doi ten tu "KET NOI" thanh "HE THONG": nhom nay tu lau da khong chi con
   // la cai dat mang - gom ca ma QR, dat lai PIN, cap nhat firmware... nen
   // "He thong" mo ta dung hon la cai dat chung cua may.
-  {"HE THONG", 15, 1},
-  {"NANG CAO", 16, 13}
+  {"HE THONG", 15, 2},
+  {"NANG CAO", 17, 13}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
 static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");

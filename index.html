@@ -86,6 +86,7 @@
 </section>
 <section class="page" id="page-settings">
 <div class="settingsStack">
+<p class="settingGroupLabel">Giao diện &amp; kết nối</p>
 <details class="settingCard">
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></span><span class="settingSummary"><strong>Giao diện</strong><small id="themeSummary">Theo hệ thống</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
@@ -100,6 +101,7 @@
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M5 12.5a11 11 0 0 1 14 0"/><path d="M8.5 16a6 6 0 0 1 7 0"/><line x1="12" x2="12" y1="19.5" y2="19.51"/></svg></span><span class="settingSummary"><strong>Đổi Wi‑Fi</strong><small id="wifiSettingSummary">Đang kết nối: Phòng 301</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody" id="wifiForm"><div class="wifiGuide"><strong>2 bước</strong><small>1. Giữ nút BOOT 3 giây trên máy ấp (đèn báo cấu hình sẽ sáng).<br/>2. Trên điện thoại, vào Cài đặt Wi‑Fi và kết nối vào mạng <b>MAYAP-XXXX</b>.</small></div><button class="primary full" id="openWifiPortal" type="button">Mở trang đổi Wi‑Fi</button></form>
 </details>
+<p class="settingGroupLabel">Cảnh báo &amp; nhắc nhở</p>
 <details class="settingCard">
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
@@ -111,7 +113,8 @@
 <button class="ghost full" id="testPushBtn" type="button" hidden>Kiểm tra thông báo</button>
 <form class="stackForm" id="lightAlarmForm">
 <div class="notificationLine"><div><strong>Nhắc nếu đèn còn bật khi đang ấp</strong><small>Nhắc lại mỗi 30 phút nếu đèn vẫn bật sau khi mẻ ấp đã bắt đầu.</small></div><label class="toggle"><input checked="" id="lightAfterBatchAlarmEnabled" type="checkbox"/><i></i></label></div>
-<button class="ghost full" type="submit">Lưu cài đặt nhắc đèn</button>
+<div class="notificationLine"><div><strong>Tự kiểm tra còi định kỳ</strong><small>Còi phát 1 tiếng bíp ngắn mỗi 7 ngày để xác nhận còi vẫn hoạt động, không phải cảnh báo thật.</small></div><label class="toggle"><input id="sirenSelfTestEnabled" type="checkbox"/><i></i></label></div>
+<button class="ghost full" type="submit">Lưu cài đặt cảnh báo phụ</button>
 </form>
 </div>
 </details>
@@ -127,27 +130,7 @@
 <div class="deviceList" id="reminderList"></div>
 </div>
 </details>
-<details class="settingCard">
-<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></span><span class="settingSummary"><strong>Tên máy &amp; mã PIN</strong><small id="deviceIdentitySummary">Đổi tên hiển thị và mã PIN của máy đang chọn</small></span><span aria-hidden="true" class="disclosure"></span></summary>
-<div class="settingBody">
-<form class="stackForm" id="renameDeviceForm">
-<p class="settingFootnote">Áp dụng cho mọi người xem máy này, kể cả trên thông báo đẩy.</p>
-<label class="field"><span>Tên mới</span><input autocomplete="off" id="renameDeviceName" maxlength="64" placeholder="Máy ấp số 2" required=""/></label>
-<label class="field"><span>PIN hiện tại</span><input autocomplete="off" id="renameDevicePin" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Nhập mật khẩu" required="" type="password"/></label>
-<p class="formError" id="renameDeviceError" role="alert"></p>
-<button class="primary full" type="submit">Đổi tên máy</button>
-</form>
-<hr class="settingDivider"/>
-<form class="stackForm" id="changePinForm">
-<p class="settingFootnote">PIN 4-8 chữ số, dùng khi thêm máy trên điện thoại khác.</p>
-<label class="field"><span>PIN hiện tại</span><input autocomplete="off" id="changePinOld" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Nhập mật khẩu" required="" type="password"/></label>
-<label class="field"><span>PIN mới</span><input autocomplete="off" id="changePinNew1" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="4-8 chữ số" required="" type="password"/></label>
-<label class="field"><span>Nhập lại PIN mới</span><input autocomplete="off" id="changePinNew2" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="4-8 chữ số" required="" type="password"/></label>
-<p class="formError" id="changePinError" role="alert"></p>
-<button class="ghost full" type="submit">Đổi mã PIN</button>
-</form>
-</div>
-</details>
+<p class="settingGroupLabel">Vận hành mẻ ấp</p>
 <details class="settingCard">
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M14 4v10.5a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></svg></span><span class="settingSummary"><strong>Nhiệt độ và bảo vệ</strong><small id="temperatureSummary">Đặt 37,5°C · ngắt khẩn 39,0°C</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody temperatureFormCompact" id="temperatureForm">
@@ -163,6 +146,27 @@
 <button class="primary full" type="submit">Lưu nhiệt độ và bảo vệ</button>
 </form>
 </details>
+<details class="settingCard">
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 8 8 8"/></svg></span><span class="settingSummary"><strong>Đảo trứng</strong><small id="turningSummary">Tự động · mỗi 120 phút</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<form class="settingBody" id="turningForm">
+<div class="notificationLine"><div><strong>Đảo tự động</strong><small>ESP32 thực hiện theo chu kỳ và công tắc hành trình.</small></div><label class="toggle"><input checked="" id="turningEnabled" type="checkbox"/><i></i></label></div>
+<div class="notificationLine"><div><strong>Đảo tay cập nhật lịch</strong><small>Bật: sau khi đảo tay, máy tính lại chu kỳ đảo tự động từ vị trí vừa đảo. Tắt: đảo tay không đổi lịch đảo tự động.</small></div><label class="toggle"><input id="manualTurnReanchorsSchedule" type="checkbox"/><i></i></label></div>
+<label class="field"><span>Khoảng thời gian giữa hai lần đảo</span><div class="unit"><input id="turnInterval" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
+<label class="field"><span>Thời gian chờ hành trình</span><div class="unit"><input id="limitAlarmTime" max="120" min="3" type="number" value="20"/><b>Giây</b></div></label>
+<label class="field"><span>Hướng đảo kế tiếp</span><select id="nextDirection"><option value="left">Trái</option><option value="right">Phải</option></select></label>
+<button class="primary full" type="submit">Lưu cài đặt đảo</button>
+</form>
+</details>
+<details class="settingCard">
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 2.7s6 6.5 6 11a6 6 0 1 1-12 0c0-4.5 6-11 6-11Z"/></svg></span><span class="settingSummary"><strong>Cảm biến</strong><small id="sensorSummary">Bù 0,0°C · timeout 10 giây</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<form class="settingBody" id="sensorForm">
+<label class="field"><span>Bù nhiệt độ</span><div class="unit"><input id="tempOffset" max="10" min="-10" step="0.1" type="number" value="0"/><b>°C</b></div></label>
+<label class="field"><span>Bù độ ẩm</span><div class="unit"><input id="humidityOffset" max="20" min="-20" step="0.1" type="number" value="0"/><b>%RH</b></div></label>
+<label class="field"><span>Timeout cảm biến</span><div class="unit"><input id="sensorTimeout" max="120" min="2" type="number" value="10"/><b>Giây</b></div></label>
+<button class="primary full" type="submit">Lưu hiệu chỉnh cảm biến</button>
+</form>
+</details>
+<p class="settingGroupLabel">Nâng cao</p>
 <details class="settingCard">
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="1" x2="7" y1="14" y2="14"/><line x1="9" x2="15" y1="8" y2="8"/><line x1="17" x2="23" y1="16" y2="16"/></svg></span><span class="settingSummary"><strong>Tự dò PID</strong><small id="pidSummary">ESP32 tự tìm và lưu thông số</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
@@ -203,25 +207,27 @@
 <button class="primary full" type="submit">Lưu cài đặt nâng cao</button>
 </form>
 </details>
+<p class="settingGroupLabel">Thiết bị</p>
 <details class="settingCard">
-<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 8 8 8"/></svg></span><span class="settingSummary"><strong>Đảo trứng</strong><small id="turningSummary">Tự động · mỗi 120 phút</small></span><span aria-hidden="true" class="disclosure"></span></summary>
-<form class="settingBody" id="turningForm">
-<div class="notificationLine"><div><strong>Đảo tự động</strong><small>ESP32 thực hiện theo chu kỳ và công tắc hành trình.</small></div><label class="toggle"><input checked="" id="turningEnabled" type="checkbox"/><i></i></label></div>
-<div class="notificationLine"><div><strong>Đảo tay cập nhật lịch</strong><small>Bật: sau khi đảo tay, máy tính lại chu kỳ đảo tự động từ vị trí vừa đảo. Tắt: đảo tay không đổi lịch đảo tự động.</small></div><label class="toggle"><input id="manualTurnReanchorsSchedule" type="checkbox"/><i></i></label></div>
-<label class="field"><span>Khoảng thời gian giữa hai lần đảo</span><div class="unit"><input id="turnInterval" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
-<label class="field"><span>Thời gian chờ hành trình</span><div class="unit"><input id="limitAlarmTime" max="120" min="3" type="number" value="20"/><b>Giây</b></div></label>
-<label class="field"><span>Hướng đảo kế tiếp</span><select id="nextDirection"><option value="left">Trái</option><option value="right">Phải</option></select></label>
-<button class="primary full" type="submit">Lưu cài đặt đảo</button>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></span><span class="settingSummary"><strong>Tên máy &amp; mã PIN</strong><small id="deviceIdentitySummary">Đổi tên hiển thị và mã PIN của máy đang chọn</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<div class="settingBody">
+<form class="stackForm" id="renameDeviceForm">
+<p class="settingFootnote">Áp dụng cho mọi người xem máy này, kể cả trên thông báo đẩy.</p>
+<label class="field"><span>Tên mới</span><input autocomplete="off" id="renameDeviceName" maxlength="64" placeholder="Máy ấp số 2" required=""/></label>
+<label class="field"><span>PIN hiện tại</span><input autocomplete="off" id="renameDevicePin" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Nhập mật khẩu" required="" type="password"/></label>
+<p class="formError" id="renameDeviceError" role="alert"></p>
+<button class="primary full" type="submit">Đổi tên máy</button>
 </form>
-</details>
-<details class="settingCard">
-<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 2.7s6 6.5 6 11a6 6 0 1 1-12 0c0-4.5 6-11 6-11Z"/></svg></span><span class="settingSummary"><strong>Cảm biến</strong><small id="sensorSummary">Bù 0,0°C · timeout 10 giây</small></span><span aria-hidden="true" class="disclosure"></span></summary>
-<form class="settingBody" id="sensorForm">
-<label class="field"><span>Bù nhiệt độ</span><div class="unit"><input id="tempOffset" max="10" min="-10" step="0.1" type="number" value="0"/><b>°C</b></div></label>
-<label class="field"><span>Bù độ ẩm</span><div class="unit"><input id="humidityOffset" max="20" min="-20" step="0.1" type="number" value="0"/><b>%RH</b></div></label>
-<label class="field"><span>Timeout cảm biến</span><div class="unit"><input id="sensorTimeout" max="120" min="2" type="number" value="10"/><b>Giây</b></div></label>
-<button class="primary full" type="submit">Lưu hiệu chỉnh cảm biến</button>
+<hr class="settingDivider"/>
+<form class="stackForm" id="changePinForm">
+<p class="settingFootnote">PIN 4-8 chữ số, dùng khi thêm máy trên điện thoại khác.</p>
+<label class="field"><span>PIN hiện tại</span><input autocomplete="off" id="changePinOld" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Nhập mật khẩu" required="" type="password"/></label>
+<label class="field"><span>PIN mới</span><input autocomplete="off" id="changePinNew1" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="4-8 chữ số" required="" type="password"/></label>
+<label class="field"><span>Nhập lại PIN mới</span><input autocomplete="off" id="changePinNew2" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="4-8 chữ số" required="" type="password"/></label>
+<p class="formError" id="changePinError" role="alert"></p>
+<button class="ghost full" type="submit">Đổi mã PIN</button>
 </form>
+</div>
 </details>
 <details class="settingCard">
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M20 21H4"/></svg><span class="updateDot" hidden id="firmwareUpdateDot"></span></span><span class="settingSummary"><strong>Cập nhật firmware</strong><small id="firmwareSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>

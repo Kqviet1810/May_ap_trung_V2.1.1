@@ -605,6 +605,13 @@ constexpr uint32_t RESUME_CONFIRM_ALERT_MS = 900000UL; // 15 phut
 // batchStartEpoch_ da luu). 12 gio du de nguoi van hanh kip thay thong bao/
 // coi va quyet dinh, nhung khong de may giu am vo thoi han neu bi bo quen.
 constexpr uint32_t BATCH_OVERDUE_AUTO_STOP_GRACE_SEC = 12UL * 3600UL;
+
+// Tu kiem tra coi dinh ky (backlog, khong thuoc audit v3.7.1) - xem
+// MachineConfig::sirenSelfTestEnabled va updateSirenSelfTest() trong
+// machine_control.h. 7 ngay/lan la du dan cach de khong gay phien, PULSE_MS
+// chi 1.5s - vua du nghe thay "coi con keu", khong keu dai nhu canh bao that.
+constexpr uint32_t SIREN_SELF_TEST_INTERVAL_MS = 7UL * 24UL * 3600UL * 1000UL;
+constexpr uint32_t SIREN_SELF_TEST_PULSE_MS = 1500UL;
 // Khi cho phuc hoi me ma RTC khong hop le (ResumeBlockReason::Rtc) - khac voi
 // man hinh xac nhan tren (co nguoi thao tac duoc), truong hop nay may KHONG
 // TU LAM GI DUOC (dang cho RTC song lai qua auto-repair/NTP), nen can canh
@@ -1044,6 +1051,14 @@ struct MachineConfig {
   // cu): dao tay khong dong lich, chu ky tu dong van dem tiep nhu khong co
   // gi xay ra. Cho phep doi ngay trong luc me dang chay (khong khoa).
   bool manualTurnReanchorsSchedule = false;
+  // Tu kiem tra coi dinh ky (de xuat backlog, khong thuoc audit truoc phat
+  // hanh v3.7.1) - opt-in, mac dinh TAT. Muc dich: phat hien som coi bao
+  // (loa/relay coi that) bi hong/dut day ma khong ai biet, tranh den luc
+  // that su can canh bao khan cap thi coi khong keu. Chi la 1 tieng "bip"
+  // NGAN dinh ky (xem SIREN_SELF_TEST_INTERVAL_MS/PULSE_MS), khong phai
+  // canh bao that, khong can ACK, tu dong bo qua neu dang co canh bao/loi
+  // that nao dang hoat dong.
+  bool sirenSelfTestEnabled = false;
 };
 
 // Nhac nho tuy chinh theo ngay (v3.7.0) - nguoi dung tao tren web, tinh tu
@@ -1183,6 +1198,10 @@ struct MachineRuntime {
   // F-06: me da qua so ngay ap du kien, dang cho xac nhan "tiep tuc u am"
   // (BatchOverdueContinue) hoac tu dong dung sau 12h - xem updateBatchOverdue().
   bool batchOverdueConfirmationPending = false;
+  // Dang phat tieng "bip" tu kiem tra coi dinh ky (xem sirenSelfTestEnabled
+  // o tren) - HMI/web dung de hien mot dong trang thai than thien ("Dang tu
+  // kiem tra coi") thay vi de nguoi dung tuong nham day la canh bao that.
+  bool sirenSelfTestActive = false;
   // Lan khoi dong nay la khoi dong lai SAU KHI MAT DIEN giua mot me dang ap
   // (khong phai bat may binh thuong). Chi nam trong RAM (MachineRuntime khong
   // luu EEPROM) va giu nguyen suot phien chay - cloud_alert_link.h dung de

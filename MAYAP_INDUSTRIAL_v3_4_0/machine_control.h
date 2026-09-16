@@ -206,6 +206,7 @@ enum class EventCode : uint16_t {
   NetworkModeOffline = 70, NetworkConnecting, NetworkConnected,
   NetworkDisconnected, NetworkConfigMissing,
   CommandRejected = 80,
+  SirenSelfTest = 81,
   InputBase = 100,
   OutputBase = 200,
   FaultBase = 1000
@@ -1455,6 +1456,8 @@ struct PackedMachineConfigV1 {
   float autotuneBandC;
   // schema 9+: F-13 - dao tay co dong lich dao tu dong hay khong.
   uint8_t manualTurnReanchorsSchedule;
+  // schema 10+: tu kiem tra coi dinh ky (backlog, opt-in, mac dinh TAT).
+  uint8_t sirenSelfTestEnabled;
 };
 struct ConfigRecordV1 {
   uint32_t magic;
@@ -1565,15 +1568,32 @@ struct ConfigRecordLegacyV7 {
 constexpr size_t CONFIG_V8_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, manualTurnReanchorsSchedule);
 static_assert(CONFIG_V8_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
-                  sizeof(PackedMachineConfigV1),
-              "manualTurnReanchorsSchedule phai la truong cuoi cung cua "
-              "PackedMachineConfigV1");
+                  offsetof(PackedMachineConfigV1, sirenSelfTestEnabled),
+              "manualTurnReanchorsSchedule (schema 9) phai nam ngay truoc "
+              "sirenSelfTestEnabled (schema 10) trong PackedMachineConfigV1");
 struct ConfigRecordLegacyV8 {
   uint32_t magic;
   uint16_t schema;
   uint16_t size;
   uint32_t sequence;
   uint8_t payload[CONFIG_V8_PAYLOAD_BYTES];
+  uint32_t crc;
+};
+// Config schema 9 (ban truoc tinh nang tu kiem tra coi dinh ky) co payload
+// giong schema 10 tru sirenSelfTestEnabled. Dung de nang cap tai cho khong
+// mat cau hinh cu, giong het cach lam voi cac schema truoc do.
+constexpr size_t CONFIG_V9_PAYLOAD_BYTES =
+    offsetof(PackedMachineConfigV1, sirenSelfTestEnabled);
+static_assert(CONFIG_V9_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==
+                  sizeof(PackedMachineConfigV1),
+              "sirenSelfTestEnabled phai la truong cuoi cung cua "
+              "PackedMachineConfigV1");
+struct ConfigRecordLegacyV9 {
+  uint32_t magic;
+  uint16_t schema;
+  uint16_t size;
+  uint32_t sequence;
+  uint8_t payload[CONFIG_V9_PAYLOAD_BYTES];
   uint32_t crc;
 };
 // Schema batch v3 bo sung moc bat dau me va lan dao thanh cong gan nhat.
@@ -1637,13 +1657,14 @@ constexpr uint32_t CONFIG_MAGIC = 0x4D415943UL; // MAYC
 constexpr uint32_t BATCH_MAGIC  = 0x4D415942UL; // MAYB
 constexpr uint32_t REMINDER_MAGIC = 0x4D415952UL; // MAYR
 constexpr uint16_t REMINDER_SCHEMA = 1;
-constexpr uint16_t CONFIG_SCHEMA = 9;
+constexpr uint16_t CONFIG_SCHEMA = 10;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V4 = 4;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V5 = 5;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V6 = 6;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V7 = 7;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V8 = 8;
+constexpr uint16_t CONFIG_SCHEMA_LEGACY_V9 = 9;
 constexpr uint16_t BATCH_SCHEMA = 3;
 constexpr uint16_t BATCH_SCHEMA_LEGACY = 2;
 
@@ -1687,6 +1708,7 @@ inline PackedMachineConfigV1 packConfig(const MachineConfig &c) {
   p.autotuneRelayPowerPercent = c.autotuneRelayPowerPercent;
   p.autotuneBandC = c.autotuneBandC;
   p.manualTurnReanchorsSchedule = c.manualTurnReanchorsSchedule ? 1U : 0U;
+  p.sirenSelfTestEnabled = c.sirenSelfTestEnabled ? 1U : 0U;
   return p;
 }
 inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
@@ -1729,6 +1751,7 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.autotuneRelayPowerPercent = p.autotuneRelayPowerPercent;
   c.autotuneBandC = p.autotuneBandC;
   c.manualTurnReanchorsSchedule = p.manualTurnReanchorsSchedule != 0U;
+  c.sirenSelfTestEnabled = p.sirenSelfTestEnabled != 0U;
   sanitizeMachineConfig(c);
   return c;
 }
@@ -2175,6 +2198,12 @@ class PersistentStore {
            r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
                             offsetof(ConfigRecordLegacyV8, crc));
   }
+  static bool validConfigLegacyV9(const ConfigRecordLegacyV9 &r) {
+    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V9 &&
+           r.size == sizeof(r) &&
+           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
+                            offsetof(ConfigRecordLegacyV9, crc));
+  }
   static bool validBatch(const BatchRecordV1 &r) {
     return r.magic == BATCH_MAGIC && r.schema == BATCH_SCHEMA &&
            r.size == sizeof(r) &&
@@ -2208,11 +2237,33 @@ class PersistentStore {
       return true;
     }
 
+    // Fallback config schema 9 (ban truoc tinh nang tu kiem tra coi dinh
+    // ky). Truong moi mac dinh TAT (khop dung default cua
+    // MachineConfig::sirenSelfTestEnabled - tinh nang opt-in, khong tu bat
+    // len khi nang cap firmware); lan luu cau hinh tiep theo se ghi schema
+    // 10 vao khe doi dien.
+    ConfigRecordLegacyV9 la9{}, lb9{};
+    const bool vla9 = readRecord(EEPROM_ADDR_CONFIG_A, la9) &&
+                      validConfigLegacyV9(la9);
+    const bool vlb9 = readRecord(EEPROM_ADDR_CONFIG_B, lb9) &&
+                      validConfigLegacyV9(lb9);
+    if (vla9 || vlb9) {
+      const bool useA9 = !vlb9 || (vla9 && newer(la9.sequence, lb9.sequence));
+      const ConfigRecordLegacyV9 &best9 = useA9 ? la9 : lb9;
+      configPayload_ = PackedMachineConfigV1{};
+      memcpy(&configPayload_, best9.payload, sizeof(best9.payload));
+      configPayload_.sirenSelfTestEnabled = 0U;
+      configCacheValid_ = true;
+      configCurrentIsA_ = useA9;
+      configSequence_ = best9.sequence;
+      return true;
+    }
+
     // Fallback config schema 8 (ban truoc F-13: dao tay co dong lich hay
     // khong). Truong moi mac dinh TAT (khop dung default cua
     // MachineConfig::manualTurnReanchorsSchedule - giu nguyen hanh vi cu, dao
-    // tay khong dong lich); lan luu cau hinh tiep theo se ghi schema 9 vao
-    // khe doi dien.
+    // tay khong dong lich); lan luu cau hinh tiep theo se ghi schema 10 (hien
+    // tai) vao khe doi dien.
     ConfigRecordLegacyV8 la8{}, lb8{};
     const bool vla8 = readRecord(EEPROM_ADDR_CONFIG_A, la8) &&
                       validConfigLegacyV8(la8);
@@ -3711,6 +3762,7 @@ class MachineController {
     processResume(now);
     updateAlarms(now);
     updateBatchOverdue(now);
+    updateSirenSelfTest(now);
     updateAutoTune(now);
     updateTurning(now);
     updateHeatingAndOutputs(now);
@@ -5733,8 +5785,11 @@ class MachineController {
     // F-06: coi cung reo cho me qua han chua xac nhan, dung chung co che
     // tam tat (sirenMutedUntil_) voi Nhiet do khan cap - AlarmAck se tu lam
     // moi lai dinh ky dung nhu duoc yeu cau ("keu dinh ky neu bi tat tam").
-    req.siren = (emergencyActive_ || batchOverdueSirenActive_) &&
-                timeReached(now, sirenMutedUntil_);
+    // Tu kiem tra coi (sirenSelfTestActive_) la 1 tieng bip NGAN, KHONG lien
+    // quan co che tam tat/ACK cua canh bao that (updateSirenSelfTest() da tu
+    // bo qua neu dang co canh bao that de khong bao gio trung voi nhanh nay).
+    req.siren = ((emergencyActive_ || batchOverdueSirenActive_) &&
+                 timeReached(now, sirenMutedUntil_)) || sirenSelfTestActive_;
 
     outputs_.update(now, req);
     runtime_.heaterPower = commandedPower;
@@ -5954,6 +6009,48 @@ class MachineController {
     }
   }
 
+  // Tu kiem tra coi dinh ky (de xuat backlog, khong thuoc audit truoc phat
+  // hanh v3.7.1) - opt-in, mac dinh TAT (sirenSelfTestEnabled). Muc dich:
+  // phat hien som coi bao (loa/relay coi that) bi hong/dut day ma khong ai
+  // biet, tranh den luc that su can canh bao khan cap thi coi khong keu.
+  // Chi la 1 tieng "bip" NGAN dinh ky, KHONG dung chung co che voi canh bao
+  // that (sirenMutedUntil_/AlarmAck) - khong can ACK, tu dong bo qua va doi
+  // sang chu ky sau neu dang co bat ky canh bao/loi that nao dang hoat dong,
+  // dang o Test Mode, hoac coi dang duoc dung cho muc dich khac (khan cap/
+  // me qua han) - tranh nham lan voi tinh huong that.
+  void updateSirenSelfTest(uint32_t now) {
+    if (!config_.sirenSelfTestEnabled) {
+      sirenSelfTestNextAt_ = 0U;
+      sirenSelfTestPulseUntil_ = 0U;
+      sirenSelfTestActive_ = false;
+      return;
+    }
+    // Lan dau bat cai dat: doi du 1 chu ky roi moi tu kiem tra lan dau,
+    // khong keu ngay luc vua bat (nguoi dung co the dang dung canh may).
+    if (sirenSelfTestNextAt_ == 0U) {
+      sirenSelfTestNextAt_ = now + SIREN_SELF_TEST_INTERVAL_MS;
+    }
+    if (sirenSelfTestPulseUntil_ != 0U && timeReached(now, sirenSelfTestPulseUntil_)) {
+      sirenSelfTestPulseUntil_ = 0U;
+    }
+    sirenSelfTestActive_ = sirenSelfTestPulseUntil_ != 0U;
+    if (sirenSelfTestActive_ || !timeReached(now, sirenSelfTestNextAt_)) return;
+    if (faults_.alarmMask() != AlarmNone || testModeActive_ ||
+        emergencyActive_ || batchOverdueSirenActive_) {
+      // Dang co viec quan trong hon dung den coi - thu lai vao chu ky sau
+      // thay vi chen ngang hoac tro thanh 1 tieng bip lac long giua canh
+      // bao that.
+      sirenSelfTestNextAt_ = now + SIREN_SELF_TEST_INTERVAL_MS;
+      return;
+    }
+    sirenSelfTestPulseUntil_ = now + SIREN_SELF_TEST_PULSE_MS;
+    sirenSelfTestActive_ = true;
+    sirenSelfTestNextAt_ = now + SIREN_SELF_TEST_INTERVAL_MS;
+    mayapSerialPrintf(false, "[SIREN] Tu kiem tra coi dinh ky - phat 1 tieng bip ngan\n");
+    eventLog_.push(now, EventType::System,
+                   static_cast<uint16_t>(EventCode::SirenSelfTest));
+  }
+
   void updateBatchTime(uint32_t now) {
     if (batchRunning_ && batchPhase_ == BatchPhase::Prestart &&
         elapsedMs(now, phaseStartedAt_) >= FAN_PRESTART_MS) {
@@ -6161,6 +6258,7 @@ class MachineController {
                                   !sensorUsable_;
     runtime_.resumeConfirmationRequired = resumeConfirmationRequired_;
     runtime_.batchOverdueConfirmationPending = batchOverdueSirenActive_;
+    runtime_.sirenSelfTestActive = sirenSelfTestActive_;
     runtime_.powerLossRecovery = powerLossRecovery_;
     runtime_.timeValid = rtc_.valid();
     const NetworkStatus &network = lastNetworkStatus_;
@@ -6771,6 +6869,13 @@ class MachineController {
   // F-06: xem updateBatchOverdue()/SafetyJournal::batchOverdueAcknowledged().
   bool batchOverdueAcknowledged_ = false;
   bool batchOverdueSirenActive_ = false;
+  // Tu kiem tra coi dinh ky (backlog, khong thuoc audit v3.7.1) - xem
+  // updateSirenSelfTest(). Chi ton tai trong RAM (khong can song sot qua
+  // reboot - tinh nang khong an toan quan trong, mat lich 1 lan sau reset
+  // khong sao, se tu tinh lai chu ky moi tu luc khoi dong lai).
+  uint32_t sirenSelfTestNextAt_ = 0U;
+  uint32_t sirenSelfTestPulseUntil_ = 0U;
+  bool sirenSelfTestActive_ = false;
   bool testLimitVerifiedLeft_ = false;
   bool testLimitVerifiedRight_ = false;
   uint32_t moveStartedAt_ = 0;

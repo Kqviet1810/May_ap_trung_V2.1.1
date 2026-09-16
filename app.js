@@ -57,7 +57,7 @@
     'nextDirection', 'heaterStuckMinRiseC', 'heaterStuckDurationSec',
     'tempRateLimitC', 'tempRateWindowSec', 'tempOscillationCrossLimit',
     'tempOscillationWindowSec', 'autotuneRelayPowerPercent', 'autotuneBandC',
-    'manualTurnReanchorsSchedule'
+    'manualTurnReanchorsSchedule', 'sirenSelfTestEnabled'
   ]);
 
   const DEFAULT_BATCH_META = Object.freeze({
@@ -1156,6 +1156,7 @@
     assign('sensorForm', 'sensorTimeout', config.sensorTimeoutSec);
 
     check('lightAlarmForm', 'lightAfterBatchAlarmEnabled', config.lightAfterBatchAlarmEnabled);
+    check('lightAlarmForm', 'sirenSelfTestEnabled', config.sirenSelfTestEnabled);
 
     assign('advancedForm', 'advKp', config.kp);
     assign('advancedForm', 'advKi', config.ki);
@@ -1247,6 +1248,7 @@
       config.sensorTimeoutSec = Number($('sensorTimeout').value);
     } else if (group === 'lightAlarm') {
       config.lightAfterBatchAlarmEnabled = $('lightAfterBatchAlarmEnabled').checked;
+      config.sirenSelfTestEnabled = $('sirenSelfTestEnabled').checked;
     } else if (group === 'advanced') {
       config.kp = Number($('advKp').value);
       config.ki = Number($('advKi').value);
@@ -1839,7 +1841,8 @@
       63: 'Đang đưa khay về gốc phải',
       64: 'Đảo trái đã hoàn tất',
       65: 'Đảo phải đã hoàn tất',
-      80: 'Một lệnh điều khiển đã bị từ chối'
+      80: 'Một lệnh điều khiển đã bị từ chối',
+      81: 'Còi vừa tự kiểm tra (tiếng bíp ngắn định kỳ)'
     };
     if (known[code]) return known[code];
     if (code === 90) return `Trạng thái mạng: ${NET_STATE_TEXT[value] ?? `mã ${value}`}`;
