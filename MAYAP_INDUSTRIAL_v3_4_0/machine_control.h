@@ -398,6 +398,12 @@ enum class FaultCode : uint16_t {
   // khac ResumeConfirmationPending (co nguoi bam duoc), truong hop nay may
   // KHONG TU LAM GI DUOC, chi biet cho RTC song lai (auto-repair/NTP).
   ResumeRtcWaitTooLong = 137,
+  // F-06 (audit truoc phat hanh v3.7.1): khac BatchOverdue (136, chi canh
+  // bao tai cho, khong lam gi ca) - ma nay CHU DONG doi hoi xac nhan: bat coi
+  // (dung chung sirenMutedUntil_/AlarmAck) va TU DONG DUNG ME neu qua
+  // BATCH_OVERDUE_AUTO_STOP_GRACE_SEC ke tu ngay du du kien ma khong ai
+  // ACK/dung me thu cong. Xem updateBatchOverdue().
+  BatchOverdueConfirmationPending = 138,
   TurnLimitConflict = 201,
   TurnTimeout = 202,
   TurnLimitStuck = 203,
@@ -429,7 +435,7 @@ enum class FaultCode : uint16_t {
 // co 36 ma loi thuc nhung MAX_FAULTS chi la 32, lam FaultManager tran o va
 // ghi de len nhau - vd 4 ma loi dao trung E201-E204 bi xoa khoi he thong canh
 // bao chi sau ~30s).
-constexpr uint8_t FAULT_CODE_REAL_COUNT = 37U;
+constexpr uint8_t FAULT_CODE_REAL_COUNT = 38U;
 
 struct FaultDescriptor {
   FaultCode code;
@@ -499,6 +505,11 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // resume roi), muc dich la de nguoi dung/quan tri BIET may dang treo cho
     // vi sao thay vi im lang khong ro ly do.
     {FaultCode::ResumeRtcWaitTooLong, FaultSeverity::Warning, 176U, AlarmSystem, false, false, false, false, false, false, "RESUME WAIT RTC"},
+    // F-06: qua ngay du kien ma chua ai dung/xac nhan me - bat coi (dung
+    // chung sirenMutedUntil_) va se TU DONG DUNG ME sau 12h neu khong ai
+    // ACK/thao tac gi (xem updateBatchOverdue()). Khong khoa nhiet/dao (van
+    // giu am binh thuong trong luc cho quyet dinh).
+    {FaultCode::BatchOverdueConfirmationPending, FaultSeverity::Stop, 177U, AlarmSystem, false, false, false, false, false, false, "BATCH OVERDUE CONFIRM"},
     // AUTO bi tat giua me dang chay: van giu dieu khien nhiet nhu cu. Theo
     // yeu cau nguoi lap dat, KHONG con khoa dao tay nua (inhibitsTurning=
     // false) - cong tac dao trai/phai hoat dong binh thuong nhu ngoai me,
@@ -860,6 +871,19 @@ class SafetyJournal {
     if (prefs_.putUChar(SAFETY_NVS_TURN_STREAK_KEY, value) != sizeof(uint8_t))
       return false;
     return prefs_.getUChar(SAFETY_NVS_TURN_STREAK_KEY, 0xFFU) == value;
+  }
+
+  // F-06: nguoi van hanh da xac nhan "tiep tuc" cho me qua han HIEN TAI chua.
+  bool batchOverdueAcknowledged() {
+    return ready_ && prefs_.getUChar(SAFETY_NVS_OVERDUE_KEY, 0U) != 0U;
+  }
+
+  bool setBatchOverdueAcknowledged(bool value) {
+    if (!ready_) return false;
+    const uint8_t raw = value ? 1U : 0U;
+    if (prefs_.putUChar(SAFETY_NVS_OVERDUE_KEY, raw) != sizeof(uint8_t))
+      return false;
+    return prefs_.getUChar(SAFETY_NVS_OVERDUE_KEY, 0xFFU) == raw;
   }
 
  private:
@@ -3479,6 +3503,9 @@ class MachineController {
         faults_.set(FaultCode::TurnMechanicalCheckRequired, true, bootAt_,
                     static_cast<int16_t>(turnFaultStreak_));
       }
+      // F-06: khoi phuc xac nhan "tiep tuc u am" cho me qua han (neu co) -
+      // tranh hoi lai/bat coi ngay sau reboot du nguoi dung da tra loi truoc do.
+      batchOverdueAcknowledged_ = safetyJournal_.batchOverdueAcknowledged();
     }
     outputs_.begin();
     led_.begin();
@@ -3633,6 +3660,7 @@ class MachineController {
     updateTestMode(now);
     processResume(now);
     updateAlarms(now);
+    updateBatchOverdue(now);
     updateAutoTune(now);
     updateTurning(now);
     updateHeatingAndOutputs(now);
@@ -4233,9 +4261,22 @@ class MachineController {
           char sirenMuteMsg[24];
           snprintf(sirenMuteMsg, sizeof(sirenMuteMsg), "COI TAM DUNG %lu PHUT",
                    static_cast<unsigned long>(SIREN_TEMPORARY_MUTE_MS / 60000UL));
-          if (emergencyActive_) sirenMutedUntil_ = now + SIREN_TEMPORARY_MUTE_MS;
+          // F-09: 2 hanh dong nay can nguoi thuc su o canh may kiem tra vat
+          // ly (coi khan cap = qua nhiet that, loi dao = nghi ngo hong co
+          // khi) - tu choi rieng 2 hanh dong nay neu lenh den qua MQTT
+          // (command.source == Remote), cac loi/canh bao khac trong cung
+          // lenh AlarmAck van duoc xu ly binh thuong ben duoi.
+          const bool remoteAck = command.source == HmiCommandSource::Remote;
+          const bool emergencyAckBlocked = remoteAck && emergencyActive_;
           const bool hadTurnFault = turnFaultLatched_;
-          const bool turnCleared = hadTurnFault ? clearTurnFault() : false;
+          const bool turnAckBlocked = remoteAck && hadTurnFault;
+          // F-06: ACK cung tam tat coi cho me qua han (khong bi han che
+          // remote/local nhu 2 truong hop tren - day khong phai su co can
+          // kiem tra vat ly, chi la mot quyet dinh van hanh).
+          if ((!emergencyAckBlocked && emergencyActive_) || batchOverdueSirenActive_) {
+            sirenMutedUntil_ = now + SIREN_TEMPORARY_MUTE_MS;
+          }
+          const bool turnCleared = (hadTurnFault && !turnAckBlocked) ? clearTurnFault() : false;
           const bool systemAck = (command.alarmMask & AlarmSystem) != 0U;
           const bool resetCleared = systemAck && abnormalResetLatched_;
           if (resetCleared) {
@@ -4253,13 +4294,29 @@ class MachineController {
           const bool persistentSystemFault = systemAck &&
               (storageFaultLatched_ || safetyJournalFaultLatched_ ||
                batchClearPending_);
-          ok = !persistentSystemFault;
+          ok = !persistentSystemFault && !emergencyAckBlocked && !turnAckBlocked;
           message = persistentSystemFault ? "LOI HE THONG CHUA XOA"
+                  : emergencyAckBlocked ? "COI KHAN CAP CAN ACK TAI MAY"
+                  : turnAckBlocked ? "LOI DAO CAN ACK TAI MAY"
                   : emergencyActive_ ? sirenMuteMsg
+                  : batchOverdueSirenActive_ ? sirenMuteMsg
                   : resetCleared ? "DA XAC NHAN RESET LOI"
                   : turnCleared ? "DA XOA LOI DAO"
                   : hadTurnFault ? "THA NUT/KT HANH TRINH"
                   : "DA XAC NHAN";
+          break;
+        }
+        case HmiCommandType::BatchOverdueContinue: {
+          // F-06: xac nhan "tiep tuc u am" - huy coi + huy dem nguoc tu dong
+          // dung 12h cho ca phan con lai cua me nay (khong lam gi khac, may
+          // van dieu khien nhiet/dao binh thuong nhu truoc gio).
+          if (!batchRunning_) { message = "KHONG CO ME DANG CHAY"; break; }
+          batchOverdueAcknowledged_ = true;
+          (void)safetyJournal_.setBatchOverdueAcknowledged(true);
+          faults_.set(FaultCode::BatchOverdueConfirmationPending, false, now);
+          batchOverdueSirenActive_ = false;
+          ok = true;
+          message = "DA XAC NHAN TIEP TUC U AM";
           break;
         }
         case HmiCommandType::TestModeEnter:
@@ -4450,6 +4507,11 @@ class MachineController {
     // F-15: reset ve 0 (khong phai stale tu me truoc) de updateBatchTime()
     // tu bootstrap dung ngay 1 qua nhanh "== 0U" cua chinh no.
     lastTurnCounterDay_ = 0U;
+    // F-06: me MOI bat dau chua the nao "qua han" - xoa xac nhan cu (neu co,
+    // khong lien quan gi den me nay) de updateBatchOverdue() tu tinh lai
+    // dung han tu batchStartEpoch_ moi.
+    batchOverdueAcknowledged_ = false;
+    (void)safetyJournal_.setBatchOverdueAcknowledged(false);
     nextTurnAt_ = 0;
     needHome_ = !(in.limitLeft ^ in.limitRight);
     if (in.limitLeft) trayPosition_ = TrayPosition::Left;
@@ -5607,7 +5669,11 @@ class MachineController {
 
     req.turnLeft = turnPhase_ == TurnPhase::MovingLeft;
     req.turnRight = turnPhase_ == TurnPhase::MovingRight;
-    req.siren = emergencyActive_ && timeReached(now, sirenMutedUntil_);
+    // F-06: coi cung reo cho me qua han chua xac nhan, dung chung co che
+    // tam tat (sirenMutedUntil_) voi Nhiet do khan cap - AlarmAck se tu lam
+    // moi lai dinh ky dung nhu duoc yeu cau ("keu dinh ky neu bi tat tam").
+    req.siren = (emergencyActive_ || batchOverdueSirenActive_) &&
+                timeReached(now, sirenMutedUntil_);
 
     outputs_.update(now, req);
     runtime_.heaterPower = commandedPower;
@@ -5791,6 +5857,42 @@ class MachineController {
   }
 
   // ----------------------------- Batch ---------------------------------------
+  // F-06 (audit truoc phat hanh v3.7.1): me qua so ngay ap du kien truoc day
+  // chi co canh bao Warning tai cho (BatchOverdue, van giu nguyen o duoi),
+  // khong co gi doi hoi hanh dong - may co the giu am vo thoi han neu bi bo
+  // quen. Ham nay THEM MOT LOP nua: bat coi (dung chung sirenMutedUntil_/
+  // AlarmAck - xem updateHeatingAndOutputs()) tu luc qua han, va TU DONG
+  // DUNG ME neu qua BATCH_OVERDUE_AUTO_STOP_GRACE_SEC (12h) ke tu luc do ma
+  // khong ai bam "Tiep tuc u am" (HmiCommandType::BatchOverdueContinue) hay
+  // "Ket thuc me" (BatchStop, van dung binh thuong nhu moi luc). Dung
+  // elapsedBatchSec() (persisted, da qua kiem chung o F-15) thay vi RTC epoch
+  // de khong phu thuoc RTC con song hay khong.
+  void updateBatchOverdue(uint32_t now) {
+    if (!batchRunning_ || batchOverdueAcknowledged_) {
+      faults_.set(FaultCode::BatchOverdueConfirmationPending, false, now);
+      batchOverdueSirenActive_ = false;
+      return;
+    }
+    const uint32_t totalSec = elapsedBatchSec(now);
+    const uint32_t dueSec = static_cast<uint32_t>(config_.totalIncubationDays) * 86400UL;
+    if (totalSec < dueSec) {
+      faults_.set(FaultCode::BatchOverdueConfirmationPending, false, now);
+      batchOverdueSirenActive_ = false;
+      return;
+    }
+    const uint32_t overdueSec = totalSec - dueSec;
+    faults_.set(FaultCode::BatchOverdueConfirmationPending, true, now,
+                static_cast<int16_t>(std::min<uint32_t>(overdueSec / 60UL, INT16_MAX)));
+    batchOverdueSirenActive_ = true;
+    if (overdueSec >= BATCH_OVERDUE_AUTO_STOP_GRACE_SEC) {
+      mayapSerialPrintf(false,
+          "[BATCH] Qua han xac nhan %lu gio khong ai thao tac - TU DONG DUNG ME\n",
+          static_cast<unsigned long>(BATCH_OVERDUE_AUTO_STOP_GRACE_SEC / 3600UL));
+      const char *stopMsg = nullptr;
+      (void)stopBatch(now, stopMsg);
+    }
+  }
+
   void updateBatchTime(uint32_t now) {
     if (batchRunning_ && batchPhase_ == BatchPhase::Prestart &&
         elapsedMs(now, phaseStartedAt_) >= FAN_PRESTART_MS) {
@@ -5997,6 +6099,7 @@ class MachineController {
     runtime_.sensorStartupGrace = !timeReached(now, sensorStartupGraceUntil_) &&
                                   !sensorUsable_;
     runtime_.resumeConfirmationRequired = resumeConfirmationRequired_;
+    runtime_.batchOverdueConfirmationPending = batchOverdueSirenActive_;
     runtime_.powerLossRecovery = powerLossRecovery_;
     runtime_.timeValid = rtc_.valid();
     const NetworkStatus &network = lastNetworkStatus_;
@@ -6604,6 +6707,9 @@ class MachineController {
   // nhan lai qua Test Mode (ca 2 CTHT deu Success - xem updateTestMode()).
   uint8_t turnFaultStreak_ = 0U;
   bool turnMechanicalCheckRequired_ = false;
+  // F-06: xem updateBatchOverdue()/SafetyJournal::batchOverdueAcknowledged().
+  bool batchOverdueAcknowledged_ = false;
+  bool batchOverdueSirenActive_ = false;
   bool testLimitVerifiedLeft_ = false;
   bool testLimitVerifiedRight_ = false;
   uint32_t moveStartedAt_ = 0;

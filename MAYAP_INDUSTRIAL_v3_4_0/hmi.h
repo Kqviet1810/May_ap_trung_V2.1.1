@@ -741,13 +741,14 @@ enum class View : uint8_t {
   FirmwareProgress, TurnStatus
 };
 
-enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset, FirmwareWebApply, FirmwareRollback };
+enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset, FirmwareWebApply, FirmwareRollback, BatchOverdueContinue };
 
 // Prototype thu cong: Arduino IDE tu sinh prototype cho ham trong .ino.
 // Neu ham dung enum/struct tuy chinh, prototype tu dong co the bi chen
 // truoc noi khai bao kieu va gay loi "View was not declared".
 void openBatchConfirm(View returnView);
 void openResumeConfirm();
+void openBatchOverdueContinueConfirm();
 void openAlarmView(View returnView);
 void openTestMode();
 
@@ -881,6 +882,9 @@ bool confirmYes = true;
 // dao tu dong) - chi ap dung khi thao tac nay, khong dung cho cac truong khac.
 MachineConfig pendingTurningConfig;
 bool resumeDecisionSubmitted = false;
+// F-06: giong het resumeDecisionSubmitted nhung cho man hinh xac nhan "me
+// qua han - tiep tuc u am?" (xem executeConfirmation()/updateBatchOverdue()).
+bool batchOverdueDecisionSubmitted = false;
 // Nhac dinh ky "co ban firmware moi" tren man hinh chinh - 0 nghia la "chua
 // tung nhac, hien ngay lan dau tien co ban moi". Bam "Khong" se cap nhat gia
 // tri nay thanh millis() hien tai de 12h sau moi nhac lai; bam "Co" thi
@@ -1160,7 +1164,8 @@ bool queueCommand(HmiCommandType type,
                   uint16_t validForMs = COMMAND_DEFAULT_VALID_MS,
                   uint16_t actuatorLeaseMs = 0,
                   uint32_t alarmMask = AlarmNone,
-                  uint32_t *commandId = nullptr) {
+                  uint32_t *commandId = nullptr,
+                  HmiCommandSource source = HmiCommandSource::Local) {
   bool full = false;
   bool duplicate = false;
   uint32_t id = 0;
@@ -1172,7 +1177,7 @@ bool queueCommand(HmiCommandType type,
     if (id == 0) id = nextCommandId++;
     commandQueue[commandTail] = {
       id, type, static_cast<uint32_t>(millis()), validForMs,
-      actuatorLeaseMs, alarmMask
+      actuatorLeaseMs, alarmMask, source
     };
     commandTail = static_cast<uint8_t>((commandTail + 1U) % COMMAND_QUEUE_SIZE);
     ++commandCount;
@@ -1426,6 +1431,19 @@ void openTurningToggleConfirm(const MachineConfig &candidate, View returnView) {
 void openResumeConfirm() {
   confirmAction = ConfirmAction::ResumeBatch;
   confirmReturnView = View::Home;
+  confirmYes = true;
+  view = View::Home;
+  homePage = 0;
+  clearToast();
+  armInputGuard();
+  dirty = true;
+}
+
+void openBatchOverdueContinueConfirm() {
+  confirmAction = ConfirmAction::BatchOverdueContinue;
+  confirmReturnView = View::Home;
+  // Mac dinh CO (tiep tuc u am) - giong tinh than ResumeBatch: khong tu y
+  // suy dien "muon dung" chi tu 1 lan xoay/bam nham, phai chu dong chon HUY.
   confirmYes = true;
   view = View::Home;
   homePage = 0;
@@ -2091,6 +2109,13 @@ void executeConfirmation(bool accepted) {
       }
       view = View::Home;
       homePage = 0;
+    } else if (action == ConfirmAction::BatchOverdueContinue) {
+      if (queueCommand(HmiCommandType::BatchOverdueContinue)) {
+        showToast("DA XAC NHAN TIEP TUC");
+      }
+      batchOverdueDecisionSubmitted = true;
+      view = View::Home;
+      homePage = 0;
     } else if (action == ConfirmAction::TurningToggle) {
       // KHONG luu thang pendingTurningConfig - no la ban CHUP TOAN BO cau
       // hinh tu LUC MO hoi thoai, va hoi thoai nay khong co han tu dong dong
@@ -2135,6 +2160,13 @@ void executeConfirmation(bool accepted) {
         resumeDecisionSubmitted = true;
         showToast("DA HUY ME CU");
       }
+      view = View::Home;
+      homePage = 0;
+    } else if (action == ConfirmAction::BatchOverdueContinue) {
+      // Chon HUY: KHONG gui lenh gi ca - coi van keu lai dinh ky (tam tat
+      // duoc qua ACK), va nguoi dung van bam "Ket thuc me" binh thuong bat
+      // cu luc nao neu muon dung ngay thay vi cho du 12h tu dong dung.
+      batchOverdueDecisionSubmitted = true;
       view = View::Home;
       homePage = 0;
     } else if (action == ConfirmAction::FirmwareWebApply) {
@@ -3567,6 +3599,9 @@ void drawConfirmScreen() {
   if (confirmAction == ConfirmAction::ResumeBatch) {
     line1 = "MAT DIEN - TIEP TUC";
     line2 = "ME DANG AP?";
+  } else if (confirmAction == ConfirmAction::BatchOverdueContinue) {
+    line1 = "QUA HAN NGAY AP";
+    line2 = "TIEP TUC U AM?";
   } else if (confirmAction == ConfirmAction::AutoTuneStart) {
     line1 = "CHAY AUTO TUNE PID?";
   } else if (confirmAction == ConfirmAction::TurningToggle) {
@@ -4112,6 +4147,7 @@ void applyRuntime(MachineRuntime runtime) {
   }
 
   if (!currentRuntime.resumeConfirmationRequired) resumeDecisionSubmitted = false;
+  if (!currentRuntime.batchOverdueConfirmationPending) batchOverdueDecisionSubmitted = false;
 
   // Ket qua kiem tra cong tac hanh trinh la khach quan (phan cung tu phat
   // hien), khac voi thiet bi (nguoi dung tu xac nhan). Ghi lai khi vua co
@@ -4167,6 +4203,16 @@ void applyRuntime(MachineRuntime runtime) {
       confirmAction != ConfirmAction::ResumeBatch && view != View::Alarm &&
       view != View::TurnStatus) {
     openResumeConfirm();
+  }
+
+  // F-06: me qua han ngay du kien - dua nguoi dung den man hinh xac nhan
+  // "tiep tuc u am?" giong het cach lam voi man hinh phuc hoi sau mat dien
+  // o tren (nhung uu tien thap hon: chi bat khi khong co man hinh xac nhan
+  // nao khac dang mo).
+  if (currentRuntime.batchOverdueConfirmationPending && !batchOverdueDecisionSubmitted &&
+      confirmAction == ConfirmAction::None && view != View::Alarm &&
+      view != View::TurnStatus) {
+    openBatchOverdueContinueConfirm();
   }
 
   // Nhac dinh ky "co ban firmware moi" - CHI bat len khi dang o man hinh
