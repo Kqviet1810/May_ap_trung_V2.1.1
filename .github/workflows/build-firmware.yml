@@ -67,11 +67,31 @@ jobs:
       - name: Cai thu vien (U8g2, PubSubClient, ArduinoJson)
         run: arduino-cli lib install U8g2 PubSubClient ArduinoJson
 
+      # F-01 (audit truoc phat hanh v3.7.1): nhung MQTT broker RIENG (khong
+      # phai broker.emqx.io cong khai mac dinh trong config.h) vao ban build
+      # neu repo da khai bao du 3 secret ben duoi (Settings > Secrets and
+      # variables > Actions > New repository secret). Gia tri secret KHONG
+      # BAO GIO xuat hien trong log/code - chi ton tai trong bien moi truong
+      # cua buoc nay. Thieu du 3 secret => giu nguyen broker cong khai mac
+      # dinh (lenh dieu khien tu xa se bi khoa boi mqttCommandChannelTrusted(),
+      # xem realtime_link.h) - an toan hon la lo mac dinh sai.
       - name: Bien dich firmware
+        env:
+          MAYAP_MQTT_HOST: ${{ secrets.MAYAP_MQTT_HOST }}
+          MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
+          MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
         run: |
+          MQTT_FLAGS=""
+          if [ -n "$MAYAP_MQTT_HOST" ] && [ -n "$MAYAP_MQTT_USERNAME" ] && [ -n "$MAYAP_MQTT_PASSWORD" ]; then
+            echo "Da tim thay du 3 secret MQTT - nhung broker rieng (TLS, cong 8883) vao firmware."
+            MQTT_FLAGS="-DMAYAP_MQTT_HOST=\"$MAYAP_MQTT_HOST\" -DMAYAP_MQTT_PORT=8883 -DMAYAP_MQTT_USE_TLS=1 -DMAYAP_MQTT_USERNAME=\"$MAYAP_MQTT_USERNAME\" -DMAYAP_MQTT_PASSWORD=\"$MAYAP_MQTT_PASSWORD\""
+          else
+            echo "CANH BAO: thieu secret MAYAP_MQTT_HOST/USERNAME/PASSWORD - firmware se dung broker cong khai mac dinh, lenh dieu khien tu xa se BI KHOA (xem F-01)."
+          fi
           arduino-cli compile \
             --fqbn "${{ env.MAYAP_FQBN }}" \
             --output-dir ./build \
+            --build-property "compiler.cpp.extra_flags=${MQTT_FLAGS}" \
             --verbose \
             MAYAP_INDUSTRIAL_v3_4_0
 
