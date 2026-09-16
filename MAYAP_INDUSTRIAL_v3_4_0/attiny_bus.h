@@ -18,7 +18,7 @@
 //     + ACK_TIMEOUT_MS)) ~ duoi 2 giay o truong hop xau nhat (ATtiny khong
 //     phan hoi ca 3 lan thu).
 //  2) NHAN (mayapAttinyBusPollIncoming): NON-BLOCKING - danh cho ban tin
-//     ATtiny CHU DONG gui toi (hien tai chi co ATTINY_MSG_9V_LOW). Dung ngat
+//     ATtiny CHU DONG gui toi (ATTINY_MSG_9V_LOW/9V_RECOVERED). Dung ngat
 //     phan cung ghi lai THOI DIEM CHINH XAC (micros()) cua tung canh tin
 //     hieu vao 1 bo dem vong - ISR cuc ky nhanh, KHONG lam gi ngoai ghi thoi
 //     diem, nen khong phu thuoc vong lap dieu khien chay nhanh hay cham (neu
