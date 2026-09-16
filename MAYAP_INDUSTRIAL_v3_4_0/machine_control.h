@@ -371,6 +371,9 @@ enum class FaultCode : uint16_t {
   SensorLost = 101,
   SensorInvalid = 102,
   SensorSuspect = 103,
+  // F-08 (audit truoc phat hanh v3.7.1): cam bien "dung hinh" o mot gia tri
+  // hop le (khong loi CRC, khong mat tin hieu) - xem processSensor().
+  SensorFrozen = 104,
   LowTemperature = 110,
   HighTemperature = 111,
   EmergencyTemperature = 112,
@@ -426,7 +429,7 @@ enum class FaultCode : uint16_t {
 // co 36 ma loi thuc nhung MAX_FAULTS chi la 32, lam FaultManager tran o va
 // ghi de len nhau - vd 4 ma loi dao trung E201-E204 bi xoa khoi he thong canh
 // bao chi sau ~30s).
-constexpr uint8_t FAULT_CODE_REAL_COUNT = 36U;
+constexpr uint8_t FAULT_CODE_REAL_COUNT = 37U;
 
 struct FaultDescriptor {
   FaultCode code;
@@ -463,6 +466,13 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     {FaultCode::SensorLost, FaultSeverity::Stop, 235U, AlarmSensor, false, true, false, false, false, true, "SENSOR LOST"},
     {FaultCode::SensorInvalid, FaultSeverity::Stop, 230U, AlarmSensor, false, true, false, false, false, true, "SENSOR INVALID"},
     {FaultCode::SensorSuspect, FaultSeverity::Stop, 225U, AlarmSensor, false, true, false, false, false, true, "SENSOR SUSPECT"},
+    // F-08: canh bao THUAN CHAN DOAN - gia tri cam bien "dung hinh" (khong
+    // doi trong thoi gian dai du frame van hop le, CRC dung, khong mat tin
+    // hieu) trong luc dang chay me. KHONG cam SSR/nha contactor: neu gia tri
+    // dong bang o muc THAP hon thuc te, PID se tiep tuc gia nhiet binh
+    // thuong (dung), chi la khong con phan anh dung nhiet do that; can nguoi
+    // van hanh kiem tra cam bien thu cong khi thay canh bao nay.
+    {FaultCode::SensorFrozen, FaultSeverity::Warning, 58U, AlarmSensor, false, false, false, false, false, false, "SENSOR FROZEN"},
     {FaultCode::LowTemperature, FaultSeverity::Warning, 55U, AlarmTempLow, false, false, false, false, false, false, "TEMP LOW"},
     // Nhiet cao: chi cam SSR, giu contactor tong, bat ca hai quat.
     {FaultCode::HighTemperature, FaultSeverity::Stop, 240U, AlarmTempHigh, false, true, false, true, true, true, "TEMP HIGH"},
@@ -824,6 +834,32 @@ class SafetyJournal {
     if (prefs_.putUChar(SAFETY_NVS_RESET_KEY, value) != sizeof(uint8_t))
       return false;
     return prefs_.getUChar(SAFETY_NVS_RESET_KEY, 0xFFU) == value;
+  }
+
+  // F-07: khoa "can kiem tra co khi dao" + so loi lien tiep - xem
+  // latchTurnFault()/updateTestMode() trong MachineController. Song sot qua
+  // reboot giong stop_intent, khac voi truoc day chi la bien RAM.
+  bool turnMechanicalCheckRequired() {
+    return ready_ && prefs_.getUChar(SAFETY_NVS_TURN_CHECK_KEY, 0U) != 0U;
+  }
+
+  bool setTurnMechanicalCheckRequired(bool value) {
+    if (!ready_) return false;
+    const uint8_t raw = value ? 1U : 0U;
+    if (prefs_.putUChar(SAFETY_NVS_TURN_CHECK_KEY, raw) != sizeof(uint8_t))
+      return false;
+    return prefs_.getUChar(SAFETY_NVS_TURN_CHECK_KEY, 0xFFU) == raw;
+  }
+
+  uint8_t turnFaultStreak() {
+    return ready_ ? prefs_.getUChar(SAFETY_NVS_TURN_STREAK_KEY, 0U) : 0U;
+  }
+
+  bool setTurnFaultStreak(uint8_t value) {
+    if (!ready_) return false;
+    if (prefs_.putUChar(SAFETY_NVS_TURN_STREAK_KEY, value) != sizeof(uint8_t))
+      return false;
+    return prefs_.getUChar(SAFETY_NVS_TURN_STREAK_KEY, 0xFFU) == value;
   }
 
  private:
@@ -3433,6 +3469,17 @@ class MachineController {
                 static_cast<int16_t>(resetReason_));
     faults_.set(FaultCode::SafetyJournalUnavailable,
                 safetyJournalFaultLatched_, bootAt_);
+    // F-07: khoi phuc khoa "can kiem tra co khi dao" + so loi lien tiep tu
+    // NVS - truoc day 2 bien nay luon ve lai false/0 sau moi lan reboot du
+    // may that su dang bi khoa cho kiem tra vat ly (xem latchTurnFault()).
+    if (safetyJournalReady) {
+      turnMechanicalCheckRequired_ = safetyJournal_.turnMechanicalCheckRequired();
+      turnFaultStreak_ = safetyJournal_.turnFaultStreak();
+      if (turnMechanicalCheckRequired_) {
+        faults_.set(FaultCode::TurnMechanicalCheckRequired, true, bootAt_,
+                    static_cast<int16_t>(turnFaultStreak_));
+      }
+    }
     outputs_.begin();
     led_.begin();
     inputs_.begin();
@@ -3511,6 +3558,15 @@ class MachineController {
       resumeClockAdjusted_ = batch.checkpointEpoch == 0U;
       turnCountToday_ = batch.turnCountToday;
       turnCountBatch_ = batch.turnCountBatch;
+      // F-15: khoi tao lastTurnCounterDay_ DUNG ngay-tai-thoi-diem-checkpoint
+      // (cung cong thuc voi updateBatchTime(): dayIndex = giay da qua/86400)
+      // thay vi de mac dinh 0 - truoc day, nhip updateBatchTime() DAU TIEN sau
+      // reboot luon roi vao nhanh "lastTurnCounterDay_ == 0U" va am tham NHAN
+      // ngay hien tai lam moc, bo qua viec mat dien co the da lam TRAI QUA
+      // MOT (hoac nhieu) RANH GIOI NGAY - khien turnCountToday_ phuc hoi tu
+      // EEPROM (co the la so dem cua NGAY HOM QUA) bi giu nguyen dai qua ngay
+      // moi thay vi duoc reset ve 0 dung luc.
+      lastTurnCounterDay_ = elapsedBeforeStartSec_ / 86400UL + 1U;
       config_.nextDirection = static_cast<TurnDirection>(batch.nextDirection <= 1U
           ? batch.nextDirection : 0U);
       if (batchStartEpoch_ != 0U) {
@@ -4028,6 +4084,15 @@ class MachineController {
         lastSuspectCandidate_ = candidateTemp;
         if (goodSensorStreak_ < UINT8_MAX) ++goodSensorStreak_;
         newSensorSample_ = true;
+        // F-08: theo doi moc "gia tri vua thay doi that su" - moi lan mau
+        // moi lech qua SENSOR_FROZEN_EPSILON_C so voi moc hien tai thi doi
+        // moc va reset dong ho; neu khong, cu de nguyen (dang "dung hinh" o
+        // gan moc do). isnan(sensorFrozenRefTemp_) chi dung cho mau dau tien.
+        if (!isfinite(sensorFrozenRefTemp_) ||
+            fabsf(candidateTemp - sensorFrozenRefTemp_) > SENSOR_FROZEN_EPSILON_C) {
+          sensorFrozenRefTemp_ = candidateTemp;
+          sensorFrozenSince_ = now;
+        }
       } else {
         goodSensorStreak_ = 0U;
         newSensorSample_ = false;
@@ -4051,6 +4116,11 @@ class MachineController {
       pid_.reset();
       heatRestartNotBefore_ = now + HEAT_RESTART_LOCKOUT_MS;
       if (!sensorUsable_) postCoolUntil_ = now + POST_COOL_MS;
+      // F-08: cam bien vua mat/phuc hoi - xoa moc dong bang cu, tranh mang
+      // theo mot moc gia tri thuoc ve LAN CAM BIEN KHAC (truoc khi mat/sau
+      // khi phuc hoi) sang lan nay.
+      sensorFrozenRefTemp_ = NAN;
+      sensorFrozenSince_ = now;
       eventLog_.push(now,
           sensorUsable_ ? EventType::SensorRestored : EventType::SensorLost,
           static_cast<uint16_t>(sensorUsable_ ? EventCode::SensorOnline
@@ -4155,6 +4225,14 @@ class MachineController {
         case HmiCommandType::BatchStop:
           ok = stopBatch(now, message); break;
         case HmiCommandType::AlarmAck: {
+          // F-12: chuoi bao tam dung coi truoc day hard-code "5 PHUT" trong
+          // khi SIREN_TEMPORARY_MUTE_MS thuc te la 60000UL (1 phut) - nguoi
+          // dung duoc bao sai thoi gian, coi thuc te reo lai som hon nhieu so
+          // voi thong bao. Tinh so phut truc tiep tu hang so de khong con
+          // lech nhau du sau nay co doi SIREN_TEMPORARY_MUTE_MS.
+          char sirenMuteMsg[24];
+          snprintf(sirenMuteMsg, sizeof(sirenMuteMsg), "COI TAM DUNG %lu PHUT",
+                   static_cast<unsigned long>(SIREN_TEMPORARY_MUTE_MS / 60000UL));
           if (emergencyActive_) sirenMutedUntil_ = now + SIREN_TEMPORARY_MUTE_MS;
           const bool hadTurnFault = turnFaultLatched_;
           const bool turnCleared = hadTurnFault ? clearTurnFault() : false;
@@ -4177,7 +4255,7 @@ class MachineController {
                batchClearPending_);
           ok = !persistentSystemFault;
           message = persistentSystemFault ? "LOI HE THONG CHUA XOA"
-                  : emergencyActive_ ? "COI TAM DUNG 5 PHUT"
+                  : emergencyActive_ ? sirenMuteMsg
                   : resetCleared ? "DA XAC NHAN RESET LOI"
                   : turnCleared ? "DA XOA LOI DAO"
                   : hadTurnFault ? "THA NUT/KT HANH TRINH"
@@ -4369,6 +4447,9 @@ class MachineController {
     resumeClockAdjusted_ = true;
     turnCountToday_ = 0;
     turnCountBatch_ = 0;
+    // F-15: reset ve 0 (khong phai stale tu me truoc) de updateBatchTime()
+    // tu bootstrap dung ngay 1 qua nhanh "== 0U" cua chinh no.
+    lastTurnCounterDay_ = 0U;
     nextTurnAt_ = 0;
     needHome_ = !(in.limitLeft ^ in.limitRight);
     if (in.limitLeft) trayPosition_ = TrayPosition::Left;
@@ -4679,7 +4760,14 @@ class MachineController {
     // theo doi/thoat binh thuong qua hysteresis o duoi, KHONG bi "quen" giua
     // chung neu me vua ket thuc luc dang co loi (an toan: khong bao gio boi
     // roi 1 canh bao qua nhiet dang active).
-    const bool tempAlarmEligible = config_.highTempAlarmWithoutBatch || batchRunning_;
+    // F-05: them autotune_.running() vao dieu kien - truoc day Auto Tune (chi
+    // chay khi KHONG co me, xem startAutoTune()) bi loai het khoi canh bao qua
+    // nhiet (E111/E112) neu nguoi dung tung tat "Bao nhiet ngoai me", vo tinh
+    // tat luon lop bao ve khan cap trong luc dang chu dong dieu khien nhiet do
+    // (relay mode). Tuy chinh nay chi de giam bao gia (hop nong), khong nham
+    // tat bao ve trong luc thuc su dang gia nhiet.
+    const bool tempAlarmEligible = config_.highTempAlarmWithoutBatch || batchRunning_ ||
+                                    autotune_.running();
 
     // Cap 3 vao ngay bang mau hop le dau tien, sau do giu qua mat cam bien.
     if (tempAlarmEligible && validSafety && safetyTemp >= config_.emergencyTemp) {
@@ -4864,6 +4952,15 @@ class MachineController {
     faults_.set(FaultCode::HeaterNotHeating, heaterNotHeatingActive_, now,
                 (isfinite(heaterStuckStartTemp_) && isfinite(temperature_))
                     ? static_cast<int16_t>(lroundf((temperature_ - heaterStuckStartTemp_) * 10.0f)) : 0);
+    // F-08: cam bien "dung hinh" - chi canh bao trong luc dang co me (giong
+    // cach LowTemperature/HumidityLow chi xet trong batch), vi ngoai me gia
+    // tri on dinh dai han la binh thuong (khong dieu nhiet chu dong).
+    const bool sensorFrozenActive = batchRunning_ && sensorUsable_ &&
+        isfinite(sensorFrozenRefTemp_) &&
+        elapsedMs(now, sensorFrozenSince_) >= SENSOR_FROZEN_TIMEOUT_MS;
+    faults_.set(FaultCode::SensorFrozen, sensorFrozenActive, now,
+                isfinite(sensorFrozenRefTemp_)
+                    ? static_cast<int16_t>(lroundf(sensorFrozenRefTemp_ * 10.0f)) : 0);
     // Phan anh dung trang thai turnMechanicalCheckRequired_ (bat trong
     // latchTurnFault() khi loi dao lap lai qua nguong, tat trong
     // updateTestMode() khi da xac nhan lai ca 2 CTHT).
@@ -5267,6 +5364,10 @@ class MachineController {
     // lien tiep (xem latchTurnFault()) de khong bi cong don voi lan loi khac
     // nhau ve nguyen nhan.
     turnFaultStreak_ = 0U;
+    // F-07: dong bo NVS khi streak ve 0 tu mot lan dao thanh cong - tranh
+    // begin() sau nay nap lai gia tri cu con sot trong NVS (xem F-07 tai
+    // latchTurnFault()/begin()).
+    (void)safetyJournal_.setTurnFaultStreak(0U);
     trayPosition_ = position;
     if (moveIsHoming_) {
       finishHoming(now);
@@ -5311,6 +5412,16 @@ class MachineController {
 
   void latchTurnFault(FaultCode code, const char *reason) {
     if (!turnFaultLatched_) mayapSerialPrintf(false, "[TURN] FAULT: %s\n", reason ? reason : "UNKNOWN");
+    // F-11: goi stopTurn() TRUOC khi chuyen turnPhase_ sang Fault ben duoi -
+    // truoc day gan turnPhase_ = Fault truc tiep nen nhanh vo hieu hoa
+    // trayPosition_ trong stopTurn() (chi chay khi turnPhase_ dang Moving)
+    // khong bao gio duoc kich hoat: khi loi xay ra GIUA luc khay dang di
+    // chuyen, trayPosition_ van giu nguyen goc xuat phat cu (moveOrigin_),
+    // KHONG PHAI vi tri vat ly thuc te, cho toi khi ACK/bat dau me tinh
+    // lai tu CTHT song (chi anh huong hien thi, khong anh huong dieu khien
+    // vi moi noi doc trayPosition_ trong updateTurning() deu bi chan boi
+    // turnFaultLatched_).
+    stopTurn(true);
     turnFaultLatched_ = true;
     turnFaultCode_ = code;
     const uint32_t now = millis();
@@ -5321,12 +5432,17 @@ class MachineController {
     // TurnCommandConflict (loi thao tac 2 lenh tay cung luc).
     if (code == FaultCode::TurnTimeout || code == FaultCode::TurnLimitStuck) {
       if (turnFaultStreak_ < UINT8_MAX) ++turnFaultStreak_;
+      // F-07: luu streak vao NVS moi lan tang - song sot qua reboot thay vi
+      // ve lai 0, tranh phai gap lai du 3 loi lien tiep tu dau sau mot lan
+      // mat dien/watchdog xen giua.
+      (void)safetyJournal_.setTurnFaultStreak(turnFaultStreak_);
       if (!turnMechanicalCheckRequired_ &&
           turnFaultStreak_ >= TURN_FAULT_STREAK_LIMIT) {
         turnMechanicalCheckRequired_ = true;
         testLimitVerifiedLeft_ = false;
         testLimitVerifiedRight_ = false;
         faults_.set(FaultCode::TurnMechanicalCheckRequired, true, now);
+        (void)safetyJournal_.setTurnMechanicalCheckRequired(true);
         mayapSerialPrintf(false,
             "[TURN] MECHANICAL CHECK REQUIRED sau %u loi lien tiep\n",
             static_cast<unsigned>(turnFaultStreak_));
@@ -5626,6 +5742,11 @@ class MachineController {
           if (testLimitVerifiedLeft_ && testLimitVerifiedRight_) {
             turnMechanicalCheckRequired_ = false;
             turnFaultStreak_ = 0U;
+            // F-07: xoa khoa NGAY trong NVS luc thuc su go khoa - day la noi
+            // DUY NHAT duoc phep clear (yeu cau da xac nhan ca 2 CTHT trong
+            // Test Mode), khong duoc de sot lai trong NVS.
+            (void)safetyJournal_.setTurnMechanicalCheckRequired(false);
+            (void)safetyJournal_.setTurnFaultStreak(0U);
             mayapSerialPrintf(false,
                 "[TURN] MECHANICAL CHECK OK - da xac nhan ca 2 CTHT\n");
           }
@@ -6448,6 +6569,9 @@ class MachineController {
   bool latestFrameValid_ = false;
   bool sensorSuspect_ = false;
   uint8_t sensorPlausibilityStreak_ = 0U;
+  // F-08: xem processSensor()/updateAlarms() - phat hien cam bien "dung hinh".
+  float sensorFrozenRefTemp_ = NAN;
+  uint32_t sensorFrozenSince_ = 0U;
 
   bool batchRunning_ = false;
   bool resumePending_ = false;

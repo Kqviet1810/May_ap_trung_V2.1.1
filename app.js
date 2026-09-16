@@ -926,6 +926,10 @@
       updateOutput('outputSiren', false);
       if ($('outputLightBtn')) $('outputLightBtn').disabled = true;
       if ($('outputSirenBtn')) $('outputSirenBtn').disabled = true;
+      // F-10: chua co snapshot = chua biet may co dang chay me hay khong -
+      // khoa "Tong so ngay ap" theo huong an toan (gia dinh co the dang chay)
+      // thay vi mac dinh cho sua.
+      if ($('totalDays')) $('totalDays').disabled = true;
       setCurrentActivity('Chưa có dữ liệu vận hành', 'Đang chờ snapshot từ ESP32', 'idle');
       renderBatchAction(device, null);
       return;
@@ -968,6 +972,19 @@
 
     $('batchPill').textContent = runtime.batchRunning ? `NGÀY ${runtime.currentDay || 1}` : 'CHƯA BẮT ĐẦU';
     $('batchPill').className = runtime.batchRunning ? 'pill online' : 'pill soft';
+
+    // F-10 (audit truoc phat hanh v3.7.1): HMI da khoa "Tong so ngay ap"
+    // trong luc dang chay me (settingLockedDuringBatch() trong hmi.h), nhung
+    // web truoc day KHONG khoa - nguoi dung sua o day bi ESP32 tu choi ca
+    // giao dich (bao gom moi thay doi khac trong cung form), khong ro ly do.
+    // Khoa ngay tren giao dien de khop voi HMI, tranh gap phai tinh huong do.
+    const totalDaysInput = $('totalDays');
+    if (totalDaysInput) {
+      totalDaysInput.disabled = Boolean(runtime.batchRunning);
+      totalDaysInput.title = runtime.batchRunning
+        ? 'Đang có mẻ chạy - khoá số ngày ấp (giống trên máy), dừng mẻ để đổi'
+        : '';
+    }
 
     if ((device?.batchUiPendingTarget === 'running' && runtime.batchRunning) ||
         (device?.batchUiPendingTarget === 'stopped' && !runtime.batchRunning)) {
@@ -1506,7 +1523,11 @@
     'DA DUNG ME': 'Đã dừng mẻ ấp',
     'DA DUNG - CHO XOA BO NHO': 'Đã dừng - đang chờ xóa bộ nhớ',
     'LOI HE THONG CHUA XOA': 'Còn lỗi hệ thống chưa được xóa',
-    'COI TAM DUNG 5 PHUT': 'Đã tạm dừng còi 5 phút',
+    // F-12 (audit truoc phat hanh v3.7.1): chuoi nay gio duoc firmware sinh
+    // dong tu SIREN_TEMPORARY_MUTE_MS (machine_control.h) thay vi hard-code
+    // "5 PHUT" sai le thuc te (hang so la 60000ms = 1 phut) - neu doi hang so
+    // do, sua ca key nay cho khop.
+    'COI TAM DUNG 1 PHUT': 'Đã tạm dừng còi 1 phút',
     'DA XAC NHAN RESET LOI': 'Đã xác nhận lỗi khởi động lại bất thường',
     'DA XOA LOI DAO': 'Đã xóa lỗi cơ cấu đảo trứng',
     'THA NUT/KT HANH TRINH': 'Hãy thả nút nhấn hoặc kiểm tra công tắc hành trình',
