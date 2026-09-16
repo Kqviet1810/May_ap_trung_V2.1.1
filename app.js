@@ -385,7 +385,7 @@
     const el = $('liveState');
     if (!tile || !el) return;
     if (!device) {
-      el.textContent = 'Offline';
+      el.textContent = 'Ngoại tuyến';
       tile.classList.remove('tile-warn', 'tile-stop', 'tile-emergency', 'tile-clickable');
       closeFaultPopup();
       return;
@@ -398,7 +398,7 @@
     tile.classList.toggle('tile-clickable', !!fault);
 
     if (!online) {
-      el.textContent = 'Offline';
+      el.textContent = 'Ngoại tuyến';
       closeFaultPopup();
       return;
     }
@@ -686,7 +686,7 @@
     refreshDeviceNameIfNeeded(device);
 
     if (connection === 'online') {
-      pill.textContent = 'ONLINE';
+      pill.textContent = 'TRỰC TUYẾN';
       pill.className = 'pill online';
       $('wifiConnectionText').textContent = 'Wi‑Fi đã kết nối';
       $('sideStatus').textContent = 'Đang trực tuyến';
@@ -700,7 +700,7 @@
       $('wifiConnectionText').textContent = 'Đang kết nối…';
       $('sideStatus').textContent = 'Đang kết nối';
     } else {
-      pill.textContent = 'OFFLINE';
+      pill.textContent = 'NGOẠI TUYẾN';
       pill.className = 'pill offline';
       $('wifiConnectionText').textContent = 'Chưa nhận dữ liệu từ máy';
       $('sideStatus').textContent = 'Đang ngoại tuyến';
@@ -849,7 +849,7 @@
     });
   }
 
-  function updateOutput(id, on, onText = 'ON', offText = 'OFF') {
+  function updateOutput(id, on, onText = 'BẬT', offText = 'TẮT') {
     const element = $(id);
     if (!element) return;
     element.textContent = on ? onText : offText;
@@ -1018,18 +1018,18 @@
     $('tuneBar').style.width = `${autoTuneProgress}%`;
     if (autoTuneState === 1) {
       $('tuneText').textContent = `Đang chạy · ${autoTuneProgress}%`;
-      $('pidSummary').textContent = `Đang Auto Tune · ${autoTuneProgress}%`;
+      $('pidSummary').textContent = `Đang tự dò · ${autoTuneProgress}%`;
       $('startTune').disabled = true;
-      $('startTune').textContent = `Đang Auto Tune PID · ${autoTuneProgress}%`;
+      $('startTune').textContent = `Đang tự dò PID · ${autoTuneProgress}%`;
     } else {
       $('startTune').disabled = false;
-      $('startTune').textContent = 'Bắt đầu Auto Tune PID';
+      $('startTune').textContent = 'Bắt đầu tự dò PID';
       if (autoTuneState === 2) {
         $('tuneText').textContent = 'Hoàn tất · thông số đã được máy lưu';
         $('pidSummary').textContent = 'Đã hoàn tất và tự lưu';
       } else if (autoTuneState === 3) {
-        $('tuneText').textContent = 'Auto Tune không hoàn tất';
-        $('pidSummary').textContent = 'Auto Tune thất bại';
+        $('tuneText').textContent = 'Tự dò không hoàn tất';
+        $('pidSummary').textContent = 'Tự dò thất bại';
       } else {
         $('tuneText').textContent = 'Sẵn sàng';
         $('pidSummary').textContent = 'ESP32 tự tìm và lưu thông số';
@@ -1037,7 +1037,7 @@
     }
 
     if (autoTuneState === 1) {
-      setCurrentActivity('Đang Auto Tune PID', `Tiến độ ${autoTuneProgress}%`, 'warning');
+      setCurrentActivity('Đang tự dò PID', `Tiến độ ${autoTuneProgress}%`, 'warning');
     } else if (turn === 1 || turn === 2) {
       setCurrentActivity(`Đang đảo trứng sang ${turn === 1 ? 'trái' : 'phải'}`, 'Đang chờ công tắc hành trình', 'active');
     } else if (runtime.ventFanOn) {
@@ -1521,8 +1521,8 @@
     'LOI BO NHO CAU HINH': 'Lỗi bộ nhớ cấu hình - cần kiểm tra máy',
     'HAY XAC NHAN RESET LOI': 'Hãy xác nhận lỗi khởi động lại bất thường trên máy trước',
     'DUNG ME CU TRUOC': 'Hãy dừng mẻ cũ trước',
-    'AUTO TUNE DANG CHAY': 'Auto Tune đang chạy, không thể thực hiện',
-    'HAY CHUYEN SANG AUTO': 'Hãy chuyển máy sang chế độ Tự động (Auto) trước',
+    'AUTO TUNE DANG CHAY': 'Tự dò đang chạy, không thể thực hiện',
+    'HAY CHUYEN SANG AUTO': 'Hãy chuyển công tắc trên máy sang chế độ Tự động trước',
     'CAM BIEN CHUA SAN SANG': 'Cảm biến nhiệt độ/độ ẩm chưa sẵn sàng',
     'RTC CHUA HOP LE': 'Đồng hồ thời gian thực (RTC) chưa hợp lệ',
     'LOI 2 HANH TRINH': 'Lỗi cả 2 công tắc hành trình cùng tác động',
@@ -1535,8 +1535,8 @@
     'DANG XOA DU LIEU ME': 'Đang xóa dữ liệu mẻ, chưa có mẻ nào chạy',
     'KHONG CO ME DANG CHAY': 'Không có mẻ nào đang chạy',
     'DUNG ME TRUOC': 'Hãy dừng mẻ đang chạy trước',
-    'KHOANG NHIET KHONG DU': 'Khoảng nhiệt độ hiện tại không đủ rộng để chạy Auto Tune',
-    'AUTO TUNE DA BAT DAU': 'Đã bắt đầu Auto Tune',
+    'KHOANG NHIET KHONG DU': 'Khoảng nhiệt độ hiện tại không đủ rộng để chạy tự dò',
+    'AUTO TUNE DA BAT DAU': 'Đã bắt đầu tự dò',
     'DANG CO ME - KHONG TEST DUOC': 'Đang có mẻ ấp chạy, không vào được chế độ kiểm tra',
     'DANG QUA NHIET KHAN CAP': 'Đang quá nhiệt khẩn cấp, không thể thực hiện',
     'DA VAO CHE DO TEST': 'Đã vào chế độ kiểm tra thiết bị',
@@ -1545,7 +1545,7 @@
     'DANG BAT THIET BI': 'Đang bật thử thiết bị',
     'HAY TAC DONG CONG TAC HANH TRINH': 'Hãy tác động công tắc hành trình để kiểm tra',
     'DANG MO CONG DOI WIFI': 'Đang mở cổng đổi Wi-Fi trên máy',
-    'CHI DUNG DUOC KHI ONLINE': 'Chỉ dùng được khi máy đang Online',
+    'CHI DUNG DUOC KHI ONLINE': 'Chỉ dùng được khi máy đang trực tuyến',
     'DA HUY ME CU': 'Đã hủy mẻ cũ',
     'DA HUY - CHO XOA BO NHO': 'Đã hủy - đang chờ xóa bộ nhớ',
     'DA DUNG ME': 'Đã dừng mẻ ấp',
@@ -1732,7 +1732,7 @@
   // Trang thai mang gui kem trong "value" cua su kien code 90 (NetStateChanged),
   // doi chieu enum NetState trong config.h.
   const NET_STATE_TEXT = {
-    0: 'đã tắt (OFFLINE)',
+    0: 'đã tắt mạng',
     1: 'đang bật Wi‑Fi',
     2: 'chưa có Wi‑Fi',
     3: 'có Wi‑Fi, chưa lên máy chủ',
@@ -1748,13 +1748,13 @@
     110: 'Nhiệt độ thấp', 111: 'Nhiệt độ cao', 112: 'Quá nhiệt khẩn cấp',
     113: 'Nhiệt độ biến thiên nhanh', 114: 'Nhiệt độ không ổn định',
     115: 'Thanh nhiệt không nóng', 120: 'Độ ẩm thấp', 121: 'Độ ẩm cao',
-    130: 'Tắt công tắc nhiệt', 132: 'Cần chuyển sang AUTO',
-    133: 'AUTO bị tắt giữa mẻ', 134: 'Tự động đảo bị tắt',
+    130: 'Tắt công tắc nhiệt', 132: 'Cần chuyển sang Tự động',
+    133: 'Tự động bị tắt giữa mẻ', 134: 'Tự động đảo bị tắt',
     135: 'Chờ xác nhận áp lại quá lâu', 136: 'Mẻ ấp quá hạn',
     201: 'Lỗi 2 hành trình', 202: 'Đảo quá thời gian', 203: 'Hành trình bị kẹt',
     204: 'Xung đột lệnh đảo', 205: 'Cần kiểm tra cơ khí đảo',
     301: 'Mất EEPROM', 302: 'EEPROM suy giảm',
-    303: 'Reset bất thường', 304: 'Xung đột output', 305: 'Relay đóng cắt nhiều',
+    303: 'Khởi động lại bất thường', 304: 'Xung đột ngõ ra', 305: 'Relay đóng cắt nhiều',
     306: 'Lỗi đồng hồ RTC', 313: 'Chưa xoá dữ liệu mẻ',
     314: 'Lỗi nhật ký an toàn', 315: 'Mất nhật ký mẻ',
     401: 'RAM thấp (cảnh báo sớm)', 402: 'RAM cạn - tự khởi động lại',
@@ -1777,8 +1777,8 @@
     120: 'Độ ẩm đang dưới ngưỡng cấu hình.',
     121: 'Độ ẩm đang vượt ngưỡng cấu hình.',
     130: 'Công tắc vật lý cho phép nhiệt đang tắt trong lúc mẻ chạy.',
-    132: 'Đang chờ áp lại mẻ cũ nhưng công tắc AUTO chưa bật.',
-    133: 'Công tắc AUTO bị gạt sang MANUAL trong lúc đang chạy mẻ.',
+    132: 'Đang chờ áp lại mẻ cũ nhưng công tắc Tự động chưa bật.',
+    133: 'Công tắc đang gạt sang Bằng tay trong lúc đang chạy mẻ.',
     134: 'Cấu hình tự động đảo bị tắt trong lúc mẻ đang chạy.',
     135: 'Màn hình "Áp lại mẻ cũ?" đã hiện quá lâu chưa ai xác nhận.',
     136: 'Số ngày ấp thực tế đã vượt số ngày cấu hình.',
@@ -1830,9 +1830,9 @@
       40: 'Cảm biến đã hoạt động trở lại',
       41: 'Mất tín hiệu cảm biến',
       50: 'Cấu hình đã được lưu',
-      51: 'Auto Tune PID đã bắt đầu',
-      52: 'Auto Tune PID đã hoàn tất',
-      53: 'Auto Tune PID không hoàn tất',
+      51: 'Tự dò PID đã bắt đầu',
+      52: 'Tự dò PID đã hoàn tất',
+      53: 'Tự dò PID không hoàn tất',
       60: 'Bắt đầu đảo trứng sang trái',
       61: 'Bắt đầu đảo trứng sang phải',
       62: 'Đang đưa khay về gốc trái',
@@ -2151,8 +2151,8 @@
     if (!(tempOscillationWindowSec >= 60 && tempOscillationWindowSec <= 3600)) return invalidate('advancedForm', 'advTempOscillationWindowSec', 'Khung thời gian phải từ 60 đến 3600 giây.');
     if (!(heaterStuckMinRiseC >= 0.05 && heaterStuckMinRiseC <= 5)) return invalidate('advancedForm', 'advHeaterStuckMinRiseC', 'Ngưỡng tăng tối thiểu phải từ 0,05 đến 5°C.');
     if (!(heaterStuckDurationSec >= 60 && heaterStuckDurationSec <= 3600)) return invalidate('advancedForm', 'advHeaterStuckDurationSec', 'Thời gian xác nhận phải từ 60 đến 3600 giây.');
-    if (!(autotuneRelayPowerPercent >= 10 && autotuneRelayPowerPercent <= 80)) return invalidate('advancedForm', 'advAutotuneRelayPowerPercent', 'Công suất relay Auto Tune phải từ 10 đến 80%.');
-    if (!(autotuneBandC >= 0.05 && autotuneBandC <= 1)) return invalidate('advancedForm', 'advAutotuneBandC', 'Dải xác nhận Auto Tune phải từ 0,05 đến 1°C.');
+    if (!(autotuneRelayPowerPercent >= 10 && autotuneRelayPowerPercent <= 80)) return invalidate('advancedForm', 'advAutotuneRelayPowerPercent', 'Công suất relay tự dò phải từ 10 đến 80%.');
+    if (!(autotuneBandC >= 0.05 && autotuneBandC <= 1)) return invalidate('advancedForm', 'advAutotuneBandC', 'Dải xác nhận tự dò phải từ 0,05 đến 1°C.');
     return true;
   }
 
@@ -2515,11 +2515,11 @@
 
     $('startTune').addEventListener('click', async () => {
       const runtime = currentDevice()?.snapshot?.runtime;
-      if (runtime?.batchRunning) return toast('Không thể Auto Tune khi mẻ đang chạy');
+      if (runtime?.batchRunning) return toast('Không thể tự dò khi mẻ đang chạy');
       const ok = await confirmAction({
-        title: 'Bắt đầu Auto Tune PID?',
+        title: 'Bắt đầu tự dò PID?',
         message: 'Chỉ thực hiện khi khoang ấp trống. Firmware sẽ tự điều khiển và lưu kết quả.',
-        accept: 'Bắt đầu Auto Tune'
+        accept: 'Bắt đầu tự dò'
       });
       if (ok) await sendCommand('autotune_start');
     });

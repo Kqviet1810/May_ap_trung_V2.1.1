@@ -35,7 +35,7 @@
 <section class="panel deviceCompact">
 <div class="deviceTop">
 <div class="deviceIdentity"><p class="eyebrow">MÁY ĐANG ĐIỀU KHIỂN</p><h2 id="deviceNameView">Máy ấp trứng 01</h2><small id="deviceIdView">MAP-B85FCC2C01FC</small></div>
-<div class="statusBlock"><span class="pill online" id="onlinePill">ONLINE</span><small id="wifiConnectionText">Wi‑Fi đã kết nối</small></div>
+<div class="statusBlock"><span class="pill online" id="onlinePill">TRỰC TUYẾN</span><small id="wifiConnectionText">Wi‑Fi đã kết nối</small></div>
 </div>
 <div class="devicePickerRow">
 <div class="field grow customSelect" id="deviceSelectorField">
@@ -54,12 +54,12 @@
 <label class="quickField"><span>Chu kỳ đảo</span><div><input id="quickTurn" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
 </div>
 <div class="outputStrip">
-<div><span>Thanh nhiệt</span><strong class="on" id="outputHeater">ON</strong></div>
-<div><span>Tuần hoàn</span><strong class="on" id="outputCirculation">ON</strong></div>
-<div><span>Thông gió</span><strong id="outputVent">OFF</strong></div>
+<div><span>Thanh nhiệt</span><strong class="on" id="outputHeater">BẬT</strong></div>
+<div><span>Tuần hoàn</span><strong class="on" id="outputCirculation">BẬT</strong></div>
+<div><span>Thông gió</span><strong id="outputVent">TẮT</strong></div>
 <div><span>Đảo trứng</span><strong id="outputTurn">CHỜ</strong></div>
-<button aria-label="Bật/tắt đèn" id="outputLightBtn" type="button"><span>Đèn</span><strong id="outputLight">OFF</strong></button>
-<button aria-label="Tạm tắt còi báo" id="outputSirenBtn" type="button"><span>Còi báo</span><strong id="outputSiren">OFF</strong></button>
+<button aria-label="Bật/tắt đèn" id="outputLightBtn" type="button"><span>Đèn</span><strong id="outputLight">TẮT</strong></button>
+<button aria-label="Tạm tắt còi báo" id="outputSirenBtn" type="button"><span>Còi báo</span><strong id="outputSiren">TẮT</strong></button>
 </div>
 <button class="primary full" type="submit">Lưu thông số nhanh</button>
 </form>
@@ -164,15 +164,15 @@
 </form>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="1" x2="7" y1="14" y2="14"/><line x1="9" x2="15" y1="8" y2="8"/><line x1="17" x2="23" y1="16" y2="16"/></svg></span><span class="settingSummary"><strong>PID Auto Tune</strong><small id="pidSummary">ESP32 tự tìm và lưu thông số</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="1" x2="7" y1="14" y2="14"/><line x1="9" x2="15" y1="8" y2="8"/><line x1="17" x2="23" y1="16" y2="16"/></svg></span><span class="settingSummary"><strong>Tự dò PID</strong><small id="pidSummary">ESP32 tự tìm và lưu thông số</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
 <p class="settingFootnote">Không cần nhập Kp, Ki, Kd. Chỉ chạy khi máy không có mẻ đang hoạt động.</p>
 <div class="tuneState"><span id="tuneText">Sẵn sàng</span><div><i id="tuneBar"></i></div></div>
-<button class="primary full" id="startTune" type="button">Bắt đầu Auto Tune PID</button>
+<button class="primary full" id="startTune" type="button">Bắt đầu tự dò PID</button>
 </div>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 20v-6M12 10V4M5 20v-9M5 7V4M19 20v-4M19 12V4"/><circle cx="12" cy="12" r="2"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="14" r="2"/></svg></span><span class="settingSummary"><strong>Nâng cao</strong><small id="advancedSummary">PID thủ công · ngưỡng chẩn đoán · Auto Tune</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 20v-6M12 10V4M5 20v-9M5 7V4M19 20v-4M19 12V4"/><circle cx="12" cy="12" r="2"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="14" r="2"/></svg></span><span class="settingSummary"><strong>Nâng cao</strong><small id="advancedSummary">PID thủ công · ngưỡng chẩn đoán · Tự dò PID</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody" id="advancedForm">
 <p class="settingFootnote">Chỉ chỉnh khi đã hiểu rõ tác động. Sai giá trị có thể gây báo giả hoặc vọt lố nhiệt độ.</p>
 <p class="settingFootnote"><strong>PID thủ công</strong></p>
@@ -194,7 +194,7 @@
 <label class="compactTile"><span>Thời gian xác nhận kẹt</span><div class="unit"><input id="advHeaterStuckDurationSec" max="3600" min="60" step="1" type="number"/><b>Giây</b></div></label>
 </div>
 <hr class="settingDivider"/>
-<p class="settingFootnote"><strong>Auto Tune nâng cao</strong></p>
+<p class="settingFootnote"><strong>Tự dò PID nâng cao</strong></p>
 <div class="tempGrid">
 <label class="compactTile"><span>Công suất relay</span><div class="unit"><input id="advAutotuneRelayPowerPercent" max="80" min="10" step="1" type="number"/><b>%</b></div></label>
 <label class="compactTile"><span>Dải xác nhận</span><div class="unit"><input id="advAutotuneBandC" max="1" min="0.05" step="0.05" type="number"/><b>°C</b></div></label>
