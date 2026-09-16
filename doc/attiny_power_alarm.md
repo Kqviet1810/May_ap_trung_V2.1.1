@@ -96,9 +96,10 @@ sát nhau mới giải mã đúng; đếm xung với biên độ dung sai lớn 
 | 3 | ESP32 → ATtiny | **Bật còi** — lệnh khẩn cấp trực tiếp (chỉ dùng khi ESP32 đang báo quá nhiệt khẩn cấp), **luôn ưu tiên** bất kể `dangCoMe` |
 | 4 | ESP32 → ATtiny | **Tắt còi** — huỷ lệnh khẩn cấp mã 3 |
 | 5 | ESP32 → ATtiny | Ping kiểm tra ATtiny còn sống (gửi lúc bắt đầu mẻ, và định kỳ mỗi 6 giờ trong lúc mẻ đang chạy) — ATtiny chỉ cần ACK |
-| 6 | ATtiny → ESP32 | Báo nguồn 9V đã tụt dưới ngưỡng (~7V) — cần ACK, ATtiny tự thử lại nếu chưa được ACK |
+| 6 | ATtiny → ESP32 | Báo pin còi 9V sắp hết (đã tụt dưới ngưỡng ~7V) — cần ACK, ATtiny tự thử lại nếu chưa được ACK |
+| 7 | ATtiny → ESP32 | Báo pin còi 9V đã được thay/nguồn đã phục hồi — ESP32 gỡ cảnh báo E502 |
 
-Không còn mã 7 trở lên (giới hạn hiện tại `MSG_MAX_CODE = 6`).
+Giới hạn hiện tại là `MSG_MAX_CODE = 7`.
 
 **Cơ chế bật/tắt còi trên ATtiny (độc lập với dữ liệu từ ESP32, lưu trong
 RAM, không mất khi ESP32 mất điện vì ATtiny chạy nguồn riêng):**
@@ -127,20 +128,24 @@ RAM, không mất khi ESP32 mất điện vì ATtiny chạy nguồn riêng):**
    - **3.3V_ESP đổi trạng thái?** → đợi 50ms rồi đọc lại (chống nhiễu/gợn
      sóng thoáng qua) — nếu vẫn đổi thật, cập nhật `coiMatDien` theo mục 3.
    - **9V đổi trạng thái?** → đợi 50ms rồi đọc lại — nếu tụt xuống thật, gửi
-     mã 6 (có ACK + tự thử lại tối đa 3 lần); nếu phục hồi, **không cần gửi
-     gì** (xem mục 5).
+     mã 6; nếu phục hồi sau khi thay pin, gửi mã 7 (đều có ACK + tự thử lại
+     tối đa 3 lần).
+   - Khi nhận mã 5 (ping), nếu 9V vẫn thấp thì gửi lại mã 6. Nhờ vậy ESP32
+     khởi động lại vẫn phục hồi đúng cảnh báo mà ATtiny không cần thức định kỳ.
 3. Quay lại ngủ Power-down.
 
-## 5. Vì sao không cần bản tin "9V đã phục hồi"
+## 5. Cảnh báo pin còi sắp hết (E502)
 
-Giao thức chỉ có 1 chiều báo "vừa tụt xuống thấp" (mã 6), không có mã báo
-"đã phục hồi". Thay vào đó, bên ESP32 (`machine_control.h`,
-`updateAttinyLink()`) tự cho cảnh báo `Attiny9VLow` **tự hết sau 24 giờ**
-kể từ lần nhận mã 6 gần nhất (nếu có mã 6 mới trong lúc đó, thời hạn được
-làm mới). Cách này tránh phải thêm 1 mã bản tin mới chỉ để báo "hết", đổi
-lại là cảnh báo có thể hiển thị hơi lâu hơn thực tế tối đa 24 giờ sau khi
-pin 9V đã được thay — chấp nhận được vì đây là cảnh báo mức Warning (không
-chặn vận hành).
+Khi mức 9V xuống dưới ngưỡng số tương đương khoảng 7V, ATtiny gửi mã 6 và
+ESP32 bật `FaultCode::SirenBatteryLow` (E502). Đây là cảnh báo mức Warning:
+hiện trên HMI và web, không khóa vận hành, không cắt nhiệt và không cấm đảo
+trứng. Kênh Cloud Push nhắc lại định kỳ giống các cảnh báo độ ẩm.
+
+Cảnh báo không tự hết theo thời gian. Sau khi thay pin hoặc nguồn 9V phục
+hồi, ATtiny gửi mã 7 để ESP32 gỡ E502 và phát thông báo đã hết. Mỗi lần ESP32
+ping, ATtiny cũng gửi lại mã 6 nếu pin vẫn yếu; cơ chế này khôi phục đúng
+trạng thái sau khi ESP32 khởi động lại mà không cần đánh thức ATtiny bằng
+Watchdog định kỳ.
 
 ## 6. Đánh giá rủi ro / các đánh đổi đã chấp nhận
 
