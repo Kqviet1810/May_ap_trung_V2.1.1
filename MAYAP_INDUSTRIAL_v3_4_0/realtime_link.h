@@ -380,8 +380,37 @@ inline HmiCommandType mapCommandAction(const char *action) {
 static uint32_t lastCommandSequence = 0U;
 static char lastCommandRequestId[WEB_REQUEST_ID_CAPACITY] = "";
 
+// F-01 (audit truoc phat hanh v3.7.1): MQTT_USERNAME/MQTT_PASSWORD mac dinh
+// la chuoi rong (xem config.h) - nghia la firmware ket noi AN DANH toi
+// broker CONG KHAI mac dinh (broker.emqx.io) neu khong ai doi lai qua
+// build_flags. O tinh huong do BAT KY AI tren internet biet duoc deviceId
+// (in san tren tem QR may) deu gui duoc lenh dieu khien that (dung me, huy
+// resume, tat coi khan cap, doi cau hinh...) ma khong can xac thuc gi -
+// day la loi CRITICAL cua audit, vi ban build phat hanh chinh thuc (workflow
+// CI) khong truyen build-flag nao de doi cac macro nay ca.
+//
+// Ham nay la hang rao an toan MAC DINH: false bat cu khi nao broker chua
+// duoc cau hinh usernam/password rieng (tuc van dung cap mac dinh nguy hiem
+// o tren). handleCommandMessage/handleConfigSetMessage/handleReminderSetMessage
+// deu TU CHOI xu ly khi false - chi con luong publish MOT CHIEU (snapshot/
+// presence/log, khong ai doi duoc gi tu xa) la con hoat dong. Publish/telemetry
+// khong bi khoa vi rieng no khong the thay doi hanh vi may.
+//
+// De bat lai dieu khien tu xa qua MQTT: dinh nghia MAYAP_MQTT_HOST/USERNAME/
+// PASSWORD (ly tuong them MAYAP_MQTT_USE_TLS=1) tro toi MOT BROKER RIENG
+// truoc khi include config.h - vi du qua build_flags trong platformio.ini
+// hoac --build-property khi goi arduino-cli trong workflow CI. KHONG sua
+// truc tiep gia tri mac dinh trong config.h.
+inline bool mqttCommandChannelTrusted() {
+  return MQTT_USERNAME[0] != '\0' && MQTT_PASSWORD[0] != '\0';
+}
+
 inline void handleCommandMessage(const JsonDocument &doc) {
   const char *requestId = doc["requestId"] | "";
+  if (!mqttCommandChannelTrusted()) {
+    publishAck(requestId, "unauthorized", "BROKER CONG KHAI - LENH TU XA BI KHOA");
+    return;
+  }
   const uint32_t sequence = doc["sequence"] | 0UL;
   const char *action = doc["action"] | "";
 
@@ -442,6 +471,10 @@ inline void handleCommandMessage(const JsonDocument &doc) {
 
 inline void handleConfigSetMessage(const JsonDocument &doc) {
   const char *requestId = doc["requestId"] | "";
+  if (!mqttCommandChannelTrusted()) {
+    publishAck(requestId, "unauthorized", "BROKER CONG KHAI - LENH TU XA BI KHOA");
+    return;
+  }
   const uint32_t revision = doc["revision"] | 0UL;
 
   portENTER_CRITICAL(&webMux);
@@ -546,6 +579,10 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
 // giong het huong tiep can cua "config/set" o tren.
 inline void handleReminderSetMessage(const JsonDocument &doc) {
   const char *requestId = doc["requestId"] | "";
+  if (!mqttCommandChannelTrusted()) {
+    publishAck(requestId, "unauthorized", "BROKER CONG KHAI - LENH TU XA BI KHOA");
+    return;
+  }
   const uint32_t revision = doc["revision"] | 0UL;
 
   portENTER_CRITICAL(&webMux);
@@ -709,6 +746,15 @@ inline void attemptConnect(uint32_t now) {
   if (haveConfig) publishConfigReport(cfg, revision);
   lastSnapshotPublishAt = 0U;
   mayapSerialPrintf(false, "[WEBLINK] MQTT da ket noi %s\n", deviceId);
+  // F-01: canh bao ro moi lan ket noi neu dang dung broker/tai khoan mac
+  // dinh - lenh dieu khien tu xa dang bi khoa (xem mqttCommandChannelTrusted()).
+  if (!mqttCommandChannelTrusted()) {
+    mayapSerialPrintf(false,
+        "[WEBLINK] CANH BAO: broker CONG KHAI khong xac thuc - LENH DIEU "
+        "KHIEN TU XA (start/stop/ACK/config/nhac nho) DA BI KHOA de an toan. "
+        "Dinh nghia MAYAP_MQTT_HOST/USERNAME/PASSWORD tro toi broker rieng "
+        "de bat lai.\n");
+  }
 }
 
 inline void expirePendingCommands(uint32_t now) {

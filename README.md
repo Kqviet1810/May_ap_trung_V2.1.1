@@ -115,7 +115,7 @@ Khác với OTA-Arduino-IDE ở trên (bắt buộc cùng Wi-Fi), cách này đ�
 
 Dashboard là site tĩnh, có thể chạy trực tiếp bằng cách mở `index.html`, hoặc deploy lên **GitHub Pages**:
 
-1. Copy `config.production.example.js` thành `config.js`, chỉnh `mqttUrl` trỏ tới broker MQTT thật (khuyến nghị broker riêng cho môi trường thương mại, **không dùng broker công cộng**) và `cloudApiBase` trỏ tới Worker đã deploy (bước 3).
+1. Copy `config.production.example.js` thành `config.js`, chỉnh `mqttUrl` trỏ tới broker MQTT thật (khuyến nghị broker riêng cho môi trường thương mại, **không dùng broker công cộng**) và `cloudApiBase` trỏ tới Worker đã deploy (bước 3). Firmware cũng phải trỏ tới cùng broker riêng đó (macro `MAYAP_MQTT_HOST/USERNAME/PASSWORD` trong `config.h`, đặt qua build_flags) - nếu không, firmware tự khoá mọi lệnh điều khiển/cấu hình từ xa qua MQTT (chỉ còn xem dữ liệu một chiều) vì đang phát hiện dùng broker công khai không xác thực.
 2. Bật GitHub Pages cho repo (hoặc host bằng bất kỳ static hosting nào - Cloudflare Pages, Netlify...).
 3. Truy cập trang, bấm **+** để thêm thiết bị bằng Device ID + PIN hiển thị trên máy (mặc định `1111`, nên đổi ngay sau khi thêm).
 4. Trên điện thoại, có thể "Thêm vào Màn hình chính" để dùng như app PWA, nhận thông báo đẩy kể cả khi không mở trình duyệt.
