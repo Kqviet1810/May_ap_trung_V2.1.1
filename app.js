@@ -1053,6 +1053,19 @@
       state.lastResumePromptBootId = device.bootId;
       promptResumeAfterPower(device);
     }
+
+    // F-06 (audit trước phát hành v3.7.1): mẻ quá số ngày ấp dự kiến - máy
+    // đã tự bật còi + đếm ngược tự dừng 12h (xem updateBatchOverdue() trong
+    // machine_control.h); chỉ hỏi 1 LẦN cho mỗi lần chuyển từ "chưa quá hạn"
+    // sang "quá hạn" (không hỏi lại mỗi vài giây theo nhịp snapshot).
+    if (runtime.batchOverdueConfirmationPending) {
+      if (!device.overdueContinuePrompted) {
+        device.overdueContinuePrompted = true;
+        promptBatchOverdueContinue(device);
+      }
+    } else {
+      device.overdueContinuePrompted = false;
+    }
   }
 
   async function promptResumeAfterPower(device) {
@@ -1062,6 +1075,18 @@
       accept: 'Tiếp tục mẻ'
     });
     await sendCommand(continueBatch ? 'resume_yes' : 'resume_no', { device });
+  }
+
+  async function promptBatchOverdueContinue(device) {
+    const keepGoing = await confirmAction({
+      title: 'Mẻ ấp đã quá số ngày dự kiến',
+      message: 'Máy đã ấp quá số ngày đã cấu hình. Bạn có muốn tiếp tục ủ ấm không? Nếu không xác nhận, máy sẽ tự động dừng sau 12 giờ.',
+      accept: 'Tiếp tục ủ ấm'
+    });
+    // Chon "Huy": khong gui lenh gi ca - coi van keu lai dinh ky (tu tam tat
+    // duoc qua nut ACK/coi bao), va nguoi dung van bam "Kết thúc mẻ" binh
+    // thuong bat cu luc nao neu muon dung ngay thay vi cho du 12h.
+    if (keepGoing) await sendCommand('batch_overdue_continue', { device });
   }
 
   function updateSettingSummaries() {
@@ -1528,6 +1553,13 @@
     // "5 PHUT" sai le thuc te (hang so la 60000ms = 1 phut) - neu doi hang so
     // do, sua ca key nay cho khop.
     'COI TAM DUNG 1 PHUT': 'Đã tạm dừng còi 1 phút',
+    // F-09 (audit truoc phat hanh v3.7.1): ACK coi khan cap/loi dao qua web
+    // bi tu choi - 2 truong hop nay bat buoc xac nhan tai may (xem
+    // HmiCommandSource trong config.h, case AlarmAck trong machine_control.h).
+    'COI KHAN CAP CAN ACK TAI MAY': 'Còi báo khẩn cấp cần xác nhận trực tiếp tại máy, không thể tắt từ xa',
+    'LOI DAO CAN ACK TAI MAY': 'Lỗi cơ cấu đảo trứng cần kiểm tra và xác nhận trực tiếp tại máy',
+    // F-06: phan hoi cho lenh batch_overdue_continue.
+    'DA XAC NHAN TIEP TUC U AM': 'Đã xác nhận tiếp tục ủ ấm',
     'DA XAC NHAN RESET LOI': 'Đã xác nhận lỗi khởi động lại bất thường',
     'DA XOA LOI DAO': 'Đã xóa lỗi cơ cấu đảo trứng',
     'THA NUT/KT HANH TRINH': 'Hãy thả nút nhấn hoặc kiểm tra công tắc hành trình',

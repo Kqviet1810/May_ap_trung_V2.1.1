@@ -591,6 +591,13 @@ constexpr uint8_t TURN_FAULT_STREAK_LIMIT = 3U;
 // dinh) nhung neu khong ai thao tac qua lau thi can canh bao rieng de nguoi
 // dung/quan tri biet may dang treo cho, khong phai dang hoat dong binh thuong.
 constexpr uint32_t RESUME_CONFIRM_ALERT_MS = 900000UL; // 15 phut
+// F-06 (audit truoc phat hanh v3.7.1): me qua so ngay ap du kien
+// (config.totalIncubationDays) ma khong ai dung/xac nhan "tiep tuc" thi TU
+// DONG DUNG ME sau tung nay giay tinh tu dung ngay du kien (epoch, khong
+// phai tinh tu luc phat hien - song sot qua reboot vi tinh truc tiep tu
+// batchStartEpoch_ da luu). 12 gio du de nguoi van hanh kip thay thong bao/
+// coi va quyet dinh, nhung khong de may giu am vo thoi han neu bi bo quen.
+constexpr uint32_t BATCH_OVERDUE_AUTO_STOP_GRACE_SEC = 12UL * 3600UL;
 // Khi cho phuc hoi me ma RTC khong hop le (ResumeBlockReason::Rtc) - khac voi
 // man hinh xac nhan tren (co nguoi thao tac duoc), truong hop nay may KHONG
 // TU LAM GI DUOC (dang cho RTC song lai qua auto-repair/NTP), nen can canh
@@ -622,6 +629,11 @@ constexpr char SAFETY_NVS_RESET_KEY[] = "reset_count";
 // stop_intent da lam, de song sot qua reboot.
 constexpr char SAFETY_NVS_TURN_CHECK_KEY[] = "turn_check";
 constexpr char SAFETY_NVS_TURN_STREAK_KEY[] = "turn_streak";
+// F-06: nguoi van hanh da xac nhan "tiep tuc u am" cho me QUA HAN hien tai -
+// luu NVS de song sot qua reboot (khong thi sau reboot may lai hoi lai/bat
+// coi dung ngay khi con dang trong 12h an han, du nguoi dung da tra loi
+// truoc do). Duoc startBatch()/stopBatch() xoa cho me tiep theo.
+constexpr char SAFETY_NVS_OVERDUE_KEY[] = "batch_overdue";
 constexpr uint32_t RUNTIME_TO_HMI_MS = 200UL;
 constexpr uint32_t DIAGNOSTIC_STATUS_MS = 10000UL;
 constexpr bool SERIAL_DEBUG_DEFAULT_ON = false;
@@ -880,6 +892,8 @@ static_assert(sizeof(SAFETY_NVS_RESET_KEY) <= 16U,
 static_assert(sizeof(SAFETY_NVS_TURN_CHECK_KEY) <= 16U,
               "NVS key toi da 15 ky tu");
 static_assert(sizeof(SAFETY_NVS_TURN_STREAK_KEY) <= 16U,
+              "NVS key toi da 15 ky tu");
+static_assert(sizeof(SAFETY_NVS_OVERDUE_KEY) <= 16U,
               "NVS key toi da 15 ky tu");
 static_assert(REQUIRE_HEATER_ENABLE_TO_START,
               "Ban thuong mai bat buoc cong tac nhiet ON khi bat dau me");
@@ -1151,6 +1165,9 @@ struct MachineRuntime {
   uint16_t relayTransitionsHour = 0;
   bool sensorStartupGrace = true;
   bool resumeConfirmationRequired = false;
+  // F-06: me da qua so ngay ap du kien, dang cho xac nhan "tiep tuc u am"
+  // (BatchOverdueContinue) hoac tu dong dung sau 12h - xem updateBatchOverdue().
+  bool batchOverdueConfirmationPending = false;
   // Lan khoi dong nay la khoi dong lai SAU KHI MAT DIEN giua mot me dang ap
   // (khong phai bat may binh thuong). Chi nam trong RAM (MachineRuntime khong
   // luu EEPROM) va giu nguyen suot phien chay - cloud_alert_link.h dung de
@@ -1183,8 +1200,20 @@ enum class HmiCommandType : uint8_t {
   AlarmAck, AutoTuneStart, ResumeYes, ResumeNo,
   TestModeEnter, TestModeExit, TestOutputPulse, TestOutputStop, TestLimitStart, TestLimitCancel,
   WifiPortalStart, WifiPortalCancel, CloudPinReset, FirmwareWebApply, FirmwareWebCheckNow,
-  FirmwareRollback, LightToggle
+  FirmwareRollback, LightToggle,
+  // F-06: xac nhan "tiep tuc u am" cho me da qua han ngay du kien - huy yeu
+  // cau coi + huy dem nguoc tu dong dung 12h cho me hien tai (khong can lam
+  // gi them; dung "Ket thuc me" (BatchStop) da co san neu muon dung som hon).
+  BatchOverdueContinue
 };
+// F-09 (audit truoc phat hanh v3.7.1): AlarmAck truoc day khong phan biet
+// lenh den tu bang dieu khien vat ly (HMI) hay tu xa (MQTT/web) - mot nguoi
+// dung tu xa co the xoa loi dao trung (can kiem tra co khi that su) hoac tam
+// tat coi khan cap lien tuc ma khong ai o canh may kiem tra. Nguon mac dinh
+// la Local de moi noi trong hmi.h goi queueCommand() KHONG can sua (dung y
+// dinh vat ly nhu truoc gio); chi realtime_link.h::handleCommandMessage()
+// truyen rieng Remote.
+enum class HmiCommandSource : uint8_t { Local, Remote };
 struct HmiCommand {
   uint32_t id = 0;
   HmiCommandType type = HmiCommandType::None;
@@ -1194,6 +1223,7 @@ struct HmiCommand {
   // Dung chung cho: mat na alarm (AlarmAck) HOAC gia tri TestOutputId/TestLimitId
   // (TestOutputPulse/TestLimitStart) tuy theo command.type.
   uint32_t alarmMask = AlarmNone;
+  HmiCommandSource source = HmiCommandSource::Local;
 };
 enum class BuzzerCue : uint8_t { None, Key, Save, Ok, Error };
 

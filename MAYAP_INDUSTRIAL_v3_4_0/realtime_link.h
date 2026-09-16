@@ -318,6 +318,7 @@ inline void publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
   r["autoTuneState"] = static_cast<uint8_t>(rt.autoTuneState);
   r["autoTuneProgress"] = rt.autoTuneProgress;
   r["resumeConfirmationRequired"] = rt.resumeConfirmationRequired;
+  r["batchOverdueConfirmationPending"] = rt.batchOverdueConfirmationPending;
   // Danh sach loi dang active, da sap xep theo displayPriority giam dan boi
   // FaultManager::copyActiveForHmi() - phan tu [0] la loi quan trong nhat.
   // Web dung de to mau o Trang thai + hien popup chi tiet khi bam vao.
@@ -374,6 +375,10 @@ inline HmiCommandType mapCommandAction(const char *action) {
   // cach truyen alarmMask rieng cho alarm_ack (LightToggle khong can tham so).
   if (!strcmp(action, "light_toggle")) return HmiCommandType::LightToggle;
   if (!strcmp(action, "alarm_ack")) return HmiCommandType::AlarmAck;
+  // F-06: xac nhan "tiep tuc u am" khi me qua han ngay du kien - khong bi
+  // han che nguon (F-09) vi day la quyet dinh van hanh, khong phai su co
+  // can kiem tra vat ly.
+  if (!strcmp(action, "batch_overdue_continue")) return HmiCommandType::BatchOverdueContinue;
   return HmiCommandType::None;
 }
 
@@ -447,7 +452,11 @@ inline void handleCommandMessage(const JsonDocument &doc) {
   uint32_t commandId = 0U;
   const uint16_t validForMs = type == HmiCommandType::AutoTuneStart
       ? COMMAND_AUTOTUNE_VALID_MS : COMMAND_DEFAULT_VALID_MS;
-  const bool queued = queueCommand(type, validForMs, 0U, alarmMaskParam, &commandId);
+  // F-09: danh dau lenh nay den tu MQTT (tu xa) - AlarmAck se tu choi rieng
+  // 2 hanh dong can xac nhan vat ly (xoa loi dao/tat coi khan cap) neu nguon
+  // la Remote, xem case HmiCommandType::AlarmAck trong processHmiTransactions().
+  const bool queued = queueCommand(type, validForMs, 0U, alarmMaskParam, &commandId,
+                                    HmiCommandSource::Remote);
   if (!queued) {
     publishAck(requestId, "busy", "");
     return;
