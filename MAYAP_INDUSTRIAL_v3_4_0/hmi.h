@@ -4170,12 +4170,41 @@ void applyRuntime(MachineRuntime runtime) {
     lastObservedTestLimitPhase = currentRuntime.testLimitPhase;
   }
 
-  if (newFaultOccurrence || newAlarmBits) {
+  // Nguoi dung dang thao tac CHU DONG o noi khac (menu cai dat, man xac
+  // nhan Bat/Dung me, nhat ky su kien...) khong nen bi "giat" ve man Canh
+  // bao giua chung chi vi mot loi CANH BAO (Warning - may van ap binh
+  // thuong, vd do am/nhiet do dao dong quanh nguong) VUA TAI KICH HOAT -
+  // alarmPresentedMask bi xoa bit ngay khi loi tam het active (dong 4121 o
+  // tren) nen lan tai kich hoat ke tiep cua CHINH loi do van bi tinh la
+  // "moi" (newFaultOccurrence) du nguoi dung da thay no roi. Truoc day
+  // truong hop nay luon ngat ngang bat ke dang lam gi, khien viec nhan giu
+  // vao Menu cai dat hay xac nhan Ket thuc me tro nen rat kho moi khi dang
+  // co canh bao (bi vang man hinh moi vai giay). Loi Stop/Emergency (may
+  // KHONG con ap duoc binh thuong nua) va bat ky AlarmBit HOAN TOAN chua
+  // tung hien (newAlarmBits) van LUON duoc uu tien hien NGAY bat ke dang
+  // lam gi, vi day la thong tin an toan nguoi dung phai biet ngay lap tuc.
+  const bool userBusyElsewhere = view == View::MainMenu ||
+      view == View::ChungMenu || view == View::SettingList ||
+      view == View::EditSetting || view == View::TestMode ||
+      view == View::TestSummary || view == View::EventLog ||
+      confirmationActive();
+  const bool faultSeverityCritical =
+      runtime.lastRaisedFaultSeverity >= FAULT_SEVERITY_STOP_THRESHOLD;
+  const bool shouldShowAlarmNow = newAlarmBits ||
+      (newFaultOccurrence && (faultSeverityCritical || !userBusyElsewhere));
+
+  if (shouldShowAlarmNow) {
     alarmPresentedMask |= newAlarmBits | newFaultAlarmBit;
     if (view != View::Alarm) alarmReturnView = view;
     alarmIndex = 0;
     view = View::Alarm;
     dirty = true;
+  } else if (newFaultOccurrence) {
+    // Van danh dau la "da trinh dien" du khong doi man hinh, tranh lan tai
+    // kich hoat KE TIEP cua chinh loi nay bi hieu nham la moi mai. "!" o dau
+    // man hinh (drawHeader) va coi/buzzer van bao binh thuong nhu cu - chi
+    // khac o cho khong chen ngang man hinh nguoi dung dang dung thao tac.
+    alarmPresentedMask |= newFaultAlarmBit;
   } else if (!runtime.alarmMask && view == View::Alarm) {
     view = alarmReturnView;
     dirty = true;
