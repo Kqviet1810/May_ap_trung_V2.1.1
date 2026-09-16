@@ -1029,6 +1029,14 @@ struct MachineConfig {
   // (giong het Nhiet do thap - E110 - von da luon nhu vay), huu ich neu
   // phong dat may nong tu nhien luc khong ap gay bao gia lien tuc.
   bool highTempAlarmWithoutBatch = true;
+  // F-13 (audit truoc phat hanh v3.7.1, schema 9): dao tay giua me (AUTO tam
+  // tat) truoc day KHONG dong bo voi lich dao tu dong - bat AUTO lai co the
+  // dao tu dong THEM 1 lan ngay sau do neu chu ky da het han trong luc dao
+  // tay. BAT: coi lan dao tay la mot lan dao THAT, doi lich (nextTurnAt_)
+  // tinh tu ngay luc do, tranh dao thua. TAT (mac dinh, giu nguyen hanh vi
+  // cu): dao tay khong dong lich, chu ky tu dong van dem tiep nhu khong co
+  // gi xay ra. Cho phep doi ngay trong luc me dang chay (khong khoa).
+  bool manualTurnReanchorsSchedule = false;
 };
 
 // Nhac nho tuy chinh theo ngay (v3.7.0) - nguoi dung tao tren web, tinh tu

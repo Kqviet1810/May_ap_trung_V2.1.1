@@ -516,17 +516,18 @@ const SettingItem SETTINGS[] = {
   ITEM_U8("So lan doi dau", tempOscillationCrossLimit, 2, 30, 1, "l"),       // 24
   ITEM_U16("Khung dao dong", tempOscillationWindowSec, 60, 3600, 30, "s"),   // 25
   ITEM_U8("Cong suat tune", autotuneRelayPowerPercent, 10, 80, 5, "%"),      // 26
-  ITEM_FLOAT("Bien do tune", autotuneBandC, 0.05f, 1.0f, 0.05f, 2, "C")      // 27
+  ITEM_FLOAT("Bien do tune", autotuneBandC, 0.05f, 1.0f, 0.05f, 2, "C"),     // 27
+  ITEM_BOOL("Dao tay dong lich", manualTurnReanchorsSchedule)               // 28
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 28, "Bang SETTINGS phai co 28 thong so");
+static_assert(SETTING_COUNT == 29, "Bang SETTINGS phai co 29 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
   4,5,6,7,8,9,10,                      // Nhiet do (gop them Quat hut - lien
                                        // quan truc tiep den dieu khien nhiet)
-  11,12,13,                            // Dao trung
+  11,12,13,28,                          // Dao trung
   14,                                   // He thong
   15,16,17,18,19,20,21,22,23,24,25,26,27 // Nang cao
 };
@@ -544,12 +545,12 @@ const SettingGroup GROUPS[] = {
   // thong so dieu khien nhiet, tach rieng truoc day khien menu vun vat
   // khong can thiet.
   {"NHIET DO", 4, 7},
-  {"DAO TRUNG", 11, 3},
+  {"DAO TRUNG", 11, 4},
   // Doi ten tu "KET NOI" thanh "HE THONG": nhom nay tu lau da khong chi con
   // la cai dat mang - gom ca ma QR, dat lai PIN, cap nhat firmware... nen
   // "He thong" mo ta dung hon la cai dat chung cua may.
-  {"HE THONG", 14, 1},
-  {"NANG CAO", 15, 13}
+  {"HE THONG", 15, 1},
+  {"NANG CAO", 16, 13}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
 static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");
