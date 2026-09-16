@@ -242,6 +242,15 @@ void supervisorTask(void *parameter) {
     // dinh do. Dua ra ngoai vong an toan cua Output an toan truoc khi restart,
     // giong het duong TRIP o tren.
     if (Machine.healthRestartRequested()) {
+      // F-14 (audit truoc phat hanh v3.7.1): duong TRIP o tren dat latch +
+      // suspend controlTask TRUOC khi ep an toan ngo ra, de controlTask
+      // khong the nao con chay va ghi de lai relay giua luc dang restart.
+      // Nhanh nay truoc day BO QUA ca 2 buoc do - them vao cho dong bo, du
+      // cua so rui ro thuc te rat ngan (2 task cung ghim core 1, supervisor
+      // uu tien cao hon controlTask nen binh thuong khong the bi chen ngang,
+      // chi co the xay ra dung luc mayapSerialPrintf() (blocking) nhuong CPU).
+      mayapLatchSystemTrip();
+      if (controlTaskHandle) vTaskSuspend(controlTaskHandle);
       mayapSafeOutputsEarly();
       mayapSerialPrintf(true, "[SUPERVISOR] Health-monitor xin khoi dong lai co kiem soat\n");
       esp_restart();

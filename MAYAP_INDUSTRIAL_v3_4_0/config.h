@@ -559,6 +559,13 @@ constexpr float SENSOR_MAX_DOWN_STEP_C = 1.5f;
 constexpr float SENSOR_PLAUSIBILITY_MATCH_C = 0.30f;
 constexpr uint8_t SENSOR_PLAUSIBILITY_CONFIRM_SAMPLES = 3U;
 constexpr uint32_t SENSOR_STARTUP_GRACE_MS = 20000UL; // chua bao coi trong 20 s dau
+// F-08 (audit truoc phat hanh v3.7.1): phat hien cam bien "dung hinh" - gia
+// tri chap nhan khong doi qua SENSOR_FROZEN_EPSILON_C trong lien tuc
+// SENSOR_FROZEN_TIMEOUT_MS thi coi la nghi ngo dong bang (epsilon rat nho de
+// khong bao nham mot chu ky dieu nhiet that su on dinh - cam bien that co
+// nhieu/troi nen it khi giu nguyen tuyet doi lau nhu vay).
+constexpr float SENSOR_FROZEN_EPSILON_C = 0.01f;
+constexpr uint32_t SENSOR_FROZEN_TIMEOUT_MS = 1200000UL; // 20 phut
 constexpr uint32_t LOW_TEMP_STARTUP_GRACE_MS = 300000UL; // 5 phut
 constexpr uint32_t LOW_TEMP_CONFIRM_MS = 300000UL;       // thap lien tuc 5 phut
 constexpr uint32_t HIGH_TEMP_CONFIRM_MS = 1000UL;
@@ -606,6 +613,15 @@ constexpr uint32_t BATCH_CLEAR_RETRY_MS = 3000UL;
 constexpr char SAFETY_NVS_NAMESPACE[] = "mayap_safe";
 constexpr char SAFETY_NVS_STOP_KEY[] = "stop_intent";
 constexpr char SAFETY_NVS_RESET_KEY[] = "reset_count";
+// F-07 (audit truoc phat hanh v3.7.1): truoc day turnMechanicalCheckRequired_/
+// turnFaultStreak_ (khoa dao vi nghi ngo hong co khi, xem latchTurnFault()
+// trong machine_control.h) chi la bien RAM - mat dien/watchdog/OTA restart
+// se am tham go khoa nay, may lai tu dao binh thuong ma chua ai kiem tra
+// thuc te, phai gap lai du 3 loi lien tiep moi khoa lai (driving mot co cau
+// da nghi ngo hong them 3 lan nua). Luu ca 2 gia tri nay vao NVS giong cach
+// stop_intent da lam, de song sot qua reboot.
+constexpr char SAFETY_NVS_TURN_CHECK_KEY[] = "turn_check";
+constexpr char SAFETY_NVS_TURN_STREAK_KEY[] = "turn_streak";
 constexpr uint32_t RUNTIME_TO_HMI_MS = 200UL;
 constexpr uint32_t DIAGNOSTIC_STATUS_MS = 10000UL;
 constexpr bool SERIAL_DEBUG_DEFAULT_ON = false;
@@ -860,6 +876,10 @@ static_assert(sizeof(SAFETY_NVS_NAMESPACE) <= 16U,
 static_assert(sizeof(SAFETY_NVS_STOP_KEY) <= 16U,
               "NVS key toi da 15 ky tu");
 static_assert(sizeof(SAFETY_NVS_RESET_KEY) <= 16U,
+              "NVS key toi da 15 ky tu");
+static_assert(sizeof(SAFETY_NVS_TURN_CHECK_KEY) <= 16U,
+              "NVS key toi da 15 ky tu");
+static_assert(sizeof(SAFETY_NVS_TURN_STREAK_KEY) <= 16U,
               "NVS key toi da 15 ky tu");
 static_assert(REQUIRE_HEATER_ENABLE_TO_START,
               "Ban thuong mai bat buoc cong tac nhiet ON khi bat dau me");
