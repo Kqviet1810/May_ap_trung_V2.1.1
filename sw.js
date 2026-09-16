@@ -1,8 +1,9 @@
 'use strict';
-const CACHE = 'mayap-web-v11.7.0';
+const CACHE = 'mayap-web-v11.7.1';
 const APP_SHELL = [
   './', './index.html', './styles.css', './app.js', './push.js', './manifest.webmanifest',
   './vendor/jsQR.min.js',
+  './docs/MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf',
   './icons/icon-192.png', './icons/icon-512.png', './icons/badge-72.png'
 ];
 self.addEventListener('install', (event) => {
