@@ -81,6 +81,14 @@ static_assert(sizeof(OTA_PASSWORD) <= 64U, "Mat khau OTA toi da 63 ky tu");
 // config.js ban web). May thuong mai PHAI doi sang broker rieng + tai khoan
 // bang cach dinh nghia lai cac macro nay truoc khi include config.h (vi du
 // qua build_flags), khong sua truc tiep gia tri mac dinh o day.
+//
+// F-01 (audit truoc phat hanh v3.7.1): khi MQTT_USERNAME/MQTT_PASSWORD con la
+// chuoi rong (gia tri mac dinh o duoi day), realtime_link.h::mqttCommandChannelTrusted()
+// tra ve false va KHOA toan bo lenh dieu khien/cau hinh tu xa qua MQTT (chi
+// con publish mot chieu snapshot/presence/log) - vi broker cong khai khong
+// xac thuc nghia la BAT KY AI tren internet co the gui lenh that (dung me,
+// tat coi khan cap, doi cau hinh...) neu khong co hang rao nay. Dat 2 macro
+// nay (tro toi broker rieng) la cach duy nhat de bat lai dieu khien tu xa.
 #ifndef MAYAP_MQTT_HOST
 #define MAYAP_MQTT_HOST "broker.emqx.io"
 #endif

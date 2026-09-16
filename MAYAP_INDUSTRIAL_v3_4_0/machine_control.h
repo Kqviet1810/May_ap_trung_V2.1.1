@@ -420,6 +420,14 @@ enum class FaultCode : uint16_t {
   StorageRetryTrend = 404
 };
 
+// So luong gia tri FaultCode THUC (khong tinh None) - dem tay tu enum o tren.
+// CAP NHAT gia tri nay moi khi them/bot mot ma loi, static_assert canh
+// FaultManager::MAX_FAULTS se bao loi bien dich neu quen (xem F-02: truoc day
+// co 36 ma loi thuc nhung MAX_FAULTS chi la 32, lam FaultManager tran o va
+// ghi de len nhau - vd 4 ma loi dao trung E201-E204 bi xoa khoi he thong canh
+// bao chi sau ~30s).
+constexpr uint8_t FAULT_CODE_REAL_COUNT = 36U;
+
 struct FaultDescriptor {
   FaultCode code;
   FaultSeverity severity;
@@ -442,9 +450,19 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
       AlarmNone, false, false, false, false, false, false, "NONE"};
   static const FaultDescriptor table[] = {
     // code, severity, priority, alarm, latch, inhibitSSR, dropMaster, stopTurn, forceVent, forceCirculation, text
-    {FaultCode::SensorLost, FaultSeverity::Stop, 235U, AlarmSensor, false, true, true, false, false, true, "SENSOR LOST"},
-    {FaultCode::SensorInvalid, FaultSeverity::Stop, 230U, AlarmSensor, false, true, true, false, false, true, "SENSOR INVALID"},
-    {FaultCode::SensorSuspect, FaultSeverity::Stop, 225U, AlarmSensor, false, true, true, false, false, true, "SENSOR SUSPECT"},
+    // F-03: dropHeatMaster=false o ca 3 dong duoi day (truoc day khai la
+    // true) - contactor tong THUC SU khong nha duoc trong luc me dang chay,
+    // vi normalMasterPermit (updateHeatingAndOutputs) chu dich khong xet
+    // faults_.masterDropRequired() nua, theo yeu cau nguoi lap dat de cong
+    // tac nhiet vat ly la "quyen cao nhat" khi dang ap (chi Nhiet do khan
+    // cap moi nha duoc). Giu inhibitSsr=true (D1 van bi cam dung) va
+    // inhibitsTurning tuong ung; bo dropHeatMaster de bang khai bao khop
+    // dung hanh vi thuc te, tranh hieu lam co lop bao ve thu 2 dang hoat
+    // dong. Bu lai bang ro-le nhiet co khi doc lap ngoai mach neu can lop
+    // cat nhiet tu dong that su cho truong hop SSR dinh + mat cam bien.
+    {FaultCode::SensorLost, FaultSeverity::Stop, 235U, AlarmSensor, false, true, false, false, false, true, "SENSOR LOST"},
+    {FaultCode::SensorInvalid, FaultSeverity::Stop, 230U, AlarmSensor, false, true, false, false, false, true, "SENSOR INVALID"},
+    {FaultCode::SensorSuspect, FaultSeverity::Stop, 225U, AlarmSensor, false, true, false, false, false, true, "SENSOR SUSPECT"},
     {FaultCode::LowTemperature, FaultSeverity::Warning, 55U, AlarmTempLow, false, false, false, false, false, false, "TEMP LOW"},
     // Nhiet cao: chi cam SSR, giu contactor tong, bat ca hai quat.
     {FaultCode::HighTemperature, FaultSeverity::Stop, 240U, AlarmTempHigh, false, true, false, true, true, true, "TEMP HIGH"},
@@ -489,17 +507,20 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // tat, ma bien do chi tat trong updateTestMode() khi ca 2 CTHT deu xac
     // nhan Success trong Test Mode - xem ghi chu tai latchTurnFault()).
     {FaultCode::TurnMechanicalCheckRequired, FaultSeverity::Stop, 165U, AlarmTurning, false, false, false, true, false, false, "TURN MECHANICAL CHECK"},
-    {FaultCode::StorageUnavailable, FaultSeverity::Stop, 205U, AlarmSystem, true, true, true, false, false, false, "EEPROM UNAVAILABLE"},
+    // F-03: dropHeatMaster=false (xem ghi chu day du canh SensorLost o tren) -
+    // ap dung cho ca 4 dong duoi day.
+    {FaultCode::StorageUnavailable, FaultSeverity::Stop, 205U, AlarmSystem, true, true, false, false, false, false, "EEPROM UNAVAILABLE"},
     {FaultCode::StorageDegraded, FaultSeverity::Warning, 90U, AlarmSystem, false, false, false, false, false, false, "EEPROM DEGRADED"},
-    {FaultCode::AbnormalReset, FaultSeverity::Stop, 210U, AlarmSystem, true, true, true, false, false, false, "ABNORMAL RESET"},
-    {FaultCode::OutputConflict, FaultSeverity::Emergency, 250U, AlarmSystem, true, true, true, true, false, false, "OUTPUT CONFLICT"},
+    {FaultCode::AbnormalReset, FaultSeverity::Stop, 210U, AlarmSystem, true, true, false, false, false, false, "ABNORMAL RESET"},
+    {FaultCode::OutputConflict, FaultSeverity::Emergency, 250U, AlarmSystem, true, true, false, true, false, false, "OUTPUT CONFLICT"},
     {FaultCode::RelayRateExceeded, FaultSeverity::Warning, 70U, AlarmSystem, true, false, false, false, false, false, "RELAY RATE"},
     {FaultCode::RtcFailure, FaultSeverity::Warning, 80U, AlarmSystem, false, false, false, false, false, false, "RTC FAILURE"},
     // Da dung/huy me nhung ban ghi wasRunning=0 chua duoc EEPROM xac nhan.
-    {FaultCode::BatchStateClearPending, FaultSeverity::Stop, 212U, AlarmSystem, false, true, true, false, false, false, "BATCH CLEAR PENDING"},
+    // F-03: dropHeatMaster=false (xem ghi chu day du canh SensorLost o tren).
+    {FaultCode::BatchStateClearPending, FaultSeverity::Stop, 212U, AlarmSystem, false, true, false, false, false, false, "BATCH CLEAR PENDING"},
     // NVS noi bo chi lam tombstone an toan va dem reset. Mat no thi cam
     // bat dau/phuc hoi de tranh tu khoi dong lai mot me da duoc dung.
-    {FaultCode::SafetyJournalUnavailable, FaultSeverity::Stop, 214U, AlarmSystem, true, true, true, false, false, false, "SAFETY JOURNAL FAIL"},
+    {FaultCode::SafetyJournalUnavailable, FaultSeverity::Stop, 214U, AlarmSystem, true, true, false, false, false, false, "SAFETY JOURNAL FAIL"},
     // Mat log khong duoc lam dung gia nhiet/dao cua me, nhung phai canh bao ro.
     {FaultCode::BatchLogUnavailable, FaultSeverity::Warning, 75U, AlarmSystem, false, false, false, false, false, false, "BATCH LOG UNAVAILABLE"},
     // Nhom 400: canh bao DU DOAN SOM cua serviceHealthMonitor() - CHU DICH
@@ -703,16 +724,32 @@ class FaultManager {
   }
 
  private:
-  // Hien co 28 ma FaultCode thuc. De du headroom de loi moi khong ghi de
-  // mot slot dang active (co the lam mat lien dong an toan), cap 32 slot tinh.
-  static constexpr uint8_t MAX_FAULTS = 32U;
+  // FAULT_CODE_REAL_COUNT (khai bao canh enum FaultCode) la so ma loi thuc
+  // hien co - MAX_FAULTS PHAI luon > gia tri do, static_assert ben duoi bao
+  // loi bien dich neu ai them ma loi ma quen tang MAX_FAULTS (xem F-02: truoc
+  // day co 36 ma loi thuc nhung MAX_FAULTS chi la 32 - moi ma loi deu duoc
+  // set() moi nhip dieu khien/health nen bang day that su, va 4 ma loi dao
+  // trung E201-E204 (khong bao gio duoc set() truc tiep, chi cap slot qua
+  // latchTurnFault) la nhung ma duy nhat khong co slot rieng - bi slot() danh
+  // de cho ma khac ghi de chi sau 1 nhip health (<=30s), xoa mat canh bao dao
+  // trung dang active). De headroom ro rang cho ca ma loi tuong lai.
+  static constexpr uint8_t MAX_FAULTS = 48U;
+  static_assert(MAX_FAULTS > FAULT_CODE_REAL_COUNT,
+                "MAX_FAULTS phai lon hon so ma FaultCode thuc - tang MAX_FAULTS "
+                "(va cap nhat FAULT_CODE_REAL_COUNT) khi them ma loi moi");
   FaultState &slot(FaultCode code) {
     for (uint8_t i = 0; i < count_; ++i) if (states_[i].code == code) return states_[i];
     if (count_ < MAX_FAULTS) {
       states_[count_].code = code;
       return states_[count_++];
     }
-    // Bang day: dung slot cuoi cho loi moi. Day la tinh huong bat thuong nhung van fail-safe.
+    // Bang day (khong nen xay ra voi headroom hien tai): uu tien tim mot slot
+    // KHONG active de tai su dung, tranh ghi de mat mot loi dang active that
+    // su (day la nguyen nhan goc cua F-02). Chi khi moi slot deu dang active
+    // (tinh huong cuc doan hon nua) moi danh doi dung slot cuoi nhu truoc.
+    for (uint8_t i = 0; i < MAX_FAULTS; ++i) {
+      if (!states_[i].active) { states_[i] = FaultState{}; states_[i].code = code; return states_[i]; }
+    }
     states_[MAX_FAULTS - 1U].code = code;
     return states_[MAX_FAULTS - 1U];
   }
@@ -4298,6 +4335,11 @@ class MachineController {
     if (!rtc_.valid()) { message = "RTC CHUA HOP LE"; return false; }
     if (in.limitLeft && in.limitRight) { message = "LOI 2 HANH TRINH"; return false; }
     if (turnFaultLatched_) { message = "DANG CO LOI DAO"; return false; }
+    // Khoa kiem tra co khi dao (E205, bat sau 3 lan loi dao lien tiep) khong
+    // tu het khi turnFaultLatched_ duoc ACK - phai vao Test Mode xac nhan lai
+    // ca 2 cong tac hanh trinh (updateTestMode) moi duoc go. Neu khong chan o
+    // day, me moi se chay het chu ky ma khong bao gio dao (F-04).
+    if (faults_.turningInhibited()) { message = "CAN KIEM TRA CO KHI DAO"; return false; }
     if (highTemperatureActive_ || emergencyActive_) { message = "NHIET DANG QUA CAO"; return false; }
     if (!in.heaterEnable) {
       message = "HAY BAT CONG TAC NHIET"; return false;

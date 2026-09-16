@@ -1515,7 +1515,11 @@
     'THIEU CONFIG': 'Thiếu dữ liệu cấu hình gửi lên',
     'LUU CAU HINH BI TU CHOI': 'Máy từ chối lưu (đang có mẻ chạy khoá cấu hình, hoặc lỗi bộ nhớ) - thử lại sau',
     'LUU NHAC NHO BI TU CHOI': 'Máy từ chối lưu danh sách nhắc nhở (lỗi bộ nhớ) - thử lại sau',
-    'THIEU REMINDERS': 'Thiếu dữ liệu nhắc nhở gửi lên'
+    'THIEU REMINDERS': 'Thiếu dữ liệu nhắc nhở gửi lên',
+    // F-01 (audit truoc phat hanh v3.7.1): may tu choi lenh vi dang dung
+    // broker MQTT cong khai mac dinh (khong xac thuc) - xem
+    // mqttCommandChannelTrusted() trong realtime_link.h.
+    'BROKER CONG KHAI - LENH TU XA BI KHOA': 'Máy đang dùng broker MQTT công khai (chưa cấu hình riêng) nên lệnh điều khiển từ xa bị khoá để an toàn - vui lòng thao tác trực tiếp trên máy'
   };
 
   function humanAckMessage(ack) {
