@@ -317,24 +317,20 @@ constexpr uint32_t ATTINY_BUS_END_GAP_MS = 150UL;
 constexpr uint32_t ATTINY_BUS_ACK_TIMEOUT_MS = 200UL;
 constexpr uint8_t ATTINY_BUS_MAX_RETRY = 3U;
 
-// Bang ma ban tin (so xung). Chieu ESP32->Tiny: 1-5. Chieu Tiny->ESP32: 6.
+// Bang ma ban tin (so xung). Chieu ESP32->Tiny: 1-5. Chieu Tiny->ESP32: 6-7.
 constexpr uint8_t ATTINY_MSG_BATCH_START = 1U;  // ESP32->Tiny: me ap vua bat dau
 constexpr uint8_t ATTINY_MSG_BATCH_END   = 2U;  // ESP32->Tiny: me ap vua ket thuc
 constexpr uint8_t ATTINY_MSG_SIREN_ON    = 3U;  // ESP32->Tiny: bat coi (bao nhiet khan cap)
 constexpr uint8_t ATTINY_MSG_SIREN_OFF   = 4U;  // ESP32->Tiny: tat coi
 constexpr uint8_t ATTINY_MSG_PING        = 5U;  // ESP32->Tiny: kiem tra con song khong
-constexpr uint8_t ATTINY_MSG_9V_LOW      = 6U;  // Tiny->ESP32: nguon 9V da yeu (~7V)
-constexpr uint8_t ATTINY_MSG_MAX_CODE    = 6U;
+constexpr uint8_t ATTINY_MSG_9V_LOW       = 6U; // Tiny->ESP32: pin 9V coi sap het (~7V)
+constexpr uint8_t ATTINY_MSG_9V_RECOVERED = 7U; // Tiny->ESP32: pin da thay/9V phuc hoi
+constexpr uint8_t ATTINY_MSG_MAX_CODE     = 7U;
 
 // Kiem tra dinh ky "con song khong" trong luc dang co me ap (khong chi luc
 // bat dau) - phat hien som neu mach ATtiny/pin CR2032 da hong giua chung
 // ma khong ai biet trong suot 18-21 ngay ap.
 constexpr uint32_t ATTINY_PING_INTERVAL_MS = 6UL * 3600UL * 1000UL;
-
-// Canh bao "9V yeu" tu ATtiny chi bao 1 chieu (khong co ban tin "da het
-// yeu") - tu het hien thi sau tung nay neu khong duoc bao lai (xem
-// updateAttinyLink() trong machine_control.h).
-constexpr uint32_t ATTINY_9V_LOW_DISPLAY_MS = 24UL * 3600UL * 1000UL;
 
 // Input opto ACTIVE-LOW: kich 12 V => ngo ra opto keo GPIO xuong GND.
 constexpr uint8_t PIN_IN_LIMIT_LEFT    = 4;

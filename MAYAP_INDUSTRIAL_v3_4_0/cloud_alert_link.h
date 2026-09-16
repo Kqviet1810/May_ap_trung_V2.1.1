@@ -195,6 +195,8 @@ inline const char *faultSummaryText(uint16_t code) {
     case 402: return "Bộ nhớ RAM cạn kiệt - máy sẽ tự khởi động lại để phòng ngừa";
     case 403: return "Dự đoán nhiệt độ sắp chạm ngưỡng cảnh báo theo tốc độ hiện tại";
     case 404: return "Bộ nhớ EEPROM phải thử lại nhiều bất thường - có thể đang suy giảm";
+    case 501: return "Mất liên lạc mạch báo mất điện ATtiny - kiểm tra pin CR2032 và dây tín hiệu";
+    case 502: return "Pin còi 9V sắp hết - hãy thay pin sớm để bảo đảm còi báo khi mất điện";
     default: return "Lỗi không xác định";
   }
 }

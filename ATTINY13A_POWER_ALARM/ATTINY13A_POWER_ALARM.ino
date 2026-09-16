@@ -127,8 +127,9 @@ constexpr uint8_t MSG_BATCH_END   = 2U;
 constexpr uint8_t MSG_SIREN_ON    = 3U;
 constexpr uint8_t MSG_SIREN_OFF   = 4U;
 constexpr uint8_t MSG_PING        = 5U;
-constexpr uint8_t MSG_9V_LOW      = 6U;
-constexpr uint8_t MSG_MAX_CODE    = 6U;
+constexpr uint8_t MSG_9V_LOW       = 6U;
+constexpr uint8_t MSG_9V_RECOVERED = 7U;
+constexpr uint8_t MSG_MAX_CODE     = 7U;
 
 // Thoi gian doi on dinh muc (chong nhieu/gon song thoang qua) truoc khi tin
 // la 3.3V/9V THAT SU vua doi trang thai - ngan hon nhieu so voi ban WDT cu
@@ -223,7 +224,7 @@ static bool waitForAck() {
 }
 
 // Gui 1 ban tin, cho ACK, tu dong thu lai toi da MAX_RETRY lan. BLOCKING -
-// chi goi tu vong lap chinh (hiem khi xay ra: bao 9V yeu).
+// chi goi tu vong lap chinh (hiem khi xay ra: bao pin 9V yeu/phuc hoi).
 static bool sendMessageBlocking(uint8_t code) {
   bool acked = false;
   for (uint8_t attempt = 0U; attempt < MAX_RETRY && !acked; ++attempt) {
@@ -329,8 +330,12 @@ int main(void) {
           coiKhauCap = false;
           break;
         case MSG_PING:
+          // Bao lai neu pin 9V van yeu. Nho vay ESP32 khoi dong lai van
+          // khoi phuc duoc E502 ma ATtiny khong can thuc dinh ky.
+          if (!coDien9vTruoc) (void)sendMessageBlocking(MSG_9V_LOW);
+          break;
         default:
-          break;  // PING/ban tin khong hop le: ACK (neu hop le) da gui trong
+          break;  // Ban tin khong hop le: ACK (neu hop le) da gui trong
                    // receiveMessage(), khong can lam gi them o day
       }
       sirenSet(coiKhauCap || coiMatDien);
@@ -365,10 +370,11 @@ int main(void) {
           // sendMessageBlocking() tu bo cuoc sau MAX_RETRY (khoang <1 giay)
           // va tro ve day, khong lam gi them - AN TOAN, khong treo may.
           (void)sendMessageBlocking(MSG_9V_LOW);
+        } else {
+          // Pin da duoc thay/nguon 9V da phuc hoi: bao ngay de ESP32 go E502
+          // tren HMI, web va gui thong bao "Da het".
+          (void)sendMessageBlocking(MSG_9V_RECOVERED);
         }
-        // Luc phuc hoi (coDien9v tro lai true): KHONG can gui gi ca - ben
-        // ESP32 tu het canh bao sau 24h (xem ATTINY_9V_LOW_DISPLAY_MS trong
-        // config.h), tranh phai them 1 ma ban tin moi chi de bao "da het".
       }
     }
   }
