@@ -33,8 +33,13 @@ name: Build & release firmware
 # Board hien trong Arduino IDE: "ESP32S3 Dev Module" -> esp32:esp32:esp32s3.
 on:
   push:
+    branches:
+      - 'hardening/**'
     tags:
       - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch: {}
 
 # Bat buoc phai co contents: write thi buoc "Tao GitHub Release" (softprops/
@@ -62,36 +67,77 @@ jobs:
       - name: Cai loi ESP32 (Espressif)
         run: |
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          arduino-cli core install esp32:esp32 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
       - name: Cai thu vien (U8g2, PubSubClient, ArduinoJson)
-        run: arduino-cli lib install U8g2 PubSubClient ArduinoJson
+        run: arduino-cli lib install U8g2@2.36.19 PubSubClient@2.8.0 ArduinoJson@7.4.3
 
-      # F-01 (audit truoc phat hanh v3.7.1): nhung MQTT broker RIENG (khong
-      # phai broker.emqx.io cong khai mac dinh trong config.h) vao ban build
-      # neu repo da khai bao du 3 secret ben duoi (Settings > Secrets and
-      # variables > Actions > New repository secret). Gia tri secret KHONG
-      # BAO GIO xuat hien trong log/code - chi ton tai trong bien moi truong
-      # cua buoc nay. Thieu du 3 secret => giu nguyen broker cong khai mac
-      # dinh (lenh dieu khien tu xa se bi khoa boi mqttCommandChannelTrusted(),
-      # xem realtime_link.h) - an toan hon la lo mac dinh sai.
-      - name: Bien dich firmware
+      - name: Kiem tra version va ma nguon an toan
+        run: |
+          VERSION=$(sed -n 's/.*MAYAP_FIRMWARE_VERSION\[\].*"\([^"]*\)".*/\1/p' MAYAP_INDUSTRIAL_v3_4_0/config.h)
+          test -n "$VERSION"
+          if [[ "$GITHUB_REF" == refs/tags/* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME khong khop firmware $VERSION"
+            exit 1
+          fi
+          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
+            echo "::error::Khong duoc bo qua xac thuc TLS"
+            exit 1
+          fi
+          if grep -R "181020\|ddd731ab21ea9024e9c69abbe67b63e9" MAYAP_INDUSTRIAL_v3_4_0; then
+            echo "::error::Phat hien bi mat cu trong ma nguon"
+            exit 1
+          fi
+          if grep -R "mayapAttinyBusSend" MAYAP_INDUSTRIAL_v3_4_0; then
+            echo "::error::Phat hien lai API ATtiny blocking"
+            exit 1
+          fi
+
+      - name: Tao header bi mat khi build
         env:
           MAYAP_MQTT_HOST: ${{ secrets.MAYAP_MQTT_HOST }}
           MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
           MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
+          MAYAP_DEVICE_SECRET: ${{ secrets.MAYAP_DEVICE_SECRET }}
+          MAYAP_OTA_PASSWORD: ${{ secrets.MAYAP_OTA_PASSWORD }}
+          MAYAP_TLS_ROOT_CA: ${{ secrets.MAYAP_TLS_ROOT_CA }}
         run: |
-          MQTT_FLAGS=""
-          if [ -n "$MAYAP_MQTT_HOST" ] && [ -n "$MAYAP_MQTT_USERNAME" ] && [ -n "$MAYAP_MQTT_PASSWORD" ]; then
-            echo "Da tim thay du 3 secret MQTT - nhung broker rieng (TLS, cong 8883) vao firmware."
-            MQTT_FLAGS="-DMAYAP_MQTT_HOST=\"$MAYAP_MQTT_HOST\" -DMAYAP_MQTT_PORT=8883 -DMAYAP_MQTT_USE_TLS=1 -DMAYAP_MQTT_USERNAME=\"$MAYAP_MQTT_USERNAME\" -DMAYAP_MQTT_PASSWORD=\"$MAYAP_MQTT_PASSWORD\""
-          else
-            echo "CANH BAO: thieu secret MAYAP_MQTT_HOST/USERNAME/PASSWORD - firmware se dung broker cong khai mac dinh, lenh dieu khien tu xa se BI KHOA (xem F-01)."
-          fi
+          python3 - <<'PY'
+          import json, os
+          values = {
+              "MAYAP_MQTT_HOST": os.getenv("MAYAP_MQTT_HOST", ""),
+              "MAYAP_MQTT_USERNAME": os.getenv("MAYAP_MQTT_USERNAME", ""),
+              "MAYAP_MQTT_PASSWORD": os.getenv("MAYAP_MQTT_PASSWORD", ""),
+              "MAYAP_DEVICE_SECRET": os.getenv("MAYAP_DEVICE_SECRET", ""),
+              "MAYAP_OTA_PASSWORD": os.getenv("MAYAP_OTA_PASSWORD", ""),
+              "MAYAP_TLS_ROOT_CA": os.getenv("MAYAP_TLS_ROOT_CA", ""),
+          }
+          with open("MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h", "w", encoding="utf-8") as f:
+              f.write("#pragma once\n")
+              for key, value in values.items():
+                  f.write(f"#define {key} {json.dumps(value)}\n")
+          if os.getenv("GITHUB_REF", "").startswith("refs/tags/"):
+              missing = [k for k, v in values.items() if not v]
+              if missing:
+                  raise SystemExit("Release bi chan vi thieu secret: " + ", ".join(missing))
+          PY
+
+      - name: Kiem tra JavaScript
+        run: |
+          node --check app.js
+          node --check push.js
+          node --check sw.js
+          node --check config.js
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/auth.js
+          node --check cloudflare/src/db.js
+          node --check cloudflare/src/push.js
+
+      - name: Bien dich firmware
+        run: |
           arduino-cli compile \
             --fqbn "${{ env.MAYAP_FQBN }}" \
             --output-dir ./build \
-            --build-property "compiler.cpp.extra_flags=${MQTT_FLAGS}" \
             --verbose \
             MAYAP_INDUSTRIAL_v3_4_0
 

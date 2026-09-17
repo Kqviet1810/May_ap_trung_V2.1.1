@@ -5,6 +5,10 @@
 #include <stddef.h>
 #include <math.h>
 
+#if __has_include("build_secrets.h")
+#include "build_secrets.h"
+#endif
+
 // ============================================================================
 // MAY AP TRUNG INDUSTRIAL v3.4.0 - CAU HINH DUY NHAT CAN SUA
 // MCU: ESP32-S3-WROOM-1U-N8, FLASH THAT 8MB (da xac nhan qua "esptool.py
@@ -155,7 +159,7 @@ constexpr char CLOUD_API_HOST[] = MAYAP_CLOUD_API_HOST;
 
 // Chuoi PEM gom mot hoac nhieu CA goc tin cay. Ban thuong mai phai nhung
 // qua build secret. De rong => cac kenh TLS that bai dong, tuyet doi khong
-// ha cap sang setInsecure().
+// ha cap sang che do TLS khong xac thuc.
 #ifndef MAYAP_TLS_ROOT_CA
 #define MAYAP_TLS_ROOT_CA ""
 #endif
