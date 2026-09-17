@@ -6,6 +6,10 @@
 #include <esp_system.h>
 #include <string.h>
 
+#ifndef MAYAP_ENABLE_LEGACY_DEVICE_MIGRATION
+#define MAYAP_ENABLE_LEGACY_DEVICE_MIGRATION 0
+#endif
+
 namespace MayapDeviceIdentityInternal {
 static char activeKey[65] = "";
 static char webPin[9] = "";
@@ -31,24 +35,41 @@ inline void mayapDeviceIdentityBegin() {
   using namespace MayapDeviceIdentityInternal;
   Preferences prefs;
   if (!prefs.begin("mayap-id", false)) return;
-  const String storedKey = prefs.getString("device-key", "");
-  if (storedKey.length() >= 32U && storedKey.length() < sizeof(activeKey)) {
-    strlcpy(activeKey, storedKey.c_str(), sizeof(activeKey));
-  } else if (CLOUD_DEVICE_SECRET[0]) {
-    // Mot lan duy nhat cho may da xuat xuong: dung khoa build cu de xac thuc,
-    // sau do cloud_alert_link se xoay sang khoa rieng trong NVS.
-    strlcpy(activeKey, CLOUD_DEVICE_SECRET, sizeof(activeKey));
-    usingLegacyKey = true;
-  } else {
-    randomHex(activeKey, 32U);
-    prefs.putString("device-key", activeKey);
-  }
+
+  // Doc PIN truoc de phan biet may da hardening/migrate thanh cong voi may
+  // dang ket o trang thai 401 do firmware truoc tu sinh device-key ngau nhien.
   const String storedPin = prefs.getString("web-pin", "");
   if (storedPin.length() >= 4U && storedPin.length() < sizeof(webPin)) {
     strlcpy(webPin, storedPin.c_str(), sizeof(webPin));
     webPinConfigured = true;
   } else {
     webPinConfigured = prefs.getBool("web-pin-set", false);
+  }
+
+  const String storedKey = prefs.getString("device-key", "");
+  const bool storedKeyValid = storedKey.length() >= 32U && storedKey.length() < sizeof(activeKey);
+  const bool legacyDone = prefs.getBool("legacy-done", false);
+  const bool migrationRequested = (MAYAP_ENABLE_LEGACY_DEVICE_MIGRATION != 0) &&
+                                  CLOUD_DEVICE_SECRET[0] && !legacyDone &&
+                                  !webPinConfigured;
+
+  if (migrationRequested) {
+    // Ban migration CHI dung mot lan: cho phep khoa build cu xac thuc voi
+    // Worker, sau do cloud_alert_link xoay ngay sang khoa rieng va ghi vao NVS.
+    // Khong xoa storedKey hien co: neu migration that bai, build thuong sau do
+    // van con khoa NVS cu de chan doan/khoi phuc.
+    strlcpy(activeKey, CLOUD_DEVICE_SECRET, sizeof(activeKey));
+    usingLegacyKey = true;
+  } else if (storedKeyValid) {
+    strlcpy(activeKey, storedKey.c_str(), sizeof(activeKey));
+  } else if (CLOUD_DEVICE_SECRET[0]) {
+    // May cu chua tung co khoa NVS: dung khoa build cu dung mot lan, sau do
+    // cloud_alert_link se xoay sang khoa rieng trong NVS.
+    strlcpy(activeKey, CLOUD_DEVICE_SECRET, sizeof(activeKey));
+    usingLegacyKey = true;
+  } else {
+    randomHex(activeKey, 32U);
+    prefs.putString("device-key", activeKey);
   }
   prefs.end();
 }
@@ -68,9 +89,14 @@ inline void mayapGenerateDeviceSecret(char out[65]) {
 inline bool mayapCommitDeviceSecret(const char *key) {
   using namespace MayapDeviceIdentityInternal;
   if (!key || strlen(key) < 32U || strlen(key) >= sizeof(activeKey)) return false;
+  const bool wasLegacy = usingLegacyKey;
   Preferences prefs;
   if (!prefs.begin("mayap-id", false)) return false;
   const bool ok = prefs.putString("device-key", key) > 0U;
+  // Marker nay ngan ban migration quay lai khoa cu sau reboot. Ghi best-effort:
+  // web-pin-set cung da duoc danh dau ngay khi register 200, nen co hai lop
+  // bao ve doc lap neu NVS gap loi ghi hiem gap tai dung thoi diem nay.
+  if (ok && wasLegacy) prefs.putBool("legacy-done", true);
   prefs.end();
   if (ok) {
     strlcpy(activeKey, key, sizeof(activeKey));
