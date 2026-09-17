@@ -2046,26 +2046,16 @@ void selectMainItem() {
   dirty = true;
 }
 
-// Quy tac cho nhan ngan/nhan giu tai ca hai trang Home (MAY AP va TRANG THAI):
-// 1) Dang co loi + nhan ngan (ca hai trang): mo trang chi tiet loi (nhu cu).
-// 2) Dang co loi + nhan giu TREN TRANG MAY AP: duong thoat khan cap - mo
-//    thang xac nhan KET THUC ME, ke ca loi chua het han/chua tu xoa duoc.
-// 3) Dang co loi + nhan giu TREN TRANG TRANG THAI: van vao Menu chinh nhu
-//    binh thuong - loi da tat coi (ACK) khong duoc chan duong vao menu,
-//    chi trang MAY AP moi co loi thoat khan cap rieng.
-// 4) Khong co loi, trang MAY AP: mo xac nhan Bat/Dung me (nhu cu).
-// 5) Khong co loi, trang TRANG THAI: mo Menu chinh (nhu cu).
+// Quy tac HMI khi dang co loi:
+// - Nhan ngan: giu nguyen chuc nang cua trang dang dung. Neu man canh bao
+//   dang tu bat, nhan ngan ACK/tat coi va an man nay tam thoi.
+// - Nhan giu tai Home: mo lai danh sach loi dang hoat dong de xem chi tiet.
+// Nhieu loi van duoc xu ly o MachineController; doi thao tac HMI khong lam
+// vo hieu bat ky bao ve an toan nao.
 void activateHomeContext(bool longPress) {
-  if (currentRuntime.activeFaultDisplayCount) {
-    if (!longPress) {
-      openAlarmView(View::Home);
-      return;
-    }
-    if (homePage == 0U) {
-      openBatchConfirm(View::Home);
-      return;
-    }
-    // homePage == 1 (TRANG THAI) + nhan giu: roi xuong nhanh Menu chinh ben duoi.
+  if (longPress && currentRuntime.activeFaultDisplayCount) {
+    openAlarmView(View::Home);
+    return;
   }
   if (homePage == 0U) {
     openBatchConfirm(View::Home);
@@ -2250,9 +2240,14 @@ void handleInput() {
 
   if (rotary.button == ButtonEvent::LongPress) {
     if (view == View::Home) {
-      // Nhan giu tren Home: neu dang co loi thi la duong thoat KET THUC ME,
-      // khac voi nhan ngan (mo trang loi). Khong loi thi hanh vi nhu cu.
       activateHomeContext(true);
+      return;
+    }
+    if (view == View::Alarm) {
+      // Tu man canh bao, nhan giu de xem lai nhat ky su kien thay vi dong man.
+      eventLogIndex = 0U;
+      view = View::EventLog;
+      dirty = true;
       return;
     }
     if (view == View::SettingList) {
@@ -2476,7 +2471,12 @@ void handleInput() {
         dirty = true;
       }
       if (rotary.button == ButtonEvent::ShortPress) {
-        if (requestAlarmAcknowledge()) view = alarmReturnView;
+        // Nhan ngan chi ACK/tat coi va quay lai man dang dung. Loi van con
+        // trong he thong, co the xem lai bang nhan giu tai Home.
+        if (requestAlarmAcknowledge()) {
+          view = alarmReturnView;
+          dirty = true;
+        }
       }
       break;
     }
@@ -2696,7 +2696,7 @@ void drawAlarm() {
   faultDetail(fault, detail, sizeof(detail));
   drawCenteredFit(42, detail, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
                   u8g2_font_5x8_tf);
-  snprintf(footer, sizeof(footer), "E%03u %u/%u  NHAN=ACK",
+  snprintf(footer, sizeof(footer), "E%03u %u/%u NHAN=TAT GIU=XEM",
            fault.code, alarmIndex + 1U, count);
   lcd.setFont(u8g2_font_5x8_tf);
   lcd.drawStr(1, 61, footer);
