@@ -6357,6 +6357,8 @@ class MachineController {
     runtime_.wifiPortalState = portal.state;
     snprintf(runtime_.wifiPortalApName, sizeof(runtime_.wifiPortalApName), "%s",
              portal.apName);
+    snprintf(runtime_.wifiPortalPassword, sizeof(runtime_.wifiPortalPassword), "%s",
+             portal.password);
     if (runtime_.timeValid) {
       snprintf(runtime_.dateText, sizeof(runtime_.dateText), "%s",
                rtc_.dateText());

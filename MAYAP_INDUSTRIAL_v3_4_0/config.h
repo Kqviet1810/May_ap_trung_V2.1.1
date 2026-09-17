@@ -1166,6 +1166,7 @@ enum class WifiPortalState : uint8_t {
 struct WifiPortalStatus {
   WifiPortalState state = WifiPortalState::Idle;
   char apName[20] = "";
+  char password[16] = "";
 };
 
 // Danh sach nga ra co the bat/tat doc lap trong Che do thu nghiem. Gia tri
@@ -1274,6 +1275,7 @@ struct MachineRuntime {
   // Trang thai cong 1 "Doi Wi-Fi" phat tu HMI, doc lap voi NetworkStatus binh thuong.
   WifiPortalState wifiPortalState = WifiPortalState::Idle;
   char wifiPortalApName[20] = "";
+  char wifiPortalPassword[16] = "";
 };
 
 enum class HmiCommandType : uint8_t {

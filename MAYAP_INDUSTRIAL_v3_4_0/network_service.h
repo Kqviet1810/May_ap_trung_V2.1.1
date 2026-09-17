@@ -141,6 +141,7 @@ static volatile uint8_t portalCancelFlag = 0U;    // 1 = HMI bam Thoat/Huy
 static volatile uint8_t publishedPortalState =
     static_cast<uint8_t>(WifiPortalState::Idle);
 static char publishedPortalApName[20] = "";
+static char publishedPortalPassword[16] = "";
 static portMUX_TYPE portalNameMux = portMUX_INITIALIZER_UNLOCKED;
 
 enum class PortalPhase : uint8_t { Idle, Starting, ApActive, Testing, Success, Failed };
@@ -149,6 +150,7 @@ static uint32_t portalOpenedAt = 0U;
 static uint32_t portalTestStartedAt = 0U;
 static uint32_t portalResultUntil_ = 0U;
 static char portalApName[20] = "";
+static char portalApPassword[16] = "";
 static char pendingSsid[WIFI_PORTAL_SSID_MAX + 1U] = "";
 static char pendingPassword[WIFI_PORTAL_PASSWORD_MAX + 1U] = "";
 static bool pendingCredentialsReady = false;
@@ -172,6 +174,8 @@ inline void publishPortalState(WifiPortalState state, const char *apName) {
   portENTER_CRITICAL(&portalNameMux);
   snprintf(publishedPortalApName, sizeof(publishedPortalApName), "%s",
            apName ? apName : "");
+  snprintf(publishedPortalPassword, sizeof(publishedPortalPassword), "%s",
+           (apName && apName[0]) ? portalApPassword : "");
   portEXIT_CRITICAL(&portalNameMux);
 }
 
@@ -381,7 +385,7 @@ inline void portalStop() {
 inline bool bringUpSoftAp() {
   WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
                     IPAddress(255, 255, 255, 0));
-  const bool ok = WiFi.softAP(portalApName);
+  const bool ok = WiFi.softAP(portalApName, portalApPassword);
   mayapSerialPrintf(false, "[PORTAL] softAP(%s) -> %s\n", portalApName,
                     ok ? "OK" : "FAIL");
   return ok;
@@ -391,6 +395,9 @@ inline void portalBeginStarting(uint32_t now) {
   const uint64_t chip = ESP.getEfuseMac();
   snprintf(portalApName, sizeof(portalApName), "MAYAP-%04X",
            static_cast<unsigned>((chip >> 32U) & 0xFFFFU));
+  // Mat khau moi moi lan mo cong, hien truc tiep tren HMI. Khong con AP mo.
+  snprintf(portalApPassword, sizeof(portalApPassword), "MP%06lX",
+           static_cast<unsigned long>(esp_random() & 0xFFFFFFUL));
 
   // RAT QUAN TRONG de AP phat song on dinh: tat auto-reconnect va ngat STA
   // dang co TRUOC khi doi mode. Neu khong, STA (dang tu dong thu ket noi lai
@@ -694,6 +701,7 @@ inline WifiPortalStatus mayapGetWifiPortalStatus() {
   status.state = static_cast<WifiPortalState>(state);
   portENTER_CRITICAL(&portalNameMux);
   snprintf(status.apName, sizeof(status.apName), "%s", publishedPortalApName);
+  snprintf(status.password, sizeof(status.password), "%s", publishedPortalPassword);
   portEXIT_CRITICAL(&portalNameMux);
   return status;
 }

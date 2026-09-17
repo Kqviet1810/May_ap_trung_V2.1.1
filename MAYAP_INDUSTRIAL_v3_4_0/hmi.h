@@ -3382,9 +3382,10 @@ void drawWifiChange() {
   // van di qua drawCenteredFit() de chac chan khong bao gio tran.
   char line[40];
   if (state == WifiPortalState::ApActive || state == WifiPortalState::Testing) {
-    drawCenteredFit(38, "Ket noi dien thoai toi:", u8g2_font_5x8_tf,
-                    u8g2_font_5x8_tf, u8g2_font_5x8_tf);
-    snprintf(line, sizeof(line), "%s (192.168.4.1)", currentRuntime.wifiPortalApName);
+    snprintf(line, sizeof(line), "WiFi: %s", currentRuntime.wifiPortalApName);
+    drawCenteredFit(38, line, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+                    u8g2_font_5x8_tf);
+    snprintf(line, sizeof(line), "MK: %s", currentRuntime.wifiPortalPassword);
     drawCenteredFit(50, line, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
                     u8g2_font_5x8_tf);
   } else if (state == WifiPortalState::Failed) {
