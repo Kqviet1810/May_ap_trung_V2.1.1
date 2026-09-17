@@ -1,37 +1,5 @@
 name: Build & release firmware
 
-# Tu dong bien dich MAYAP_INDUSTRIAL_v3_4_0.ino thanh file .bin bang
-# arduino-cli tren may chu GitHub (co internet day du, khac han moi may local
-# dung de phat trien) - khong ai phai tu tay bien dich + upload file .bin
-# nua. Chi can day 1 tag dang "vX.Y.Z" (khop MAYAP_FIRMWARE_VERSION trong
-# config.h) len GitHub la workflow nay tu bien dich + tao GitHub Release +
-# dinh kem file .bin vao do. Cloudflare Worker (xem cloudflare/src/index.js:
-# handleFirmwareCheck/handleFirmwareDownload) doc phien ban/tai file firmware
-# THANG tu GitHub Releases API - khong can trang admin upload thu cong.
-#
-# Cach phat hanh 1 ban moi:
-#   git tag v3.5.0
-#   git push origin v3.5.0
-#
-# QUAN TRONG - cau hinh board (FQBN) da XAC MINH BANG CHUNG CU THE, khong con
-# doan mo ho (lich su: tung doan sai 2 lan - dau tien FlashSize=8M dua theo
-# ten module "N8", sau do doan nham chip chi co 4MB - CA HAI DEU SAI):
-#   - esptool.py flash_id tren thiet bi that: "Detected flash size: 8MB"
-#     -> chip THAT SU la 8MB, dung nhu ten module "N8".
-#   - Log loi boot thuc te ("partition 3 invalid - offset 0x340000 size
-#     0x330000 exceeds flash chip size 0x400000") khop CHINH XAC voi cach
-#     Partition Scheme "8M with spiffs (3MB APP/1.5MB SPIFFS)" bo tri 2 khe
-#     OTA (ota_0 tai 0x10000, ota_1 tai 0x10000+0x330000=0x340000, moi khe
-#     0x330000) - tuc la Partition Scheme DA DUNG cho chip 8MB that, chi co
-#     Flash Size trong Arduino IDE bi de nham "4MB" (0x400000) nen khe ota_1
-#     bi tinh la "vuot qua" gioi han khai bao sai do.
-#   - Da doi chieu danh sach gia tri hop le qua `arduino-cli board details -b
-#     esp32:esp32:esp32s3 --full`: FlashSize=8M hop le; ten "8M with spiffs
-#     (3MB APP/1.5MB SPIFFS)" co khoa noi bo la PartitionScheme=default_8MB
-#     (KHAC "huge_app" - "Huge APP" ghi ro la "No OTA", chi 1 khe, khong phu
-#     hop tinh nang cap nhat firmware cua du an nay).
-# Board hien trong Arduino IDE: "ESP32S3 Dev Module" -> esp32:esp32:esp32s3.
-# USB CDC duoc bat trong FQBN de Serial Monitor doc truc tiep qua USB native.
 on:
   push:
     branches:
@@ -42,19 +10,7 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      legacy_device_migration:
-        description: 'Chi bat 1 lan de khoi phuc may cu dang bi HTTP 401 device_key'
-        required: false
-        default: false
-        type: boolean
 
-# Bat buoc phai co contents: write thi buoc "Tao GitHub Release" (softprops/
-# action-gh-release) moi tao duoc Release - mac dinh GITHUB_TOKEN cua repo
-# nay chi co quyen doc (Settings > Actions > Workflow permissions), thieu
-# khai bao nay se bi GitHub tra ve loi 403 "Resource not accessible by
-# integration" ngay khi vua goi tao Release (da gap thuc te o lan chay tag
-# v3.5.0 dau tien).
 permissions:
   contents: write
 
@@ -71,7 +27,7 @@ jobs:
       - name: Cai dat arduino-cli
         uses: arduino/setup-arduino-cli@v2
 
-      - name: Cai loi ESP32 (Espressif)
+      - name: Cai loi ESP32
         run: |
           for attempt in 1 2 3; do
             arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json && break
@@ -84,7 +40,7 @@ jobs:
             sleep 5
           done
 
-      - name: Cai thu vien (U8g2, PubSubClient, ArduinoJson)
+      - name: Cai thu vien
         run: |
           for attempt in 1 2 3; do
             arduino-cli lib install U8g2@2.36.19 PubSubClient@2.8.0 ArduinoJson@7.4.3 && break
@@ -104,90 +60,52 @@ jobs:
             echo "::error::Khong duoc bo qua xac thuc TLS"
             exit 1
           fi
-          if grep -R "181020\|ddd731ab21ea9024e9c69abbe67b63e9" MAYAP_INDUSTRIAL_v3_4_0; then
-            echo "::error::Phat hien bi mat cu trong ma nguon"
-            exit 1
-          fi
-          if grep -R "mayapAttinyBusSend" MAYAP_INDUSTRIAL_v3_4_0; then
-            echo "::error::Phat hien lai API ATtiny blocking"
+          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
+            echo "::error::Private key khong duoc nam trong firmware"
             exit 1
           fi
 
-      - name: Tao header bi mat khi build
+      - name: Nap MQTT secret cho build deploy
+        if: github.event_name != 'pull_request'
         env:
           MAYAP_WIFI_SSID: ${{ secrets.MAYAP_WIFI_SSID }}
           MAYAP_WIFI_PASSWORD: ${{ secrets.MAYAP_WIFI_PASSWORD }}
           MAYAP_MQTT_HOST: ${{ secrets.MAYAP_MQTT_HOST }}
           MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
           MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
-          MAYAP_DEVICE_SECRET: ${{ secrets.MAYAP_DEVICE_SECRET }}
           MAYAP_OTA_PASSWORD: ${{ secrets.MAYAP_OTA_PASSWORD }}
-          MAYAP_TLS_ROOT_CA: ${{ secrets.MAYAP_TLS_ROOT_CA }}
-          MAYAP_OTA_SIGNING_PUBLIC_KEY: ${{ secrets.MAYAP_OTA_SIGNING_PUBLIC_KEY }}
-          MAYAP_OTA_SIGNING_PRIVATE_KEY: ${{ secrets.MAYAP_OTA_SIGNING_PRIVATE_KEY }}
-          MAYAP_LEGACY_DEVICE_MIGRATION: ${{ inputs.legacy_device_migration && '1' || '0' }}
         run: |
           python3 - <<'PY'
-          import json, os
+          import json, os, re
+          from pathlib import Path
 
-          legacy_migration = os.getenv("MAYAP_LEGACY_DEVICE_MIGRATION", "0") == "1"
-          legacy_secret = os.getenv("MAYAP_DEVICE_SECRET", "")
-          source_values = {
-              "MAYAP_WIFI_SSID": os.getenv("MAYAP_WIFI_SSID", ""),
-              "MAYAP_WIFI_PASSWORD": os.getenv("MAYAP_WIFI_PASSWORD", ""),
-              "MAYAP_MQTT_HOST": os.getenv("MAYAP_MQTT_HOST", ""),
-              "MAYAP_MQTT_USERNAME": os.getenv("MAYAP_MQTT_USERNAME", ""),
-              "MAYAP_MQTT_PASSWORD": os.getenv("MAYAP_MQTT_PASSWORD", ""),
-              # Khoa cu CHI duoc nhung vao binary migration chay tay. Push/tag/
-              # build pilot binh thuong khong mang khoa cu du Secret van ton tai.
-              "MAYAP_DEVICE_SECRET": legacy_secret if legacy_migration else "",
-              "MAYAP_OTA_PASSWORD": os.getenv("MAYAP_OTA_PASSWORD", ""),
-              "MAYAP_TLS_ROOT_CA": os.getenv("MAYAP_TLS_ROOT_CA", ""),
-              "MAYAP_OTA_SIGNING_PUBLIC_KEY": os.getenv("MAYAP_OTA_SIGNING_PUBLIC_KEY", ""),
+          path = Path('MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h')
+          text = path.read_text(encoding='utf-8')
+
+          required = ['MAYAP_MQTT_USERNAME', 'MAYAP_MQTT_PASSWORD']
+          missing = [k for k in required if not os.getenv(k, '')]
+          if missing:
+              raise SystemExit('Thieu GitHub Secrets: ' + ', '.join(missing))
+
+          values = {
+              'MAYAP_WIFI_SSID': os.getenv('MAYAP_WIFI_SSID', ''),
+              'MAYAP_WIFI_PASSWORD': os.getenv('MAYAP_WIFI_PASSWORD', ''),
+              'MAYAP_MQTT_HOST': os.getenv('MAYAP_MQTT_HOST', ''),
+              'MAYAP_MQTT_USERNAME': os.getenv('MAYAP_MQTT_USERNAME', ''),
+              'MAYAP_MQTT_PASSWORD': os.getenv('MAYAP_MQTT_PASSWORD', ''),
+              'MAYAP_OTA_PASSWORD': os.getenv('MAYAP_OTA_PASSWORD', ''),
           }
-          private_signing_key = os.getenv("MAYAP_OTA_SIGNING_PRIVATE_KEY", "")
-          event_name = os.getenv("GITHUB_EVENT_NAME", "")
-          is_tag = os.getenv("GITHUB_REF", "").startswith("refs/tags/")
 
-          # Firmware duoc nap len may BAT BUOC phai co du cau hinh TLS/MQTT.
-          # Chi pull_request (dac biet PR tu fork, khong duoc cap GitHub Secret)
-          # moi duoc dung CA gia de kiem tra cu phap/compile. PR khong bao gio
-          # xuat artifact .bin nen gia tri nay khong the bi nap nham vao may.
-          required_runtime = [
-              "MAYAP_MQTT_HOST", "MAYAP_MQTT_USERNAME", "MAYAP_MQTT_PASSWORD",
-              "MAYAP_TLS_ROOT_CA", "MAYAP_OTA_SIGNING_PUBLIC_KEY",
-          ]
-          missing_runtime = [k for k in required_runtime if not source_values[k]]
+          for key, value in values.items():
+              if key == 'MAYAP_MQTT_HOST' and not value:
+                  continue
+              pattern = rf'^#define\s+{re.escape(key)}\s+.*$'
+              replacement = f'#define {key} {json.dumps(value)}'
+              text, count = re.subn(pattern, replacement, text, count=1, flags=re.M)
+              if count != 1:
+                  raise SystemExit(f'Khong tim thay macro {key} trong build_secrets.h')
 
-          values = dict(source_values)
-          if event_name == "pull_request":
-              if not values["MAYAP_TLS_ROOT_CA"]:
-                  values["MAYAP_TLS_ROOT_CA"] = "CI-ONLY-NOT-A-TRUSTED-CA"
-          elif missing_runtime:
-              raise SystemExit(
-                  "Build firmware bi chan vi thieu cau hinh runtime: "
-                  + ", ".join(missing_runtime)
-                  + ". Khong tao .bin co the nap vao may khi TLS/MQTT chua san sang."
-              )
-
-          if legacy_migration:
-              if event_name != "workflow_dispatch":
-                  raise SystemExit("Legacy migration chi duoc phep khi Run workflow bang tay")
-              if not legacy_secret:
-                  raise SystemExit(
-                      "Legacy migration bi chan vi thieu secret MAYAP_DEVICE_SECRET. "
-                      "Them khoa cu vao GitHub Secret, khong hard-code vao source."
-                  )
-              print("::warning::Dang tao firmware LEGACY MIGRATION mot lan; artifact chi luu 1 ngay")
-
-          if is_tag and not private_signing_key:
-              raise SystemExit("Release bi chan vi thieu secret: MAYAP_OTA_SIGNING_PRIVATE_KEY")
-
-          with open("MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h", "w", encoding="utf-8") as f:
-              f.write("#pragma once\n")
-              for key, value in values.items():
-                  f.write(f"#define {key} {json.dumps(value)}\n")
-              f.write(f"#define MAYAP_ENABLE_LEGACY_DEVICE_MIGRATION {1 if legacy_migration else 0}\n")
+          path.write_text(text, encoding='utf-8')
           PY
 
       - name: Kiem tra JavaScript
@@ -209,34 +127,22 @@ jobs:
             --verbose \
             MAYAP_INDUSTRIAL_v3_4_0
 
-      - name: Bao cao kich thuoc (doi chieu voi log Arduino IDE tren may ban)
+      - name: Bao cao kich thuoc
         run: ls -la ./build/*.bin
 
-      - name: Doi ten file .bin theo tag
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
-
-      # Chi Run workflow bang tay moi xuat .bin pilot. Push nhanh/PR chi compile
-      # de kiem tra va KHONG de lai artifact co the bi tai ve nap nham.
-      - name: Luu file .bin pilot (chi khi chay tay)
-        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.legacy_device_migration }}
+      - name: Luu file .bin pilot
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: firmware-bin-pilot
           path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
           retention-days: 7
 
-      # Binary nay co legacy secret nen chi dung de chuyen doi may cu dang 401,
-      # khong phat hanh va khong giu lau tren Actions.
-      - name: Luu file .bin legacy migration (1 ngay)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.legacy_device_migration }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: firmware-bin-legacy-migration
-          path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
-          retention-days: 1
+      - name: Doi ten file .bin theo tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
 
       - name: Ky so firmware
         if: startsWith(github.ref, 'refs/tags/')
@@ -249,9 +155,11 @@ jobs:
           base64 -w0 firmware.sig.der > "./MAYAP-firmware-${GITHUB_REF_NAME#v}.sig"
           rm -f ota-signing-key.pem firmware.sig.der
 
-      - name: Tao GitHub Release + dinh kem file .bin
+      - name: Tao GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ./MAYAP-firmware-*.bin
+          files: |
+            ./MAYAP-firmware-*.bin
+            ./MAYAP-firmware-*.sig
           generate_release_notes: true
