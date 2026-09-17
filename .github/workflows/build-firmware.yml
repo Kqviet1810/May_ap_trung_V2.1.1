@@ -33,13 +33,8 @@ name: Build & release firmware
 # Board hien trong Arduino IDE: "ESP32S3 Dev Module" -> esp32:esp32:esp32s3.
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*.*.*'
-    paths:
-      - 'MAYAP_INDUSTRIAL_v3_4_0/**'
-      - '.github/workflows/build-firmware.yml'
   workflow_dispatch: {}
 
 # Bat buoc phai co contents: write thi buoc "Tao GitHub Release" (softprops/
@@ -87,17 +82,9 @@ jobs:
           MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
         run: |
           MQTT_FLAGS=""
-          MQTT_HOST_CLEAN="$(printf '%s' "$MAYAP_MQTT_HOST" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-          if [ -n "$MQTT_HOST_CLEAN" ] && [ -n "$MAYAP_MQTT_USERNAME" ] && [ -n "$MAYAP_MQTT_PASSWORD" ]; then
-            if ! printf '%s' "$MQTT_HOST_CLEAN" | grep -Eq '^[A-Za-z0-9.-]+$'; then
-              echo "::error::MAYAP_MQTT_HOST khong hop le. Chi nhap hostname, khong kem giao thuc, cong, duong dan hoac khoang trang."
-              exit 1
-            fi
+          if [ -n "$MAYAP_MQTT_HOST" ] && [ -n "$MAYAP_MQTT_USERNAME" ] && [ -n "$MAYAP_MQTT_PASSWORD" ]; then
             echo "Da tim thay du 3 secret MQTT - nhung broker rieng (TLS, cong 8883) vao firmware."
-            if [ "$MQTT_HOST_CLEAN" != "$MAYAP_MQTT_HOST" ]; then
-              echo "::warning::Da loai bo ky tu trang o dau/cuoi MAYAP_MQTT_HOST."
-            fi
-            MQTT_FLAGS="-DMAYAP_MQTT_HOST=\"$MQTT_HOST_CLEAN\" -DMAYAP_MQTT_PORT=8883 -DMAYAP_MQTT_USE_TLS=1 -DMAYAP_MQTT_USERNAME=\"$MAYAP_MQTT_USERNAME\" -DMAYAP_MQTT_PASSWORD=\"$MAYAP_MQTT_PASSWORD\""
+            MQTT_FLAGS="-DMAYAP_MQTT_HOST=\"$MAYAP_MQTT_HOST\" -DMAYAP_MQTT_PORT=8883 -DMAYAP_MQTT_USE_TLS=1 -DMAYAP_MQTT_USERNAME=\"$MAYAP_MQTT_USERNAME\" -DMAYAP_MQTT_PASSWORD=\"$MAYAP_MQTT_PASSWORD\""
           else
             echo "CANH BAO: thieu secret MAYAP_MQTT_HOST/USERNAME/PASSWORD - firmware se dung broker cong khai mac dinh, lenh dieu khien tu xa se BI KHOA (xem F-01)."
           fi

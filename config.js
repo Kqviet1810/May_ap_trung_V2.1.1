@@ -1,10 +1,10 @@
 // ============================================================================
-// MAYAP WEB CONFIG - BAN THUONG MAI
-// MQTT duoc Cloudflare Worker cap tu dong sau khi khach nhap dung ID + PIN.
-// Khong dat tai khoan/mat khau MQTT trong file cong khai nay.
+// MAYAP WEB CONFIG - BAN KIEM TRA GITHUB PAGES
+// Firmware ESP32 phai bat MAYAP_USE_PUBLIC_TEST_BROKER = 1 de test cung broker.
+// KHONG dung broker cong cong cho may thuong mai.
 // ============================================================================
 window.MAYAP_WEB_CONFIG = Object.freeze({
-  mqttUrl: '',
+  mqttUrl: 'wss://broker.emqx.io:8084/mqtt',
   mqttUsername: '',
   mqttPassword: '',
   topicRoot: 'mayap/v1',
