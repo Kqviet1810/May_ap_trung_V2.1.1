@@ -475,9 +475,9 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // dung hanh vi thuc te, tranh hieu lam co lop bao ve thu 2 dang hoat
     // dong. Bu lai bang ro-le nhiet co khi doc lap ngoai mach neu can lop
     // cat nhiet tu dong that su cho truong hop SSR dinh + mat cam bien.
-    {FaultCode::SensorLost, FaultSeverity::Stop, 235U, AlarmSensor, false, true, false, false, false, true, "SENSOR LOST"},
-    {FaultCode::SensorInvalid, FaultSeverity::Stop, 230U, AlarmSensor, false, true, false, false, false, true, "SENSOR INVALID"},
-    {FaultCode::SensorSuspect, FaultSeverity::Stop, 225U, AlarmSensor, false, true, false, false, false, true, "SENSOR SUSPECT"},
+    {FaultCode::SensorLost, FaultSeverity::Stop, 235U, AlarmSensor, false, true, true, false, false, true, "SENSOR LOST"},
+    {FaultCode::SensorInvalid, FaultSeverity::Stop, 230U, AlarmSensor, false, true, true, false, false, true, "SENSOR INVALID"},
+    {FaultCode::SensorSuspect, FaultSeverity::Stop, 225U, AlarmSensor, false, true, true, false, false, true, "SENSOR SUSPECT"},
     // F-08: canh bao THUAN CHAN DOAN - gia tri cam bien "dung hinh" (khong
     // doi trong thoi gian dai du frame van hop le, CRC dung, khong mat tin
     // hieu) trong luc dang chay me. KHONG cam SSR/nha contactor: neu gia tri
@@ -487,7 +487,7 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     {FaultCode::SensorFrozen, FaultSeverity::Warning, 58U, AlarmSensor, false, false, false, false, false, false, "SENSOR FROZEN"},
     {FaultCode::LowTemperature, FaultSeverity::Warning, 55U, AlarmTempLow, false, false, false, false, false, false, "TEMP LOW"},
     // Nhiet cao: chi cam SSR, giu contactor tong, bat ca hai quat.
-    {FaultCode::HighTemperature, FaultSeverity::Stop, 240U, AlarmTempHigh, false, true, false, true, true, true, "TEMP HIGH"},
+    {FaultCode::HighTemperature, FaultSeverity::Stop, 240U, AlarmTempHigh, false, true, true, true, true, true, "TEMP HIGH"},
     // Khan cap: cam SSR va nha contactor tong ngay.
     {FaultCode::EmergencyTemperature, FaultSeverity::Emergency, 255U, AlarmEmergency, false, true, true, true, true, true, "TEMP EMERGENCY"},
     {FaultCode::HumidityLow, FaultSeverity::Warning, 40U, AlarmHumidityLow, false, false, false, false, false, false, "HUM LOW"},
@@ -5757,8 +5757,11 @@ class MachineController {
     // cho truong hop chinh SSR D1 bi ket/chay o trang thai BAT (loi phan cung
     // SSR thuc te hay gap), khong lien quan cong tac.
     const bool heatDemandContext = batchRunning_ || autotune_.running();
+    // v3.8.0: cong tac vat ly la yeu cau BAT, khong phai quyen vuot qua
+    // bao ve. Mat/loi cam bien hoac fault yeu cau cat tong phai nha contactor.
     const bool normalMasterPermit =
-        in.heaterEnable && !emergencyActive_ && heatDemandContext;
+        in.heaterEnable && sensorUsable_ && !faults_.masterDropRequired() &&
+        !emergencyActive_ && heatDemandContext;
     // D1 SSR/PID (dong nhiet THAT su) van giu NGUYEN VEN toan bo cac dieu
     // kien an toan nhu truoc gio - chi RIENG relay tong o tren la doi theo
     // yeu cau, khong lam long cac dieu kien cho dong dien nhiet thuc te.
