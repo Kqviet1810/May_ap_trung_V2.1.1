@@ -488,7 +488,8 @@ async function refreshFirmwareCache(env, release) {
   const version = String(release.tag_name || '').replace(/^v/, '');
   if (!isValidFirmwareVersion(version)) return null;
   const asset = (release.assets || []).find((a) => a.name && a.name.endsWith('.bin'));
-  if (!asset || !asset.browser_download_url) return null;
+  const signatureAsset = (release.assets || []).find((a) => a.name && a.name.endsWith('.sig'));
+  if (!asset || !asset.browser_download_url || !signatureAsset?.browser_download_url) return null;
 
   const assetRes = await fetch(asset.browser_download_url, {
     headers: { 'User-Agent': 'mayap-push-worker' },
@@ -496,11 +497,18 @@ async function refreshFirmwareCache(env, release) {
   if (!assetRes.ok) return null;
   const buffer = await assetRes.arrayBuffer();
   const digest = await crypto.subtle.digest('SHA-256', buffer);
+  const signatureRes = await fetch(signatureAsset.browser_download_url, {
+    headers: { 'User-Agent': 'mayap-push-worker' },
+  });
+  if (!signatureRes.ok) return null;
+  const signature = (await signatureRes.text()).trim();
+  if (!/^[A-Za-z0-9+/]{40,}={0,2}$/.test(signature)) return null;
 
   const cache = {
     version,
     assetUrl: asset.browser_download_url,
     sha256: toHexDigest(digest),
+    signature,
     size: buffer.byteLength,
     notes: String(release.body || '').slice(0, 2000),
     fetchedAt: Date.now(),
@@ -562,6 +570,7 @@ async function handleFirmwareCheck(request, env) {
     update_available: true,
     version: latest.version,
     sha256: latest.sha256,
+    signature: latest.signature,
     size: latest.size,
     notes: latest.notes,
   });

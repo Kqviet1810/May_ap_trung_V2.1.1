@@ -101,6 +101,7 @@ jobs:
           MAYAP_DEVICE_SECRET: ${{ secrets.MAYAP_DEVICE_SECRET }}
           MAYAP_OTA_PASSWORD: ${{ secrets.MAYAP_OTA_PASSWORD }}
           MAYAP_TLS_ROOT_CA: ${{ secrets.MAYAP_TLS_ROOT_CA }}
+          MAYAP_OTA_SIGNING_PUBLIC_KEY: ${{ secrets.MAYAP_OTA_SIGNING_PUBLIC_KEY }}
         run: |
           python3 - <<'PY'
           import json, os
@@ -111,6 +112,7 @@ jobs:
               "MAYAP_DEVICE_SECRET": os.getenv("MAYAP_DEVICE_SECRET", ""),
               "MAYAP_OTA_PASSWORD": os.getenv("MAYAP_OTA_PASSWORD", ""),
               "MAYAP_TLS_ROOT_CA": os.getenv("MAYAP_TLS_ROOT_CA", ""),
+              "MAYAP_OTA_SIGNING_PUBLIC_KEY": os.getenv("MAYAP_OTA_SIGNING_PUBLIC_KEY", ""),
           }
           with open("MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h", "w", encoding="utf-8") as f:
               f.write("#pragma once\n")
@@ -160,6 +162,17 @@ jobs:
           name: firmware-bin-test
           path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
           retention-days: 7
+
+      - name: Ky so firmware
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          OTA_SIGNING_PRIVATE_KEY: ${{ secrets.MAYAP_OTA_SIGNING_PRIVATE_KEY }}
+        run: |
+          test -n "$OTA_SIGNING_PRIVATE_KEY" || { echo "::error::Thieu khoa ky OTA"; exit 1; }
+          printf '%s\n' "$OTA_SIGNING_PRIVATE_KEY" > ota-signing-key.pem
+          openssl dgst -sha256 -sign ota-signing-key.pem -out firmware.sig.der "./MAYAP-firmware-${GITHUB_REF_NAME#v}.bin"
+          base64 -w0 firmware.sig.der > "./MAYAP-firmware-${GITHUB_REF_NAME#v}.sig"
+          rm -f ota-signing-key.pem firmware.sig.der
 
       - name: Tao GitHub Release + dinh kem file .bin
         if: startsWith(github.ref, 'refs/tags/')

@@ -165,6 +165,11 @@ constexpr char CLOUD_API_HOST[] = MAYAP_CLOUD_API_HOST;
 #endif
 constexpr char TLS_ROOT_CA[] = MAYAP_TLS_ROOT_CA;
 
+#ifndef MAYAP_OTA_SIGNING_PUBLIC_KEY
+#define MAYAP_OTA_SIGNING_PUBLIC_KEY ""
+#endif
+constexpr char OTA_SIGNING_PUBLIC_KEY[] = MAYAP_OTA_SIGNING_PUBLIC_KEY;
+
 // Nhip kiem tra dieu kien canh bao - rut tiep tu 2s xuong 0.5s de loi that
 // (cam bien, cong tac nhiet...) duoc phat hien va day vao hang doi gui nhanh
 // hon nua; ban than buoc kiem tra khong co I/O mang (chi so sanh bien trong

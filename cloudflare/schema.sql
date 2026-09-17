@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS firmware_cache (
   version       TEXT NOT NULL,
   asset_url     TEXT NOT NULL,
   sha256        TEXT NOT NULL,
+  signature     TEXT NOT NULL DEFAULT '',
   size          INTEGER NOT NULL,
   notes         TEXT NOT NULL DEFAULT '',
   fetched_at    INTEGER NOT NULL

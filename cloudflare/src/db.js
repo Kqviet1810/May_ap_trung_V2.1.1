@@ -169,20 +169,21 @@ export async function getCachedFirmware(db) {
   return db.prepare('SELECT * FROM firmware_cache WHERE id = 1').first();
 }
 
-export async function setFirmwareCache(db, { version, assetUrl, sha256, size, notes, fetchedAt }) {
+export async function setFirmwareCache(db, { version, assetUrl, sha256, signature, size, notes, fetchedAt }) {
   await db
     .prepare(
-      `INSERT INTO firmware_cache (id, version, asset_url, sha256, size, notes, fetched_at)
-       VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)
+      `INSERT INTO firmware_cache (id, version, asset_url, sha256, signature, size, notes, fetched_at)
+       VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
        ON CONFLICT(id) DO UPDATE SET
          version = excluded.version,
          asset_url = excluded.asset_url,
          sha256 = excluded.sha256,
+         signature = excluded.signature,
          size = excluded.size,
          notes = excluded.notes,
          fetched_at = excluded.fetched_at`
     )
-    .bind(version, assetUrl, sha256, size, notes || '', fetchedAt)
+    .bind(version, assetUrl, sha256, signature, size, notes || '', fetchedAt)
     .run();
 }
 
