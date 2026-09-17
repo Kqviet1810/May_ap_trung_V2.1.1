@@ -11,7 +11,7 @@ namespace MayapAttinyBusInternal {
 inline uint32_t elapsedMs(uint32_t now, uint32_t then) {
   return static_cast<uint32_t>(now - then);
 }
-inline bool timeReached(uint32_t now, uint32_t deadline) {
+inline bool attinyTimeReached(uint32_t now, uint32_t deadline) {
   return static_cast<int32_t>(now - deadline) >= 0;
 }
 
@@ -148,19 +148,19 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
       startNext(now);
       return;
     case TxPhase::IdleGap:
-      if (!timeReached(now, txDeadline_)) return;
+      if (!attinyTimeReached(now, txDeadline_)) return;
       busDriveLow();
       txDeadline_ = now + ATTINY_BUS_PULSE_MS;
       txPhase_ = TxPhase::PulseLow;
       return;
     case TxPhase::PulseLow:
-      if (!timeReached(now, txDeadline_)) return;
+      if (!attinyTimeReached(now, txDeadline_)) return;
       busRelease();
       txDeadline_ = now + ATTINY_BUS_PULSE_MS;
       txPhase_ = TxPhase::PulseHigh;
       return;
     case TxPhase::PulseHigh:
-      if (!timeReached(now, txDeadline_)) return;
+      if (!attinyTimeReached(now, txDeadline_)) return;
       if (txPulsesRemaining_ > 0U) --txPulsesRemaining_;
       if (txPulsesRemaining_ > 0U) {
         busDriveLow();
