@@ -31,6 +31,7 @@ name: Build & release firmware
 #     (KHAC "huge_app" - "Huge APP" ghi ro la "No OTA", chi 1 khe, khong phu
 #     hop tinh nang cap nhat firmware cua du an nay).
 # Board hien trong Arduino IDE: "ESP32S3 Dev Module" -> esp32:esp32:esp32s3.
+# USB CDC duoc bat trong FQBN de Serial Monitor doc truc tiep qua USB native.
 on:
   push:
     branches:
@@ -40,7 +41,13 @@ on:
   pull_request:
     branches:
       - main
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      legacy_device_migration:
+        description: 'Chi bat 1 lan de khoi phuc may cu dang bi HTTP 401 device_key'
+        required: false
+        default: false
+        type: boolean
 
 # Bat buoc phai co contents: write thi buoc "Tao GitHub Release" (softprops/
 # action-gh-release) moi tao duoc Release - mac dinh GITHUB_TOKEN cua repo
@@ -52,7 +59,7 @@ permissions:
   contents: write
 
 env:
-  MAYAP_FQBN: esp32:esp32:esp32s3:PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
+  MAYAP_FQBN: esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
 
 jobs:
   build:
@@ -118,17 +125,22 @@ jobs:
           MAYAP_TLS_ROOT_CA: ${{ secrets.MAYAP_TLS_ROOT_CA }}
           MAYAP_OTA_SIGNING_PUBLIC_KEY: ${{ secrets.MAYAP_OTA_SIGNING_PUBLIC_KEY }}
           MAYAP_OTA_SIGNING_PRIVATE_KEY: ${{ secrets.MAYAP_OTA_SIGNING_PRIVATE_KEY }}
+          MAYAP_LEGACY_DEVICE_MIGRATION: ${{ inputs.legacy_device_migration && '1' || '0' }}
         run: |
           python3 - <<'PY'
           import json, os
 
+          legacy_migration = os.getenv("MAYAP_LEGACY_DEVICE_MIGRATION", "0") == "1"
+          legacy_secret = os.getenv("MAYAP_DEVICE_SECRET", "")
           source_values = {
               "MAYAP_WIFI_SSID": os.getenv("MAYAP_WIFI_SSID", ""),
               "MAYAP_WIFI_PASSWORD": os.getenv("MAYAP_WIFI_PASSWORD", ""),
               "MAYAP_MQTT_HOST": os.getenv("MAYAP_MQTT_HOST", ""),
               "MAYAP_MQTT_USERNAME": os.getenv("MAYAP_MQTT_USERNAME", ""),
               "MAYAP_MQTT_PASSWORD": os.getenv("MAYAP_MQTT_PASSWORD", ""),
-              "MAYAP_DEVICE_SECRET": os.getenv("MAYAP_DEVICE_SECRET", ""),
+              # Khoa cu CHI duoc nhung vao binary migration chay tay. Push/tag/
+              # build pilot binh thuong khong mang khoa cu du Secret van ton tai.
+              "MAYAP_DEVICE_SECRET": legacy_secret if legacy_migration else "",
               "MAYAP_OTA_PASSWORD": os.getenv("MAYAP_OTA_PASSWORD", ""),
               "MAYAP_TLS_ROOT_CA": os.getenv("MAYAP_TLS_ROOT_CA", ""),
               "MAYAP_OTA_SIGNING_PUBLIC_KEY": os.getenv("MAYAP_OTA_SIGNING_PUBLIC_KEY", ""),
@@ -158,6 +170,16 @@ jobs:
                   + ". Khong tao .bin co the nap vao may khi TLS/MQTT chua san sang."
               )
 
+          if legacy_migration:
+              if event_name != "workflow_dispatch":
+                  raise SystemExit("Legacy migration chi duoc phep khi Run workflow bang tay")
+              if not legacy_secret:
+                  raise SystemExit(
+                      "Legacy migration bi chan vi thieu secret MAYAP_DEVICE_SECRET. "
+                      "Them khoa cu vao GitHub Secret, khong hard-code vao source."
+                  )
+              print("::warning::Dang tao firmware LEGACY MIGRATION mot lan; artifact chi luu 1 ngay")
+
           if is_tag and not private_signing_key:
               raise SystemExit("Release bi chan vi thieu secret: MAYAP_OTA_SIGNING_PRIVATE_KEY")
 
@@ -165,6 +187,7 @@ jobs:
               f.write("#pragma once\n")
               for key, value in values.items():
                   f.write(f"#define {key} {json.dumps(value)}\n")
+              f.write(f"#define MAYAP_ENABLE_LEGACY_DEVICE_MIGRATION {1 if legacy_migration else 0}\n")
           PY
 
       - name: Kiem tra JavaScript
@@ -198,12 +221,22 @@ jobs:
       # Chi Run workflow bang tay moi xuat .bin pilot. Push nhanh/PR chi compile
       # de kiem tra va KHONG de lai artifact co the bi tai ve nap nham.
       - name: Luu file .bin pilot (chi khi chay tay)
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.legacy_device_migration }}
         uses: actions/upload-artifact@v4
         with:
           name: firmware-bin-pilot
           path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
           retention-days: 7
+
+      # Binary nay co legacy secret nen chi dung de chuyen doi may cu dang 401,
+      # khong phat hanh va khong giu lau tren Actions.
+      - name: Luu file .bin legacy migration (1 ngay)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.legacy_device_migration }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-bin-legacy-migration
+          path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
+          retention-days: 1
 
       - name: Ky so firmware
         if: startsWith(github.ref, 'refs/tags/')
