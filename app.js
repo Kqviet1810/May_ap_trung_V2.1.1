@@ -18,6 +18,18 @@
     }
   }
 
+  function saveProvisionedMqtt(result) {
+    const mqtt = result?.mqtt;
+    const mqttUrl = String(mqtt?.url || '').trim();
+    const mqttUsername = String(mqtt?.username || '');
+    const mqttPassword = String(mqtt?.password || '');
+    let parsed;
+    try { parsed = new URL(mqttUrl); } catch (_) {}
+    if (!parsed || parsed.protocol !== 'wss:' || !mqttUsername || !mqttPassword) return false;
+    localStorage.setItem(MQTT_OVERRIDE_STORAGE, JSON.stringify({ mqttUrl, mqttUsername, mqttPassword }));
+    return true;
+  }
+
   const WEB = Object.freeze({
     mqttUrl: '',
     mqttUsername: '',
@@ -2288,6 +2300,9 @@
         submitBtn.textContent = 'Thêm và chọn thiết bị';
       }
       if (!result.success) return toast(result.error || 'Sai mã PIN hoặc thiết bị chưa đăng ký');
+      if (!saveProvisionedMqtt(result)) {
+        return toast('Máy chủ chưa cấp cấu hình kết nối. Vui lòng liên hệ kỹ thuật.');
+      }
 
       // Ten hien thi lay tu server (da dat san tu truoc, hoac mac dinh la
       // chinh device_id) - KHONG cho nguoi dung tu go ten luc them nua, vi
@@ -2306,7 +2321,8 @@
       // Neu thong bao da bat san tren trinh duyet nay, tu lien ket luon may
       // moi them vao (khong bat nguoi dung phai bam lai "Bat thong bao").
       renderPushStatus();
-      toast('Đã thêm thiết bị. Website đang chờ dữ liệu thật.');
+      toast('Đã thêm thiết bị · đang kết nối tự động');
+      setTimeout(() => window.location.reload(), 400);
     });
 
     $('remindersForm').addEventListener('submit', (event) => {
@@ -2556,42 +2572,6 @@
     $('enablePushBtn').addEventListener('click', onEnablePushClick);
     $('testPushBtn').addEventListener('click', onTestPushClick);
 
-    $('mqttPrivateForm').addEventListener('submit', (event) => {
-      event.preventDefault();
-      const mqttUrl = $('mqttPrivateUrl').value.trim();
-      const mqttUsername = $('mqttPrivateUsername').value.trim();
-      const mqttPassword = $('mqttPrivatePassword').value;
-      const errorEl = $('mqttPrivateError');
-      errorEl.classList.remove('show');
-
-      let parsed;
-      try { parsed = new URL(mqttUrl); } catch (_) {}
-      if (!parsed || parsed.protocol !== 'wss:') {
-        errorEl.textContent = 'URL phải bắt đầu bằng wss:// và đúng endpoint WebSocket của broker.';
-        errorEl.classList.add('show');
-        return;
-      }
-      if (!mqttUsername || !mqttPassword) {
-        errorEl.textContent = 'Broker riêng cần đủ tên đăng nhập và mật khẩu.';
-        errorEl.classList.add('show');
-        return;
-      }
-
-      localStorage.setItem(MQTT_OVERRIDE_STORAGE, JSON.stringify({
-        mqttUrl,
-        mqttUsername,
-        mqttPassword
-      }));
-      toast('Đã lưu broker riêng · đang kết nối lại');
-      setTimeout(() => window.location.reload(), 500);
-    });
-
-    $('mqttPrivateReset').addEventListener('click', () => {
-      localStorage.removeItem(MQTT_OVERRIDE_STORAGE);
-      toast('Đã dùng lại cấu hình mặc định · đang tải lại');
-      setTimeout(() => window.location.reload(), 500);
-    });
-
     $('openWifiPortal').addEventListener('click', async () => {
       const ok = await confirmAction({
         title: 'Đã kết nối vào MAYAP-XXXX chưa?',
@@ -2752,19 +2732,6 @@
     }
   }
 
-  function loadMqttSettingsForm() {
-    $('mqttPrivateUrl').value = WEB.mqttUrl || '';
-    $('mqttPrivateUsername').value = WEB.mqttUsername || '';
-    $('mqttPrivatePassword').value = WEB.mqttPassword || '';
-    const overridden = Boolean(localStorage.getItem(MQTT_OVERRIDE_STORAGE));
-    let host = 'Chưa cấu hình';
-    try { host = new URL(WEB.mqttUrl).host; } catch (_) {}
-    $('mqttPrivateSummary').textContent = overridden
-      ? `Broker riêng: ${host}`
-      : `Mặc định: ${host}`;
-    $('mqttPrivateReset').hidden = !overridden;
-  }
-
   function init() {
     // Goi showPage() thay vi chi dat dataset.page: truoc day tieu de va chu
     // thich luc moi mo trang lay tu chuoi VIET CUNG trong index.html (vi
@@ -2774,7 +2741,6 @@
     applyTheme(getThemePreference());
     applyDeepLinkDevice();
     bindUi();
-    loadMqttSettingsForm();
     renderSelector();
     updateSettingSummaries();
     renderBatchLogs();

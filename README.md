@@ -115,11 +115,11 @@ Khác với OTA-Arduino-IDE ở trên (bắt buộc cùng Wi-Fi), cách này đ�
 
 Dashboard là site tĩnh, có thể chạy trực tiếp bằng cách mở `index.html`, hoặc deploy lên **GitHub Pages**:
 
-1. Copy `config.production.example.js` thành `config.js`, chỉnh `mqttUrl` trỏ tới broker MQTT thật (khuyến nghị broker riêng cho môi trường thương mại, **không dùng broker công cộng**) và `cloudApiBase` trỏ tới Worker đã deploy (bước 3). Firmware cũng phải trỏ tới cùng broker riêng đó (macro `MAYAP_MQTT_HOST/USERNAME/PASSWORD` trong `config.h`, đặt qua build_flags) - nếu không, firmware tự khoá mọi lệnh điều khiển/cấu hình từ xa qua MQTT (chỉ còn xem dữ liệu một chiều) vì đang phát hiện dùng broker công khai không xác thực.
+1. Đặt `cloudApiBase` trong `config.js` trỏ tới Worker đã deploy (bước 3). Broker MQTT riêng được Worker cấp tự động sau khi khách xác thực ID + PIN; không ghi thông tin broker vào `config.js`. Firmware phải trỏ tới cùng broker riêng đó (macro `MAYAP_MQTT_HOST/USERNAME/PASSWORD` trong `config.h`, đặt qua build_flags).
 2. Bật GitHub Pages cho repo (hoặc host bằng bất kỳ static hosting nào - Cloudflare Pages, Netlify...).
 3. Truy cập trang, bấm **+** để thêm thiết bị bằng Device ID + PIN hiển thị trên máy (mặc định `1111`, nên đổi ngay sau khi thêm).
 4. Trên điện thoại, có thể "Thêm vào Màn hình chính" để dùng như app PWA, nhận thông báo đẩy kể cả khi không mở trình duyệt.
-5. Nếu firmware được build với broker riêng qua GitHub Secrets, vào **Cài đặt → Broker MQTT riêng** trên dashboard và nhập endpoint WSS, tên đăng nhập, mật khẩu của **cùng broker**. Ví dụ HiveMQ Cloud thường dùng cổng MQTT TLS `8883` cho ESP32 và WSS `8884/mqtt` cho trình duyệt. Dashboard lưu cấu hình riêng trong trình duyệt và kết nối lại ngay; không ghi mật khẩu vào repository.
+5. Cấu hình một lần các Worker secret `MAYAP_MQTT_HOST`, `MAYAP_MQTT_USERNAME`, `MAYAP_MQTT_PASSWORD` (và `MAYAP_MQTT_WSS_URL` nếu broker không dùng mặc định `wss://<host>:8884/mqtt`). Khách chỉ nhập ID máy + PIN; Worker xác thực rồi cấp cấu hình cho dashboard tự kết nối.
 
 ### 3. Triển khai Cloudflare Worker (tuỳ chọn)
 
@@ -167,7 +167,7 @@ Một vài nguyên tắc thiết kế cố ý (đọc kỹ trước khi sửa `m
 
 | File | Vai trò |
 | --- | --- |
-| `config.js` | Cấu hình broker MQTT + Worker cho **môi trường test** (đang trỏ tới broker công cộng `broker.emqx.io` - **không dùng cho máy thương mại**). |
+| `config.js` | Cấu hình URL Worker; MQTT thương mại được cấp tự động sau khi xác thực ID + PIN. |
 | `config.production.example.js` | Mẫu cấu hình cho triển khai thật, copy thành `config.js` và điền broker/Worker riêng. |
 | `MAYAP_INDUSTRIAL_v3_4_0/config.h` | Hằng số firmware: chân GPIO, ngưỡng an toàn mặc định, kích thước task/stack. |
 | `cloudflare/wrangler.toml` | Cấu hình Worker: `ALLOWED_ORIGIN` (origin của dashboard), `database_id` (D1). |

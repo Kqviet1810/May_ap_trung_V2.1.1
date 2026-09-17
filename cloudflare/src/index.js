@@ -66,8 +66,23 @@ const FIRMWARE_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
 function json(env, data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', ...corsHeaders(env) },
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      ...corsHeaders(env),
+    },
   });
+}
+
+function webMqttConfig(env) {
+  const host = String(env.MAYAP_MQTT_HOST || '').trim();
+  const url = String(env.MAYAP_MQTT_WSS_URL || (host ? `wss://${host}:8884/mqtt` : '')).trim();
+  const username = String(env.MAYAP_MQTT_USERNAME || '');
+  const password = String(env.MAYAP_MQTT_PASSWORD || '');
+  let parsed;
+  try { parsed = new URL(url); } catch (_) {}
+  if (!parsed || parsed.protocol !== 'wss:' || !username || !password) return null;
+  return { url, username, password };
 }
 
 async function readJson(request) {
@@ -338,7 +353,13 @@ async function handleVerifyPin(request, env) {
   if (!device) return json(env, { success: false, error: 'device chua dang ky - hay bat may va cho ket noi mang truoc' }, 404);
   const valid = await verifyDevicePin(env, device, pin);
   if (!valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
-  return json(env, { success: true, device_name: device.device_name || device.device_id });
+  const mqtt = webMqttConfig(env);
+  if (!mqtt) return json(env, { success: false, error: 'Máy chủ chưa cấu hình kết nối MQTT' }, 503);
+  return json(env, {
+    success: true,
+    device_name: device.device_name || device.device_id,
+    mqtt,
+  });
 }
 
 // -------------------------- Endpoint: doi ten may --------------------------

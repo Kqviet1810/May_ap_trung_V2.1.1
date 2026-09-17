@@ -33,6 +33,11 @@ npx wrangler secret put VAPID_PRIVATE_KEY
 npx wrangler secret put VAPID_SUBJECT      # vi du: mailto:ban@example.com
 npx wrangler secret put DEVICE_KEY_PEPPER  # chuoi ngau nhien dai, tu sinh 1 lan
 npx wrangler secret put GITHUB_TOKEN       # TUY CHON - xem "Cap nhat firmware tu xa" ben duoi
+npx wrangler secret put MAYAP_MQTT_HOST     # hostname broker, khong kem wss:// hay cong
+npx wrangler secret put MAYAP_MQTT_USERNAME # tai khoan MQTT dung chung voi firmware
+npx wrangler secret put MAYAP_MQTT_PASSWORD # mat khau MQTT dung chung voi firmware
+# Tuy chon neu broker khong dung duong dan/cong WSS mac dinh 8884/mqtt:
+npx wrangler secret put MAYAP_MQTT_WSS_URL
 ```
 
 ## Sua wrangler.toml
@@ -85,3 +90,10 @@ npm run dev
 ```bash
 npm run deploy
 ```
+
+## Tu dong cap cau hinh MQTT cho web
+
+Sau khi khach nhap dung ID may va PIN, endpoint `/api/device/verify-pin` tra
+cau hinh MQTT WSS tu cac Worker secret o tren. Dashboard tu luu cau hinh va
+ket noi lai; khach khong phai nhap hostname, tai khoan hay mat khau MQTT.
+Khong dua cac gia tri nay vao `config.js` hoac repository cong khai.
