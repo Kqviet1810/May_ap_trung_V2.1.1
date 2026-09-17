@@ -620,6 +620,11 @@ inline bool postJson(const char *path, const JsonDocument &doc, const char *logT
 inline void storePinFromResponse(const String &response) {
   JsonDocument parsed;
   if (deserializeJson(parsed, response)) return;
+  if (!parsed["success"].as<bool>()) return;
+  // Worker chi tra web_pin cho may moi, may vua reset PIN, hoac ban ghi cu
+  // chua co PIN. May cu da co PIN phai giu PIN cu; danh dau da dong bo de
+  // HMI khong hien "DANG DONG BO" vo han.
+  mayapMarkWebPinConfigured();
   const char *pin = parsed["web_pin"] | "";
   if (pin[0]) mayapStoreWebPin(pin);
 }

@@ -9,6 +9,9 @@
 namespace MayapDeviceIdentityInternal {
 static char activeKey[65] = "";
 static char webPin[9] = "";
+// May cu da co PIN tren Worker khong bao gio nhan lai PIN qua HTTPS. Co nay
+// cho HMI biet dung PIN cu thay vi hien "DANG DONG BO" vo han.
+static bool webPinConfigured = false;
 static bool usingLegacyKey = false;
 
 inline void randomHex(char *out, size_t bytes) {
@@ -43,6 +46,9 @@ inline void mayapDeviceIdentityBegin() {
   const String storedPin = prefs.getString("web-pin", "");
   if (storedPin.length() >= 4U && storedPin.length() < sizeof(webPin)) {
     strlcpy(webPin, storedPin.c_str(), sizeof(webPin));
+    webPinConfigured = true;
+  } else {
+    webPinConfigured = prefs.getBool("web-pin-set", false);
   }
   prefs.end();
 }
@@ -73,17 +79,31 @@ inline bool mayapCommitDeviceSecret(const char *key) {
   return ok;
 }
 
+inline void mayapMarkWebPinConfigured() {
+  using namespace MayapDeviceIdentityInternal;
+  Preferences prefs;
+  if (!prefs.begin("mayap-id", false)) return;
+  const bool ok = prefs.putBool("web-pin-set", true);
+  prefs.end();
+  if (ok) webPinConfigured = true;
+}
+
 inline void mayapStoreWebPin(const char *pin) {
   using namespace MayapDeviceIdentityInternal;
   if (!pin || strlen(pin) < 4U || strlen(pin) >= sizeof(webPin)) return;
   Preferences prefs;
   if (!prefs.begin("mayap-id", false)) return;
   const bool ok = prefs.putString("web-pin", pin) > 0U;
+  if (ok) prefs.putBool("web-pin-set", true);
   prefs.end();
-  if (ok) strlcpy(webPin, pin, sizeof(webPin));
+  if (ok) {
+    strlcpy(webPin, pin, sizeof(webPin));
+    webPinConfigured = true;
+  }
 }
 
 inline const char *mayapWebPinText() {
-  return MayapDeviceIdentityInternal::webPin[0]
-      ? MayapDeviceIdentityInternal::webPin : "DANG DONG BO";
+  using namespace MayapDeviceIdentityInternal;
+  if (webPin[0]) return webPin;
+  return webPinConfigured ? "DUNG PIN CU" : "DANG DONG BO";
 }
