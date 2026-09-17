@@ -164,6 +164,11 @@ constexpr char CLOUD_API_HOST[] = MAYAP_CLOUD_API_HOST;
 #define MAYAP_TLS_ROOT_CA ""
 #endif
 constexpr char TLS_ROOT_CA[] = MAYAP_TLS_ROOT_CA;
+// Khong cho phep tao file firmware cloud "gia hop le" khi thieu CA: truoc
+// day macro rong van bien dich va chi den khi chay moi in "TLS bi khoa".
+// Loi nay phai dung NGAY luc bien dich de khong co ban nap loi ra thiet bi.
+static_assert(sizeof(TLS_ROOT_CA) > 1U,
+              "THIEU MAYAP_TLS_ROOT_CA: them PEM CA vao build_secrets.h truoc khi bien dich");
 
 #ifndef MAYAP_OTA_SIGNING_PUBLIC_KEY
 #define MAYAP_OTA_SIGNING_PUBLIC_KEY ""
