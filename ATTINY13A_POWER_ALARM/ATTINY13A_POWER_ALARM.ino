@@ -9,7 +9,7 @@
 // doi muc (Pin Change Interrupt), khong con thuc dinh ky nua. Day la kien
 // truc tiet kiem pin toi da: dong tieu thu luc ngu Power-down chi con vai uA,
 // va ATtiny hoan toan khong lam gi (khong ADC, khong tinh toan) tru khi that
-// su co su kien (thay doi muc bus/3.3V/9V).
+// su co su kien (thay doi muc bus/3.3V).
 //
 // XEM doc/attiny_power_alarm.md DE BIET DAY DU: so do chan, bang ma ban tin,
 // cach nap code, va danh gia rui ro.
@@ -142,7 +142,7 @@ static void saveBatchState(bool active) {
 constexpr uint8_t MSG_MAX_CODE     = 5U;
 
 // Thoi gian doi on dinh muc (chong nhieu/gon song thoang qua) truoc khi tin
-// la 3.3V/9V THAT SU vua doi trang thai - ngan hon nhieu so voi ban WDT cu
+// la 3.3V THAT SU vua doi trang thai - ngan hon nhieu so voi ban WDT cu
 // (5 giay) vi gio day day la lan doc DUY NHAT sau khi vua co canh tin hieu
 // that (PCINT), khong phai doc lai lien tuc nhu kieu poll dinh ky.
 constexpr uint16_t POWER_DEBOUNCE_MS = 50U;
@@ -216,7 +216,7 @@ static void sendPulses(uint8_t n) {
 }
 
 // Doi dung 1 xung ACK trong vong ACK_TIMEOUT_MS. Dung khi ATTINY LA BEN GUI
-// (vd bao 9V yeu).
+// (hien tai chi dung de giu giao thuc co the mo rong).
 static bool waitForAck() {
   uint16_t waited = 0U;
   while (waited < ACK_TIMEOUT_MS) {
@@ -293,7 +293,7 @@ int main(void) {
   PORTB &= static_cast<uint8_t>(~(1 << PB4));
 
   // Tat ADC va Analog Comparator hoan toan - ban thiet ke nay KHONG dung ADC
-  // (chi doc muc so PB2/PB3), tat het de toi thieu hoa dong ro ri luc ngu.
+  // (chi doc muc so PB2), tat het de toi thieu hoa dong ro ri luc ngu.
   ADCSRA &= static_cast<uint8_t>(~(1 << ADEN));
   ACSR |= (1 << ACD);
 
@@ -312,7 +312,7 @@ int main(void) {
 
   for (;;) {
     sleep_mode();  // ngu Power-down cho toi khi co ngat PCINT0 (bat ky canh
-                    // nao tren PB0/PB2/PB3) danh thuc - dong tieu thu luc
+                    // nao tren PB0/PB2) danh thuc - dong tieu thu luc
                     // ngu chi con vai uA, day la trang thai mac dinh tuyet
                     // doi phan lon thoi gian song cua ATtiny.
 
