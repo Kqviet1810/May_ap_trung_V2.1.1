@@ -22,7 +22,7 @@
     localStorage.setItem(MQTT_OVERRIDE_STORAGE, JSON.stringify({ mqttUrl, mqttUsername, mqttPassword }));
     return true;
   }
-  const WEB = Object.freeze({
+  let WEB = Object.freeze({
     mqttUrl: '',
     mqttUsername: '',
     mqttPassword: '',
@@ -2729,7 +2729,17 @@
     }
   }
 
-  function init() {
+  async function refreshMqttSession() {
+    const device = currentDevice() || state.devices[0];
+    if (!device?.id || !device.pairingToken) return false;
+    const result = await postCloudJson('/api/device/mqtt-session', {
+      device_id: device.id,
+      pairing_token: device.pairingToken
+    });
+    return Boolean(result.success && saveProvisionedMqtt(result));
+  }
+
+  async function init() {
     // Goi showPage() thay vi chi dat dataset.page: truoc day tieu de va chu
     // thich luc moi mo trang lay tu chuoi VIET CUNG trong index.html (vi
     // showPage chi chay khi bam nut chuyen trang), nen moi lan doi chu trong
@@ -2742,6 +2752,7 @@
     updateSettingSummaries();
     renderBatchLogs();
     setCurrentActivity('Đang kết nối', 'Đang chờ dữ liệu từ ESP32', 'idle');
+    await refreshMqttSession();
     connectMqtt();
     startTimers();
     registerServiceWorker();

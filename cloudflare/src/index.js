@@ -30,13 +30,37 @@ const PIN_RATE_WINDOW_MS = 15 * 60 * 1000;
 const PIN_RATE_BLOCK_MS = 15 * 60 * 1000;
 const PIN_RATE_MAX_FAILURES = 5;
 
-function webMqttConfig(env) {
+function base64Url(bytes) {
+  let binary = '';
+  for (const byte of new Uint8Array(bytes)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+function base64UrlJson(value) {
+  return base64Url(new TextEncoder().encode(JSON.stringify(value)));
+}
+async function webMqttConfig(env, deviceId) {
   const host = String(env.MAYAP_MQTT_HOST || '').trim();
   const url = String(env.MAYAP_MQTT_WSS_URL || (host ? `wss://${host}:8884/mqtt` : '')).trim();
-  const username = String(env.MAYAP_MQTT_USERNAME || '');
-  const password = String(env.MAYAP_MQTT_PASSWORD || '');
-  if (!/^wss:\/\//i.test(url) || !username || !password) return null;
-  return { url, username, password };
+  const secret = String(env.MQTT_JWT_SECRET || '');
+  if (!/^wss:\/\//i.test(url) || !secret) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const expires = now + 3600;
+  const username = `web:${deviceId}`;
+  const topic = `mayap/v1/${deviceId}/#`;
+  const header = base64UrlJson({ alg: 'HS256', typ: 'JWT' });
+  const payload = base64UrlJson({
+    sub: username, device_id: deviceId, iat: now, exp: expires,
+    acl: [
+      { permission: 'allow', action: 'subscribe', topic },
+      { permission: 'allow', action: 'publish', topic },
+    ],
+  });
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key,
+    new TextEncoder().encode(`${header}.${payload}`));
+  return { url, username, password: `${header}.${payload}.${base64Url(signature)}`, expires_at: expires };
 }
 function pinRateKey(request, deviceId) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
@@ -391,7 +415,7 @@ async function handleVerifyPin(request, env) {
   const check = await verifyPinGuarded(request, env, device, pin);
   if (check.limited) return json(env, { success: false, error: 'Thử sai quá nhiều lần - vui lòng chờ 15 phút' }, 429);
   if (!check.valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
-  const mqtt = webMqttConfig(env);
+  const mqtt = await webMqttConfig(env, deviceId);
   if (!mqtt) return json(env, { success: false, error: 'Máy chủ chưa cấu hình kết nối MQTT' }, 503);
   return json(env, {
     success: true,
@@ -399,6 +423,19 @@ async function handleVerifyPin(request, env) {
     pairing_token: device.pairing_token,
     mqtt,
   });
+}
+
+async function handleMqttSession(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const pairingToken = String(body?.pairing_token || '');
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device || !pairingToken || pairingToken !== device.pairing_token) {
+    return json(env, { success: false, error: 'Phiên ghép nối không hợp lệ' }, 401);
+  }
+  const mqtt = await webMqttConfig(env, deviceId);
+  if (!mqtt) return json(env, { success: false, error: 'Máy chủ MQTT chưa sẵn sàng' }, 503);
+  return json(env, { success: true, mqtt });
 }
 
 // -------------------------- Endpoint: doi ten may --------------------------
@@ -734,6 +771,9 @@ export default {
       }
       if (url.pathname === '/api/device/verify-pin' && request.method === 'POST') {
         return await handleVerifyPin(request, env);
+      }
+      if (url.pathname === '/api/device/mqtt-session' && request.method === 'POST') {
+        return await handleMqttSession(request, env);
       }
       if (url.pathname === '/api/device/rename' && request.method === 'POST') {
         return await handleRenameDevice(request, env);
