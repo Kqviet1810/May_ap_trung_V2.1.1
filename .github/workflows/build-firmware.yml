@@ -28,7 +28,7 @@ name: Build & release firmware
 #   - Da doi chieu danh sach gia tri hop le qua `arduino-cli board details -b
 #     esp32:esp32:esp32s3 --full`: FlashSize=8M hop le; ten "8M with spiffs
 #     (3MB APP/1.5MB SPIFFS)" co khoa noi bo la PartitionScheme=default_8MB
-#     (KHAC "huge_app" - "Huge APP" ghi ro "No OTA", chi 1 khe, khong phu
+#     (KHAC "huge_app" - "Huge APP" ghi ro la "No OTA", chi 1 khe, khong phu
 #     hop tinh nang cap nhat firmware cua du an nay).
 # Board hien trong Arduino IDE: "ESP32S3 Dev Module" -> esp32:esp32:esp32s3.
 on:
@@ -121,6 +121,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os
+
           source_values = {
               "MAYAP_WIFI_SSID": os.getenv("MAYAP_WIFI_SSID", ""),
               "MAYAP_WIFI_PASSWORD": os.getenv("MAYAP_WIFI_PASSWORD", ""),
@@ -132,26 +133,38 @@ jobs:
               "MAYAP_TLS_ROOT_CA": os.getenv("MAYAP_TLS_ROOT_CA", ""),
               "MAYAP_OTA_SIGNING_PUBLIC_KEY": os.getenv("MAYAP_OTA_SIGNING_PUBLIC_KEY", ""),
           }
+          private_signing_key = os.getenv("MAYAP_OTA_SIGNING_PRIVATE_KEY", "")
+          event_name = os.getenv("GITHUB_EVENT_NAME", "")
+          is_tag = os.getenv("GITHUB_REF", "").startswith("refs/tags/")
+
+          # Firmware duoc nap len may BAT BUOC phai co du cau hinh TLS/MQTT.
+          # Chi pull_request (dac biet PR tu fork, khong duoc cap GitHub Secret)
+          # moi duoc dung CA gia de kiem tra cu phap/compile. PR khong bao gio
+          # xuat artifact .bin nen gia tri nay khong the bi nap nham vao may.
+          required_runtime = [
+              "MAYAP_MQTT_HOST", "MAYAP_MQTT_USERNAME", "MAYAP_MQTT_PASSWORD",
+              "MAYAP_TLS_ROOT_CA", "MAYAP_OTA_SIGNING_PUBLIC_KEY",
+          ]
+          missing_runtime = [k for k in required_runtime if not source_values[k]]
+
           values = dict(source_values)
-          # PR/push khong co GitHub Secret van phai kiem tra duoc cu phap.
-          # Dung gia tri vo hieu chi cho CI, KHONG bao gio duoc tao Release khi
-          # thieu CA that (kiem tra bang source_values o duoi).
-          if not values["MAYAP_TLS_ROOT_CA"] and not os.getenv("GITHUB_REF", "").startswith("refs/tags/"):
-              values["MAYAP_TLS_ROOT_CA"] = "CI-ONLY-NOT-A-TRUSTED-CA"
+          if event_name == "pull_request":
+              if not values["MAYAP_TLS_ROOT_CA"]:
+                  values["MAYAP_TLS_ROOT_CA"] = "CI-ONLY-NOT-A-TRUSTED-CA"
+          elif missing_runtime:
+              raise SystemExit(
+                  "Build firmware bi chan vi thieu cau hinh runtime: "
+                  + ", ".join(missing_runtime)
+                  + ". Khong tao .bin co the nap vao may khi TLS/MQTT chua san sang."
+              )
+
+          if is_tag and not private_signing_key:
+              raise SystemExit("Release bi chan vi thieu secret: MAYAP_OTA_SIGNING_PRIVATE_KEY")
+
           with open("MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h", "w", encoding="utf-8") as f:
               f.write("#pragma once\n")
               for key, value in values.items():
                   f.write(f"#define {key} {json.dumps(value)}\n")
-          if os.getenv("GITHUB_REF", "").startswith("refs/tags/"):
-              required = [
-                  "MAYAP_MQTT_HOST", "MAYAP_MQTT_USERNAME", "MAYAP_MQTT_PASSWORD",
-                  "MAYAP_TLS_ROOT_CA", "MAYAP_OTA_SIGNING_PUBLIC_KEY",
-                  "MAYAP_OTA_SIGNING_PRIVATE_KEY",
-              ]
-              source_values["MAYAP_OTA_SIGNING_PRIVATE_KEY"] = os.getenv("MAYAP_OTA_SIGNING_PRIVATE_KEY", "")
-              missing = [k for k in required if not source_values[k]]
-              if missing:
-                  raise SystemExit("Release bi chan vi thieu secret: " + ", ".join(missing))
           PY
 
       - name: Kiem tra JavaScript
@@ -182,14 +195,13 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
 
-      # Chay tay (workflow_dispatch, khong co tag) chi de kiem tra bien dich
-      # con chay duoc khong - luu ket qua thanh artifact tai ve xem thu,
-      # KHONG tao Release/tag nao ca.
-      - name: Luu file .bin de kiem tra (chi khi chay tay)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      # Chi Run workflow bang tay moi xuat .bin pilot. Push nhanh/PR chi compile
+      # de kiem tra va KHONG de lai artifact co the bi tai ve nap nham.
+      - name: Luu file .bin pilot (chi khi chay tay)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-bin-test
+          name: firmware-bin-pilot
           path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
           retention-days: 7
 
