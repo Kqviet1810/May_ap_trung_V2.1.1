@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 
 function ConvertTo-CString([string]$Value) {
     if ($null -eq $Value) { return "" }
-    return $Value.Replace("\", "\\").Replace('"', '\"').Replace("`r", "\r").Replace("`n", "\n")
+    return $Value.Replace('\', '\\').Replace('"', '\"').Replace("`r", '\r').Replace("`n", '\n')
 }
 
 function ConvertFrom-Secure([Security.SecureString]$Secure) {
