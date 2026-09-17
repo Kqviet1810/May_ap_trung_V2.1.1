@@ -117,10 +117,11 @@ jobs:
           MAYAP_OTA_PASSWORD: ${{ secrets.MAYAP_OTA_PASSWORD }}
           MAYAP_TLS_ROOT_CA: ${{ secrets.MAYAP_TLS_ROOT_CA }}
           MAYAP_OTA_SIGNING_PUBLIC_KEY: ${{ secrets.MAYAP_OTA_SIGNING_PUBLIC_KEY }}
+          MAYAP_OTA_SIGNING_PRIVATE_KEY: ${{ secrets.MAYAP_OTA_SIGNING_PRIVATE_KEY }}
         run: |
           python3 - <<'PY'
           import json, os
-          values = {
+          source_values = {
               "MAYAP_WIFI_SSID": os.getenv("MAYAP_WIFI_SSID", ""),
               "MAYAP_WIFI_PASSWORD": os.getenv("MAYAP_WIFI_PASSWORD", ""),
               "MAYAP_MQTT_HOST": os.getenv("MAYAP_MQTT_HOST", ""),
@@ -131,6 +132,12 @@ jobs:
               "MAYAP_TLS_ROOT_CA": os.getenv("MAYAP_TLS_ROOT_CA", ""),
               "MAYAP_OTA_SIGNING_PUBLIC_KEY": os.getenv("MAYAP_OTA_SIGNING_PUBLIC_KEY", ""),
           }
+          values = dict(source_values)
+          # PR/push khong co GitHub Secret van phai kiem tra duoc cu phap.
+          # Dung gia tri vo hieu chi cho CI, KHONG bao gio duoc tao Release khi
+          # thieu CA that (kiem tra bang source_values o duoi).
+          if not values["MAYAP_TLS_ROOT_CA"] and not os.getenv("GITHUB_REF", "").startswith("refs/tags/"):
+              values["MAYAP_TLS_ROOT_CA"] = "CI-ONLY-NOT-A-TRUSTED-CA"
           with open("MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h", "w", encoding="utf-8") as f:
               f.write("#pragma once\n")
               for key, value in values.items():
@@ -141,7 +148,8 @@ jobs:
                   "MAYAP_TLS_ROOT_CA", "MAYAP_OTA_SIGNING_PUBLIC_KEY",
                   "MAYAP_OTA_SIGNING_PRIVATE_KEY",
               ]
-              missing = [k for k in required if not values[k]]
+              source_values["MAYAP_OTA_SIGNING_PRIVATE_KEY"] = os.getenv("MAYAP_OTA_SIGNING_PRIVATE_KEY", "")
+              missing = [k for k in required if not source_values[k]]
               if missing:
                   raise SystemExit("Release bi chan vi thieu secret: " + ", ".join(missing))
           PY
