@@ -4,7 +4,7 @@
 // KHONG dung broker cong cong cho may thuong mai.
 // ============================================================================
 window.MAYAP_WEB_CONFIG = Object.freeze({
-  mqttUrl: 'wss://broker.emqx.io:8084/mqtt',
+  mqttUrl: '',
   mqttUsername: '',
   mqttPassword: '',
   topicRoot: 'mayap/v1',

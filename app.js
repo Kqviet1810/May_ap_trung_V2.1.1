@@ -2,6 +2,26 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
+  const MQTT_OVERRIDE_STORAGE = 'mayap.web.v10.mqtt.private';
+  function loadMqttOverride() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(MQTT_OVERRIDE_STORAGE) || 'null');
+      if (!saved || !/^wss:\/\//i.test(String(saved.mqttUrl || ''))) return {};
+      return { mqttUrl: String(saved.mqttUrl).trim(),
+        mqttUsername: String(saved.mqttUsername || ''),
+        mqttPassword: String(saved.mqttPassword || '') };
+    } catch (_) { return {}; }
+  }
+  function saveProvisionedMqtt(result) {
+    const mqtt = result?.mqtt;
+    const mqttUrl = String(mqtt?.url || '').trim();
+    const mqttUsername = String(mqtt?.username || '');
+    const mqttPassword = String(mqtt?.password || '');
+    let parsed; try { parsed = new URL(mqttUrl); } catch (_) {}
+    if (!parsed || parsed.protocol !== 'wss:' || !mqttUsername || !mqttPassword) return false;
+    localStorage.setItem(MQTT_OVERRIDE_STORAGE, JSON.stringify({ mqttUrl, mqttUsername, mqttPassword }));
+    return true;
+  }
   const WEB = Object.freeze({
     mqttUrl: '',
     mqttUsername: '',
@@ -15,10 +35,11 @@
     staleAfterMs: 90000,
     commandTimeoutMs: 10000,
     configTimeoutMs: 15000,
-    ...window.MAYAP_WEB_CONFIG
+    ...window.MAYAP_WEB_CONFIG,
+    ...loadMqttOverride()
   });
 
-  const STORAGE = 'mayap.web.v9';
+  const STORAGE = 'mayap.web.v10';
   const THEME_STORAGE = 'mayap.theme';
   const PROTOCOL_VERSION = 1;
   const DEVICE_ID_RE = /^MAP-[A-F0-9]{12}$/;
@@ -92,10 +113,11 @@
     lastResumePromptBootId: 0
   };
 
-  function createDevice(id, name) {
+  function createDevice(id, name, pairingToken = '') {
     return {
       id,
       name,
+      pairingToken,
       presence: null,
       presenceAt: 0,
       snapshot: null,
@@ -2269,6 +2291,7 @@
         submitBtn.textContent = 'Thêm và chọn thiết bị';
       }
       if (!result.success) return toast(result.error || 'Sai mã PIN hoặc thiết bị chưa đăng ký');
+      if (!saveProvisionedMqtt(result)) return toast('Máy chủ chưa cấp cấu hình kết nối.');
 
       // Ten hien thi lay tu server (da dat san tu truoc, hoac mac dinh la
       // chinh device_id) - KHONG cho nguoi dung tu go ten luc them nua, vi
@@ -2276,8 +2299,12 @@
       // phai rieng cua tung trinh duyet.
       const name = result.device_name || id;
       const existed = state.devices.find((device) => device.id === id);
-      if (existed) existed.name = name;
-      else state.devices.push(createDevice(id, name));
+      if (existed) {
+        existed.name = name;
+        existed.pairingToken = result.pairing_token || '';
+      } else {
+        state.devices.push(createDevice(id, name, result.pairing_token || ''));
+      }
       const previous = state.selectedId;
       state.selectedId = id;
       deactivateSession(previous);
@@ -2287,7 +2314,9 @@
       // Neu thong bao da bat san tren trinh duyet nay, tu lien ket luon may
       // moi them vao (khong bat nguoi dung phai bam lai "Bat thong bao").
       renderPushStatus();
-      toast('Đã thêm thiết bị. Website đang chờ dữ liệu thật.');
+      saveDevices();
+      toast('Đã thêm thiết bị · đang kết nối tự động');
+      setTimeout(() => window.location.reload(), 400);
     });
 
     $('remindersForm').addEventListener('submit', (event) => {
@@ -2649,7 +2678,10 @@
         toast('Đã tắt thông báo trên trình duyệt này');
       } else {
         const allDeviceIds = state.devices.map((item) => item.id);
-        const result = await window.MayapPush.enable(allDeviceIds);
+        const pairingTokens = Object.fromEntries(
+          state.devices.map((item) => [item.id, item.pairingToken || ''])
+        );
+        const result = await window.MayapPush.enable(allDeviceIds, { pairingTokens });
         toast(result.ok ? '🔔 Đã bật thông báo cho tất cả thiết bị trên dashboard này' : pushReasonText(result.reason, result.error));
       }
     } finally {

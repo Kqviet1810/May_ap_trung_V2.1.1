@@ -26,6 +26,61 @@ import { sendWebPush, buildNotificationPayload } from './push.js';
 // du firmware co loi va goi lien tuc, worker cung khong ban push nhanh hon
 // muc nay cho CUNG mot (device_id, alarm_type) khi trang thai khong doi.
 const MIN_ALARM_COOLDOWN_MS = 15_000;
+const PIN_RATE_WINDOW_MS = 15 * 60 * 1000;
+const PIN_RATE_BLOCK_MS = 15 * 60 * 1000;
+const PIN_RATE_MAX_FAILURES = 5;
+
+function webMqttConfig(env) {
+  const host = String(env.MAYAP_MQTT_HOST || '').trim();
+  const url = String(env.MAYAP_MQTT_WSS_URL || (host ? `wss://${host}:8884/mqtt` : '')).trim();
+  const username = String(env.MAYAP_MQTT_USERNAME || '');
+  const password = String(env.MAYAP_MQTT_PASSWORD || '');
+  if (!/^wss:\/\//i.test(url) || !username || !password) return null;
+  return { url, username, password };
+}
+function pinRateKey(request, deviceId) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  return `pin:${deviceId}:${ip}`;
+}
+async function readPinRate(env, key) {
+  return env.DB.prepare('SELECT attempts, window_started_at, blocked_until FROM auth_rate_limits WHERE rate_key = ?1').bind(key).first();
+}
+async function pinRateAllowed(env, key, now) {
+  const row = await readPinRate(env, key);
+  if (!row) return { allowed: true };
+  if (Number(row.blocked_until || 0) > now) return { allowed: false, retryAfterMs: Number(row.blocked_until) - now };
+  if (now - Number(row.window_started_at || 0) >= PIN_RATE_WINDOW_MS) {
+    await env.DB.prepare('DELETE FROM auth_rate_limits WHERE rate_key = ?1').bind(key).run();
+  }
+  return { allowed: true };
+}
+async function recordPinFailure(env, key, now) {
+  const row = await readPinRate(env, key);
+  const fresh = !row || now - Number(row.window_started_at || 0) >= PIN_RATE_WINDOW_MS;
+  const attempts = fresh ? 1 : Number(row.attempts || 0) + 1;
+  const started = fresh ? now : Number(row.window_started_at);
+  const blocked = attempts >= PIN_RATE_MAX_FAILURES ? now + PIN_RATE_BLOCK_MS : 0;
+  await env.DB.prepare(`INSERT INTO auth_rate_limits
+    (rate_key, attempts, window_started_at, blocked_until, updated_at)
+    VALUES (?1, ?2, ?3, ?4, ?5)
+    ON CONFLICT(rate_key) DO UPDATE SET attempts=excluded.attempts,
+    window_started_at=excluded.window_started_at,
+    blocked_until=excluded.blocked_until, updated_at=excluded.updated_at`)
+    .bind(key, attempts, started, blocked, now).run();
+}
+async function clearPinFailures(env, key) {
+  await env.DB.prepare('DELETE FROM auth_rate_limits WHERE rate_key = ?1').bind(key).run();
+}
+async function verifyPinGuarded(request, env, device, pin) {
+  const now = Date.now();
+  const key = pinRateKey(request, device.device_id);
+  const rate = await pinRateAllowed(env, key, now);
+  if (!rate.allowed) return { valid: false, limited: true };
+  const valid = await verifyDevicePin(env, device, pin);
+  if (valid) await clearPinFailures(env, key);
+  else await recordPinFailure(env, key, now);
+  return { valid, limited: false };
+}
 
 // ESP32 heartbeat moi 15s (CLOUD_HEARTBEAT_INTERVAL_MS trong config.h). Nguong
 // nay TRUOC DAY la 75s (~5 lan bo lo heartbeat) - du de tha luc mang giat
@@ -253,12 +308,9 @@ async function handleSubscribe(request, env) {
   if (!device) {
     return json(env, { success: false, error: 'device chua dang ky - hay bat may va cho ket noi mang truoc' }, 404);
   }
-  // pairing_token la lop bao ve TUY CHON (dung khi co QR dan tren may): neu
-  // thiet bi co pairing_token va nguoi goi CO gui token, phai khop. Neu
-  // nguoi goi khong gui token (luong don gian, chi biet device_id), van cho
-  // qua - danh doi da duoc noi ro trong tai lieu bao mat.
-  if (pairingToken && device.pairing_token && pairingToken !== device.pairing_token) {
-    return json(env, { success: false, error: 'pairing_token sai' }, 401);
+  // Chi trinh duyet da xac thuc PIN moi duoc lien ket Push.
+  if (!pairingToken || !device.pairing_token || pairingToken !== device.pairing_token) {
+    return json(env, { success: false, error: 'Cần xác thực lại PIN thiết bị' }, 401);
   }
 
   await upsertSubscription(env.DB, {
@@ -336,9 +388,17 @@ async function handleVerifyPin(request, env) {
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky - hay bat may va cho ket noi mang truoc' }, 404);
-  const valid = await verifyDevicePin(env, device, pin);
-  if (!valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
-  return json(env, { success: true, device_name: device.device_name || device.device_id });
+  const check = await verifyPinGuarded(request, env, device, pin);
+  if (check.limited) return json(env, { success: false, error: 'Thử sai quá nhiều lần - vui lòng chờ 15 phút' }, 429);
+  if (!check.valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
+  const mqtt = webMqttConfig(env);
+  if (!mqtt) return json(env, { success: false, error: 'Máy chủ chưa cấu hình kết nối MQTT' }, 503);
+  return json(env, {
+    success: true,
+    device_name: device.device_name || device.device_id,
+    pairing_token: device.pairing_token,
+    mqtt,
+  });
 }
 
 // -------------------------- Endpoint: doi ten may --------------------------
@@ -353,8 +413,9 @@ async function handleRenameDevice(request, env) {
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
-  const valid = await verifyDevicePin(env, device, pin);
-  if (!valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
+  const check = await verifyPinGuarded(request, env, device, pin);
+  if (check.limited) return json(env, { success: false, error: 'Thử sai quá nhiều lần - vui lòng chờ 15 phút' }, 429);
+  if (!check.valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
 
   await renameDevice(env.DB, deviceId, name);
   return json(env, { success: true, device_name: name });
@@ -373,8 +434,9 @@ async function handleChangePin(request, env) {
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
-  const valid = await verifyDevicePin(env, device, oldPin);
-  if (!valid) return json(env, { success: false, error: 'Sai mã PIN hiện tại' }, 401);
+  const check = await verifyPinGuarded(request, env, device, oldPin);
+  if (check.limited) return json(env, { success: false, error: 'Thử sai quá nhiều lần - vui lòng chờ 15 phút' }, 429);
+  if (!check.valid) return json(env, { success: false, error: 'Sai mã PIN hiện tại' }, 401);
 
   const newHash = await hashDeviceKey(newPin, env.DEVICE_KEY_PEPPER);
   await setDevicePinHash(env.DB, deviceId, newHash);
