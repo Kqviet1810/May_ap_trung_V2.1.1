@@ -339,14 +339,11 @@ constexpr uint8_t ATTINY_MSG_BATCH_START = 1U;  // ESP32->Tiny: me ap vua bat da
 constexpr uint8_t ATTINY_MSG_BATCH_END   = 2U;  // ESP32->Tiny: me ap vua ket thuc
 constexpr uint8_t ATTINY_MSG_SIREN_ON    = 3U;  // ESP32->Tiny: bat coi (bao nhiet khan cap)
 constexpr uint8_t ATTINY_MSG_SIREN_OFF   = 4U;  // ESP32->Tiny: tat coi
-constexpr uint8_t ATTINY_MSG_PING        = 5U;  // ESP32->Tiny: kiem tra con song khong
-constexpr uint8_t ATTINY_MSG_9V_LOW       = 6U; // Tiny->ESP32: pin 9V coi sap het (~7V)
-constexpr uint8_t ATTINY_MSG_9V_RECOVERED = 7U; // Tiny->ESP32: pin da thay/9V phuc hoi
-constexpr uint8_t ATTINY_MSG_MAX_CODE     = 7U;
+constexpr uint8_t ATTINY_MSG_PING        = 5U;  // ESP32->Tiny: kiem tra san sang
+constexpr uint8_t ATTINY_MSG_MAX_CODE     = 5U;
 
-// Kiem tra dinh ky "con song khong" trong luc dang co me ap (khong chi luc
-// bat dau) - phat hien som neu mach ATtiny/pin CR2032 da hong giua chung
-// ma khong ai biet trong suot 18-21 ngay ap.
+// ESP32 gui PING ngay sau khi khoi dong va dinh ky trong luc co me. ATtiny
+// chi ACK de xac nhan san sang; khong co giao thuc do hay canh bao pin.
 constexpr uint32_t ATTINY_PING_INTERVAL_MS = 6UL * 3600UL * 1000UL;
 
 // Input opto ACTIVE-LOW: kich 12 V => ngo ra opto keo GPIO xuong GND.

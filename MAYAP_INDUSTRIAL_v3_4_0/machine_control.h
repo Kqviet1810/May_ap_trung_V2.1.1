@@ -6085,14 +6085,10 @@ class MachineController {
   //     dieu kien dang lai coi that GPIO47 that su - xem updateHeatingAndOutputs()),
   //     KE CA chu ky tam tat/keu lai dinh ky khi nguoi dung ACK. Coi ben
   //     ATtiny vi vay hoat dong dong bo hoan toan voi coi khan cap hien co.
-  //  2) Ping dinh ky moi ATTINY_PING_INTERVAL_MS TRONG LUC dang co me ap -
-  //     phat hien som neu mach/pin CR2032 da hong giua chung ma khong ai
-  //     biet (mot me keo dai 18-21 ngay, kiem tra 1 lan luc bat dau la chua
-  //     du). Khong ACK -> bao FaultCode::AttinyBusUnresponsive (chi canh
-  //     bao, khong khoa gi).
-  //  3) Nhan ATTINY_MSG_9V_LOW/ATTINY_MSG_9V_RECOVERED tu ATtiny de
-  //     bat/go FaultCode::SirenBatteryLow. Day la canh bao nhe (Warning),
-  //     khong khoa van hanh; Cloud Push nhac lai dinh ky nhu canh bao do am.
+  //  2) Gui PING ngay sau khi ESP32 khoi dong, va dinh ky moi
+  //     ATTINY_PING_INTERVAL_MS trong luc co me. ACK la tin hieu ATtiny san
+  //     sang. Khong ACK -> FaultCode::AttinyBusUnresponsive (chi canh bao,
+  //     khong khoa van hanh). Khong co do pin ATtiny trong phien ban nay.
   void updateAttinyLink(uint32_t now) {
     // State machine bus khong chan: moi nhip chi doi mot pha, khong bao gio
     // cho ACK trong controlTask.
@@ -6116,6 +6112,14 @@ class MachineController {
                                                     : ATTINY_MSG_SIREN_OFF);
     }
 
+    if (attinyStartupProbePending_ &&
+        mayapAttinyBusRequest(ATTINY_MSG_PING)) {
+      // Chi can gui mot lan cho moi lan ESP32 boot; ket qua ACK/NACK duoc
+      // xu ly qua mayapAttinyBusTakeResult() o cac nhip sau.
+      attinyStartupProbePending_ = false;
+      attinyLastPingAt_ = now;
+    }
+
     if (batchRunning_ &&
         elapsedMs(now, attinyLastPingAt_) >= ATTINY_PING_INTERVAL_MS) {
       attinyLastPingAt_ = now;
@@ -6124,13 +6128,9 @@ class MachineController {
       (void)mayapAttinyBusRequest(ATTINY_MSG_PING);
     }
 
-    const uint8_t incoming = mayapAttinyBusPollIncoming();
-    if (incoming == ATTINY_MSG_9V_LOW) {
-      sirenBatteryLow_ = true;
-    } else if (incoming == ATTINY_MSG_9V_RECOVERED) {
-      sirenBatteryLow_ = false;
-    }
-    faults_.set(FaultCode::SirenBatteryLow, sirenBatteryLow_, now);
+    // Khong xu ly ban tin pin tu ATtiny. Poll van duoc goi de loai bo du
+    // lieu cu tren bus neu firmware ATtiny cu chua duoc nap lai.
+    (void)mayapAttinyBusPollIncoming();
   }
 
   void updateBatchTime(uint32_t now) {
@@ -6966,8 +6966,8 @@ class MachineController {
   // lap lai moi chu ky). attinyLastPingAt_ dung cho ping dinh ky moi 6h
   // trong luc dang co me ap (xem updateAttinyLink()).
   bool attinySirenMirrorOn_ = false;
+  bool attinyStartupProbePending_ = true;
   uint32_t attinyLastPingAt_ = 0U;
-  bool sirenBatteryLow_ = false;
   bool testLimitVerifiedLeft_ = false;
   bool testLimitVerifiedRight_ = false;
   uint32_t moveStartedAt_ = 0;

@@ -41,6 +41,38 @@ Các giá trị này là cấu hình quản trị một lần, không phải d�
 
 Release bị chặn nếu thiếu cấu hình bảo mật bắt buộc.
 
+## Chuẩn bị firmware xuất xưởng
+
+### ID và mật khẩu
+
+- **ID máy không chỉnh tay**: ESP32 tạo ID dạng `MAP-<MAC>` từ eFuse MAC tại
+  `MAYAP_INDUSTRIAL_v3_4_0/network_service.h`, hàm
+  `mayapDeviceIdText()`. Đây là định danh duy nhất; không dùng cùng một ID
+  cho hai máy.
+- **Wi-Fi xưởng (tùy chọn)**: đặt GitHub Secrets
+  `MAYAP_WIFI_SSID` và `MAYAP_WIFI_PASSWORD`. Workflow đưa hai giá trị này
+  vào firmware. Bỏ trống nếu để nhân viên/khách cấu hình tại HMI.
+- **Mật khẩu OTA (tùy chọn)**: GitHub Secret `MAYAP_OTA_PASSWORD`. Để trống
+  thì ArduinoOTA bị tắt hoàn toàn.
+- **PIN web** không đặt sẵn trong mã nguồn: Worker tạo PIN 6 số ngẫu nhiên
+  khi máy đăng ký, ESP32 lưu NVS và hiển thị ở **Cài đặt → Thông tin kết nối**.
+  Khi quên PIN, chọn **Đặt lại mã PIN** trên HMI để tạo PIN mới.
+- Mật khẩu AP cấu hình tạm thời cũng được tạo ngẫu nhiên, hiển thị trên HMI;
+  không dùng mật khẩu cố định trước khi xuất xưởng.
+
+### Quy trình phát hành và nạp
+
+1. Trong GitHub repository, vào **Settings → Secrets and variables → Actions**
+   và đặt các secret trong mục trên, cùng các secret bảo mật/MQTT ở phần trước.
+2. Chạy workflow **Build & release firmware** bằng *Run workflow* để kiểm tra
+   bản thử. Chỉ tạo release có chữ ký khi tạo tag phiên bản, ví dụ `v3.8.0`.
+3. Nạp file `.bin` đã ký vào một máy pilot qua USB. Lần khởi động đầu,
+   ESP32 gửi PING để xác nhận ATtiny sẵn sàng; ATtiny không còn đo/báo pin.
+4. Tại HMI, chọn Online rồi kiểm tra Wi-Fi, ID máy và PIN Web. Trên web, thêm
+   máy bằng đúng ID + PIN; không nhập WSS hay tài khoản MQTT.
+5. Test tối thiểu: khởi động lại ESP32, ngắt ATtiny, mất Wi-Fi, mất cảm biến,
+   và thử một gói OTA sai chữ ký. Khi tất cả đạt mới nạp hàng loạt.
+
 ## OTA ký số
 
 Khóa riêng chỉ đặt trong GitHub Actions. Workflow ký file .bin bằng ECDSA
@@ -72,7 +104,7 @@ sau đó mới deploy Worker. Migration thêm rate limit PIN và chữ ký OTA.
 
 ## Hạn chế phần cứng cần xử lý
 
-ATtiny13A hiện không có đường đo riêng cho pin CR2032 của chính nó. Không thể
-khắc phục triệt để chỉ bằng firmware mà vẫn đo đúng dưới tải. Bản PCB sau cần
-một đường ADC phù hợp hoặc IC giám sát pin. Chi tiết an toàn nhiệt nằm tại
+Tính năng đo/báo pin ATtiny đã được vô hiệu hóa theo cấu hình vận hành hiện
+tại. ESP32 chỉ dùng PING/ACK để xác nhận ATtiny sẵn sàng sau khi khởi động và
+trong lúc đang có mẻ. Chi tiết an toàn nhiệt nằm tại
 `doc/SAFETY_HARDWARE_REQUIREMENTS.md`.

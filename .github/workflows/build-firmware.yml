@@ -108,6 +108,8 @@ jobs:
 
       - name: Tao header bi mat khi build
         env:
+          MAYAP_WIFI_SSID: ${{ secrets.MAYAP_WIFI_SSID }}
+          MAYAP_WIFI_PASSWORD: ${{ secrets.MAYAP_WIFI_PASSWORD }}
           MAYAP_MQTT_HOST: ${{ secrets.MAYAP_MQTT_HOST }}
           MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
           MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
@@ -119,6 +121,8 @@ jobs:
           python3 - <<'PY'
           import json, os
           values = {
+              "MAYAP_WIFI_SSID": os.getenv("MAYAP_WIFI_SSID", ""),
+              "MAYAP_WIFI_PASSWORD": os.getenv("MAYAP_WIFI_PASSWORD", ""),
               "MAYAP_MQTT_HOST": os.getenv("MAYAP_MQTT_HOST", ""),
               "MAYAP_MQTT_USERNAME": os.getenv("MAYAP_MQTT_USERNAME", ""),
               "MAYAP_MQTT_PASSWORD": os.getenv("MAYAP_MQTT_PASSWORD", ""),
@@ -132,7 +136,12 @@ jobs:
               for key, value in values.items():
                   f.write(f"#define {key} {json.dumps(value)}\n")
           if os.getenv("GITHUB_REF", "").startswith("refs/tags/"):
-              missing = [k for k, v in values.items() if not v]
+              required = [
+                  "MAYAP_MQTT_HOST", "MAYAP_MQTT_USERNAME", "MAYAP_MQTT_PASSWORD",
+                  "MAYAP_TLS_ROOT_CA", "MAYAP_OTA_SIGNING_PUBLIC_KEY",
+                  "MAYAP_OTA_SIGNING_PRIVATE_KEY",
+              ]
+              missing = [k for k in required if not values[k]]
               if missing:
                   raise SystemExit("Release bi chan vi thieu secret: " + ", ".join(missing))
           PY
