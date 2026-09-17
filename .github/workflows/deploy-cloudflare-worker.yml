@@ -1,0 +1,57 @@
+name: Deploy Cloudflare Worker
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/**'
+      - '.github/workflows/deploy-cloudflare-worker.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-cloudflare-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      MAYAP_MQTT_HOST: ${{ secrets.MAYAP_MQTT_HOST }}
+      MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
+      MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
+      MAYAP_MQTT_WSS_URL: ${{ secrets.MAYAP_MQTT_WSS_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Kiem tra secret trien khai
+        shell: bash
+        run: |
+          missing=0
+          for key in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID MAYAP_MQTT_HOST MAYAP_MQTT_USERNAME MAYAP_MQTT_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Thieu GitHub Secret ${key}"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Cai Wrangler
+        run: npm install
+
+      - name: Dong bo MQTT secret sang Worker
+        shell: bash
+        run: |
+          node -e 'const e=process.env; const s={MAYAP_MQTT_HOST:e.MAYAP_MQTT_HOST,MAYAP_MQTT_USERNAME:e.MAYAP_MQTT_USERNAME,MAYAP_MQTT_PASSWORD:e.MAYAP_MQTT_PASSWORD}; if(e.MAYAP_MQTT_WSS_URL)s.MAYAP_MQTT_WSS_URL=e.MAYAP_MQTT_WSS_URL; process.stdout.write(JSON.stringify(s))' | npx wrangler secret bulk
+
+      - name: Trien khai Worker
+        run: npx wrangler deploy
