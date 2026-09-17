@@ -7,6 +7,7 @@ import {
   setDeviceStatus,
   renameDevice,
   setDevicePinHash,
+  setDeviceKeyHash,
   getStaleOnlineDevices,
   getRecoveredOfflineDevices,
   getSubscriptionsForDevice,
@@ -177,7 +178,8 @@ async function handleRegister(request, env) {
     const deviceKeyHash = await hashDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER);
     const pairingToken = randomToken(12);
     await insertDevice(env.DB, { deviceId, deviceName, deviceKeyHash, pairingToken, now });
-    return json(env, { success: true, device_id: deviceId, pairing_token: pairingToken, created: true });
+    const webPin = await issueWebPin(env, deviceId);
+    return json(env, { success: true, device_id: deviceId, pairing_token: pairingToken, web_pin: webPin, created: true });
   }
 
   const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, existing.device_key_hash);
@@ -190,7 +192,16 @@ async function handleRegister(request, env) {
   // lan khoi dong lai). Ten hien thi gio HOAN TOAN do web quan ly (xem
   // handleRenameDevice) - firmware khong con vai tro gi voi truong nay.
   await touchDevice(env.DB, deviceId, 'online', now);
-  return json(env, { success: true, device_id: deviceId, pairing_token: existing.pairing_token, created: false });
+  // Di tru ban cu con web_pin_hash=NULL: cap PIN ngau nhien mot lan va tra
+  // ve firmware. May da co PIN thi endpoint dang ky khong phat lai PIN.
+  const webPin = existing.web_pin_hash ? '' : await issueWebPin(env, deviceId);
+  return json(env, {
+    success: true,
+    device_id: deviceId,
+    pairing_token: existing.pairing_token,
+    ...(webPin ? { web_pin: webPin } : {}),
+    created: false,
+  });
 }
 
 // -------------------------- Endpoint: heartbeat --------------------------
@@ -225,7 +236,25 @@ async function handleResetPin(request, env) {
   const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, device.device_key_hash);
   if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
 
-  await setDevicePinHash(env.DB, deviceId, null);
+  const webPin = await issueWebPin(env, deviceId);
+  return json(env, { success: true, web_pin: webPin });
+}
+
+async function handleRotateDeviceKey(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const oldKey = String(body?.device_key || '');
+  const newKey = String(body?.new_device_key || '');
+  if (!isValidDeviceId(deviceId) || newKey.length < 32 || newKey.length > 128) {
+    return json(env, { success: false, error: 'du lieu xoay khoa khong hop le' }, 400);
+  }
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
+  if (!await verifyDeviceKey(oldKey, env.DEVICE_KEY_PEPPER, device.device_key_hash)) {
+    return json(env, { success: false, error: 'device_key sai' }, 401);
+  }
+  const newHash = await hashDeviceKey(newKey, env.DEVICE_KEY_PEPPER);
+  await setDeviceKeyHash(env.DB, deviceId, newHash);
   return json(env, { success: true });
 }
 
@@ -392,11 +421,24 @@ async function handleTestPush(request, env) {
 // PIN rieng cua nguoi dung (KHAC device_key cua firmware) - gate cho "them
 // thiet bi" va "doi ten may" tren web, tranh nguoi la biet device_id la them/
 // sua duoc thiet bi cua nguoi khac. NULL = chua tung doi, coi nhu dang la
-// PIN mac dinh xuat xuong "1111".
+// PIN ngau nhien do Worker cap va HMI hien thi.
 async function verifyDevicePin(env, device, pin) {
   const value = String(pin || '');
-  if (!device.web_pin_hash) return value === '1111';
+  if (!device.web_pin_hash) return false;
   return verifyDeviceKey(value, env.DEVICE_KEY_PEPPER, device.web_pin_hash);
+}
+
+function randomWebPin() {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return String(100000 + (bytes[0] % 900000));
+}
+
+async function issueWebPin(env, deviceId) {
+  const pin = randomWebPin();
+  const pinHash = await hashDeviceKey(pin, env.DEVICE_KEY_PEPPER);
+  await setDevicePinHash(env.DB, deviceId, pinHash);
+  return pin;
 }
 
 function isValidPin(pin) {
@@ -762,6 +804,9 @@ export default {
       }
       if (url.pathname === '/api/device/heartbeat' && request.method === 'POST') {
         return await handleHeartbeat(request, env);
+      }
+      if (url.pathname === '/api/device/rotate-key' && request.method === 'POST') {
+        return await handleRotateDeviceKey(request, env);
       }
       if (url.pathname === '/api/device/reset-pin' && request.method === 'POST') {
         return await handleResetPin(request, env);

@@ -1483,7 +1483,7 @@ void openAutoTuneConfirm() {
 }
 
 // Dat lai ma PIN web (dung khi them thiet bi/doi ten may tren dashboard)
-// ve mac dinh xuat xuong "1111". Day la duong duy nhat de khoi phuc quyen
+// va tao mot ma ngau nhien moi. Day la duong duy nhat de khoi phuc quyen
 // truy cap neu nguoi dung da doi PIN roi quen - co mat vat ly tai HMI (bam
 // nut xac nhan CO) la dieu kien duy nhat, khong can biet PIN cu.
 void openCloudPinResetConfirm() {
@@ -3026,16 +3026,9 @@ void drawConnectionInfo() {
   drawLeftFit(6, 41, text, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
               u8g2_font_5x8_tf);
 
-  if (currentRuntime.networkConnected) {
-    char bars[5];
-    const uint8_t filled = rssiToBars(currentRuntime.networkRssiDbm);
-    for (uint8_t i = 0; i < 4U; ++i) bars[i] = (i < filled) ? '#' : '.';
-    bars[4] = '\0';
-    snprintf(text, sizeof(text), "SONG: %s (%d dBm)", bars,
-             currentRuntime.networkRssiDbm);
-  } else {
-    snprintf(text, sizeof(text), "SONG: --");
-  }
+  // Khach chi can ID + PIN nay; WSS va token cloud duoc cap tu dong.
+  snprintf(text, sizeof(text), "PIN WEB: %s", mayapWebPinText());
+
   drawLeftFit(6, 55, text, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
               u8g2_font_5x8_tf);
 }
@@ -3618,7 +3611,7 @@ void drawConfirmScreen() {
     line1 = pendingTurningConfig.turningEnabled ? "BAT DAO TU DONG?" : "TAT DAO TU DONG?";
   } else if (confirmAction == ConfirmAction::CloudPinReset) {
     line1 = "DAT LAI MA PIN WEB";
-    line2 = "VE MAC DINH 1111?";
+    line2 = "TAO MA 6 SO MOI?";
   } else if (confirmAction == ConfirmAction::FirmwareRollback) {
     line1 = "QUAY LAI FIRMWARE CU?";
     line2 = "MAY SE KHOI DONG LAI";

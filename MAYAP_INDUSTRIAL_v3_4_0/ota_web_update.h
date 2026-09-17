@@ -154,7 +154,7 @@ inline bool mayapFirmwareWebCheck() {
   using namespace MayapFirmwareWebInternal;
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
-  doc["device_key"] = CLOUD_DEVICE_SECRET;
+  doc["device_key"] = mayapDeviceSecret();
   doc["current_version"] = MAYAP_FIRMWARE_VERSION;
   String body;
   serializeJson(doc, body);
@@ -223,7 +223,7 @@ inline void mayapFirmwareWebApplyNow() {
     return;
   }
   http.addHeader("X-Device-Id", mayapDeviceIdText());
-  http.addHeader("X-Device-Key", CLOUD_DEVICE_SECRET);
+  http.addHeader("X-Device-Key", mayapDeviceSecret());
   const int code = http.GET();
   if (code != 200) {
     mayapSerialPrintf(true, "[FWWEB] Tai firmware THAT BAI, ma HTTP=%d\n", code);

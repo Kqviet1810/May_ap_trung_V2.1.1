@@ -47,10 +47,15 @@ export async function renameDevice(db, deviceId, name) {
   await db.prepare('UPDATE devices SET device_name = ?2 WHERE device_id = ?1').bind(deviceId, name).run();
 }
 
-// Luu hash PIN moi (web_pin_hash) - null truoc do coi nhu dang la PIN mac
-// dinh xuat xuong "1111" (xem verifyDevicePin trong index.js).
+// Luu hash PIN web moi. Ban hardening khong con chap nhan PIN mac dinh.
 export async function setDevicePinHash(db, deviceId, pinHash) {
   await db.prepare('UPDATE devices SET web_pin_hash = ?2 WHERE device_id = ?1').bind(deviceId, pinHash).run();
+}
+
+export async function setDeviceKeyHash(db, deviceId, deviceKeyHash) {
+  await db.prepare('UPDATE devices SET device_key_hash = ?2 WHERE device_id = ?1')
+    .bind(deviceId, deviceKeyHash)
+    .run();
 }
 
 // Doi status ma KHONG dung toi last_seen (touchDevice() dung khi that su co
