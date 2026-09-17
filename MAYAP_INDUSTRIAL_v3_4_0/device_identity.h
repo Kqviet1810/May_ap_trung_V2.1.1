@@ -12,13 +12,13 @@ static char webPin[9] = "";
 static bool usingLegacyKey = false;
 
 inline void randomHex(char *out, size_t bytes) {
-  static const char HEX[] = "0123456789abcdef";
+  static const char HEX_DIGITS[] = "0123456789abcdef";
   uint8_t data[32];
   if (bytes > sizeof(data)) bytes = sizeof(data);
   esp_fill_random(data, bytes);
   for (size_t i = 0; i < bytes; ++i) {
-    out[i * 2U] = HEX[data[i] >> 4U];
-    out[i * 2U + 1U] = HEX[data[i] & 0x0FU];
+    out[i * 2U] = HEX_DIGITS[data[i] >> 4U];
+    out[i * 2U + 1U] = HEX_DIGITS[data[i] & 0x0FU];
   }
   out[bytes * 2U] = '\0';
 }
