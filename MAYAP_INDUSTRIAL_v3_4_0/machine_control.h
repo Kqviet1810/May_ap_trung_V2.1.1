@@ -4657,9 +4657,8 @@ class MachineController {
     // khong phan hoi (mach dinh khong nen tri hoan ca me ap chi vi 1 mach
     // phu), chi canh bao ro rang de nguoi dung tu kiem tra pin CR2032/day
     // noi som, truoc khi mat lop bao ve du phong suot ca me.
-    const bool attinyOk = mayapAttinyBusSend(ATTINY_MSG_PING);
-    faults_.set(FaultCode::AttinyBusUnresponsive, !attinyOk, now);
-    (void)mayapAttinyBusSend(ATTINY_MSG_BATCH_START);
+    (void)mayapAttinyBusRequest(ATTINY_MSG_BATCH_START);
+    (void)mayapAttinyBusRequest(ATTINY_MSG_PING);
     attinyLastPingAt_ = now;
     return true;
   }
@@ -4715,7 +4714,7 @@ class MachineController {
                       cleared ? "OK" : "PENDING");
     // Bao mat dien qua ATtiny13A: me da ket thuc - ATtiny se khong con tu
     // bat coi neu sau nay mat dien (dung yeu cau "chi bao khi dang co me").
-    (void)mayapAttinyBusSend(ATTINY_MSG_BATCH_END);
+    (void)mayapAttinyBusRequest(ATTINY_MSG_BATCH_END);
     return true;
   }
 
@@ -6092,23 +6091,34 @@ class MachineController {
   //     bat/go FaultCode::SirenBatteryLow. Day la canh bao nhe (Warning),
   //     khong khoa van hanh; Cloud Push nhac lai dinh ky nhu canh bao do am.
   void updateAttinyLink(uint32_t now) {
+    // State machine bus khong chan: moi nhip chi doi mot pha, khong bao gio
+    // cho ACK trong controlTask.
+    mayapAttinyBusUpdate(now);
+
+    uint8_t completedCode = 0U;
+    bool completedOk = false;
+    if (mayapAttinyBusTakeResult(completedCode, completedOk)) {
+      faults_.set(FaultCode::AttinyBusUnresponsive, !completedOk, now);
+      if (completedOk && completedCode == ATTINY_MSG_SIREN_ON) {
+        attinySirenMirrorOn_ = true;
+      } else if (completedOk && completedCode == ATTINY_MSG_SIREN_OFF) {
+        attinySirenMirrorOn_ = false;
+      }
+    }
+
     const bool emergencySirenOn =
         emergencyActive_ && timeReached(now, sirenMutedUntil_);
     if (emergencySirenOn != attinySirenMirrorOn_) {
-      const bool ok = mayapAttinyBusSend(emergencySirenOn ? ATTINY_MSG_SIREN_ON
-                                                            : ATTINY_MSG_SIREN_OFF);
-      // Chi coi la da dong bo neu ATtiny thuc su ACK - neu khong (mat lien
-      // lac), giu nguyen co de lan sau (chu ky ke tiep) tu thu lai, tranh
-      // "quen" mai mai mot lan gui that bai.
-      if (ok) attinySirenMirrorOn_ = emergencySirenOn;
-      faults_.set(FaultCode::AttinyBusUnresponsive, !ok, now);
+      (void)mayapAttinyBusRequest(emergencySirenOn ? ATTINY_MSG_SIREN_ON
+                                                    : ATTINY_MSG_SIREN_OFF);
     }
 
     if (batchRunning_ &&
         elapsedMs(now, attinyLastPingAt_) >= ATTINY_PING_INTERVAL_MS) {
       attinyLastPingAt_ = now;
-      const bool ok = mayapAttinyBusSend(ATTINY_MSG_PING);
-      faults_.set(FaultCode::AttinyBusUnresponsive, !ok, now);
+      // Gui lai trang thai me truoc PING de ATtiny tu dong bo sau reset/thay pin.
+      (void)mayapAttinyBusRequest(ATTINY_MSG_BATCH_START);
+      (void)mayapAttinyBusRequest(ATTINY_MSG_PING);
     }
 
     const uint8_t incoming = mayapAttinyBusPollIncoming();

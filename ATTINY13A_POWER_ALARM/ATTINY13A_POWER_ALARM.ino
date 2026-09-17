@@ -106,6 +106,7 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
+#include <avr/eeprom.h>
 #include <avr/wdt.h>
 #include <util/delay.h>
 
@@ -129,6 +130,22 @@ constexpr uint8_t MSG_SIREN_OFF   = 4U;
 constexpr uint8_t MSG_PING        = 5U;
 constexpr uint8_t MSG_9V_LOW       = 6U;
 constexpr uint8_t MSG_9V_RECOVERED = 7U;
+
+// Trang thai me song sot qua reset/thay nguon ATtiny. Hai byte dao nhau de
+// phat hien EEPROM chua khoi tao/hong. Chi ghi khi bat dau/ket thuc me.
+uint8_t EEMEM eeBatchState;
+uint8_t EEMEM eeBatchStateInv;
+
+static bool loadBatchState() {
+  const uint8_t value = eeprom_read_byte(&eeBatchState);
+  const uint8_t inverse = eeprom_read_byte(&eeBatchStateInv);
+  return ((value ^ inverse) == 0xFFU) && value == 1U;
+}
+static void saveBatchState(bool active) {
+  const uint8_t value = active ? 1U : 0U;
+  eeprom_update_byte(&eeBatchState, value);
+  eeprom_update_byte(&eeBatchStateInv, static_cast<uint8_t>(~value));
+}
 constexpr uint8_t MSG_MAX_CODE     = 7U;
 
 // Thoi gian doi on dinh muc (chong nhieu/gon song thoang qua) truoc khi tin
@@ -300,7 +317,7 @@ int main(void) {
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sei();
 
-  bool dangCoMe = false;          // ghi nho tu MSG_BATCH_START/END
+  bool dangCoMe = loadBatchState();          // ghi nho tu MSG_BATCH_START/END
   bool coiKhauCap = false;        // lenh truc tiep MSG_SIREN_ON/OFF - LUON uu tien
   bool coiMatDien = false;        // ATtiny tu phat hien mat 3.3V trong luc co me
   bool coDien33Truoc = esp32PowerOk();
@@ -317,10 +334,16 @@ int main(void) {
       const uint8_t code = receiveMessage();
       switch (code) {
         case MSG_BATCH_START:
-          dangCoMe = true;
+          if (!dangCoMe) {
+            dangCoMe = true;
+            saveBatchState(true);
+          }
           break;
         case MSG_BATCH_END:
-          dangCoMe = false;
+          if (dangCoMe) {
+            dangCoMe = false;
+            saveBatchState(false);
+          }
           coiMatDien = false;  // het me thi khong con ly do giu bao mat dien
           break;
         case MSG_SIREN_ON:
