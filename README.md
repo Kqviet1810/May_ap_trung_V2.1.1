@@ -119,6 +119,7 @@ Dashboard là site tĩnh, có thể chạy trực tiếp bằng cách mở `inde
 2. Bật GitHub Pages cho repo (hoặc host bằng bất kỳ static hosting nào - Cloudflare Pages, Netlify...).
 3. Truy cập trang, bấm **+** để thêm thiết bị bằng Device ID + PIN hiển thị trên máy (mặc định `1111`, nên đổi ngay sau khi thêm).
 4. Trên điện thoại, có thể "Thêm vào Màn hình chính" để dùng như app PWA, nhận thông báo đẩy kể cả khi không mở trình duyệt.
+5. Nếu firmware được build với broker riêng qua GitHub Secrets, vào **Cài đặt → Broker MQTT riêng** trên dashboard và nhập endpoint WSS, tên đăng nhập, mật khẩu của **cùng broker**. Ví dụ HiveMQ Cloud thường dùng cổng MQTT TLS `8883` cho ESP32 và WSS `8884/mqtt` cho trình duyệt. Dashboard lưu cấu hình riêng trong trình duyệt và kết nối lại ngay; không ghi mật khẩu vào repository.
 
 ### 3. Triển khai Cloudflare Worker (tuỳ chọn)
 

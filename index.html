@@ -101,6 +101,18 @@
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M5 12.5a11 11 0 0 1 14 0"/><path d="M8.5 16a6 6 0 0 1 7 0"/><line x1="12" x2="12" y1="19.5" y2="19.51"/></svg></span><span class="settingSummary"><strong>Đổi Wi‑Fi</strong><small id="wifiSettingSummary">Đang kết nối: Phòng 301</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody" id="wifiForm"><div class="wifiGuide"><strong>2 bước</strong><small>1. Giữ nút BOOT 3 giây trên máy ấp (đèn báo cấu hình sẽ sáng).<br/>2. Trên điện thoại, vào Cài đặt Wi‑Fi và kết nối vào mạng <b>MAYAP-XXXX</b>.</small></div><button class="primary full" id="openWifiPortal" type="button">Mở trang đổi Wi‑Fi</button></form>
 </details>
+<details class="settingCard" id="mqttPrivateSetting">
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/><circle cx="7" cy="7" r=".5" fill="currentColor"/><circle cx="7" cy="12" r=".5" fill="currentColor"/><circle cx="7" cy="17" r=".5" fill="currentColor"/></svg></span><span class="settingSummary"><strong>Broker MQTT riêng</strong><small id="mqttPrivateSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<form class="settingBody stackForm" id="mqttPrivateForm">
+<p class="settingFootnote">Nhập endpoint WebSocket bảo mật của cùng broker đang nhúng trong firmware. Ví dụ HiveMQ Cloud thường dùng <b>wss://ten-cum-may-chu:8884/mqtt</b>.</p>
+<input autocomplete="url" id="mqttPrivateUrl" placeholder="wss://broker-cua-ban:8884/mqtt" required type="url"/>
+<input autocomplete="username" id="mqttPrivateUsername" placeholder="Tên đăng nhập MQTT" required type="text"/>
+<input autocomplete="current-password" id="mqttPrivatePassword" placeholder="Mật khẩu MQTT" required type="password"/>
+<p class="formError" id="mqttPrivateError" role="alert"></p>
+<button class="primary full" type="submit">Lưu và kết nối lại</button>
+<button class="ghost full" hidden id="mqttPrivateReset" type="button">Dùng lại cấu hình mặc định</button>
+</form>
+</details>
 <p class="settingGroupLabel">Cảnh báo &amp; nhắc nhở</p>
 <details class="settingCard">
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>

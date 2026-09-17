@@ -33,8 +33,13 @@ name: Build & release firmware
 # Board hien trong Arduino IDE: "ESP32S3 Dev Module" -> esp32:esp32:esp32s3.
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*.*.*'
+    paths:
+      - 'MAYAP_INDUSTRIAL_v3_4_0/**'
+      - '.github/workflows/build-firmware.yml'
   workflow_dispatch: {}
 
 # Bat buoc phai co contents: write thi buoc "Tao GitHub Release" (softprops/
@@ -82,9 +87,51 @@ jobs:
           MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
         run: |
           MQTT_FLAGS=""
-          if [ -n "$MAYAP_MQTT_HOST" ] && [ -n "$MAYAP_MQTT_USERNAME" ] && [ -n "$MAYAP_MQTT_PASSWORD" ]; then
+          MQTT_HOST_CLEAN="$(printf '%s' "$MAYAP_MQTT_HOST" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          if [ -n "$MQTT_HOST_CLEAN" ] && [ -n "$MAYAP_MQTT_USERNAME" ] && [ -n "$MAYAP_MQTT_PASSWORD" ]; then
+            if ! printf '%s' "$MQTT_HOST_CLEAN" | grep -Eq '^[A-Za-z0-9.-]+
+          arduino-cli compile \
+            --fqbn "${{ env.MAYAP_FQBN }}" \
+            --output-dir ./build \
+            --build-property "compiler.cpp.extra_flags=${MQTT_FLAGS}" \
+            --verbose \
+            MAYAP_INDUSTRIAL_v3_4_0
+
+      - name: Bao cao kich thuoc (doi chieu voi log Arduino IDE tren may ban)
+        run: ls -la ./build/*.bin
+
+      - name: Doi ten file .bin theo tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
+
+      # Chay tay (workflow_dispatch, khong co tag) chi de kiem tra bien dich
+      # con chay duoc khong - luu ket qua thanh artifact tai ve xem thu,
+      # KHONG tao Release/tag nao ca.
+      - name: Luu file .bin de kiem tra (chi khi chay tay)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-bin-test
+          path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
+          retention-days: 7
+
+      - name: Tao GitHub Release + dinh kem file .bin
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./MAYAP-firmware-*.bin
+          generate_release_notes: true
+; then
+              echo "::error::MAYAP_MQTT_HOST khong hop le. Chi nhap hostname, khong kem giao thuc, cong, duong dan hoac khoang trang."
+              exit 1
+            fi
             echo "Da tim thay du 3 secret MQTT - nhung broker rieng (TLS, cong 8883) vao firmware."
-            MQTT_FLAGS="-DMAYAP_MQTT_HOST=\"$MAYAP_MQTT_HOST\" -DMAYAP_MQTT_PORT=8883 -DMAYAP_MQTT_USE_TLS=1 -DMAYAP_MQTT_USERNAME=\"$MAYAP_MQTT_USERNAME\" -DMAYAP_MQTT_PASSWORD=\"$MAYAP_MQTT_PASSWORD\""
+            if [ "$MQTT_HOST_CLEAN" != "$MAYAP_MQTT_HOST" ]; then
+              echo "::warning::Da loai bo ky tu trang o dau/cuoi MAYAP_MQTT_HOST."
+            fi
+            MQTT_FLAGS="-DMAYAP_MQTT_HOST=\"$MQTT_HOST_CLEAN\" -DMAYAP_MQTT_PORT=8883 -DMAYAP_MQTT_USE_TLS=1 -DMAYAP_MQTT_USERNAME=\"$MAYAP_MQTT_USERNAME\" -DMAYAP_MQTT_PASSWORD=\"$MAYAP_MQTT_PASSWORD\""
           else
             echo "CANH BAO: thieu secret MAYAP_MQTT_HOST/USERNAME/PASSWORD - firmware se dung broker cong khai mac dinh, lenh dieu khien tu xa se BI KHOA (xem F-01)."
           fi

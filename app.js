@@ -2,6 +2,22 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
+  const MQTT_OVERRIDE_STORAGE = 'mayap.web.v9.mqtt.private';
+
+  function loadMqttOverride() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(MQTT_OVERRIDE_STORAGE) || 'null');
+      if (!saved || !/^wss:\/\//i.test(String(saved.mqttUrl || ''))) return {};
+      return {
+        mqttUrl: String(saved.mqttUrl).trim(),
+        mqttUsername: String(saved.mqttUsername || ''),
+        mqttPassword: String(saved.mqttPassword || '')
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
   const WEB = Object.freeze({
     mqttUrl: '',
     mqttUsername: '',
@@ -15,7 +31,8 @@
     staleAfterMs: 90000,
     commandTimeoutMs: 10000,
     configTimeoutMs: 15000,
-    ...window.MAYAP_WEB_CONFIG
+    ...window.MAYAP_WEB_CONFIG,
+    ...loadMqttOverride()
   });
 
   const STORAGE = 'mayap.web.v9';
@@ -697,7 +714,9 @@
       // offline) - truoc day hien thang chi tiet ky thuat noi bo cua thu vien
       // MQTT (vd "MQTT loi: websocket error", "Trinh duyet dang offline"...),
       // khong can thiet va gay roi cho nguoi dung khong ranh ky thuat.
-      $('wifiConnectionText').textContent = 'Đang kết nối…';
+      $('wifiConnectionText').textContent = state.mqttConnected
+        ? 'MQTT đã kết nối · đang chờ dữ liệu từ máy'
+        : state.mqttMessage;
       $('sideStatus').textContent = 'Đang kết nối';
     } else {
       pill.textContent = 'NGOẠI TUYẾN';
@@ -2537,6 +2556,42 @@
     $('enablePushBtn').addEventListener('click', onEnablePushClick);
     $('testPushBtn').addEventListener('click', onTestPushClick);
 
+    $('mqttPrivateForm').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const mqttUrl = $('mqttPrivateUrl').value.trim();
+      const mqttUsername = $('mqttPrivateUsername').value.trim();
+      const mqttPassword = $('mqttPrivatePassword').value;
+      const errorEl = $('mqttPrivateError');
+      errorEl.classList.remove('show');
+
+      let parsed;
+      try { parsed = new URL(mqttUrl); } catch (_) {}
+      if (!parsed || parsed.protocol !== 'wss:') {
+        errorEl.textContent = 'URL phải bắt đầu bằng wss:// và đúng endpoint WebSocket của broker.';
+        errorEl.classList.add('show');
+        return;
+      }
+      if (!mqttUsername || !mqttPassword) {
+        errorEl.textContent = 'Broker riêng cần đủ tên đăng nhập và mật khẩu.';
+        errorEl.classList.add('show');
+        return;
+      }
+
+      localStorage.setItem(MQTT_OVERRIDE_STORAGE, JSON.stringify({
+        mqttUrl,
+        mqttUsername,
+        mqttPassword
+      }));
+      toast('Đã lưu broker riêng · đang kết nối lại');
+      setTimeout(() => window.location.reload(), 500);
+    });
+
+    $('mqttPrivateReset').addEventListener('click', () => {
+      localStorage.removeItem(MQTT_OVERRIDE_STORAGE);
+      toast('Đã dùng lại cấu hình mặc định · đang tải lại');
+      setTimeout(() => window.location.reload(), 500);
+    });
+
     $('openWifiPortal').addEventListener('click', async () => {
       const ok = await confirmAction({
         title: 'Đã kết nối vào MAYAP-XXXX chưa?',
@@ -2697,6 +2752,19 @@
     }
   }
 
+  function loadMqttSettingsForm() {
+    $('mqttPrivateUrl').value = WEB.mqttUrl || '';
+    $('mqttPrivateUsername').value = WEB.mqttUsername || '';
+    $('mqttPrivatePassword').value = WEB.mqttPassword || '';
+    const overridden = Boolean(localStorage.getItem(MQTT_OVERRIDE_STORAGE));
+    let host = 'Chưa cấu hình';
+    try { host = new URL(WEB.mqttUrl).host; } catch (_) {}
+    $('mqttPrivateSummary').textContent = overridden
+      ? `Broker riêng: ${host}`
+      : `Mặc định: ${host}`;
+    $('mqttPrivateReset').hidden = !overridden;
+  }
+
   function init() {
     // Goi showPage() thay vi chi dat dataset.page: truoc day tieu de va chu
     // thich luc moi mo trang lay tu chuoi VIET CUNG trong index.html (vi
@@ -2706,6 +2774,7 @@
     applyTheme(getThemePreference());
     applyDeepLinkDevice();
     bindUi();
+    loadMqttSettingsForm();
     renderSelector();
     updateSettingSummaries();
     renderBatchLogs();
