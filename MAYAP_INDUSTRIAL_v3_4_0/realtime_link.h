@@ -83,6 +83,7 @@ static WiFiClientSecure netClient;
 static WiFiClient netClient;
 #endif
 static PubSubClient mqtt(netClient);
+static bool mqttTlsReady = !MQTT_USE_TLS;
 
 // Backoff RIENG cho MQTT, doc lap hoan toan voi backoff cua STA Wi-Fi
 // (network_service.h) va Cloud Push (cloud_alert_link.h) - moi lop tu quan
@@ -730,6 +731,7 @@ inline void subscribeAll() {
 }
 
 inline void attemptConnect(uint32_t now) {
+  if (!mqttTlsReady || !MQTT_BROKER_HOST[0]) return;
   if (!mqttBackoff.ready(now)) return;
 
   char clientId[32];
@@ -925,7 +927,13 @@ inline void mayapWebLinkBegin() {
   mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
   mqtt.setCallback(mqttMessageCallback);
 #if MQTT_USE_TLS
-  netClient.setInsecure();  // khong xac thuc CA: xem ghi chu o dau file cho ban thuong mai
+  mqttTlsReady = TLS_ROOT_CA[0] != '\0';
+  if (mqttTlsReady) {
+    netClient.setCACert(TLS_ROOT_CA);
+  } else {
+    mayapSerialPrintf(true,
+        "[WEBLINK] TLS bi khoa: chua nhung MAYAP_TLS_ROOT_CA - KHONG ha cap insecure\n");
+  }
 #endif
   applyWifiPowerMode(false);
 }

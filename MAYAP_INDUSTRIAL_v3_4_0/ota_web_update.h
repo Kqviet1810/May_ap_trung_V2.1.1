@@ -74,7 +74,11 @@ inline void setError(const char *text) {
 // cloud_alert_link.h ve ly do khong dung chung ham giua cac file de doc lap
 // thu tu include. Giong het beginCloudRequest() trong cloud_alert_link.h.
 inline bool beginRequest(HTTPClient &http, WiFiClientSecure &client, const char *path) {
-  client.setInsecure();
+  if (!TLS_ROOT_CA[0]) {
+    setError("TLS chua co CA goc tin cay");
+    return false;
+  }
+  client.setCACert(TLS_ROOT_CA);
   http.setConnectTimeout(CLOUD_HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(CLOUD_HTTP_TIMEOUT_MS);
   char url[192];

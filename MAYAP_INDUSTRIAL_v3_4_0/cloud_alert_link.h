@@ -35,7 +35,7 @@
 // Tai nguyen: moi lan goi tao MOI mot WiFiClientSecure NGAN HAN (huy ngay sau
 // khi xong), khong giu ket noi thuong truc nhu MQTT - phu hop voi tan suat
 // thap (vai phut/lan) va tranh chiem RAM lau dai tren thiet bi khong PSRAM.
-// setInsecure() bo qua xac thuc CA (giong lop MQTT/Telegram truoc day) - du
+// TLS bat buoc xac thuc CA goc tu MAYAP_TLS_ROOT_CA; thieu CA thi kenh dong -
 // Cloudflare dung chung chi hop le, ESP32 Arduino core khong co san bo goc
 // CA de xac thuc day du ma khong tang dang ke dung luong firmware; day la
 // danh doi bao mat da duoc ghi nhan, xem bao cao audit.
@@ -579,7 +579,11 @@ inline void checkWifiSignal(uint32_t now) {
 
 // ------------------------------- Goi HTTPS ---------------------------------------
 inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const char *path) {
-  client.setInsecure();
+  if (!TLS_ROOT_CA[0]) {
+    mayapSerialPrintf(true, "[CLOUD] TLS bi khoa: thieu CA goc tin cay\n");
+    return false;
+  }
+  client.setCACert(TLS_ROOT_CA);
   http.setConnectTimeout(CLOUD_HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(CLOUD_HTTP_TIMEOUT_MS);
   char url[160];
