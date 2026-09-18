@@ -420,16 +420,26 @@ inline void handleCommandMessage(const JsonDocument &doc) {
     return;
   }
   const uint32_t sequence = doc["sequence"] | 0UL;
+  const uint32_t messageBootId = doc["bootId"] | 0UL;
   const char *action = doc["action"] | "";
 
-  // Chong lap: web co the phat lai cung mot lenh khi mat goi ACK. Sequence
-  // tang dan tu web; requestId trung cung la dau hieu lap.
-  if (requestId[0] && !strcmp(requestId, lastCommandRequestId)) {
+  // Lenh dieu khien PHAI co requestId, sequence va bootId hop le.
+  // bootId thay doi moi lan khoi dong, nen packet cua boot cu bi vo hieu.
+  if (!requestId[0] || sequence == 0U) {
+    publishAck(requestId, "invalid", "");
+    return;
+  }
+  if (messageBootId == 0U || messageBootId != bootId) {
+    publishAck(requestId, "stale", "");
+    return;
+  }
+
+  // Chong lap trong cung boot: requestId khong duoc lap va sequence phai tang.
+  if (!strcmp(requestId, lastCommandRequestId)) {
     publishAck(requestId, "duplicate", "");
     return;
   }
-  if (sequence != 0U && lastCommandSequence != 0U &&
-      sequence <= lastCommandSequence) {
+  if (lastCommandSequence != 0U && sequence <= lastCommandSequence) {
     publishAck(requestId, "stale", "");
     return;
   }
@@ -437,6 +447,14 @@ inline void handleCommandMessage(const JsonDocument &doc) {
   const HmiCommandType type = mapCommandAction(action);
   if (type == HmiCommandType::None) {
     publishAck(requestId, "unsupported", "");
+    return;
+  }
+
+  // Rollback thay doi firmware dang boot. Kenh MQTT hien dung credential
+  // chung, nen rollback tu xa bi khoa. Rollback van dung duoc tren HMI
+  // voi man xac nhan CO/HUY da co san.
+  if (type == HmiCommandType::FirmwareRollback) {
+    publishAck(requestId, "rejected", "QUAY LAI CAN XAC NHAN TAI MAY");
     return;
   }
 
@@ -488,13 +506,22 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
     return;
   }
   const uint32_t revision = doc["revision"] | 0UL;
+  if (!requestId[0] || revision == 0U) {
+    publishAck(requestId, "invalid", "");
+    return;
+  }
 
   portENTER_CRITICAL(&webMux);
   const bool busy = pendingConfigSave.used;
   const bool haveBase = knownConfigValid;
+  const uint32_t currentRevision = webConfigRevision;
   MachineConfig candidate = knownConfig;
   portEXIT_CRITICAL(&webMux);
 
+  if (currentRevision != 0U && revision <= currentRevision) {
+    publishAck(requestId, "stale", "");
+    return;
+  }
   if (busy) {
     publishAck(requestId, "busy", "");
     return;
@@ -600,10 +627,19 @@ inline void handleReminderSetMessage(const JsonDocument &doc) {
     return;
   }
   const uint32_t revision = doc["revision"] | 0UL;
+  if (!requestId[0] || revision == 0U) {
+    publishAck(requestId, "invalid", "");
+    return;
+  }
 
   portENTER_CRITICAL(&webMux);
   const bool busy = pendingReminderSave.used;
+  const uint32_t currentRevision = webRemindersRevision;
   portEXIT_CRITICAL(&webMux);
+  if (currentRevision != 0U && revision <= currentRevision) {
+    publishAck(requestId, "stale", "");
+    return;
+  }
   if (busy) {
     publishAck(requestId, "busy", "");
     return;

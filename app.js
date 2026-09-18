@@ -830,13 +830,8 @@
       bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy phiên bản v${escapeHtml(currentVersion)} - đây đã là bản mới nhất.</p>${rollbackButtonHtml}`;
     }
     $('firmwareRollbackBtn')?.addEventListener('click', () => {
-      // Hanh dong hiem gap, gay khoi dong lai ngay - can 1 buoc xac nhan ro
-      // rang truoc khi gui, tranh bam nham (khac batch/cai dat thong thuong
-      // von khong can vi de sua lai duoc).
-      const ok = window.confirm(
-        'Quay lại firmware trước đó?\n\nMáy sẽ khởi động lại ngay. Chỉ nên làm khi bản hiện tại đang có lỗi.'
-      );
-      if (ok) sendCommand('firmware_rollback');
+      // Rollback chi duoc xac nhan vat ly tren HMI; web khong gui MQTT.
+      toast('Quay lại firmware phải xác nhận trực tiếp trên màn hình máy: Cài đặt → Hệ thống → Quay lại bản cũ.', 6500);
     });
   }
 
