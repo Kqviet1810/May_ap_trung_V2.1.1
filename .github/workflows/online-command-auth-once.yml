@@ -1,0 +1,476 @@
+name: Apply online command auth once
+
+on:
+  push:
+    branches:
+      - hardening/v3.8.0
+    paths:
+      - .github/workflows/online-command-auth-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hardening/v3.8.0
+          fetch-depth: 0
+
+      - name: Apply guarded source patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8')
+
+          def replace_once(path, old, new):
+              text = read(path)
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected 1 exact match, found {count}')
+              write(path, text.replace(old, new, 1))
+
+          # ------------------------------------------------------------------
+          # 1) ESP32: luu khoa HMAC rieng tung device vao NVS.
+          # ------------------------------------------------------------------
+          p = 'MAYAP_INDUSTRIAL_v3_4_0/device_identity.h'
+          replace_once(p,
+              'static char activeKey[65] = "";\nstatic char webPin[9] = "";\nstatic bool webPinConfigured = false;\n',
+              'static char activeKey[65] = "";\nstatic char commandKey[65] = "";\nstatic char webPin[9] = "";\nstatic bool webPinConfigured = false;\n')
+          replace_once(p,
+              "  activeKey[0] = '\\0';\n  webPin[0] = '\\0';\n",
+              "  activeKey[0] = '\\0';\n  commandKey[0] = '\\0';\n  webPin[0] = '\\0';\n")
+          replace_once(p,
+              '  const String storedKey = prefs.getString("device-key", "");\n',
+              '  const String storedCommandKey = prefs.getString("command-key", "");\n'
+              '  if (storedCommandKey.length() == 64U) {\n'
+              '    strlcpy(commandKey, storedCommandKey.c_str(), sizeof(commandKey));\n'
+              '  }\n\n'
+              '  const String storedKey = prefs.getString("device-key", "");\n')
+          insert_after = '''inline const char *mayapDeviceSecret() {
+  return MayapDeviceIdentityInternal::activeKey;
+}
+'''
+          addition = '''inline const char *mayapDeviceSecret() {
+  return MayapDeviceIdentityInternal::activeKey;
+}
+
+inline bool mayapStoreCommandKey(const char *key) {
+  using namespace MayapDeviceIdentityInternal;
+  if (!key || strlen(key) != 64U) return false;
+  for (size_t i = 0; i < 64U; ++i) {
+    const char c = key[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+          (c >= 'A' && c <= 'F'))) return false;
+  }
+  Preferences prefs;
+  if (!prefs.begin("mayap-id", false)) return false;
+  const bool ok = prefs.putString("command-key", key) > 0U;
+  prefs.end();
+  if (ok) strlcpy(commandKey, key, sizeof(commandKey));
+  return ok;
+}
+
+inline const char *mayapCommandKey() {
+  return MayapDeviceIdentityInternal::commandKey;
+}
+'''
+          replace_once(p, insert_after, addition)
+
+          # ------------------------------------------------------------------
+          # 2) ESP32 Cloud register: nhan command_key qua HTTPS/TLS va luu NVS.
+          # ------------------------------------------------------------------
+          p = 'MAYAP_INDUSTRIAL_v3_4_0/cloud_alert_link.h'
+          replace_once(p,
+              'inline void storePinFromResponse(const String &response) {\n',
+              'inline void storeProvisioningFromResponse(const String &response) {\n')
+          replace_once(p,
+              '  const char *pin = parsed["web_pin"] | "";\n  if (pin[0]) mayapStoreWebPin(pin);\n}\n',
+              '  const char *pin = parsed["web_pin"] | "";\n'
+              '  if (pin[0]) mayapStoreWebPin(pin);\n'
+              '  const char *commandKey = parsed["command_key"] | "";\n'
+              '  if (commandKey[0]) {\n'
+              '    if (!mayapStoreCommandKey(commandKey)) {\n'
+              '      mayapSerialPrintf(true, "[CLOUD] command_key khong hop le/khong luu duoc\\n");\n'
+              '    }\n'
+              '  }\n'
+              '}\n')
+          replace_once(p, '  storePinFromResponse(response);\n  return rotateLegacyDeviceKey();\n',
+                          '  storeProvisioningFromResponse(response);\n  return rotateLegacyDeviceKey();\n')
+          replace_once(p, '  storePinFromResponse(response);\n  return true;\n',
+                          '  storeProvisioningFromResponse(response);\n  return true;\n')
+
+          # ------------------------------------------------------------------
+          # 3) Worker: Serverless credential + per-device HMAC signer.
+          # ------------------------------------------------------------------
+          p = 'cloudflare/src/index.js'
+          text = read(p)
+          pattern = re.compile(r"function base64Url\(bytes\) \{.*?^\}\nfunction pinRateKey", re.S | re.M)
+          replacement = r'''const DEFAULT_MQTT_HOST = '2f4b95444c554498bd4a4b2da0de8013.s1.eu.hivemq.cloud';
+const DEFAULT_MQTT_USERNAME = 'Mayap_Iot';
+const MQTT_WRITE_CHANNELS = new Set(['command', 'config/set', 'reminders/set']);
+
+function bytesToHex(bytes) {
+  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+function hexToBytes(hex) {
+  if (typeof hex !== 'string' || !/^[0-9a-f]{64}$/i.test(hex)) return null;
+  const out = new Uint8Array(32);
+  for (let i = 0; i < out.length; i += 1) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+async function hmacSha256(keyBytes, message) {
+  const key = await crypto.subtle.importKey(
+    'raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  return crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
+}
+async function deriveCommandKeyHex(env, deviceId) {
+  const master = String(env.DEVICE_KEY_PEPPER || '');
+  if (!master || !isValidDeviceId(deviceId)) return '';
+  const digest = await hmacSha256(
+    new TextEncoder().encode(master),
+    `mayap-command-key:v1:${deviceId}`
+  );
+  return bytesToHex(digest);
+}
+async function signMqttWrite(env, deviceId, channel, bodyText) {
+  const commandKeyHex = await deriveCommandKeyHex(env, deviceId);
+  const commandKey = hexToBytes(commandKeyHex);
+  if (!commandKey) return '';
+  const message = `mayap-mqtt-write:v1\n${deviceId}\n${channel}\n${bodyText}`;
+  return bytesToHex(await hmacSha256(commandKey, message));
+}
+
+// HiveMQ Serverless khong dung JWT. Web chi nhan credential chung SAU KHI
+// xac thuc PIN/pairing token qua Worker; lenh ghi MQTT con duoc HMAC rieng
+// tung device ben duoi nen lo credential broker khong du de dieu khien may.
+async function webMqttConfig(env) {
+  const host = String(env.MAYAP_MQTT_HOST || DEFAULT_MQTT_HOST).trim();
+  const username = String(env.MAYAP_MQTT_USERNAME || DEFAULT_MQTT_USERNAME).trim();
+  const password = String(env.MAYAP_MQTT_PASSWORD || '');
+  const url = String(env.MAYAP_MQTT_WSS_URL || (host ? `wss://${host}:8884/mqtt` : '')).trim();
+  if (!/^wss:\/\//i.test(url) || !username || !password) return null;
+  return { url, username, password };
+}
+
+function pinRateKey'''
+          text2, n = pattern.subn(replacement, text, count=1)
+          if n != 1:
+              raise SystemExit(f'{p}: failed to replace old JWT webMqttConfig block ({n})')
+          write(p, text2)
+
+          replace_once(p,
+              "  if (!existing) {\n    const deviceKeyHash = await hashDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER);\n    const pairingToken = randomToken(12);\n    await insertDevice(env.DB, { deviceId, deviceName, deviceKeyHash, pairingToken, now });\n    const webPin = await issueWebPin(env, deviceId);\n    return json(env, { success: true, device_id: deviceId, pairing_token: pairingToken, web_pin: webPin, created: true });\n  }\n",
+              "  if (!existing) {\n    const commandKey = await deriveCommandKeyHex(env, deviceId);\n    if (!commandKey) return json(env, { success: false, error: 'may chu thieu khoa bao ve lenh' }, 503);\n    const deviceKeyHash = await hashDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER);\n    const pairingToken = randomToken(12);\n    await insertDevice(env.DB, { deviceId, deviceName, deviceKeyHash, pairingToken, now });\n    const webPin = await issueWebPin(env, deviceId);\n    return json(env, { success: true, device_id: deviceId, pairing_token: pairingToken, web_pin: webPin, command_key: commandKey, created: true });\n  }\n")
+
+          replace_once(p,
+              "  const webPin = existing.web_pin_hash ? '' : await issueWebPin(env, deviceId);\n  return json(env, {\n    success: true,\n    device_id: deviceId,\n    pairing_token: existing.pairing_token,\n    ...(webPin ? { web_pin: webPin } : {}),\n    created: false,\n  });\n",
+              "  const webPin = existing.web_pin_hash ? '' : await issueWebPin(env, deviceId);\n  const commandKey = await deriveCommandKeyHex(env, deviceId);\n  if (!commandKey) return json(env, { success: false, error: 'may chu thieu khoa bao ve lenh' }, 503);\n  return json(env, {\n    success: true,\n    device_id: deviceId,\n    pairing_token: existing.pairing_token,\n    command_key: commandKey,\n    ...(webPin ? { web_pin: webPin } : {}),\n    created: false,\n  });\n")
+
+          replace_once(p, '  const mqtt = await webMqttConfig(env, deviceId);\n',
+                          '  const mqtt = await webMqttConfig(env);\n')
+          # Co 2 call cung mau (verify-pin va mqtt-session); thay lan thu 2 neu con.
+          text = read(p)
+          if '  const mqtt = await webMqttConfig(env, deviceId);\n' in text:
+              write(p, text.replace('  const mqtt = await webMqttConfig(env, deviceId);\n',
+                                    '  const mqtt = await webMqttConfig(env);\n', 1))
+
+          replace_once(p,
+              "  const newHash = await hashDeviceKey(newPin, env.DEVICE_KEY_PEPPER);\n  await setDevicePinHash(env.DB, deviceId, newHash);\n  return json(env, { success: true });\n}\n",
+              "  const newHash = await hashDeviceKey(newPin, env.DEVICE_KEY_PEPPER);\n  await setDevicePinHash(env.DB, deviceId, newHash);\n  const refreshed = await getDeviceByDeviceId(env.DB, deviceId);\n  return json(env, { success: true, pairing_token: refreshed?.pairing_token || '' });\n}\n")
+
+          marker = '// -------------------------- Endpoint: doi ten may --------------------------\n'
+          signer = r'''// -------------------------- Ky ban tin MQTT ghi --------------------------
+// Browser phai co pairing_token hop le. Worker ky CHINH chuoi JSON se duoc
+// publish; ESP32 xac minh HMAC truoc khi parse/thi hanh. Credential MQTT chung
+// vi vay chi con la lop van chuyen, khong phai quyen dieu khien may.
+async function handleSignMqttWrite(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const pairingToken = String(body?.pairing_token || '');
+  const channel = String(body?.channel || '');
+  const payload = body?.body;
+  if (!isValidDeviceId(deviceId) || !MQTT_WRITE_CHANNELS.has(channel) ||
+      !payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return json(env, { success: false, error: 'du lieu ky MQTT khong hop le' }, 400);
+  }
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device || !pairingToken || pairingToken !== device.pairing_token) {
+    return json(env, { success: false, error: 'Phiên ghép nối không hợp lệ - hãy xác thực lại PIN' }, 401);
+  }
+  const bodyText = JSON.stringify(payload);
+  const probe = JSON.stringify({ v: 1, body: bodyText, sig: '0'.repeat(64) });
+  if (probe.length >= 1450) {
+    return json(env, { success: false, error: 'ban tin MQTT qua lon' }, 413);
+  }
+  const signature = await signMqttWrite(env, deviceId, channel, bodyText);
+  if (!signature) return json(env, { success: false, error: 'may chu chua san sang ky lenh' }, 503);
+  return json(env, { success: true, body: bodyText, signature });
+}
+
+'''
+          replace_once(p, marker, signer + marker)
+
+          replace_once(p,
+              "      if (url.pathname === '/api/device/mqtt-session' && request.method === 'POST') {\n        return await handleMqttSession(request, env);\n      }\n",
+              "      if (url.pathname === '/api/device/mqtt-session' && request.method === 'POST') {\n        return await handleMqttSession(request, env);\n      }\n      if (url.pathname === '/api/device/sign-mqtt' && request.method === 'POST') {\n        return await handleSignMqttWrite(request, env);\n      }\n")
+
+          # ------------------------------------------------------------------
+          # 4) Web: luu pairing token, xin Worker ky moi ban tin ghi MQTT.
+          # ------------------------------------------------------------------
+          p = 'app.js'
+          replace_once(p,
+              ".map((item) => createDevice(String(item.id).toUpperCase(), String(item.name || 'Máy ấp')));\n",
+              ".map((item) => createDevice(String(item.id).toUpperCase(), String(item.name || 'Máy ấp'), String(item.pairingToken || '')));\n")
+          replace_once(p,
+              '      state.devices.map(({ id, name }) => ({ id, name }))\n',
+              '      state.devices.map(({ id, name, pairingToken }) => ({ id, name, pairingToken: pairingToken || \'\' }))\n')
+
+          insert = '''  function changeDevicePin(deviceId, oldPin, newPin) {
+    return postCloudJson('/api/device/change-pin', { device_id: deviceId, old_pin: oldPin, new_pin: newPin });
+  }
+'''
+          replacement = '''  function changeDevicePin(deviceId, oldPin, newPin) {
+    return postCloudJson('/api/device/change-pin', { device_id: deviceId, old_pin: oldPin, new_pin: newPin });
+  }
+
+  async function signMqttWrite(device, channel, body) {
+    if (!device?.pairingToken) {
+      throw new Error('Cần xác thực lại PIN: bấm + và thêm lại đúng ID thiết bị để làm mới quyền điều khiển.');
+    }
+    const result = await postCloudJson('/api/device/sign-mqtt', {
+      device_id: device.id,
+      pairing_token: device.pairingToken,
+      channel,
+      body
+    });
+    if (!result.success || !result.body || !result.signature) {
+      if (String(result.error || '').includes('ghép nối')) {
+        device.pairingToken = '';
+        saveDevices();
+      }
+      throw new Error(result.error || 'Máy chủ không ký được yêu cầu điều khiển');
+    }
+    return { v: 1, body: String(result.body), sig: String(result.signature) };
+  }
+'''
+          replace_once(p, insert, replacement)
+
+          replace_once(p,
+              '      publish(topics(device.id).config, payload, { qos: 1, retain: false });\n',
+              '      const envelope = await signMqttWrite(device, \'config/set\', payload);\n'
+              '      publish(topics(device.id).config, envelope, { qos: 1, retain: false });\n')
+          replace_once(p,
+              '      publish(topics(device.id).command, payload, { qos: 1, retain: false });\n      return true;\n',
+              '      const envelope = await signMqttWrite(device, \'command\', payload);\n'
+              '      publish(topics(device.id).command, envelope, { qos: 1, retain: false });\n'
+              '      return true;\n')
+          replace_once(p,
+              '      publish(topics(device.id).reminders, payload, { qos: 1, retain: false });\n',
+              '      const envelope = await signMqttWrite(device, \'reminders/set\', payload);\n'
+              '      publish(topics(device.id).reminders, envelope, { qos: 1, retain: false });\n')
+
+          replace_once(p,
+              "      event.target.reset();\n      toast('Đã đổi mã PIN thiết bị');\n",
+              "      if (result.pairing_token) {\n        device.pairingToken = result.pairing_token;\n        saveDevices();\n      }\n      event.target.reset();\n      toast('Đã đổi mã PIN thiết bị');\n")
+
+          replace_once(p,
+              "    'BROKER CONG KHAI - LENH TU XA BI KHOA': 'Máy đang dùng broker MQTT công khai (chưa cấu hình riêng) nên lệnh điều khiển từ xa bị khoá để an toàn - vui lòng thao tác trực tiếp trên máy'\n",
+              "    'BROKER CONG KHAI - LENH TU XA BI KHOA': 'Máy đang dùng broker MQTT công khai (chưa cấu hình riêng) nên lệnh điều khiển từ xa bị khoá để an toàn - vui lòng thao tác trực tiếp trên máy',\n"
+              "    'CHU KY LENH KHONG HOP LE': 'Yêu cầu điều khiển không có chữ ký hợp lệ - hãy xác thực lại PIN nếu vừa đổi hoặc đặt lại PIN'\n")
+          replace_once(p,
+              "      unsupported: 'Firmware chưa hỗ trợ lệnh này'\n",
+              "      unsupported: 'Firmware chưa hỗ trợ lệnh này',\n      unauthorized: 'Yêu cầu điều khiển chưa được máy chủ xác thực'\n")
+
+          # ------------------------------------------------------------------
+          # 5) ESP32 MQTT: verify HMAC envelope before command/config/reminders.
+          # ------------------------------------------------------------------
+          p = 'MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h'
+          replace_once(p, '#include <esp_wifi.h>\n', '#include <esp_wifi.h>\n#include <mbedtls/md.h>\n')
+
+          trust_old = '''inline bool mqttCommandChannelTrusted() {
+  return MQTT_USERNAME[0] != '\\0' && MQTT_PASSWORD[0] != '\\0';
+}
+'''
+          trust_new = '''inline bool mqttCommandChannelTrusted() {
+  const char *commandKey = mayapCommandKey();
+  return MQTT_USERNAME[0] != '\\0' && MQTT_PASSWORD[0] != '\\0' &&
+         commandKey && commandKey[0] != '\\0';
+}
+
+inline int mqttHexNibble(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+inline bool mqttDecodeHex32(const char *text, uint8_t out[32]) {
+  if (!text || strlen(text) != 64U) return false;
+  for (size_t i = 0; i < 32U; ++i) {
+    const int hi = mqttHexNibble(text[i * 2U]);
+    const int lo = mqttHexNibble(text[i * 2U + 1U]);
+    if (hi < 0 || lo < 0) return false;
+    out[i] = static_cast<uint8_t>((hi << 4) | lo);
+  }
+  return true;
+}
+
+inline bool mqttVerifySignedWrite(const char *channel, const JsonDocument &envelope,
+                                  JsonDocument &bodyDoc) {
+  if (!channel || !channel[0]) return false;
+  const char *body = envelope["body"] | "";
+  const char *signatureHex = envelope["sig"] | "";
+  const char *commandKeyHex = mayapCommandKey();
+  if (!body[0] || strlen(body) >= 1350U || !commandKeyHex || !commandKeyHex[0]) return false;
+
+  uint8_t key[32] = {0};
+  uint8_t provided[32] = {0};
+  if (!mqttDecodeHex32(commandKeyHex, key) || !mqttDecodeHex32(signatureHex, provided)) return false;
+
+  const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+  if (!info) return false;
+  mbedtls_md_context_t ctx;
+  mbedtls_md_init(&ctx);
+  bool ok = mbedtls_md_setup(&ctx, info, 1) == 0 &&
+            mbedtls_md_hmac_starts(&ctx, key, sizeof(key)) == 0;
+  static const char PREFIX[] = "mayap-mqtt-write:v1\\n";
+  static const char NL[] = "\\n";
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(PREFIX), strlen(PREFIX)) == 0;
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(deviceId), strlen(deviceId)) == 0;
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(NL), 1U) == 0;
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(channel), strlen(channel)) == 0;
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(NL), 1U) == 0;
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(body), strlen(body)) == 0;
+  uint8_t expected[32] = {0};
+  if (ok) ok = mbedtls_md_hmac_finish(&ctx, expected) == 0;
+  mbedtls_md_free(&ctx);
+  if (!ok) return false;
+
+  uint8_t diff = 0U;
+  for (size_t i = 0; i < sizeof(expected); ++i) diff |= expected[i] ^ provided[i];
+  if (diff != 0U) return false;
+  return deserializeJson(bodyDoc, body) == DeserializationError::Ok;
+}
+'''
+          replace_once(p, trust_old, trust_new)
+
+          old_callback = '''inline void mqttMessageCallback(char *topic, uint8_t *payload,
+                                unsigned int length) {
+  // Payload config/set co the toi ~700-800 byte (28 truong config + bao boc
+  // requestId/revision). Gioi han khop voi mqtt.setBufferSize() o mayapWebLinkBegin().
+  if (length >= 1536U) return;  // vuot qua kha nang buffer hop ly, bo qua an toan
+  char buffer[1536];
+  memcpy(buffer, payload, length);
+  buffer[length] = '\\0';
+
+  JsonDocument doc;
+  if (deserializeJson(doc, buffer, length) != DeserializationError::Ok) return;
+
+  // "config/set" co dau '/' o giua nen phai kiem tra ca doan, khong chi ky tu
+  // sau dau '/' cuoi cung (se chi ra "set", trung voi cac topic khac khong).
+  if (strstr(topic, "/config/set")) {
+    handleConfigSetMessage(doc);
+    return;
+  }
+  if (strstr(topic, "/reminders/set")) {
+    handleReminderSetMessage(doc);
+    return;
+  }
+  const char *suffix = strrchr(topic, '/');
+  if (!suffix) return;
+  ++suffix;
+  if (!strcmp(suffix, "command")) {
+    handleCommandMessage(doc);
+  } else if (!strcmp(suffix, "session")) {
+    handleSessionMessage(doc);
+  }
+}
+'''
+          new_callback = '''inline void mqttMessageCallback(char *topic, uint8_t *payload,
+                                unsigned int length) {
+  // Ban tin ghi duoc boc trong envelope {body,sig}; 1536 byte van la tran
+  // chung cua PubSubClient va buffer cuc bo.
+  if (length >= 1536U) return;
+  char buffer[1536];
+  memcpy(buffer, payload, length);
+  buffer[length] = '\\0';
+
+  JsonDocument wireDoc;
+  if (deserializeJson(wireDoc, buffer, length) != DeserializationError::Ok) return;
+
+  auto verifyAndDispatch = [&](const char *channel, auto handler) {
+    JsonDocument bodyDoc;
+    if (!mqttVerifySignedWrite(channel, wireDoc, bodyDoc)) {
+      const char *legacyRequestId = wireDoc["requestId"] | "";
+      if (legacyRequestId[0]) publishAck(legacyRequestId, "unauthorized", "CHU KY LENH KHONG HOP LE");
+      return;
+    }
+    handler(bodyDoc);
+  };
+
+  if (strstr(topic, "/config/set")) {
+    verifyAndDispatch("config/set", [](const JsonDocument &doc) { handleConfigSetMessage(doc); });
+    return;
+  }
+  if (strstr(topic, "/reminders/set")) {
+    verifyAndDispatch("reminders/set", [](const JsonDocument &doc) { handleReminderSetMessage(doc); });
+    return;
+  }
+  const char *suffix = strrchr(topic, '/');
+  if (!suffix) return;
+  ++suffix;
+  if (!strcmp(suffix, "command")) {
+    verifyAndDispatch("command", [](const JsonDocument &doc) { handleCommandMessage(doc); });
+  } else if (!strcmp(suffix, "session")) {
+    // Session chi dieu chinh tan suat snapshot/Wi-Fi power, khong thay doi
+    // control setpoint/actuator nen de unsigned de giu web nhe va tu phuc hoi.
+    handleSessionMessage(wireDoc);
+  }
+}
+'''
+          replace_once(p, old_callback, new_callback)
+
+          # ------------------------------------------------------------------
+          # 6) Tai lieu runtime secret: chi them 1 secret MQTT password.
+          # ------------------------------------------------------------------
+          p = 'cloudflare/wrangler.toml'
+          replace_once(p,
+              '# (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, DEVICE_KEY_PEPPER,\n# GITHUB_TOKEN tuy chon cho tinh nang cap nhat firmware) bang\n',
+              '# (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, DEVICE_KEY_PEPPER,\n# MAYAP_MQTT_PASSWORD, GITHUB_TOKEN tuy chon cho tinh nang cap nhat firmware) bang\n')
+
+          print('online command authentication patch applied')
+          PY
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check app.js
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/db.js
+
+      - name: Commit patch and remove one-time workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/online-command-auth-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "security(online): authenticate MQTT writes per device"
+          git push origin HEAD:hardening/v3.8.0
