@@ -3,60 +3,59 @@
 #include "config.h"
 #include <Arduino.h>
 
-// ============================================================================
-// BUS GIAO TIEP 2 CHIEU VOI ATTINY13A (mach bao mat dien doc lap, xem
-// doc/attiny_power_alarm.md) - giao thuc DEM XUNG tren PIN_ATTINY_BUS
-// (GPIO41), kieu "ho tro" (open-drain): ca 2 ben CHI duoc keo LOW hoac tha
-// noi (INPUT, dua vao dien tro keo len R8 phia ATtiny) - KHONG BAO GIO ghi
-// HIGH truc tiep, tranh dung do neu ca 2 ben cung "noi" cung luc.
-//
-// HAI CO CHE KHAC NHAU trong file nay:
-//  1) GUI (mayapAttinyBusSend): BLOCKING - ESP32 chu dong gui 1 ban tin, cho
-//     ACK, tu thu lai neu can. Chi goi tu cac diem HIEM KHI xay ra (bat/ket
-//     thuc me, doi trang thai coi khan cap, ping dinh ky) - KHONG goi trong
-//     vong lap dieu khien tan so cao. Toi da block ~(MAX_RETRY x (n*2*PULSE_MS
-//     + ACK_TIMEOUT_MS)) ~ duoi 2 giay o truong hop xau nhat (ATtiny khong
-//     phan hoi ca 3 lan thu).
-//  2) NHAN (mayapAttinyBusPollIncoming): NON-BLOCKING - danh cho ban tin
-//     ATtiny CHU DONG gui toi (ATTINY_MSG_9V_LOW/9V_RECOVERED). Dung ngat
-//     phan cung ghi lai THOI DIEM CHINH XAC (micros()) cua tung canh tin
-//     hieu vao 1 bo dem vong - ISR cuc ky nhanh, KHONG lam gi ngoai ghi thoi
-//     diem, nen khong phu thuoc vong lap dieu khien chay nhanh hay cham (neu
-//     chi doc "muc hien tai" luc vong lap ranh se de bo lo xung dau tien vi
-//     xung chi rong 30ms trong khi 1 chu ky dieu khien co the mat toi
-//     ~100ms - dung bo dem thoi diem giai quyet dung van de nay).
-// ============================================================================
-
+// Bus 1 day open-drain voi ATtiny13A. Phien ban v3.8.0 khong con cho ACK
+// bang delay/while trong controlTask. Moi buoc chi doi muc chan roi tra ve;
+// mayapAttinyBusUpdate() duoc goi moi chu ky 5 ms.
 namespace MayapAttinyBusInternal {
 
 inline uint32_t elapsedMs(uint32_t now, uint32_t then) {
   return static_cast<uint32_t>(now - then);
 }
+inline bool attinyTimeReached(uint32_t now, uint32_t deadline) {
+  return static_cast<int32_t>(now - deadline) >= 0;
+}
 
-// Bo dem canh tin hieu (ghi boi ngat, doc/xoa boi mayapAttinyBusPollIncoming).
-// Kich thuoc du cho 1 ban tin toi da (ATTINY_MSG_MAX_CODE xung = 12 canh) +
-// du phong nhieu - neu tran, cac canh thua bi bo qua (thoai lui an toan,
-// ban tin do se khong doc duoc va ben gui se tu thu lai).
 constexpr uint8_t EDGE_BUF_SIZE = 20U;
+constexpr uint8_t TX_QUEUE_SIZE = 8U;
 static volatile uint32_t edgeAtUs_[EDGE_BUF_SIZE];
 static volatile uint8_t edgeCount_ = 0U;
-
-// Khi ESP32 dang tu chiem bus (dang gui ban tin/cho ACK - xem
-// mayapAttinyBusSend), TOAN BO canh tin hieu trong luc do (ke ca ACK cua
-// ATtiny) deu bi bo qua o day - waitForAck() ben duoi doc bus truc tiep
-// (khong qua bo dem nay), tranh de sot lai canh cua ACK lam sai lech ban
-// tin ke tiep ma ATtiny co the tu gui.
 static volatile bool busBusy_ = false;
+
+static uint8_t txQueue_[TX_QUEUE_SIZE]{};
+static uint8_t txHead_ = 0U;
+static uint8_t txTail_ = 0U;
+static uint8_t txCount_ = 0U;
+
+enum class TxPhase : uint8_t {
+  Idle,
+  IdleGap,
+  PulseLow,
+  PulseHigh,
+  WaitAck,
+  AckLow
+};
+static TxPhase txPhase_ = TxPhase::Idle;
+static uint8_t txCode_ = 0U;
+static uint8_t txPulsesRemaining_ = 0U;
+static uint8_t txAttempt_ = 0U;
+static uint32_t txDeadline_ = 0U;
+static uint32_t ackWaitStartedAt_ = 0U;
+static uint32_t ackLowStartedAt_ = 0U;
+static bool resultReady_ = false;
+static uint8_t resultCode_ = 0U;
+static bool resultAcked_ = false;
+static bool ackRequested_ = false;
+static bool txIsAck_ = false;
 
 void IRAM_ATTR busIsr() {
   if (busBusy_) return;
-  if (edgeCount_ >= EDGE_BUF_SIZE) return;  // tran bo dem - bo qua, xem chu thich tren
+  if (edgeCount_ >= EDGE_BUF_SIZE) return;
   edgeAtUs_[edgeCount_] = micros();
   ++edgeCount_;
 }
 
 inline void busRelease() {
-  pinMode(PIN_ATTINY_BUS, INPUT);  // tha noi - R8 phia ATtiny keo len HIGH
+  pinMode(PIN_ATTINY_BUS, INPUT);
 }
 inline void busDriveLow() {
   pinMode(PIN_ATTINY_BUS, OUTPUT);
@@ -65,111 +64,179 @@ inline void busDriveLow() {
 inline bool busIsLow() {
   return digitalRead(PIN_ATTINY_BUS) == LOW;
 }
-
 inline void resetEdgeBuffer() {
   noInterrupts();
   edgeCount_ = 0U;
   interrupts();
 }
-
-// Gui N xung LOW (moi xung ATTINY_BUS_PULSE_MS, cach nhau cung tung do).
-// PHAI goi trong luc busBusy_ == true (xem mayapAttinyBusSend).
-inline void sendPulses(uint8_t n) {
-  busRelease();
-  delay(5);  // dam bao duong day dang ranh (HIGH) truoc khi bat dau
-  for (uint8_t i = 0; i < n; ++i) {
-    busDriveLow();
-    delay(ATTINY_BUS_PULSE_MS);
-    busRelease();
-    delay(ATTINY_BUS_PULSE_MS);
-  }
-}
-
-// Doi dung 1 xung ACK trong vong ATTINY_BUS_ACK_TIMEOUT_MS (doc bus truc
-// tiep, khong qua bo dem ngat). Tra ve true neu nhan duoc 1 xung hop le.
-inline bool waitForAck() {
-  const uint32_t start = millis();
-  while (elapsedMs(millis(), start) < ATTINY_BUS_ACK_TIMEOUT_MS) {
-    if (busIsLow()) {
-      const uint32_t pulseStart = millis();
-      while (busIsLow() &&
-             elapsedMs(millis(), pulseStart) < ATTINY_BUS_PULSE_MS * 3UL) {
-        delayMicroseconds(500);
-      }
-      const uint32_t lowMs = elapsedMs(millis(), pulseStart);
-      return lowMs >= ATTINY_BUS_MIN_PULSE_MS;
-    }
-    delayMicroseconds(500);
+inline bool queuedOrActive(uint8_t code) {
+  if (txPhase_ != TxPhase::Idle && txCode_ == code) return true;
+  for (uint8_t i = 0U, p = txHead_; i < txCount_; ++i) {
+    if (txQueue_[p] == code) return true;
+    p = static_cast<uint8_t>((p + 1U) % TX_QUEUE_SIZE);
   }
   return false;
+}
+inline void publishResult(bool acked) {
+  busRelease();
+  resetEdgeBuffer();
+  busBusy_ = false;
+  resultCode_ = txCode_;
+  resultAcked_ = acked;
+  resultReady_ = true;
+  txCode_ = 0U;
+  txPhase_ = TxPhase::Idle;
+}
+inline void beginAttempt(uint32_t now) {
+  ++txAttempt_;
+  txPulsesRemaining_ = txCode_;
+  busRelease();
+  txDeadline_ = now + 5UL;
+  txPhase_ = TxPhase::IdleGap;
+}
+inline void retryOrFinish(uint32_t now) {
+  busRelease();
+  if (txAttempt_ < ATTINY_BUS_MAX_RETRY) beginAttempt(now);
+  else publishResult(false);
+}
+inline void startNext(uint32_t now) {
+  if (edgeCount_ != 0U) return;
+  if (ackRequested_) {
+    ackRequested_ = false;
+    txCode_ = 1U;
+    txIsAck_ = true;
+  } else {
+    if (txCount_ == 0U || resultReady_) return;
+    txCode_ = txQueue_[txHead_];
+    txHead_ = static_cast<uint8_t>((txHead_ + 1U) % TX_QUEUE_SIZE);
+    --txCount_;
+    txIsAck_ = false;
+  }
+  txAttempt_ = 0U;
+  busBusy_ = true;
+  resetEdgeBuffer();
+  beginAttempt(now);
 }
 
 }  // namespace MayapAttinyBusInternal
 
-// Goi 1 lan luc khoi dong (trong begin() cua MachineController).
 inline void mayapAttinyBusBegin() {
   using namespace MayapAttinyBusInternal;
-  pinMode(PIN_ATTINY_BUS, INPUT);
+  busRelease();
+  resetEdgeBuffer();
   attachInterrupt(digitalPinToInterrupt(PIN_ATTINY_BUS), busIsr, CHANGE);
 }
 
-// Gui 1 ban tin toi ATtiny, cho ACK, tu dong gui lai toi da
-// ATTINY_BUS_MAX_RETRY lan neu khong thay ACK. BLOCKING - xem chu thich dau
-// file de biet thoi gian toi da va noi duoc phep goi ham nay.
-// Tra ve true neu duoc ACK (tuc ATtiny con song va da nhan lenh).
-inline bool mayapAttinyBusSend(uint8_t code) {
+// Xep yeu cau gui. Trung ma dang gui/da nam trong hang se duoc gop lai.
+// Ham luon tra ve ngay, khong delay va khong cho ACK.
+inline bool mayapAttinyBusRequest(uint8_t code) {
   using namespace MayapAttinyBusInternal;
-  busBusy_ = true;
-  bool acked = false;
-  for (uint8_t attempt = 0; attempt < ATTINY_BUS_MAX_RETRY && !acked; ++attempt) {
-    sendPulses(code);
-    acked = waitForAck();
-  }
-  busRelease();
-  resetEdgeBuffer();  // xoa moi tan du canh (vd cua chinh ACK) truoc khi
-                       // quay lai lang nghe ban tin ATtiny tu gui
-  busBusy_ = false;
-  return acked;
+  if (code == 0U || code > ATTINY_MSG_MAX_CODE) return false;
+  if (queuedOrActive(code)) return true;
+  if (txCount_ >= TX_QUEUE_SIZE) return false;
+  txQueue_[txTail_] = code;
+  txTail_ = static_cast<uint8_t>((txTail_ + 1U) % TX_QUEUE_SIZE);
+  ++txCount_;
+  return true;
 }
 
-// Goi moi chu ky dieu khien (KHONG BLOCK neu chua co gi de xu ly) - kiem tra
-// bo dem canh tin hieu, neu da nhan du 1 ban tin HOAN CHINH (im lang du lau
-// sau canh cuoi) thi giai ma, ACK lai, roi tra ve ma ban tin. Tra ve 0 neu
-// chua co gi/con dang nhan do/khong hop le.
+// Tien state machine them mot buoc. Goi moi chu ky controlTask.
+inline void mayapAttinyBusUpdate(uint32_t now) {
+  using namespace MayapAttinyBusInternal;
+  switch (txPhase_) {
+    case TxPhase::Idle:
+      startNext(now);
+      return;
+    case TxPhase::IdleGap:
+      if (!attinyTimeReached(now, txDeadline_)) return;
+      busDriveLow();
+      txDeadline_ = now + ATTINY_BUS_PULSE_MS;
+      txPhase_ = TxPhase::PulseLow;
+      return;
+    case TxPhase::PulseLow:
+      if (!attinyTimeReached(now, txDeadline_)) return;
+      busRelease();
+      txDeadline_ = now + ATTINY_BUS_PULSE_MS;
+      txPhase_ = TxPhase::PulseHigh;
+      return;
+    case TxPhase::PulseHigh:
+      if (!attinyTimeReached(now, txDeadline_)) return;
+      if (txPulsesRemaining_ > 0U) --txPulsesRemaining_;
+      if (txPulsesRemaining_ > 0U) {
+        busDriveLow();
+        txDeadline_ = now + ATTINY_BUS_PULSE_MS;
+        txPhase_ = TxPhase::PulseLow;
+      } else if (txIsAck_) {
+        busRelease();
+        resetEdgeBuffer();
+        busBusy_ = false;
+        txCode_ = 0U;
+        txIsAck_ = false;
+        txPhase_ = TxPhase::Idle;
+      } else {
+        ackWaitStartedAt_ = now;
+        txPhase_ = TxPhase::WaitAck;
+      }
+      return;
+    case TxPhase::WaitAck:
+      if (busIsLow()) {
+        ackLowStartedAt_ = now;
+        txPhase_ = TxPhase::AckLow;
+      } else if (elapsedMs(now, ackWaitStartedAt_) >= ATTINY_BUS_ACK_TIMEOUT_MS) {
+        retryOrFinish(now);
+      }
+      return;
+    case TxPhase::AckLow:
+      if (!busIsLow()) {
+        const uint32_t lowMs = elapsedMs(now, ackLowStartedAt_);
+        if (lowMs >= ATTINY_BUS_MIN_PULSE_MS) publishResult(true);
+        else retryOrFinish(now);
+      } else if (elapsedMs(now, ackLowStartedAt_) >= ATTINY_BUS_PULSE_MS * 3UL) {
+        retryOrFinish(now);
+      }
+      return;
+  }
+}
+
+inline bool mayapAttinyBusTakeResult(uint8_t &code, bool &acked) {
+  using namespace MayapAttinyBusInternal;
+  if (!resultReady_) return false;
+  code = resultCode_;
+  acked = resultAcked_;
+  resultReady_ = false;
+  return true;
+}
+
+// Nhan ban tin Tiny->ESP32 bang bo dem canh ISR. Khong block.
 inline uint8_t mayapAttinyBusPollIncoming() {
   using namespace MayapAttinyBusInternal;
-  if (busBusy_) return 0;  // dang ban gui/cho ACK, bo qua vong nay
+  if (busBusy_) return 0U;
   noInterrupts();
   const uint8_t n = edgeCount_;
   interrupts();
-  if (n == 0U) return 0;
-  // Chua qua ATTINY_BUS_END_GAP_MS ke tu canh cuoi cung -> ban tin co the
-  // con dang toi, doi them, chua ket luan gi ca.
+  if (n == 0U) return 0U;
+
   uint32_t lastEdgeAt;
   noInterrupts();
   lastEdgeAt = edgeAtUs_[n - 1U];
   interrupts();
-  if ((micros() - lastEdgeAt) < (ATTINY_BUS_END_GAP_MS * 1000UL)) return 0;
+  if ((micros() - lastEdgeAt) < (ATTINY_BUS_END_GAP_MS * 1000UL)) return 0U;
 
-  // Ban tin da "chin" (im lang du lau) - dem so xung LOW hop le. Canh trong
-  // bo dem xen ke rieng-len (falling=bat dau LOW, rising=ket thuc LOW) vi
-  // duong day luon ranh o muc HIGH truoc khi ban tin bat dau.
   uint8_t pulses = 0U;
-  for (uint8_t i = 0U; static_cast<uint8_t>(i + 1U) < n; i = static_cast<uint8_t>(i + 2U)) {
+  for (uint8_t i = 0U; static_cast<uint8_t>(i + 1U) < n;
+       i = static_cast<uint8_t>(i + 2U)) {
     uint32_t tFall, tRise;
     noInterrupts();
     tFall = edgeAtUs_[i];
     tRise = edgeAtUs_[i + 1U];
     interrupts();
-    const uint32_t widthUs = tRise - tFall;
-    if (widthUs >= (ATTINY_BUS_MIN_PULSE_MS * 1000UL)) ++pulses;
+    if ((tRise - tFall) >= (ATTINY_BUS_MIN_PULSE_MS * 1000UL)) ++pulses;
   }
   resetEdgeBuffer();
+  if (pulses == 0U || pulses > ATTINY_MSG_MAX_CODE) return 0U;
 
-  if (pulses == 0U || pulses > ATTINY_MSG_MAX_CODE) return 0;
-  busBusy_ = true;
-  sendPulses(1U);  // ACK
-  busRelease();
-  busBusy_ = false;
+  // ACK uu tien bang 1 xung rieng trong state machine. Khong dua vao hang
+  // ban tin (ma 1 cung la BATCH_START), tranh ACK tre bi hieu sai thanh lenh.
+  ackRequested_ = true;
   return pulses;
 }

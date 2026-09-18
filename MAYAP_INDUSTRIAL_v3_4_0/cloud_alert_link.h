@@ -35,7 +35,7 @@
 // Tai nguyen: moi lan goi tao MOI mot WiFiClientSecure NGAN HAN (huy ngay sau
 // khi xong), khong giu ket noi thuong truc nhu MQTT - phu hop voi tan suat
 // thap (vai phut/lan) va tranh chiem RAM lau dai tren thiet bi khong PSRAM.
-// setInsecure() bo qua xac thuc CA (giong lop MQTT/Telegram truoc day) - du
+// TLS bat buoc xac thuc CA goc tu MAYAP_TLS_ROOT_CA; thieu CA thi kenh dong -
 // Cloudflare dung chung chi hop le, ESP32 Arduino core khong co san bo goc
 // CA de xac thuc day du ma khong tang dang ke dung luong firmware; day la
 // danh doi bao mat da duoc ghi nhan, xem bao cao audit.
@@ -579,7 +579,11 @@ inline void checkWifiSignal(uint32_t now) {
 
 // ------------------------------- Goi HTTPS ---------------------------------------
 inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const char *path) {
-  client.setInsecure();
+  if (!TLS_ROOT_CA[0]) {
+    mayapSerialPrintf(true, "[CLOUD] TLS bi khoa: thieu CA goc tin cay\n");
+    return false;
+  }
+  client.setCACert(TLS_ROOT_CA);
   http.setConnectTimeout(CLOUD_HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(CLOUD_HTTP_TIMEOUT_MS);
   char url[160];
@@ -587,7 +591,8 @@ inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const 
   return http.begin(client, url);
 }
 
-inline bool postJson(const char *path, const JsonDocument &doc, const char *logTag) {
+inline bool postJson(const char *path, const JsonDocument &doc, const char *logTag,
+                     String *responseBody = nullptr) {
   WiFiClientSecure client;
   HTTPClient http;
   if (!beginCloudRequest(http, client, path)) {
@@ -599,10 +604,11 @@ inline bool postJson(const char *path, const JsonDocument &doc, const char *logT
   serializeJson(doc, body);
   const int code = http.POST(body);
   const bool ok = code == 200;
+  String resp = code > 0 ? http.getString() : String();
+  if (responseBody) *responseBody = resp;
   if (ok) {
     mayapSerialPrintf(false, "[CLOUD] %s -> HTTP 200 OK\n", logTag);
   } else {
-    String resp = code > 0 ? http.getString() : String();
     if (resp.length() > 160) resp = resp.substring(0, 160) + "...";
     mayapSerialPrintf(false, "[CLOUD] %s -> HTTP %d FAIL%s%s\n", logTag, code,
         resp.length() ? " resp=" : "", resp.c_str());
@@ -611,30 +617,63 @@ inline bool postJson(const char *path, const JsonDocument &doc, const char *logT
   return ok;
 }
 
+inline void storeProvisioningFromResponse(const String &response) {
+  JsonDocument parsed;
+  if (deserializeJson(parsed, response)) return;
+  if (!parsed["success"].as<bool>()) return;
+  // Worker chi tra web_pin cho may moi, may vua reset PIN, hoac ban ghi cu
+  // chua co PIN. May cu da co PIN phai giu PIN cu; danh dau da dong bo de
+  // HMI khong hien "DANG DONG BO" vo han.
+  mayapMarkWebPinConfigured();
+  const char *pin = parsed["web_pin"] | "";
+  if (pin[0]) mayapStoreWebPin(pin);
+  const char *commandKey = parsed["command_key"] | "";
+  if (commandKey[0]) {
+    if (!mayapStoreCommandKey(commandKey)) {
+      mayapSerialPrintf(true, "[CLOUD] command_key khong hop le/khong luu duoc\n");
+    }
+  }
+}
+
+inline bool rotateLegacyDeviceKey() {
+  if (!mayapDeviceUsingLegacySecret()) return true;
+  char newKey[65];
+  mayapGenerateDeviceSecret(newKey);
+  JsonDocument doc;
+  doc["device_id"] = mayapDeviceIdText();
+  doc["device_key"] = mayapDeviceSecret();
+  doc["new_device_key"] = newKey;
+  if (!postJson("/api/device/rotate-key", doc, "rotate-key")) return false;
+  return mayapCommitDeviceSecret(newKey);
+}
+
 inline bool sendRegister() {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
-  doc["device_key"] = CLOUD_DEVICE_SECRET;
+  doc["device_key"] = mayapDeviceSecret();
   doc["device_name"] = mayapDeviceIdText();
-  return postJson("/api/device/register", doc, "register");
+  String response;
+  if (!postJson("/api/device/register", doc, "register", &response)) return false;
+  storeProvisioningFromResponse(response);
+  return rotateLegacyDeviceKey();
 }
 
-// Dat lai ma PIN web (danh cho "them thiet bi"/"doi ten may" tren web) ve
-// mac dinh xuat xuong "1111" - xac thuc bang device_key (bi mat cua firmware,
-// KHONG PHAI PIN web dang muon dat lai), nen chi thiet bi that (qua nut bam
-// vat ly tren HMI) moi kich hoat duoc, khong ai tu web goi duoc lenh nay du
-// co biet device_id. Xem cloudflare/src/index.js::handleResetPin.
+// Tao PIN web ngau nhien moi. PIN duoc tra ve qua TLS, luu vao NVS va hien
+// tren man Thong tin ket noi; khong con quay ve gia tri mac dinh.
 inline bool sendResetPin() {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
-  doc["device_key"] = CLOUD_DEVICE_SECRET;
-  return postJson("/api/device/reset-pin", doc, "reset-pin");
+  doc["device_key"] = mayapDeviceSecret();
+  String response;
+  if (!postJson("/api/device/reset-pin", doc, "reset-pin", &response)) return false;
+  storeProvisioningFromResponse(response);
+  return true;
 }
 
 inline bool sendHeartbeat() {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
-  doc["device_key"] = CLOUD_DEVICE_SECRET;
+  doc["device_key"] = mayapDeviceSecret();
   // Worker dung co nay de quyet dinh co bao "mat ket noi" hay khong - chi bao
   // khi dang co me ap chay tai lan heartbeat gan nhat (xem checkDeviceConnectivity
   // trong cloudflare/src/index.js). processingRuntime duoc lam moi moi chu ky
@@ -646,7 +685,7 @@ inline bool sendHeartbeat() {
 inline bool sendAlarm(const OutboxItem &item) {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
-  doc["device_key"] = CLOUD_DEVICE_SECRET;
+  doc["device_key"] = mayapDeviceSecret();
   doc["alarm_type"] = item.alarmType;
   doc["severity"] = severityText(item.severity);
   doc["state"] = item.resolved ? "resolved" : "active";
@@ -731,7 +770,7 @@ inline void mayapRequestCloudPinReset() {
 inline void mayapCloudAlertUpdate(uint32_t now) {
   using namespace MayapCloudInternal;
 
-  if (!CLOUD_DEVICE_SECRET[0] || !CLOUD_API_HOST[0]) {
+  if (!mayapDeviceSecret()[0] || !CLOUD_API_HOST[0]) {
     // Nguyen nhan PHO BIEN NHAT khien khong co canh bao nao duoc gui: worker
     // host/device_key la macro build-time trong config.h (MAYAP_CLOUD_API_HOST/
     // MAYAP_DEVICE_SECRET), chua duoc dat luc build. In canh bao ro rang, lap
@@ -839,7 +878,7 @@ inline void mayapPrintCloudStatus(uint32_t now) {
   mayapSerialPrintf(false,
       "[CLOUD] host=%s device_key=%s da_dang_ky=%u outbox=%u/%u backoff_step=%u/%u\n",
       CLOUD_API_HOST[0] ? CLOUD_API_HOST : "(chua cau hinh)",
-      CLOUD_DEVICE_SECRET[0] ? "DA CAU HINH" : "CHUA CAU HINH",
+      mayapDeviceSecret()[0] ? "DA CAU HINH" : "CHUA CAU HINH",
       registered, static_cast<unsigned>(outboxCount), static_cast<unsigned>(CLOUD_OUTBOX_SIZE),
       static_cast<unsigned>(cloudBackoff.step), static_cast<unsigned>(BACKOFF_STEP_COUNT - 1U));
   const long sendAgoSec = lastSendAt == 0U

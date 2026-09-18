@@ -2,7 +2,27 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
-  const WEB = Object.freeze({
+  const MQTT_OVERRIDE_STORAGE = 'mayap.web.v10.mqtt.private';
+  function loadMqttOverride() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(MQTT_OVERRIDE_STORAGE) || 'null');
+      if (!saved || !/^wss:\/\//i.test(String(saved.mqttUrl || ''))) return {};
+      return { mqttUrl: String(saved.mqttUrl).trim(),
+        mqttUsername: String(saved.mqttUsername || ''),
+        mqttPassword: String(saved.mqttPassword || '') };
+    } catch (_) { return {}; }
+  }
+  function saveProvisionedMqtt(result) {
+    const mqtt = result?.mqtt;
+    const mqttUrl = String(mqtt?.url || '').trim();
+    const mqttUsername = String(mqtt?.username || '');
+    const mqttPassword = String(mqtt?.password || '');
+    let parsed; try { parsed = new URL(mqttUrl); } catch (_) {}
+    if (!parsed || parsed.protocol !== 'wss:' || !mqttUsername || !mqttPassword) return false;
+    localStorage.setItem(MQTT_OVERRIDE_STORAGE, JSON.stringify({ mqttUrl, mqttUsername, mqttPassword }));
+    return true;
+  }
+  let WEB = Object.freeze({
     mqttUrl: '',
     mqttUsername: '',
     mqttPassword: '',
@@ -15,10 +35,11 @@
     staleAfterMs: 90000,
     commandTimeoutMs: 10000,
     configTimeoutMs: 15000,
-    ...window.MAYAP_WEB_CONFIG
+    ...window.MAYAP_WEB_CONFIG,
+    ...loadMqttOverride()
   });
 
-  const STORAGE = 'mayap.web.v9';
+  const STORAGE = 'mayap.web.v10';
   const THEME_STORAGE = 'mayap.theme';
   const PROTOCOL_VERSION = 1;
   const DEVICE_ID_RE = /^MAP-[A-F0-9]{12}$/;
@@ -92,10 +113,11 @@
     lastResumePromptBootId: 0
   };
 
-  function createDevice(id, name) {
+  function createDevice(id, name, pairingToken = '') {
     return {
       id,
       name,
+      pairingToken,
       presence: null,
       presenceAt: 0,
       snapshot: null,
@@ -118,7 +140,7 @@
     if (!Array.isArray(stored)) return [];
     return stored
       .filter((item) => item && DEVICE_ID_RE.test(String(item.id || '').toUpperCase()))
-      .map((item) => createDevice(String(item.id).toUpperCase(), String(item.name || 'Máy ấp')));
+      .map((item) => createDevice(String(item.id).toUpperCase(), String(item.name || 'Máy ấp'), String(item.pairingToken || '')));
   }
 
   function loadJson(key, fallback) {
@@ -132,7 +154,7 @@
 
   function saveDevices() {
     localStorage.setItem(`${STORAGE}.devices`, JSON.stringify(
-      state.devices.map(({ id, name }) => ({ id, name }))
+      state.devices.map(({ id, name, pairingToken }) => ({ id, name, pairingToken: pairingToken || '' }))
     ));
     localStorage.setItem(`${STORAGE}.selected`, state.selectedId || '');
   }
@@ -298,6 +320,26 @@
 
   function changeDevicePin(deviceId, oldPin, newPin) {
     return postCloudJson('/api/device/change-pin', { device_id: deviceId, old_pin: oldPin, new_pin: newPin });
+  }
+
+  async function signMqttWrite(device, channel, body) {
+    if (!device?.pairingToken) {
+      throw new Error('Cần xác thực lại PIN: bấm + và thêm lại đúng ID thiết bị để làm mới quyền điều khiển.');
+    }
+    const result = await postCloudJson('/api/device/sign-mqtt', {
+      device_id: device.id,
+      pairing_token: device.pairingToken,
+      channel,
+      body
+    });
+    if (!result.success || !result.body || !result.signature) {
+      if (String(result.error || '').includes('ghép nối')) {
+        device.pairingToken = '';
+        saveDevices();
+      }
+      throw new Error(result.error || 'Máy chủ không ký được yêu cầu điều khiển');
+    }
+    return { v: 1, body: String(result.body), sig: String(result.signature) };
   }
 
   // Ten thiet bi la thuoc tinh CHUNG (luu tren Worker, xem renameDeviceRemote())
@@ -808,13 +850,8 @@
       bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy phiên bản v${escapeHtml(currentVersion)} - đây đã là bản mới nhất.</p>${rollbackButtonHtml}`;
     }
     $('firmwareRollbackBtn')?.addEventListener('click', () => {
-      // Hanh dong hiem gap, gay khoi dong lai ngay - can 1 buoc xac nhan ro
-      // rang truoc khi gui, tranh bam nham (khac batch/cai dat thong thuong
-      // von khong can vi de sua lai duoc).
-      const ok = window.confirm(
-        'Quay lại firmware trước đó?\n\nMáy sẽ khởi động lại ngay. Chỉ nên làm khi bản hiện tại đang có lỗi.'
-      );
-      if (ok) sendCommand('firmware_rollback');
+      // Rollback chi duoc xac nhan vat ly tren HMI; web khong gui MQTT.
+      toast('Quay lại firmware phải xác nhận trực tiếp trên màn hình máy: Cài đặt → Hệ thống → Quay lại bản cũ.', 6500);
     });
   }
 
@@ -1329,7 +1366,8 @@
       // thoang qua, khong chi luc khoi dong lai), gay ghi EEPROM lai vo ich
       // va co the DE LEN cau hinh moi hon nguoi dung vua sua truc tiep tren
       // HMI sau lan luu web gan nhat - loi im lang, rat kho tu phat hien.
-      publish(topics(device.id).config, payload, { qos: 1, retain: false });
+      const envelope = await signMqttWrite(device, 'config/set', payload);
+      publish(topics(device.id).config, envelope, { qos: 1, retain: false });
     } catch (error) {
       clearPending(id);
       setFormState(formId, 'error', error.message);
@@ -1398,7 +1436,8 @@
     });
 
     try {
-      publish(topics(device.id).command, payload, { qos: 1, retain: false });
+      const envelope = await signMqttWrite(device, 'command', payload);
+      publish(topics(device.id).command, envelope, { qos: 1, retain: false });
       return true;
     } catch (error) {
       clearPending(id);
@@ -1577,7 +1616,8 @@
     // F-01 (audit truoc phat hanh v3.7.1): may tu choi lenh vi dang dung
     // broker MQTT cong khai mac dinh (khong xac thuc) - xem
     // mqttCommandChannelTrusted() trong realtime_link.h.
-    'BROKER CONG KHAI - LENH TU XA BI KHOA': 'Máy đang dùng broker MQTT công khai (chưa cấu hình riêng) nên lệnh điều khiển từ xa bị khoá để an toàn - vui lòng thao tác trực tiếp trên máy'
+    'BROKER CONG KHAI - LENH TU XA BI KHOA': 'Máy đang dùng broker MQTT công khai (chưa cấu hình riêng) nên lệnh điều khiển từ xa bị khoá để an toàn - vui lòng thao tác trực tiếp trên máy',
+    'CHU KY LENH KHONG HOP LE': 'Yêu cầu điều khiển không có chữ ký hợp lệ - hãy xác thực lại PIN nếu vừa đổi hoặc đặt lại PIN'
   };
 
   function humanAckMessage(ack) {
@@ -1592,7 +1632,8 @@
       busy: 'ESP32 đang xử lý yêu cầu khác',
       expired: 'Lệnh đã hết thời gian hiệu lực',
       stale: 'Lệnh thuộc lần khởi động cũ',
-      unsupported: 'Firmware chưa hỗ trợ lệnh này'
+      unsupported: 'Firmware chưa hỗ trợ lệnh này',
+      unauthorized: 'Yêu cầu điều khiển chưa được máy chủ xác thực'
     };
     if (raw) return RAW_ACK_MESSAGES[raw] || raw;
     return map[result] || `Phản hồi: ${result || 'không xác định'}`;
@@ -1706,7 +1747,8 @@
       }, WEB.configTimeoutMs)
     });
     try {
-      publish(topics(device.id).reminders, payload, { qos: 1, retain: false });
+      const envelope = await signMqttWrite(device, 'reminders/set', payload);
+      publish(topics(device.id).reminders, envelope, { qos: 1, retain: false });
     } catch (error) {
       clearPending(id);
       device.remindersPending = false;
@@ -2269,6 +2311,7 @@
         submitBtn.textContent = 'Thêm và chọn thiết bị';
       }
       if (!result.success) return toast(result.error || 'Sai mã PIN hoặc thiết bị chưa đăng ký');
+      if (!saveProvisionedMqtt(result)) return toast('Máy chủ chưa cấp cấu hình kết nối.');
 
       // Ten hien thi lay tu server (da dat san tu truoc, hoac mac dinh la
       // chinh device_id) - KHONG cho nguoi dung tu go ten luc them nua, vi
@@ -2276,8 +2319,12 @@
       // phai rieng cua tung trinh duyet.
       const name = result.device_name || id;
       const existed = state.devices.find((device) => device.id === id);
-      if (existed) existed.name = name;
-      else state.devices.push(createDevice(id, name));
+      if (existed) {
+        existed.name = name;
+        existed.pairingToken = result.pairing_token || '';
+      } else {
+        state.devices.push(createDevice(id, name, result.pairing_token || ''));
+      }
       const previous = state.selectedId;
       state.selectedId = id;
       deactivateSession(previous);
@@ -2287,7 +2334,9 @@
       // Neu thong bao da bat san tren trinh duyet nay, tu lien ket luon may
       // moi them vao (khong bat nguoi dung phai bam lai "Bat thong bao").
       renderPushStatus();
-      toast('Đã thêm thiết bị. Website đang chờ dữ liệu thật.');
+      saveDevices();
+      toast('Đã thêm thiết bị · đang kết nối tự động');
+      setTimeout(() => window.location.reload(), 400);
     });
 
     $('remindersForm').addEventListener('submit', (event) => {
@@ -2394,6 +2443,10 @@
         errorEl.textContent = result.error || 'Không đổi được mã PIN';
         errorEl.classList.add('show');
         return;
+      }
+      if (result.pairing_token) {
+        device.pairingToken = result.pairing_token;
+        saveDevices();
       }
       event.target.reset();
       toast('Đã đổi mã PIN thiết bị');
@@ -2649,7 +2702,10 @@
         toast('Đã tắt thông báo trên trình duyệt này');
       } else {
         const allDeviceIds = state.devices.map((item) => item.id);
-        const result = await window.MayapPush.enable(allDeviceIds);
+        const pairingTokens = Object.fromEntries(
+          state.devices.map((item) => [item.id, item.pairingToken || ''])
+        );
+        const result = await window.MayapPush.enable(allDeviceIds, { pairingTokens });
         toast(result.ok ? '🔔 Đã bật thông báo cho tất cả thiết bị trên dashboard này' : pushReasonText(result.reason, result.error));
       }
     } finally {
@@ -2697,7 +2753,17 @@
     }
   }
 
-  function init() {
+  async function refreshMqttSession() {
+    const device = currentDevice() || state.devices[0];
+    if (!device?.id || !device.pairingToken) return false;
+    const result = await postCloudJson('/api/device/mqtt-session', {
+      device_id: device.id,
+      pairing_token: device.pairingToken
+    });
+    return Boolean(result.success && saveProvisionedMqtt(result));
+  }
+
+  async function init() {
     // Goi showPage() thay vi chi dat dataset.page: truoc day tieu de va chu
     // thich luc moi mo trang lay tu chuoi VIET CUNG trong index.html (vi
     // showPage chi chay khi bam nut chuyen trang), nen moi lan doi chu trong
@@ -2710,6 +2776,7 @@
     updateSettingSummaries();
     renderBatchLogs();
     setCurrentActivity('Đang kết nối', 'Đang chờ dữ liệu từ ESP32', 'idle');
+    await refreshMqttSession();
     connectMqtt();
     startTimers();
     registerServiceWorker();

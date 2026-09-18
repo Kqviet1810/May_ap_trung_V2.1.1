@@ -1,0 +1,11 @@
+# Local firmware secrets - NEVER commit real credentials/keys
+MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h
+
+# Local key/certificate material
+*.pem
+*.key
+*.der
+
+# Local build outputs
+build/
+MAYAP_INDUSTRIAL_v3_4_0/build/

@@ -7,6 +7,8 @@
 #include <ArduinoJson.h>
 #include <Update.h>
 #include <mbedtls/sha256.h>
+#include <mbedtls/pk.h>
+#include <mbedtls/base64.h>
 
 // Cap nhat firmware TU XA qua Cloudflare Worker - KHAC HAN ota_update.h (do
 // la nap qua Arduino IDE, bat buoc CUNG mang LAN, dung ArduinoOTA). File nay
@@ -52,14 +54,16 @@ static portMUX_TYPE stateMux = portMUX_INITIALIZER_UNLOCKED;
 static bool pendingAvailable = false;
 static char pendingVersion[16] = "";
 static char pendingSha256[65] = "";
+static char pendingSignature[128] = "";
 static uint32_t pendingSize = 0U;
 static char lastErrorText[48] = "";
 
-inline void publishPending(bool available, const char *version, const char *sha256, uint32_t size) {
+inline void publishPending(bool available, const char *version, const char *sha256, const char *signature, uint32_t size) {
   portENTER_CRITICAL(&stateMux);
   pendingAvailable = available;
   snprintf(pendingVersion, sizeof(pendingVersion), "%s", version ? version : "");
   snprintf(pendingSha256, sizeof(pendingSha256), "%s", sha256 ? sha256 : "");
+  snprintf(pendingSignature, sizeof(pendingSignature), "%s", signature ? signature : "");
   pendingSize = size;
   portEXIT_CRITICAL(&stateMux);
 }
@@ -74,7 +78,11 @@ inline void setError(const char *text) {
 // cloud_alert_link.h ve ly do khong dung chung ham giua cac file de doc lap
 // thu tu include. Giong het beginCloudRequest() trong cloud_alert_link.h.
 inline bool beginRequest(HTTPClient &http, WiFiClientSecure &client, const char *path) {
-  client.setInsecure();
+  if (!TLS_ROOT_CA[0]) {
+    setError("TLS chua co CA goc tin cay");
+    return false;
+  }
+  client.setCACert(TLS_ROOT_CA);
   http.setConnectTimeout(CLOUD_HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(CLOUD_HTTP_TIMEOUT_MS);
   char url[192];
@@ -88,6 +96,7 @@ struct FirmwareWebStatus {
   bool available = false;
   char version[16] = "";
   char sha256[65] = "";
+  char signature[128] = "";
   uint32_t size = 0U;
   uint8_t applyPhase = 0U;
   uint8_t downloadPercent = 0U;
@@ -101,6 +110,7 @@ inline FirmwareWebStatus mayapFirmwareWebStatus() {
   status.available = pendingAvailable;
   snprintf(status.version, sizeof(status.version), "%s", pendingVersion);
   snprintf(status.sha256, sizeof(status.sha256), "%s", pendingSha256);
+  snprintf(status.signature, sizeof(status.signature), "%s", pendingSignature);
   status.size = pendingSize;
   snprintf(status.lastError, sizeof(status.lastError), "%s", lastErrorText);
   portEXIT_CRITICAL(&stateMux);
@@ -144,7 +154,7 @@ inline bool mayapFirmwareWebCheck() {
   using namespace MayapFirmwareWebInternal;
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
-  doc["device_key"] = CLOUD_DEVICE_SECRET;
+  doc["device_key"] = mayapDeviceSecret();
   doc["current_version"] = MAYAP_FIRMWARE_VERSION;
   String body;
   serializeJson(doc, body);
@@ -166,10 +176,11 @@ inline bool mayapFirmwareWebCheck() {
       if (available) {
         const char *version = respDoc["version"] | "";
         const char *sha256 = respDoc["sha256"] | "";
+        const char *signature = respDoc["signature"] | "";
         const uint32_t size = respDoc["size"] | 0U;
-        if (version[0] && sha256[0] && size > 0U &&
+        if (version[0] && sha256[0] && signature[0] && size > 0U &&
             mayapFirmwareVersionNewer(version, MAYAP_FIRMWARE_VERSION)) {
-          publishPending(true, version, sha256, size);
+          publishPending(true, version, sha256, signature, size);
           mayapSerialPrintf(true, "[FWWEB] Co ban moi: v%s (%lu bytes)\n",
                             version, static_cast<unsigned long>(size));
         } else {
@@ -181,7 +192,7 @@ inline bool mayapFirmwareWebCheck() {
     mayapSerialPrintf(false, "[FWWEB] check -> HTTP %d\n", code);
   }
   http.end();
-  if (!available) publishPending(false, "", "", 0U);
+  if (!available) publishPending(false, "", "", "", 0U);
   return available;
 }
 
@@ -212,7 +223,7 @@ inline void mayapFirmwareWebApplyNow() {
     return;
   }
   http.addHeader("X-Device-Id", mayapDeviceIdText());
-  http.addHeader("X-Device-Key", CLOUD_DEVICE_SECRET);
+  http.addHeader("X-Device-Key", mayapDeviceSecret());
   const int code = http.GET();
   if (code != 200) {
     mayapSerialPrintf(true, "[FWWEB] Tai firmware THAT BAI, ma HTTP=%d\n", code);
@@ -299,6 +310,42 @@ inline void mayapFirmwareWebApplyNow() {
     return;
   }
 
+  if (!OTA_SIGNING_PUBLIC_KEY[0]) {
+    Update.abort();
+    setError("THIEU KHOA CONG KHAI OTA");
+    __atomic_store_n(&applyPhase, 2U, __ATOMIC_RELEASE);
+    return;
+  }
+  uint8_t signatureDer[96];
+  size_t signatureLen = 0U;
+  if (mbedtls_base64_decode(signatureDer, sizeof(signatureDer), &signatureLen,
+        reinterpret_cast<const unsigned char *>(status.signature),
+        strlen(status.signature)) != 0) {
+    Update.abort();
+    setError("CHU KY OTA KHONG HOP LE");
+    __atomic_store_n(&applyPhase, 2U, __ATOMIC_RELEASE);
+    return;
+  }
+  mbedtls_pk_context publicKey;
+  mbedtls_pk_init(&publicKey);
+  const int parseResult = mbedtls_pk_parse_public_key(
+      &publicKey,
+      reinterpret_cast<const unsigned char *>(OTA_SIGNING_PUBLIC_KEY),
+      strlen(OTA_SIGNING_PUBLIC_KEY) + 1U);
+  const int verifyResult = parseResult == 0
+      ? mbedtls_pk_verify(&publicKey, MBEDTLS_MD_SHA256, digest, sizeof(digest),
+                          signatureDer, signatureLen)
+      : parseResult;
+  mbedtls_pk_free(&publicKey);
+  if (verifyResult != 0) {
+    Update.abort();
+    setError("SAI CHU KY SO - DA HUY");
+    mayapSerialPrintf(true, "[FWWEB] Chu ky firmware KHONG HOP LE (%d) - HUY OTA\n",
+                      verifyResult);
+    __atomic_store_n(&applyPhase, 2U, __ATOMIC_RELEASE);
+    return;
+  }
+
   if (!Update.end(true)) {
     mayapSerialPrintf(true, "[FWWEB] Update.end() THAT BAI: %s\n", Update.errorString());
     setError("GHI FLASH THAT BAI");
@@ -308,7 +355,7 @@ inline void mayapFirmwareWebApplyNow() {
 
   mayapSerialPrintf(true, "[FWWEB] Checksum khop, ghi flash thanh cong - KHOI DONG LAI\n");
   __atomic_store_n(&applyPhase, 3U, __ATOMIC_RELEASE);
-  publishPending(false, "", "", 0U);
+  publishPending(false, "", "", "", 0U);
   // Danh dau day la khoi dong lai CO CHU DICH (xem config.h) - khong de
   // PowerManager tinh nham lan nap firmware thanh cong nay vao bo dem "reset
   // bat thuong", tranh bao gia "ABNORMAL RESET"/mat dien sau khi nap ban moi.

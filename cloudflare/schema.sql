@@ -91,7 +91,16 @@ CREATE TABLE IF NOT EXISTS firmware_cache (
   version       TEXT NOT NULL,
   asset_url     TEXT NOT NULL,
   sha256        TEXT NOT NULL,
+  signature     TEXT NOT NULL DEFAULT '',
   size          INTEGER NOT NULL,
   notes         TEXT NOT NULL DEFAULT '',
   fetched_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auth_rate_limits (
+  rate_key TEXT PRIMARY KEY,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  window_started_at INTEGER NOT NULL,
+  blocked_until INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
 );

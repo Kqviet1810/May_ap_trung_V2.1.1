@@ -9,6 +9,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <esp_wifi.h>
+#include <mbedtls/md.h>
 
 // ============================================================================
 // LOP GIAO TIEP THOI GIAN THUC WEB <-> ESP32 (MQTT qua broker)
@@ -83,6 +84,7 @@ static WiFiClientSecure netClient;
 static WiFiClient netClient;
 #endif
 static PubSubClient mqtt(netClient);
+static bool mqttTlsReady = !MQTT_USE_TLS;
 
 // Backoff RIENG cho MQTT, doc lap hoan toan voi backoff cua STA Wi-Fi
 // (network_service.h) va Cloud Push (cloud_alert_link.h) - moi lop tu quan
@@ -409,7 +411,70 @@ static char lastCommandRequestId[WEB_REQUEST_ID_CAPACITY] = "";
 // hoac --build-property khi goi arduino-cli trong workflow CI. KHONG sua
 // truc tiep gia tri mac dinh trong config.h.
 inline bool mqttCommandChannelTrusted() {
-  return MQTT_USERNAME[0] != '\0' && MQTT_PASSWORD[0] != '\0';
+  const char *commandKey = mayapCommandKey();
+  return MQTT_USERNAME[0] != '\0' && MQTT_PASSWORD[0] != '\0' &&
+         commandKey && commandKey[0] != '\0';
+}
+
+inline int mqttHexNibble(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+inline bool mqttDecodeHex32(const char *text, uint8_t out[32]) {
+  if (!text || strlen(text) != 64U) return false;
+  for (size_t i = 0; i < 32U; ++i) {
+    const int hi = mqttHexNibble(text[i * 2U]);
+    const int lo = mqttHexNibble(text[i * 2U + 1U]);
+    if (hi < 0 || lo < 0) return false;
+    out[i] = static_cast<uint8_t>((hi << 4) | lo);
+  }
+  return true;
+}
+
+inline bool mqttVerifySignedWrite(const char *channel, const JsonDocument &envelope,
+                        JsonDocument &bodyDoc) {
+  if (!channel || !channel[0]) return false;
+  const char *body = envelope["body"] | "";
+  const char *signatureHex = envelope["sig"] | "";
+  const char *commandKeyHex = mayapCommandKey();
+  if (!body[0] || strlen(body) >= 1350U || !commandKeyHex || !commandKeyHex[0]) return false;
+
+  uint8_t key[32] = {0};
+  uint8_t provided[32] = {0};
+  if (!mqttDecodeHex32(commandKeyHex, key) || !mqttDecodeHex32(signatureHex, provided)) return false;
+
+  const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+  if (!info) return false;
+  mbedtls_md_context_t ctx;
+  mbedtls_md_init(&ctx);
+  bool ok = mbedtls_md_setup(&ctx, info, 1) == 0 &&
+  mbedtls_md_hmac_starts(&ctx, key, sizeof(key)) == 0;
+  static const char PREFIX[] = "mayap-mqtt-write:v1\n";
+  static const char NL[] = "\n";
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(PREFIX), strlen(PREFIX)) == 0;
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(deviceId), strlen(deviceId)) == 0;
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(NL), 1U) == 0;
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(channel), strlen(channel)) == 0;
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(NL), 1U) == 0;
+  if (ok) ok = mbedtls_md_hmac_update(&ctx,
+      reinterpret_cast<const unsigned char *>(body), strlen(body)) == 0;
+  uint8_t expected[32] = {0};
+  if (ok) ok = mbedtls_md_hmac_finish(&ctx, expected) == 0;
+  mbedtls_md_free(&ctx);
+  if (!ok) return false;
+
+  uint8_t diff = 0U;
+  for (size_t i = 0; i < sizeof(expected); ++i) diff |= expected[i] ^ provided[i];
+  if (diff != 0U) return false;
+  return deserializeJson(bodyDoc, body) == DeserializationError::Ok;
 }
 
 inline void handleCommandMessage(const JsonDocument &doc) {
@@ -419,16 +484,26 @@ inline void handleCommandMessage(const JsonDocument &doc) {
     return;
   }
   const uint32_t sequence = doc["sequence"] | 0UL;
+  const uint32_t messageBootId = doc["bootId"] | 0UL;
   const char *action = doc["action"] | "";
 
-  // Chong lap: web co the phat lai cung mot lenh khi mat goi ACK. Sequence
-  // tang dan tu web; requestId trung cung la dau hieu lap.
-  if (requestId[0] && !strcmp(requestId, lastCommandRequestId)) {
+  // Lenh dieu khien PHAI co requestId, sequence va bootId hop le.
+  // bootId thay doi moi lan khoi dong, nen packet cua boot cu bi vo hieu.
+  if (!requestId[0] || sequence == 0U) {
+    publishAck(requestId, "invalid", "");
+    return;
+  }
+  if (messageBootId == 0U || messageBootId != bootId) {
+    publishAck(requestId, "stale", "");
+    return;
+  }
+
+  // Chong lap trong cung boot: requestId khong duoc lap va sequence phai tang.
+  if (!strcmp(requestId, lastCommandRequestId)) {
     publishAck(requestId, "duplicate", "");
     return;
   }
-  if (sequence != 0U && lastCommandSequence != 0U &&
-      sequence <= lastCommandSequence) {
+  if (lastCommandSequence != 0U && sequence <= lastCommandSequence) {
     publishAck(requestId, "stale", "");
     return;
   }
@@ -436,6 +511,14 @@ inline void handleCommandMessage(const JsonDocument &doc) {
   const HmiCommandType type = mapCommandAction(action);
   if (type == HmiCommandType::None) {
     publishAck(requestId, "unsupported", "");
+    return;
+  }
+
+  // Rollback thay doi firmware dang boot. Kenh MQTT hien dung credential
+  // chung, nen rollback tu xa bi khoa. Rollback van dung duoc tren HMI
+  // voi man xac nhan CO/HUY da co san.
+  if (type == HmiCommandType::FirmwareRollback) {
+    publishAck(requestId, "rejected", "QUAY LAI CAN XAC NHAN TAI MAY");
     return;
   }
 
@@ -487,13 +570,22 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
     return;
   }
   const uint32_t revision = doc["revision"] | 0UL;
+  if (!requestId[0] || revision == 0U) {
+    publishAck(requestId, "invalid", "");
+    return;
+  }
 
   portENTER_CRITICAL(&webMux);
   const bool busy = pendingConfigSave.used;
   const bool haveBase = knownConfigValid;
+  const uint32_t currentRevision = webConfigRevision;
   MachineConfig candidate = knownConfig;
   portEXIT_CRITICAL(&webMux);
 
+  if (currentRevision != 0U && revision <= currentRevision) {
+    publishAck(requestId, "stale", "");
+    return;
+  }
   if (busy) {
     publishAck(requestId, "busy", "");
     return;
@@ -599,10 +691,19 @@ inline void handleReminderSetMessage(const JsonDocument &doc) {
     return;
   }
   const uint32_t revision = doc["revision"] | 0UL;
+  if (!requestId[0] || revision == 0U) {
+    publishAck(requestId, "invalid", "");
+    return;
+  }
 
   portENTER_CRITICAL(&webMux);
   const bool busy = pendingReminderSave.used;
+  const uint32_t currentRevision = webRemindersRevision;
   portEXIT_CRITICAL(&webMux);
+  if (currentRevision != 0U && revision <= currentRevision) {
+    publishAck(requestId, "stale", "");
+    return;
+  }
   if (busy) {
     publishAck(requestId, "busy", "");
     return;
@@ -690,34 +791,44 @@ inline void handleSessionMessage(const JsonDocument &doc) {
 }
 
 inline void mqttMessageCallback(char *topic, uint8_t *payload,
-                                unsigned int length) {
-  // Payload config/set co the toi ~700-800 byte (28 truong config + bao boc
-  // requestId/revision). Gioi han khop voi mqtt.setBufferSize() o mayapWebLinkBegin().
-  if (length >= 1536U) return;  // vuot qua kha nang buffer hop ly, bo qua an toan
+                      unsigned int length) {
+  // Ban tin ghi duoc boc trong envelope {body,sig}; 1536 byte van la tran
+  // chung cua PubSubClient va buffer cuc bo.
+  if (length >= 1536U) return;
   char buffer[1536];
   memcpy(buffer, payload, length);
-  buffer[length] = '\0';
+  buffer[length] = ' ';
 
-  JsonDocument doc;
-  if (deserializeJson(doc, buffer, length) != DeserializationError::Ok) return;
+  JsonDocument wireDoc;
+  if (deserializeJson(wireDoc, buffer, length) != DeserializationError::Ok) return;
 
-  // "config/set" co dau '/' o giua nen phai kiem tra ca doan, khong chi ky tu
-  // sau dau '/' cuoi cung (se chi ra "set", trung voi cac topic khac khong).
+  auto verifyAndDispatch = [&](const char *channel, auto handler) {
+    JsonDocument bodyDoc;
+    if (!mqttVerifySignedWrite(channel, wireDoc, bodyDoc)) {
+      const char *legacyRequestId = wireDoc["requestId"] | "";
+      if (legacyRequestId[0]) publishAck(legacyRequestId, "unauthorized", "CHU KY LENH KHONG HOP LE");
+      return;
+    }
+    handler(bodyDoc);
+  };
+
   if (strstr(topic, "/config/set")) {
-    handleConfigSetMessage(doc);
+    verifyAndDispatch("config/set", [](const JsonDocument &doc) { handleConfigSetMessage(doc); });
     return;
   }
   if (strstr(topic, "/reminders/set")) {
-    handleReminderSetMessage(doc);
+    verifyAndDispatch("reminders/set", [](const JsonDocument &doc) { handleReminderSetMessage(doc); });
     return;
   }
   const char *suffix = strrchr(topic, '/');
   if (!suffix) return;
   ++suffix;
   if (!strcmp(suffix, "command")) {
-    handleCommandMessage(doc);
+    verifyAndDispatch("command", [](const JsonDocument &doc) { handleCommandMessage(doc); });
   } else if (!strcmp(suffix, "session")) {
-    handleSessionMessage(doc);
+    // Session chi dieu chinh tan suat snapshot/Wi-Fi power, khong thay doi
+    // control setpoint/actuator nen de unsigned de giu web nhe va tu phuc hoi.
+    handleSessionMessage(wireDoc);
   }
 }
 
@@ -730,6 +841,7 @@ inline void subscribeAll() {
 }
 
 inline void attemptConnect(uint32_t now) {
+  if (!mqttTlsReady || !MQTT_BROKER_HOST[0]) return;
   if (!mqttBackoff.ready(now)) return;
 
   char clientId[32];
@@ -925,7 +1037,13 @@ inline void mayapWebLinkBegin() {
   mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
   mqtt.setCallback(mqttMessageCallback);
 #if MQTT_USE_TLS
-  netClient.setInsecure();  // khong xac thuc CA: xem ghi chu o dau file cho ban thuong mai
+  mqttTlsReady = TLS_ROOT_CA[0] != '\0';
+  if (mqttTlsReady) {
+    netClient.setCACert(TLS_ROOT_CA);
+  } else {
+    mayapSerialPrintf(true,
+        "[WEBLINK] TLS bi khoa: chua nhung MAYAP_TLS_ROOT_CA - KHONG ha cap insecure\n");
+  }
 #endif
   applyWifiPowerMode(false);
 }

@@ -475,9 +475,9 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // dung hanh vi thuc te, tranh hieu lam co lop bao ve thu 2 dang hoat
     // dong. Bu lai bang ro-le nhiet co khi doc lap ngoai mach neu can lop
     // cat nhiet tu dong that su cho truong hop SSR dinh + mat cam bien.
-    {FaultCode::SensorLost, FaultSeverity::Stop, 235U, AlarmSensor, false, true, false, false, false, true, "SENSOR LOST"},
-    {FaultCode::SensorInvalid, FaultSeverity::Stop, 230U, AlarmSensor, false, true, false, false, false, true, "SENSOR INVALID"},
-    {FaultCode::SensorSuspect, FaultSeverity::Stop, 225U, AlarmSensor, false, true, false, false, false, true, "SENSOR SUSPECT"},
+    {FaultCode::SensorLost, FaultSeverity::Stop, 235U, AlarmSensor, false, true, true, false, false, true, "SENSOR LOST"},
+    {FaultCode::SensorInvalid, FaultSeverity::Stop, 230U, AlarmSensor, false, true, true, false, false, true, "SENSOR INVALID"},
+    {FaultCode::SensorSuspect, FaultSeverity::Stop, 225U, AlarmSensor, false, true, true, false, false, true, "SENSOR SUSPECT"},
     // F-08: canh bao THUAN CHAN DOAN - gia tri cam bien "dung hinh" (khong
     // doi trong thoi gian dai du frame van hop le, CRC dung, khong mat tin
     // hieu) trong luc dang chay me. KHONG cam SSR/nha contactor: neu gia tri
@@ -487,7 +487,7 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     {FaultCode::SensorFrozen, FaultSeverity::Warning, 58U, AlarmSensor, false, false, false, false, false, false, "SENSOR FROZEN"},
     {FaultCode::LowTemperature, FaultSeverity::Warning, 55U, AlarmTempLow, false, false, false, false, false, false, "TEMP LOW"},
     // Nhiet cao: chi cam SSR, giu contactor tong, bat ca hai quat.
-    {FaultCode::HighTemperature, FaultSeverity::Stop, 240U, AlarmTempHigh, false, true, false, true, true, true, "TEMP HIGH"},
+    {FaultCode::HighTemperature, FaultSeverity::Stop, 240U, AlarmTempHigh, false, true, true, true, true, true, "TEMP HIGH"},
     // Khan cap: cam SSR va nha contactor tong ngay.
     {FaultCode::EmergencyTemperature, FaultSeverity::Emergency, 255U, AlarmEmergency, false, true, true, true, true, true, "TEMP EMERGENCY"},
     {FaultCode::HumidityLow, FaultSeverity::Warning, 40U, AlarmHumidityLow, false, false, false, false, false, false, "HUM LOW"},
@@ -4657,9 +4657,8 @@ class MachineController {
     // khong phan hoi (mach dinh khong nen tri hoan ca me ap chi vi 1 mach
     // phu), chi canh bao ro rang de nguoi dung tu kiem tra pin CR2032/day
     // noi som, truoc khi mat lop bao ve du phong suot ca me.
-    const bool attinyOk = mayapAttinyBusSend(ATTINY_MSG_PING);
-    faults_.set(FaultCode::AttinyBusUnresponsive, !attinyOk, now);
-    (void)mayapAttinyBusSend(ATTINY_MSG_BATCH_START);
+    (void)mayapAttinyBusRequest(ATTINY_MSG_BATCH_START);
+    (void)mayapAttinyBusRequest(ATTINY_MSG_PING);
     attinyLastPingAt_ = now;
     return true;
   }
@@ -4715,7 +4714,7 @@ class MachineController {
                       cleared ? "OK" : "PENDING");
     // Bao mat dien qua ATtiny13A: me da ket thuc - ATtiny se khong con tu
     // bat coi neu sau nay mat dien (dung yeu cau "chi bao khi dang co me").
-    (void)mayapAttinyBusSend(ATTINY_MSG_BATCH_END);
+    (void)mayapAttinyBusRequest(ATTINY_MSG_BATCH_END);
     return true;
   }
 
@@ -5758,8 +5757,11 @@ class MachineController {
     // cho truong hop chinh SSR D1 bi ket/chay o trang thai BAT (loi phan cung
     // SSR thuc te hay gap), khong lien quan cong tac.
     const bool heatDemandContext = batchRunning_ || autotune_.running();
+    // v3.8.0: cong tac vat ly la yeu cau BAT, khong phai quyen vuot qua
+    // bao ve. Mat/loi cam bien hoac fault yeu cau cat tong phai nha contactor.
     const bool normalMasterPermit =
-        in.heaterEnable && !emergencyActive_ && heatDemandContext;
+        in.heaterEnable && sensorUsable_ && !faults_.masterDropRequired() &&
+        !emergencyActive_ && heatDemandContext;
     // D1 SSR/PID (dong nhiet THAT su) van giu NGUYEN VEN toan bo cac dieu
     // kien an toan nhu truoc gio - chi RIENG relay tong o tren la doi theo
     // yeu cau, khong lam long cac dieu kien cho dong dien nhiet thuc te.
@@ -6083,41 +6085,52 @@ class MachineController {
   //     dieu kien dang lai coi that GPIO47 that su - xem updateHeatingAndOutputs()),
   //     KE CA chu ky tam tat/keu lai dinh ky khi nguoi dung ACK. Coi ben
   //     ATtiny vi vay hoat dong dong bo hoan toan voi coi khan cap hien co.
-  //  2) Ping dinh ky moi ATTINY_PING_INTERVAL_MS TRONG LUC dang co me ap -
-  //     phat hien som neu mach/pin CR2032 da hong giua chung ma khong ai
-  //     biet (mot me keo dai 18-21 ngay, kiem tra 1 lan luc bat dau la chua
-  //     du). Khong ACK -> bao FaultCode::AttinyBusUnresponsive (chi canh
-  //     bao, khong khoa gi).
-  //  3) Nhan ATTINY_MSG_9V_LOW/ATTINY_MSG_9V_RECOVERED tu ATtiny de
-  //     bat/go FaultCode::SirenBatteryLow. Day la canh bao nhe (Warning),
-  //     khong khoa van hanh; Cloud Push nhac lai dinh ky nhu canh bao do am.
+  //  2) Gui PING ngay sau khi ESP32 khoi dong, va dinh ky moi
+  //     ATTINY_PING_INTERVAL_MS trong luc co me. ACK la tin hieu ATtiny san
+  //     sang. Khong ACK -> FaultCode::AttinyBusUnresponsive (chi canh bao,
+  //     khong khoa van hanh). Khong co do pin ATtiny trong phien ban nay.
   void updateAttinyLink(uint32_t now) {
+    // State machine bus khong chan: moi nhip chi doi mot pha, khong bao gio
+    // cho ACK trong controlTask.
+    mayapAttinyBusUpdate(now);
+
+    uint8_t completedCode = 0U;
+    bool completedOk = false;
+    if (mayapAttinyBusTakeResult(completedCode, completedOk)) {
+      faults_.set(FaultCode::AttinyBusUnresponsive, !completedOk, now);
+      if (completedOk && completedCode == ATTINY_MSG_SIREN_ON) {
+        attinySirenMirrorOn_ = true;
+      } else if (completedOk && completedCode == ATTINY_MSG_SIREN_OFF) {
+        attinySirenMirrorOn_ = false;
+      }
+    }
+
     const bool emergencySirenOn =
         emergencyActive_ && timeReached(now, sirenMutedUntil_);
     if (emergencySirenOn != attinySirenMirrorOn_) {
-      const bool ok = mayapAttinyBusSend(emergencySirenOn ? ATTINY_MSG_SIREN_ON
-                                                            : ATTINY_MSG_SIREN_OFF);
-      // Chi coi la da dong bo neu ATtiny thuc su ACK - neu khong (mat lien
-      // lac), giu nguyen co de lan sau (chu ky ke tiep) tu thu lai, tranh
-      // "quen" mai mai mot lan gui that bai.
-      if (ok) attinySirenMirrorOn_ = emergencySirenOn;
-      faults_.set(FaultCode::AttinyBusUnresponsive, !ok, now);
+      (void)mayapAttinyBusRequest(emergencySirenOn ? ATTINY_MSG_SIREN_ON
+                                                    : ATTINY_MSG_SIREN_OFF);
+    }
+
+    if (attinyStartupProbePending_ &&
+        mayapAttinyBusRequest(ATTINY_MSG_PING)) {
+      // Chi can gui mot lan cho moi lan ESP32 boot; ket qua ACK/NACK duoc
+      // xu ly qua mayapAttinyBusTakeResult() o cac nhip sau.
+      attinyStartupProbePending_ = false;
+      attinyLastPingAt_ = now;
     }
 
     if (batchRunning_ &&
         elapsedMs(now, attinyLastPingAt_) >= ATTINY_PING_INTERVAL_MS) {
       attinyLastPingAt_ = now;
-      const bool ok = mayapAttinyBusSend(ATTINY_MSG_PING);
-      faults_.set(FaultCode::AttinyBusUnresponsive, !ok, now);
+      // Gui lai trang thai me truoc PING de ATtiny tu dong bo sau reset/thay pin.
+      (void)mayapAttinyBusRequest(ATTINY_MSG_BATCH_START);
+      (void)mayapAttinyBusRequest(ATTINY_MSG_PING);
     }
 
-    const uint8_t incoming = mayapAttinyBusPollIncoming();
-    if (incoming == ATTINY_MSG_9V_LOW) {
-      sirenBatteryLow_ = true;
-    } else if (incoming == ATTINY_MSG_9V_RECOVERED) {
-      sirenBatteryLow_ = false;
-    }
-    faults_.set(FaultCode::SirenBatteryLow, sirenBatteryLow_, now);
+    // Khong xu ly ban tin pin tu ATtiny. Poll van duoc goi de loai bo du
+    // lieu cu tren bus neu firmware ATtiny cu chua duoc nap lai.
+    (void)mayapAttinyBusPollIncoming();
   }
 
   void updateBatchTime(uint32_t now) {
@@ -6344,6 +6357,8 @@ class MachineController {
     runtime_.wifiPortalState = portal.state;
     snprintf(runtime_.wifiPortalApName, sizeof(runtime_.wifiPortalApName), "%s",
              portal.apName);
+    snprintf(runtime_.wifiPortalPassword, sizeof(runtime_.wifiPortalPassword), "%s",
+             portal.password);
     if (runtime_.timeValid) {
       snprintf(runtime_.dateText, sizeof(runtime_.dateText), "%s",
                rtc_.dateText());
@@ -6951,8 +6966,8 @@ class MachineController {
   // lap lai moi chu ky). attinyLastPingAt_ dung cho ping dinh ky moi 6h
   // trong luc dang co me ap (xem updateAttinyLink()).
   bool attinySirenMirrorOn_ = false;
+  bool attinyStartupProbePending_ = true;
   uint32_t attinyLastPingAt_ = 0U;
-  bool sirenBatteryLow_ = false;
   bool testLimitVerifiedLeft_ = false;
   bool testLimitVerifiedRight_ = false;
   uint32_t moveStartedAt_ = 0;

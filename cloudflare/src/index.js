@@ -7,6 +7,7 @@ import {
   setDeviceStatus,
   renameDevice,
   setDevicePinHash,
+  setDeviceKeyHash,
   getStaleOnlineDevices,
   getRecoveredOfflineDevices,
   getSubscriptionsForDevice,
@@ -26,6 +27,104 @@ import { sendWebPush, buildNotificationPayload } from './push.js';
 // du firmware co loi va goi lien tuc, worker cung khong ban push nhanh hon
 // muc nay cho CUNG mot (device_id, alarm_type) khi trang thai khong doi.
 const MIN_ALARM_COOLDOWN_MS = 15_000;
+const PIN_RATE_WINDOW_MS = 15 * 60 * 1000;
+const PIN_RATE_BLOCK_MS = 15 * 60 * 1000;
+const PIN_RATE_MAX_FAILURES = 5;
+
+const DEFAULT_MQTT_HOST = '2f4b95444c554498bd4a4b2da0de8013.s1.eu.hivemq.cloud';
+const DEFAULT_MQTT_USERNAME = 'Mayap_Iot';
+const MQTT_WRITE_CHANNELS = new Set(['command', 'config/set', 'reminders/set']);
+
+function bytesToHex(bytes) {
+  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+function hexToBytes(hex) {
+  if (typeof hex !== 'string' || !/^[0-9a-f]{64}$/i.test(hex)) return null;
+  const out = new Uint8Array(32);
+  for (let i = 0; i < out.length; i += 1) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+async function hmacSha256(keyBytes, message) {
+  const key = await crypto.subtle.importKey(
+    'raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  return crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
+}
+async function deriveCommandKeyHex(env, deviceId) {
+  const master = String(env.DEVICE_KEY_PEPPER || '');
+  if (!master || !isValidDeviceId(deviceId)) return '';
+  const digest = await hmacSha256(
+    new TextEncoder().encode(master),
+    `mayap-command-key:v1:${deviceId}`
+  );
+  return bytesToHex(digest);
+}
+async function signMqttWrite(env, deviceId, channel, bodyText) {
+  const commandKeyHex = await deriveCommandKeyHex(env, deviceId);
+  const commandKey = hexToBytes(commandKeyHex);
+  if (!commandKey) return '';
+  const message = `mayap-mqtt-write:v1
+${deviceId}
+${channel}
+${bodyText}`;
+  return bytesToHex(await hmacSha256(commandKey, message));
+}
+
+// HiveMQ Serverless khong dung JWT. Web chi nhan credential chung SAU KHI
+// xac thuc PIN/pairing token qua Worker; lenh ghi MQTT con duoc HMAC rieng
+// tung device ben duoi nen lo credential broker khong du de dieu khien may.
+async function webMqttConfig(env) {
+  const host = String(env.MAYAP_MQTT_HOST || DEFAULT_MQTT_HOST).trim();
+  const username = String(env.MAYAP_MQTT_USERNAME || DEFAULT_MQTT_USERNAME).trim();
+  const password = String(env.MAYAP_MQTT_PASSWORD || '');
+  const url = String(env.MAYAP_MQTT_WSS_URL || (host ? `wss://${host}:8884/mqtt` : '')).trim();
+  if (!/^wss:\/\//i.test(url) || !username || !password) return null;
+  return { url, username, password };
+}
+
+function pinRateKey(request, deviceId) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  return `pin:${deviceId}:${ip}`;
+}
+async function readPinRate(env, key) {
+  return env.DB.prepare('SELECT attempts, window_started_at, blocked_until FROM auth_rate_limits WHERE rate_key = ?1').bind(key).first();
+}
+async function pinRateAllowed(env, key, now) {
+  const row = await readPinRate(env, key);
+  if (!row) return { allowed: true };
+  if (Number(row.blocked_until || 0) > now) return { allowed: false, retryAfterMs: Number(row.blocked_until) - now };
+  if (now - Number(row.window_started_at || 0) >= PIN_RATE_WINDOW_MS) {
+    await env.DB.prepare('DELETE FROM auth_rate_limits WHERE rate_key = ?1').bind(key).run();
+  }
+  return { allowed: true };
+}
+async function recordPinFailure(env, key, now) {
+  const row = await readPinRate(env, key);
+  const fresh = !row || now - Number(row.window_started_at || 0) >= PIN_RATE_WINDOW_MS;
+  const attempts = fresh ? 1 : Number(row.attempts || 0) + 1;
+  const started = fresh ? now : Number(row.window_started_at);
+  const blocked = attempts >= PIN_RATE_MAX_FAILURES ? now + PIN_RATE_BLOCK_MS : 0;
+  await env.DB.prepare(`INSERT INTO auth_rate_limits
+    (rate_key, attempts, window_started_at, blocked_until, updated_at)
+    VALUES (?1, ?2, ?3, ?4, ?5)
+    ON CONFLICT(rate_key) DO UPDATE SET attempts=excluded.attempts,
+    window_started_at=excluded.window_started_at,
+    blocked_until=excluded.blocked_until, updated_at=excluded.updated_at`)
+    .bind(key, attempts, started, blocked, now).run();
+}
+async function clearPinFailures(env, key) {
+  await env.DB.prepare('DELETE FROM auth_rate_limits WHERE rate_key = ?1').bind(key).run();
+}
+async function verifyPinGuarded(request, env, device, pin) {
+  const now = Date.now();
+  const key = pinRateKey(request, device.device_id);
+  const rate = await pinRateAllowed(env, key, now);
+  if (!rate.allowed) return { valid: false, limited: true };
+  const valid = await verifyDevicePin(env, device, pin);
+  if (valid) await clearPinFailures(env, key);
+  else await recordPinFailure(env, key, now);
+  return { valid, limited: false };
+}
 
 // ESP32 heartbeat moi 15s (CLOUD_HEARTBEAT_INTERVAL_MS trong config.h). Nguong
 // nay TRUOC DAY la 75s (~5 lan bo lo heartbeat) - du de tha luc mang giat
@@ -95,10 +194,13 @@ async function handleRegister(request, env) {
   const now = Date.now();
   const existing = await getDeviceByDeviceId(env.DB, deviceId);
   if (!existing) {
+    const commandKey = await deriveCommandKeyHex(env, deviceId);
+    if (!commandKey) return json(env, { success: false, error: 'may chu thieu khoa bao ve lenh' }, 503);
     const deviceKeyHash = await hashDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER);
     const pairingToken = randomToken(12);
     await insertDevice(env.DB, { deviceId, deviceName, deviceKeyHash, pairingToken, now });
-    return json(env, { success: true, device_id: deviceId, pairing_token: pairingToken, created: true });
+    const webPin = await issueWebPin(env, deviceId);
+    return json(env, { success: true, device_id: deviceId, pairing_token: pairingToken, web_pin: webPin, command_key: commandKey, created: true });
   }
 
   const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, existing.device_key_hash);
@@ -111,7 +213,19 @@ async function handleRegister(request, env) {
   // lan khoi dong lai). Ten hien thi gio HOAN TOAN do web quan ly (xem
   // handleRenameDevice) - firmware khong con vai tro gi voi truong nay.
   await touchDevice(env.DB, deviceId, 'online', now);
-  return json(env, { success: true, device_id: deviceId, pairing_token: existing.pairing_token, created: false });
+  // Di tru ban cu con web_pin_hash=NULL: cap PIN ngau nhien mot lan va tra
+  // ve firmware. May da co PIN thi endpoint dang ky khong phat lai PIN.
+  const webPin = existing.web_pin_hash ? '' : await issueWebPin(env, deviceId);
+  const commandKey = await deriveCommandKeyHex(env, deviceId);
+  if (!commandKey) return json(env, { success: false, error: 'may chu thieu khoa bao ve lenh' }, 503);
+  return json(env, {
+    success: true,
+    device_id: deviceId,
+    pairing_token: existing.pairing_token,
+    command_key: commandKey,
+    ...(webPin ? { web_pin: webPin } : {}),
+    created: false,
+  });
 }
 
 // -------------------------- Endpoint: heartbeat --------------------------
@@ -146,7 +260,25 @@ async function handleResetPin(request, env) {
   const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, device.device_key_hash);
   if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
 
-  await setDevicePinHash(env.DB, deviceId, null);
+  const webPin = await issueWebPin(env, deviceId);
+  return json(env, { success: true, web_pin: webPin });
+}
+
+async function handleRotateDeviceKey(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const oldKey = String(body?.device_key || '');
+  const newKey = String(body?.new_device_key || '');
+  if (!isValidDeviceId(deviceId) || newKey.length < 32 || newKey.length > 128) {
+    return json(env, { success: false, error: 'du lieu xoay khoa khong hop le' }, 400);
+  }
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
+  if (!await verifyDeviceKey(oldKey, env.DEVICE_KEY_PEPPER, device.device_key_hash)) {
+    return json(env, { success: false, error: 'device_key sai' }, 401);
+  }
+  const newHash = await hashDeviceKey(newKey, env.DEVICE_KEY_PEPPER);
+  await setDeviceKeyHash(env.DB, deviceId, newHash);
   return json(env, { success: true });
 }
 
@@ -253,12 +385,9 @@ async function handleSubscribe(request, env) {
   if (!device) {
     return json(env, { success: false, error: 'device chua dang ky - hay bat may va cho ket noi mang truoc' }, 404);
   }
-  // pairing_token la lop bao ve TUY CHON (dung khi co QR dan tren may): neu
-  // thiet bi co pairing_token va nguoi goi CO gui token, phai khop. Neu
-  // nguoi goi khong gui token (luong don gian, chi biet device_id), van cho
-  // qua - danh doi da duoc noi ro trong tai lieu bao mat.
-  if (pairingToken && device.pairing_token && pairingToken !== device.pairing_token) {
-    return json(env, { success: false, error: 'pairing_token sai' }, 401);
+  // Chi trinh duyet da xac thuc PIN moi duoc lien ket Push.
+  if (!pairingToken || !device.pairing_token || pairingToken !== device.pairing_token) {
+    return json(env, { success: false, error: 'Cần xác thực lại PIN thiết bị' }, 401);
   }
 
   await upsertSubscription(env.DB, {
@@ -316,11 +445,24 @@ async function handleTestPush(request, env) {
 // PIN rieng cua nguoi dung (KHAC device_key cua firmware) - gate cho "them
 // thiet bi" va "doi ten may" tren web, tranh nguoi la biet device_id la them/
 // sua duoc thiet bi cua nguoi khac. NULL = chua tung doi, coi nhu dang la
-// PIN mac dinh xuat xuong "1111".
+// PIN ngau nhien do Worker cap va HMI hien thi.
 async function verifyDevicePin(env, device, pin) {
   const value = String(pin || '');
-  if (!device.web_pin_hash) return value === '1111';
+  if (!device.web_pin_hash) return false;
   return verifyDeviceKey(value, env.DEVICE_KEY_PEPPER, device.web_pin_hash);
+}
+
+function randomWebPin() {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return String(100000 + (bytes[0] % 900000));
+}
+
+async function issueWebPin(env, deviceId) {
+  const pin = randomWebPin();
+  const pinHash = await hashDeviceKey(pin, env.DEVICE_KEY_PEPPER);
+  await setDevicePinHash(env.DB, deviceId, pinHash);
+  return pin;
 }
 
 function isValidPin(pin) {
@@ -336,9 +478,58 @@ async function handleVerifyPin(request, env) {
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky - hay bat may va cho ket noi mang truoc' }, 404);
-  const valid = await verifyDevicePin(env, device, pin);
-  if (!valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
-  return json(env, { success: true, device_name: device.device_name || device.device_id });
+  const check = await verifyPinGuarded(request, env, device, pin);
+  if (check.limited) return json(env, { success: false, error: 'Thử sai quá nhiều lần - vui lòng chờ 15 phút' }, 429);
+  if (!check.valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
+  const mqtt = await webMqttConfig(env);
+  if (!mqtt) return json(env, { success: false, error: 'Máy chủ chưa cấu hình kết nối MQTT' }, 503);
+  return json(env, {
+    success: true,
+    device_name: device.device_name || device.device_id,
+    pairing_token: device.pairing_token,
+    mqtt,
+  });
+}
+
+async function handleMqttSession(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const pairingToken = String(body?.pairing_token || '');
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device || !pairingToken || pairingToken !== device.pairing_token) {
+    return json(env, { success: false, error: 'Phiên ghép nối không hợp lệ' }, 401);
+  }
+  const mqtt = await webMqttConfig(env);
+  if (!mqtt) return json(env, { success: false, error: 'Máy chủ MQTT chưa sẵn sàng' }, 503);
+  return json(env, { success: true, mqtt });
+}
+
+// -------------------------- Ky ban tin MQTT ghi --------------------------
+// Browser phai co pairing_token hop le. Worker ky CHINH chuoi JSON se duoc
+// publish; ESP32 xac minh HMAC truoc khi parse/thi hanh. Credential MQTT chung
+// vi vay chi con la lop van chuyen, khong phai quyen dieu khien may.
+async function handleSignMqttWrite(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const pairingToken = String(body?.pairing_token || '');
+  const channel = String(body?.channel || '');
+  const payload = body?.body;
+  if (!isValidDeviceId(deviceId) || !MQTT_WRITE_CHANNELS.has(channel) ||
+      !payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return json(env, { success: false, error: 'du lieu ky MQTT khong hop le' }, 400);
+  }
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device || !pairingToken || pairingToken !== device.pairing_token) {
+    return json(env, { success: false, error: 'Phiên ghép nối không hợp lệ - hãy xác thực lại PIN' }, 401);
+  }
+  const bodyText = JSON.stringify(payload);
+  const probe = JSON.stringify({ v: 1, body: bodyText, sig: '0'.repeat(64) });
+  if (probe.length >= 1450) {
+    return json(env, { success: false, error: 'ban tin MQTT qua lon' }, 413);
+  }
+  const signature = await signMqttWrite(env, deviceId, channel, bodyText);
+  if (!signature) return json(env, { success: false, error: 'may chu chua san sang ky lenh' }, 503);
+  return json(env, { success: true, body: bodyText, signature });
 }
 
 // -------------------------- Endpoint: doi ten may --------------------------
@@ -353,8 +544,9 @@ async function handleRenameDevice(request, env) {
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
-  const valid = await verifyDevicePin(env, device, pin);
-  if (!valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
+  const check = await verifyPinGuarded(request, env, device, pin);
+  if (check.limited) return json(env, { success: false, error: 'Thử sai quá nhiều lần - vui lòng chờ 15 phút' }, 429);
+  if (!check.valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
 
   await renameDevice(env.DB, deviceId, name);
   return json(env, { success: true, device_name: name });
@@ -373,12 +565,14 @@ async function handleChangePin(request, env) {
 
   const device = await getDeviceByDeviceId(env.DB, deviceId);
   if (!device) return json(env, { success: false, error: 'device chua dang ky' }, 404);
-  const valid = await verifyDevicePin(env, device, oldPin);
-  if (!valid) return json(env, { success: false, error: 'Sai mã PIN hiện tại' }, 401);
+  const check = await verifyPinGuarded(request, env, device, oldPin);
+  if (check.limited) return json(env, { success: false, error: 'Thử sai quá nhiều lần - vui lòng chờ 15 phút' }, 429);
+  if (!check.valid) return json(env, { success: false, error: 'Sai mã PIN hiện tại' }, 401);
 
   const newHash = await hashDeviceKey(newPin, env.DEVICE_KEY_PEPPER);
   await setDevicePinHash(env.DB, deviceId, newHash);
-  return json(env, { success: true });
+  const refreshed = await getDeviceByDeviceId(env.DB, deviceId);
+  return json(env, { success: true, pairing_token: refreshed?.pairing_token || '' });
 }
 
 // ==================== Cap nhat firmware tu xa (xem ota_web_update.h) ====================
@@ -426,7 +620,8 @@ async function refreshFirmwareCache(env, release) {
   const version = String(release.tag_name || '').replace(/^v/, '');
   if (!isValidFirmwareVersion(version)) return null;
   const asset = (release.assets || []).find((a) => a.name && a.name.endsWith('.bin'));
-  if (!asset || !asset.browser_download_url) return null;
+  const signatureAsset = (release.assets || []).find((a) => a.name && a.name.endsWith('.sig'));
+  if (!asset || !asset.browser_download_url || !signatureAsset?.browser_download_url) return null;
 
   const assetRes = await fetch(asset.browser_download_url, {
     headers: { 'User-Agent': 'mayap-push-worker' },
@@ -434,11 +629,18 @@ async function refreshFirmwareCache(env, release) {
   if (!assetRes.ok) return null;
   const buffer = await assetRes.arrayBuffer();
   const digest = await crypto.subtle.digest('SHA-256', buffer);
+  const signatureRes = await fetch(signatureAsset.browser_download_url, {
+    headers: { 'User-Agent': 'mayap-push-worker' },
+  });
+  if (!signatureRes.ok) return null;
+  const signature = (await signatureRes.text()).trim();
+  if (!/^[A-Za-z0-9+/]{40,}={0,2}$/.test(signature)) return null;
 
   const cache = {
     version,
     assetUrl: asset.browser_download_url,
     sha256: toHexDigest(digest),
+    signature,
     size: buffer.byteLength,
     notes: String(release.body || '').slice(0, 2000),
     fetchedAt: Date.now(),
@@ -500,6 +702,7 @@ async function handleFirmwareCheck(request, env) {
     update_available: true,
     version: latest.version,
     sha256: latest.sha256,
+    signature: latest.signature,
     size: latest.size,
     notes: latest.notes,
   });
@@ -655,6 +858,9 @@ export default {
       if (url.pathname === '/api/device/heartbeat' && request.method === 'POST') {
         return await handleHeartbeat(request, env);
       }
+      if (url.pathname === '/api/device/rotate-key' && request.method === 'POST') {
+        return await handleRotateDeviceKey(request, env);
+      }
       if (url.pathname === '/api/device/reset-pin' && request.method === 'POST') {
         return await handleResetPin(request, env);
       }
@@ -663,6 +869,12 @@ export default {
       }
       if (url.pathname === '/api/device/verify-pin' && request.method === 'POST') {
         return await handleVerifyPin(request, env);
+      }
+      if (url.pathname === '/api/device/mqtt-session' && request.method === 'POST') {
+        return await handleMqttSession(request, env);
+      }
+      if (url.pathname === '/api/device/sign-mqtt' && request.method === 'POST') {
+        return await handleSignMqttWrite(request, env);
       }
       if (url.pathname === '/api/device/rename' && request.method === 'POST') {
         return await handleRenameDevice(request, env);

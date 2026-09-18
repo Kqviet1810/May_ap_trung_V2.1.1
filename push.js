@@ -176,7 +176,7 @@
       let linkedAny = false;
       for (const id of ids) {
         try {
-          await linkSubscription(id, subscription, options.pairingToken);
+          await linkSubscription(id, subscription, options.pairingTokens?.[id] || '');
           linkedAny = true;
         } catch (error) {
           lastError = error;

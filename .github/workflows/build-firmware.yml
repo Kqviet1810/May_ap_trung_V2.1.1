@@ -1,53 +1,21 @@
 name: Build & release firmware
 
-# Tu dong bien dich MAYAP_INDUSTRIAL_v3_4_0.ino thanh file .bin bang
-# arduino-cli tren may chu GitHub (co internet day du, khac han moi may local
-# dung de phat trien) - khong ai phai tu tay bien dich + upload file .bin
-# nua. Chi can day 1 tag dang "vX.Y.Z" (khop MAYAP_FIRMWARE_VERSION trong
-# config.h) len GitHub la workflow nay tu bien dich + tao GitHub Release +
-# dinh kem file .bin vao do. Cloudflare Worker (xem cloudflare/src/index.js:
-# handleFirmwareCheck/handleFirmwareDownload) doc phien ban/tai file firmware
-# THANG tu GitHub Releases API - khong can trang admin upload thu cong.
-#
-# Cach phat hanh 1 ban moi:
-#   git tag v3.5.0
-#   git push origin v3.5.0
-#
-# QUAN TRONG - cau hinh board (FQBN) da XAC MINH BANG CHUNG CU THE, khong con
-# doan mo ho (lich su: tung doan sai 2 lan - dau tien FlashSize=8M dua theo
-# ten module "N8", sau do doan nham chip chi co 4MB - CA HAI DEU SAI):
-#   - esptool.py flash_id tren thiet bi that: "Detected flash size: 8MB"
-#     -> chip THAT SU la 8MB, dung nhu ten module "N8".
-#   - Log loi boot thuc te ("partition 3 invalid - offset 0x340000 size
-#     0x330000 exceeds flash chip size 0x400000") khop CHINH XAC voi cach
-#     Partition Scheme "8M with spiffs (3MB APP/1.5MB SPIFFS)" bo tri 2 khe
-#     OTA (ota_0 tai 0x10000, ota_1 tai 0x10000+0x330000=0x340000, moi khe
-#     0x330000) - tuc la Partition Scheme DA DUNG cho chip 8MB that, chi co
-#     Flash Size trong Arduino IDE bi de nham "4MB" (0x400000) nen khe ota_1
-#     bi tinh la "vuot qua" gioi han khai bao sai do.
-#   - Da doi chieu danh sach gia tri hop le qua `arduino-cli board details -b
-#     esp32:esp32:esp32s3 --full`: FlashSize=8M hop le; ten "8M with spiffs
-#     (3MB APP/1.5MB SPIFFS)" co khoa noi bo la PartitionScheme=default_8MB
-#     (KHAC "huge_app" - "Huge APP" ghi ro "No OTA", chi 1 khe, khong phu
-#     hop tinh nang cap nhat firmware cua du an nay).
-# Board hien trong Arduino IDE: "ESP32S3 Dev Module" -> esp32:esp32:esp32s3.
 on:
   push:
+    branches:
+      - 'hardening/**'
     tags:
       - 'v*.*.*'
-  workflow_dispatch: {}
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
-# Bat buoc phai co contents: write thi buoc "Tao GitHub Release" (softprops/
-# action-gh-release) moi tao duoc Release - mac dinh GITHUB_TOKEN cua repo
-# nay chi co quyen doc (Settings > Actions > Workflow permissions), thieu
-# khai bao nay se bi GitHub tra ve loi 403 "Resource not accessible by
-# integration" ngay khi vua goi tao Release (da gap thuc te o lan chay tag
-# v3.5.0 dau tien).
 permissions:
   contents: write
 
 env:
-  MAYAP_FQBN: esp32:esp32:esp32s3:PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
+  MAYAP_FQBN: esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
 
 jobs:
   build:
@@ -59,44 +27,96 @@ jobs:
       - name: Cai dat arduino-cli
         uses: arduino/setup-arduino-cli@v2
 
-      - name: Cai loi ESP32 (Espressif)
+      - name: Cai loi ESP32
         run: |
-          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          arduino-cli core install esp32:esp32 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          for attempt in 1 2 3; do
+            arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json && break
+            test "$attempt" = 3 && exit 1
+            sleep 5
+          done
+          for attempt in 1 2 3; do
+            arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json && break
+            test "$attempt" = 3 && exit 1
+            sleep 5
+          done
 
-      - name: Cai thu vien (U8g2, PubSubClient, ArduinoJson)
-        run: arduino-cli lib install U8g2 PubSubClient ArduinoJson
+      - name: Cai thu vien
+        run: |
+          for attempt in 1 2 3; do
+            arduino-cli lib install U8g2@2.36.19 PubSubClient@2.8.0 ArduinoJson@7.4.3 && break
+            test "$attempt" = 3 && exit 1
+            sleep 5
+          done
 
-      # F-01 (audit truoc phat hanh v3.7.1): nhung MQTT broker RIENG (khong
-      # phai broker.emqx.io cong khai mac dinh trong config.h) vao ban build
-      # neu repo da khai bao du 3 secret ben duoi (Settings > Secrets and
-      # variables > Actions > New repository secret). Gia tri secret KHONG
-      # BAO GIO xuat hien trong log/code - chi ton tai trong bien moi truong
-      # cua buoc nay. Thieu du 3 secret => giu nguyen broker cong khai mac
-      # dinh (lenh dieu khien tu xa se bi khoa boi mqttCommandChannelTrusted(),
-      # xem realtime_link.h) - an toan hon la lo mac dinh sai.
-      - name: Bien dich firmware
+      - name: Kiem tra version va ma nguon an toan
+        run: |
+          VERSION=$(sed -n 's/.*MAYAP_FIRMWARE_VERSION\[\].*"\([^"]*\)".*/\1/p' MAYAP_INDUSTRIAL_v3_4_0/config.h)
+          test -n "$VERSION"
+          if [[ "$GITHUB_REF" == refs/tags/* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME khong khop firmware $VERSION"
+            exit 1
+          fi
+          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
+            echo "::error::Khong duoc bo qua xac thuc TLS"
+            exit 1
+          fi
+          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
+            echo "::error::Private key khong duoc nam trong firmware"
+            exit 1
+          fi
+
+      - name: Tao MQTT secret cho build deploy
+        if: github.event_name != 'pull_request'
         env:
-          MAYAP_MQTT_HOST: ${{ secrets.MAYAP_MQTT_HOST }}
           MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
           MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
         run: |
-          MQTT_FLAGS=""
-          if [ -n "$MAYAP_MQTT_HOST" ] && [ -n "$MAYAP_MQTT_USERNAME" ] && [ -n "$MAYAP_MQTT_PASSWORD" ]; then
-            echo "Da tim thay du 3 secret MQTT - nhung broker rieng (TLS, cong 8883) vao firmware."
-            MQTT_FLAGS="-DMAYAP_MQTT_HOST=\"$MAYAP_MQTT_HOST\" -DMAYAP_MQTT_PORT=8883 -DMAYAP_MQTT_USE_TLS=1 -DMAYAP_MQTT_USERNAME=\"$MAYAP_MQTT_USERNAME\" -DMAYAP_MQTT_PASSWORD=\"$MAYAP_MQTT_PASSWORD\""
-          else
-            echo "CANH BAO: thieu secret MAYAP_MQTT_HOST/USERNAME/PASSWORD - firmware se dung broker cong khai mac dinh, lenh dieu khien tu xa se BI KHOA (xem F-01)."
-          fi
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          username = os.getenv("MAYAP_MQTT_USERNAME", "")
+          password = os.getenv("MAYAP_MQTT_PASSWORD", "")
+          if not username or not password:
+              raise SystemExit("Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD")
+
+          Path("MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h").write_text(
+              "#pragma once\n"
+              + "#define MAYAP_MQTT_USERNAME " + json.dumps(username) + "\n"
+              + "#define MAYAP_MQTT_PASSWORD " + json.dumps(password) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Kiem tra JavaScript
+        run: |
+          node --check app.js
+          node --check push.js
+          node --check sw.js
+          node --check config.js
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/auth.js
+          node --check cloudflare/src/db.js
+          node --check cloudflare/src/push.js
+
+      - name: Bien dich firmware
+        run: |
           arduino-cli compile \
             --fqbn "${{ env.MAYAP_FQBN }}" \
             --output-dir ./build \
-            --build-property "compiler.cpp.extra_flags=${MQTT_FLAGS}" \
             --verbose \
             MAYAP_INDUSTRIAL_v3_4_0
 
-      - name: Bao cao kich thuoc (doi chieu voi log Arduino IDE tren may ban)
+      - name: Bao cao kich thuoc
         run: ls -la ./build/*.bin
+
+      - name: Luu file .bin pilot
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-bin-pilot
+          path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
+          retention-days: 7
 
       - name: Doi ten file .bin theo tag
         if: startsWith(github.ref, 'refs/tags/')
@@ -104,20 +124,22 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
 
-      # Chay tay (workflow_dispatch, khong co tag) chi de kiem tra bien dich
-      # con chay duoc khong - luu ket qua thanh artifact tai ve xem thu,
-      # KHONG tao Release/tag nao ca.
-      - name: Luu file .bin de kiem tra (chi khi chay tay)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: firmware-bin-test
-          path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
-          retention-days: 7
+      - name: Ky so firmware
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          OTA_SIGNING_PRIVATE_KEY: ${{ secrets.MAYAP_OTA_SIGNING_PRIVATE_KEY }}
+        run: |
+          test -n "$OTA_SIGNING_PRIVATE_KEY" || { echo "::error::Thieu khoa ky OTA"; exit 1; }
+          printf '%s\n' "$OTA_SIGNING_PRIVATE_KEY" > ota-signing-key.pem
+          openssl dgst -sha256 -sign ota-signing-key.pem -out firmware.sig.der "./MAYAP-firmware-${GITHUB_REF_NAME#v}.bin"
+          base64 -w0 firmware.sig.der > "./MAYAP-firmware-${GITHUB_REF_NAME#v}.sig"
+          rm -f ota-signing-key.pem firmware.sig.der
 
-      - name: Tao GitHub Release + dinh kem file .bin
+      - name: Tao GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ./MAYAP-firmware-*.bin
+          files: |
+            ./MAYAP-firmware-*.bin
+            ./MAYAP-firmware-*.sig
           generate_release_notes: true

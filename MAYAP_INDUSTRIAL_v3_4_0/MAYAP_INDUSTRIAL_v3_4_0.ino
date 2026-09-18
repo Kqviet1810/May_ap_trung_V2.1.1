@@ -24,6 +24,7 @@ void mayapI2cUnlock() {
   if (i2cMutex) xSemaphoreGive(i2cMutex);
 }
 
+#include "device_identity.h"
 #include "network_service.h"
 #include "ota_update.h"
 #include "ota_web_update.h"
@@ -276,6 +277,9 @@ void setup() {
   }
   Wire.setTimeOut(I2C_TIMEOUT_MS);
   hmiSetI2cLockCallbacks(mayapI2cLock, mayapI2cUnlock);
+
+  // Nap khoa rieng/PIN tu NVS truoc khi bat ky kenh cloud nao khoi dong.
+  mayapDeviceIdentityBegin();
 
   // Dam bao radio tat truoc khi nap cau hinh EEPROM. Chi networkTask moi
   // duoc phep khoi dong Wi-Fi neu nguoi dung da chon ONLINE.

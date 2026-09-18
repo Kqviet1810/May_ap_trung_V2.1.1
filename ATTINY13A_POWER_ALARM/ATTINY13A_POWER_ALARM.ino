@@ -9,7 +9,7 @@
 // doi muc (Pin Change Interrupt), khong con thuc dinh ky nua. Day la kien
 // truc tiet kiem pin toi da: dong tieu thu luc ngu Power-down chi con vai uA,
 // va ATtiny hoan toan khong lam gi (khong ADC, khong tinh toan) tru khi that
-// su co su kien (thay doi muc bus/3.3V/9V).
+// su co su kien (thay doi muc bus/3.3V).
 //
 // XEM doc/attiny_power_alarm.md DE BIET DAY DU: so do chan, bang ma ban tin,
 // cach nap code, va danh gia rui ro.
@@ -59,10 +59,6 @@
 //    4 = TAT COI (lenh khan cap TRUC TIEP tu ESP32, tat phan mirror cua ma 3)
 //    5 = PING (kiem tra ATtiny con song - dung luc bat dau me VA dinh ky moi
 //        6 gio trong luc me dang chay; ATtiny chi can ACK, khong lam gi them)
-//    6 = PIN 9V YEU (ATtiny tu phat hien va gui bao ve ESP32, can ACK, tu
-//        thu lai neu khong duoc ACK - vd luc ca 2 nguon deu mat thi se
-//        khong ai ACK ca, ATtiny bo qua sau MAX_RETRY, khong lam gi them)
-//
 // ============================================================================
 // LOGIC BAT/TAT COI TREN ATTINY (bien RAM, KHONG mat khi ESP32 mat dien vi
 // ATtiny chay hoan toan doc lap)
@@ -106,6 +102,7 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
+#include <avr/eeprom.h>
 #include <avr/wdt.h>
 #include <util/delay.h>
 
@@ -113,7 +110,6 @@
 constexpr uint8_t PIN_BUS   = PB0;  // bus 1 day 2 chieu voi ESP32
 constexpr uint8_t PIN_SIREN = PB1;  // dieu khien coi qua R7 -> Q2
 constexpr uint8_t PIN_3V3   = PB2;  // muc so, cau phan ap tu 3.3V_ESP
-constexpr uint8_t PIN_9V    = PB3;  // muc so, cau phan ap tu nguon 9V
 
 // ---- Thong so giao thuc (PHAI khop voi attiny_bus.h phia ESP32) ----
 constexpr uint16_t PULSE_MS       = 30U;
@@ -127,12 +123,26 @@ constexpr uint8_t MSG_BATCH_END   = 2U;
 constexpr uint8_t MSG_SIREN_ON    = 3U;
 constexpr uint8_t MSG_SIREN_OFF   = 4U;
 constexpr uint8_t MSG_PING        = 5U;
-constexpr uint8_t MSG_9V_LOW       = 6U;
-constexpr uint8_t MSG_9V_RECOVERED = 7U;
-constexpr uint8_t MSG_MAX_CODE     = 7U;
+
+// Trang thai me song sot qua reset/thay nguon ATtiny. Hai byte dao nhau de
+// phat hien EEPROM chua khoi tao/hong. Chi ghi khi bat dau/ket thuc me.
+uint8_t EEMEM eeBatchState;
+uint8_t EEMEM eeBatchStateInv;
+
+static bool loadBatchState() {
+  const uint8_t value = eeprom_read_byte(&eeBatchState);
+  const uint8_t inverse = eeprom_read_byte(&eeBatchStateInv);
+  return ((value ^ inverse) == 0xFFU) && value == 1U;
+}
+static void saveBatchState(bool active) {
+  const uint8_t value = active ? 1U : 0U;
+  eeprom_update_byte(&eeBatchState, value);
+  eeprom_update_byte(&eeBatchStateInv, static_cast<uint8_t>(~value));
+}
+constexpr uint8_t MSG_MAX_CODE     = 5U;
 
 // Thoi gian doi on dinh muc (chong nhieu/gon song thoang qua) truoc khi tin
-// la 3.3V/9V THAT SU vua doi trang thai - ngan hon nhieu so voi ban WDT cu
+// la 3.3V THAT SU vua doi trang thai - ngan hon nhieu so voi ban WDT cu
 // (5 giay) vi gio day day la lan doc DUY NHAT sau khi vua co canh tin hieu
 // that (PCINT), khong phai doc lai lien tuc nhu kieu poll dinh ky.
 constexpr uint16_t POWER_DEBOUNCE_MS = 50U;
@@ -163,9 +173,6 @@ static inline void sirenSet(bool on) {
 
 static inline bool esp32PowerOk() {
   return (PINB & (1 << PIN_3V3)) != 0U;
-}
-static inline bool nineVOk() {
-  return (PINB & (1 << PIN_9V)) != 0U;
 }
 
 static inline void delayMs(uint16_t ms) {
@@ -209,7 +216,7 @@ static void sendPulses(uint8_t n) {
 }
 
 // Doi dung 1 xung ACK trong vong ACK_TIMEOUT_MS. Dung khi ATTINY LA BEN GUI
-// (vd bao 9V yeu).
+// (hien tai chi dung de giu giao thuc co the mo rong).
 static bool waitForAck() {
   uint16_t waited = 0U;
   while (waited < ACK_TIMEOUT_MS) {
@@ -224,7 +231,7 @@ static bool waitForAck() {
 }
 
 // Gui 1 ban tin, cho ACK, tu dong thu lai toi da MAX_RETRY lan. BLOCKING -
-// chi goi tu vong lap chinh (hiem khi xay ra: bao pin 9V yeu/phuc hoi).
+// chi goi tu vong lap chinh khi can mo rong giao thuc trong tuong lai.
 static bool sendMessageBlocking(uint8_t code) {
   bool acked = false;
   for (uint8_t attempt = 0U; attempt < MAX_RETRY && !acked; ++attempt) {
@@ -282,33 +289,30 @@ int main(void) {
   sirenSet(false);                                  // an toan: coi TAT khi khoi dong
   DDRB &= static_cast<uint8_t>(~(1 << PIN_3V3));    // PB2 = input
   PORTB &= static_cast<uint8_t>(~(1 << PIN_3V3));   // khong pull-up (da co cau phan ap)
-  DDRB &= static_cast<uint8_t>(~(1 << PIN_9V));     // PB3 = input
-  PORTB &= static_cast<uint8_t>(~(1 << PIN_9V));    // khong pull-up
   DDRB &= static_cast<uint8_t>(~(1 << PB4));        // PB4 = input (da noi thang 3.3V ngoai)
   PORTB &= static_cast<uint8_t>(~(1 << PB4));
 
   // Tat ADC va Analog Comparator hoan toan - ban thiet ke nay KHONG dung ADC
-  // (chi doc muc so PB2/PB3), tat het de toi thieu hoa dong ro ri luc ngu.
+  // (chi doc muc so PB2), tat het de toi thieu hoa dong ro ri luc ngu.
   ADCSRA &= static_cast<uint8_t>(~(1 << ADEN));
   ACSR |= (1 << ACD);
 
-  // Bat ngat thay doi muc tren PB0 (bus), PB2 (3.3V), PB3 (9V) - day la CO
-  // CHE THUC DUY NHAT cua ca he thong (khong con WDT dinh ky nhu ban cu).
-  PCMSK = (1 << PCINT0) | (1 << PCINT2) | (1 << PCINT3);
+  // Chi bat ngat tren PB0 (bus) va PB2 (nguon ESP32). PB3/nguon 9V khong
+  // con duoc do hay bao trong firmware nay.
+  PCMSK = (1 << PCINT0) | (1 << PCINT2);
   GIMSK |= (1 << PCIE);
 
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sei();
 
-  bool dangCoMe = false;          // ghi nho tu MSG_BATCH_START/END
+  bool dangCoMe = loadBatchState();          // ghi nho tu MSG_BATCH_START/END
   bool coiKhauCap = false;        // lenh truc tiep MSG_SIREN_ON/OFF - LUON uu tien
   bool coiMatDien = false;        // ATtiny tu phat hien mat 3.3V trong luc co me
   bool coDien33Truoc = esp32PowerOk();
-  bool coDien9vTruoc = nineVOk();
 
   for (;;) {
     sleep_mode();  // ngu Power-down cho toi khi co ngat PCINT0 (bat ky canh
-                    // nao tren PB0/PB2/PB3) danh thuc - dong tieu thu luc
+                    // nao tren PB0/PB2) danh thuc - dong tieu thu luc
                     // ngu chi con vai uA, day la trang thai mac dinh tuyet
                     // doi phan lon thoi gian song cua ATtiny.
 
@@ -317,10 +321,16 @@ int main(void) {
       const uint8_t code = receiveMessage();
       switch (code) {
         case MSG_BATCH_START:
-          dangCoMe = true;
+          if (!dangCoMe) {
+            dangCoMe = true;
+            saveBatchState(true);
+          }
           break;
         case MSG_BATCH_END:
-          dangCoMe = false;
+          if (dangCoMe) {
+            dangCoMe = false;
+            saveBatchState(false);
+          }
           coiMatDien = false;  // het me thi khong con ly do giu bao mat dien
           break;
         case MSG_SIREN_ON:
@@ -330,9 +340,8 @@ int main(void) {
           coiKhauCap = false;
           break;
         case MSG_PING:
-          // Bao lai neu pin 9V van yeu. Nho vay ESP32 khoi dong lai van
-          // khoi phuc duoc E502 ma ATtiny khong can thuc dinh ky.
-          if (!coDien9vTruoc) (void)sendMessageBlocking(MSG_9V_LOW);
+          // ACK tu receiveMessage() chinh la tin hieu "ATtiny san sang".
+          // Khong co do pin hay bao E502 trong firmware nay.
           break;
         default:
           break;  // Ban tin khong hop le: ACK (neu hop le) da gui trong
@@ -357,25 +366,5 @@ int main(void) {
       }
     }
 
-    // ---- 3) Nguon 9V (nuoi coi) doi trang thai? ----
-    bool coDien9v = nineVOk();
-    if (coDien9v != coDien9vTruoc) {
-      delayMs(POWER_DEBOUNCE_MS);
-      coDien9v = nineVOk();
-      if (coDien9v != coDien9vTruoc) {
-        coDien9vTruoc = coDien9v;
-        if (!coDien9v) {
-          // Bao ve ESP32 - best effort: neu luc nay ESP32 CUNG dang mat
-          // dien (vd mat dien luoi lam sut ca 2 nguon) thi se khong ai ACK,
-          // sendMessageBlocking() tu bo cuoc sau MAX_RETRY (khoang <1 giay)
-          // va tro ve day, khong lam gi them - AN TOAN, khong treo may.
-          (void)sendMessageBlocking(MSG_9V_LOW);
-        } else {
-          // Pin da duoc thay/nguon 9V da phuc hoi: bao ngay de ESP32 go E502
-          // tren HMI, web va gui thong bao "Da het".
-          (void)sendMessageBlocking(MSG_9V_RECOVERED);
-        }
-      }
-    }
   }
 }
