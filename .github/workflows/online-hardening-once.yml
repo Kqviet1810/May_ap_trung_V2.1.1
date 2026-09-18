@@ -32,138 +32,49 @@ jobs:
               p.write_text(text.replace(old, new, 1), encoding='utf-8')
 
           rt = 'MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h'
-
-          replace_once(
-              rt,
+          replace_once(rt,
               '  const uint32_t sequence = doc["sequence"] | 0UL;\n  const char *action = doc["action"] | "";\n',
-              '  const uint32_t sequence = doc["sequence"] | 0UL;\n'
-              '  const uint32_t messageBootId = doc["bootId"] | 0UL;\n'
-              '  const char *action = doc["action"] | "";\n',
+              '  const uint32_t sequence = doc["sequence"] | 0UL;\n  const uint32_t messageBootId = doc["bootId"] | 0UL;\n  const char *action = doc["action"] | "";\n',
               'command bootId fields')
 
-          replace_once(
-              rt,
-              '  // Chong lap: web co the phat lai cung mot lenh khi mat goi ACK. Sequence\n'
-              '  // tang dan tu web; requestId trung cung la dau hieu lap.\n'
-              '  if (requestId[0] && !strcmp(requestId, lastCommandRequestId)) {\n'
-              '    publishAck(requestId, "duplicate", "");\n'
-              '    return;\n'
-              '  }\n'
-              '  if (sequence != 0U && lastCommandSequence != 0U &&\n'
-              '      sequence <= lastCommandSequence) {\n'
-              '    publishAck(requestId, "stale", "");\n'
-              '    return;\n'
-              '  }\n',
-              '  // Lenh dieu khien PHAI co requestId, sequence va bootId hop le.\n'
-              '  // bootId thay doi moi lan khoi dong, nen packet cua boot cu bi vo hieu.\n'
-              '  if (!requestId[0] || sequence == 0U) {\n'
-              '    publishAck(requestId, "invalid", "");\n'
-              '    return;\n'
-              '  }\n'
-              '  if (messageBootId == 0U || messageBootId != bootId) {\n'
-              '    publishAck(requestId, "stale", "");\n'
-              '    return;\n'
-              '  }\n'
-              '\n'
-              '  // Chong lap trong cung boot: requestId khong duoc lap va sequence phai tang.\n'
-              '  if (!strcmp(requestId, lastCommandRequestId)) {\n'
-              '    publishAck(requestId, "duplicate", "");\n'
-              '    return;\n'
-              '  }\n'
-              '  if (lastCommandSequence != 0U && sequence <= lastCommandSequence) {\n'
-              '    publishAck(requestId, "stale", "");\n'
-              '    return;\n'
-              '  }\n',
+          replace_once(rt,
+              '  // Chong lap: web co the phat lai cung mot lenh khi mat goi ACK. Sequence\n  // tang dan tu web; requestId trung cung la dau hieu lap.\n  if (requestId[0] && !strcmp(requestId, lastCommandRequestId)) {\n    publishAck(requestId, "duplicate", "");\n    return;\n  }\n  if (sequence != 0U && lastCommandSequence != 0U &&\n      sequence <= lastCommandSequence) {\n    publishAck(requestId, "stale", "");\n    return;\n  }\n',
+              '  // Lenh dieu khien PHAI co requestId, sequence va bootId hop le.\n  // bootId thay doi moi lan khoi dong, nen packet cua boot cu bi vo hieu.\n  if (!requestId[0] || sequence == 0U) {\n    publishAck(requestId, "invalid", "");\n    return;\n  }\n  if (messageBootId == 0U || messageBootId != bootId) {\n    publishAck(requestId, "stale", "");\n    return;\n  }\n\n  // Chong lap trong cung boot: requestId khong duoc lap va sequence phai tang.\n  if (!strcmp(requestId, lastCommandRequestId)) {\n    publishAck(requestId, "duplicate", "");\n    return;\n  }\n  if (lastCommandSequence != 0U && sequence <= lastCommandSequence) {\n    publishAck(requestId, "stale", "");\n    return;\n  }\n',
               'command replay checks')
 
-          replace_once(
-              rt,
-              '  if (type == HmiCommandType::None) {\n'
-              '    publishAck(requestId, "unsupported", "");\n'
-              '    return;\n'
-              '  }\n\n'
-              '  // "Coi bao" tren dashboard tat tam giong het nut ACK tren HMI (xem\n',
-              '  if (type == HmiCommandType::None) {\n'
-              '    publishAck(requestId, "unsupported", "");\n'
-              '    return;\n'
-              '  }\n\n'
-              '  // Rollback thay doi firmware dang boot. Kenh MQTT hien dung credential\n'
-              '  // chung, nen rollback tu xa bi khoa. Rollback van dung duoc tren HMI\n'
-              '  // voi man xac nhan CO/HUY da co san.\n'
-              '  if (type == HmiCommandType::FirmwareRollback) {\n'
-              '    publishAck(requestId, "rejected", "QUAY LAI CAN XAC NHAN TAI MAY");\n'
-              '    return;\n'
-              '  }\n\n'
-              '  // "Coi bao" tren dashboard tat tam giong het nut ACK tren HMI (xem\n',
+          replace_once(rt,
+              '  if (type == HmiCommandType::None) {\n    publishAck(requestId, "unsupported", "");\n    return;\n  }\n\n  // "Coi bao" tren dashboard tat tam giong het nut ACK tren HMI (xem\n',
+              '  if (type == HmiCommandType::None) {\n    publishAck(requestId, "unsupported", "");\n    return;\n  }\n\n  // Rollback thay doi firmware dang boot. Kenh MQTT hien dung credential\n  // chung, nen rollback tu xa bi khoa. Rollback van dung duoc tren HMI\n  // voi man xac nhan CO/HUY da co san.\n  if (type == HmiCommandType::FirmwareRollback) {\n    publishAck(requestId, "rejected", "QUAY LAI CAN XAC NHAN TAI MAY");\n    return;\n  }\n\n  // "Coi bao" tren dashboard tat tam giong het nut ACK tren HMI (xem\n',
               'remote rollback gate')
 
-          replace_once(
-              rt,
-              '  const uint32_t revision = doc["revision"] | 0UL;\n\n'
-              '  portENTER_CRITICAL(&webMux);\n'
-              '  const bool busy = pendingConfigSave.used;\n'
-              '  const bool haveBase = knownConfigValid;\n'
-              '  MachineConfig candidate = knownConfig;\n'
-              '  portEXIT_CRITICAL(&webMux);\n\n'
-              '  if (busy) {\n',
-              '  const uint32_t revision = doc["revision"] | 0UL;\n'
-              '  if (!requestId[0] || revision == 0U) {\n'
-              '    publishAck(requestId, "invalid", "");\n'
-              '    return;\n'
-              '  }\n\n'
-              '  portENTER_CRITICAL(&webMux);\n'
-              '  const bool busy = pendingConfigSave.used;\n'
-              '  const bool haveBase = knownConfigValid;\n'
-              '  const uint32_t currentRevision = webConfigRevision;\n'
-              '  MachineConfig candidate = knownConfig;\n'
-              '  portEXIT_CRITICAL(&webMux);\n\n'
-              '  if (currentRevision != 0U && revision <= currentRevision) {\n'
-              '    publishAck(requestId, "stale", "");\n'
-              '    return;\n'
-              '  }\n'
-              '  if (busy) {\n',
+          replace_once(rt,
+              '  const uint32_t revision = doc["revision"] | 0UL;\n\n  portENTER_CRITICAL(&webMux);\n  const bool busy = pendingConfigSave.used;\n  const bool haveBase = knownConfigValid;\n  MachineConfig candidate = knownConfig;\n  portEXIT_CRITICAL(&webMux);\n\n  if (busy) {\n',
+              '  const uint32_t revision = doc["revision"] | 0UL;\n  if (!requestId[0] || revision == 0U) {\n    publishAck(requestId, "invalid", "");\n    return;\n  }\n\n  portENTER_CRITICAL(&webMux);\n  const bool busy = pendingConfigSave.used;\n  const bool haveBase = knownConfigValid;\n  const uint32_t currentRevision = webConfigRevision;\n  MachineConfig candidate = knownConfig;\n  portEXIT_CRITICAL(&webMux);\n\n  if (currentRevision != 0U && revision <= currentRevision) {\n    publishAck(requestId, "stale", "");\n    return;\n  }\n  if (busy) {\n',
               'config replay checks')
 
-          replace_once(
-              rt,
-              '  const uint32_t revision = doc["revision"] | 0UL;\n\n'
-              '  portENTER_CRITICAL(&webMux);\n'
-              '  const bool busy = pendingReminderSave.used;\n'
-              '  portEXIT_CRITICAL(&webMux);\n'
-              '  if (busy) {\n',
-              '  const uint32_t revision = doc["revision"] | 0UL;\n'
-              '  if (!requestId[0] || revision == 0U) {\n'
-              '    publishAck(requestId, "invalid", "");\n'
-              '    return;\n'
-              '  }\n\n'
-              '  portENTER_CRITICAL(&webMux);\n'
-              '  const bool busy = pendingReminderSave.used;\n'
-              '  const uint32_t currentRevision = webRemindersRevision;\n'
-              '  portEXIT_CRITICAL(&webMux);\n'
-              '  if (currentRevision != 0U && revision <= currentRevision) {\n'
-              '    publishAck(requestId, "stale", "");\n'
-              '    return;\n'
-              '  }\n'
-              '  if (busy) {\n',
+          replace_once(rt,
+              '  const uint32_t revision = doc["revision"] | 0UL;\n\n  portENTER_CRITICAL(&webMux);\n  const bool busy = pendingReminderSave.used;\n  portEXIT_CRITICAL(&webMux);\n  if (busy) {\n',
+              '  const uint32_t revision = doc["revision"] | 0UL;\n  if (!requestId[0] || revision == 0U) {\n    publishAck(requestId, "invalid", "");\n    return;\n  }\n\n  portENTER_CRITICAL(&webMux);\n  const bool busy = pendingReminderSave.used;\n  const uint32_t currentRevision = webRemindersRevision;\n  portEXIT_CRITICAL(&webMux);\n  if (currentRevision != 0U && revision <= currentRevision) {\n    publishAck(requestId, "stale", "");\n    return;\n  }\n  if (busy) {\n',
               'reminder replay checks')
 
-          app = 'app.js'
-          replace_once(
-              app,
-              "    $('firmwareRollbackBtn')?.addEventListener('click', () => {\n"
-              "      // Hanh dong hiem gap, gay khoi dong lai ngay - can 1 buoc xac nhan ro\n"
-              "      // rang truoc khi gui, tranh bam nham (khac batch/cai dat thong thuong\n"
-              "      // von khong can vi de sua lai duoc).\n"
-              "      const ok = window.confirm(\n"
-              "        'Quay lại firmware trước đó?\\\\n\\\\nMáy sẽ khởi động lại ngay. Chỉ nên làm khi bản hiện tại đang có lỗi.'\n"
-              "      );\n"
-              "      if (ok) sendCommand('firmware_rollback');\n"
-              "    });\n",
+          app = Path('app.js')
+          text = app.read_text(encoding='utf-8')
+          start_token = "    $('firmwareRollbackBtn')?.addEventListener('click', () => {\n"
+          end_token = "      if (ok) sendCommand('firmware_rollback');\n    });\n"
+          if text.count(start_token) != 1:
+              raise SystemExit(f'web rollback start: expected 1, found {text.count(start_token)}')
+          start = text.index(start_token)
+          end_pos = text.find(end_token, start)
+          if end_pos < 0:
+              raise SystemExit('web rollback end not found')
+          end = end_pos + len(end_token)
+          replacement = (
               "    $('firmwareRollbackBtn')?.addEventListener('click', () => {\n"
               "      // Rollback chi duoc xac nhan vat ly tren HMI; web khong gui MQTT.\n"
               "      toast('Quay lại firmware phải xác nhận trực tiếp trên màn hình máy: Cài đặt → Hệ thống → Quay lại bản cũ.', 6500);\n"
-              "    });\n",
-              'web rollback button')
+              "    });\n"
+          )
+          app.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
           PY
 
       - name: Check JavaScript syntax
