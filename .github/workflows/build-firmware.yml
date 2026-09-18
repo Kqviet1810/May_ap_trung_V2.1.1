@@ -35,6 +35,8 @@ jobs:
           fi
           python3 - <<'PY'
           from pathlib import Path
+          import re
+
           path = Path('.github/workflows/online-command-auth-once.yml')
           lines = path.read_text(encoding='utf-8').splitlines()
           start = next(i for i, line in enumerate(lines) if "python3 - <<'PY'" in line) + 1
@@ -43,11 +45,60 @@ jobs:
           for line in lines[start:end]:
               body.append(line[10:] if line.startswith('          ') else line)
           code = '\n'.join(body) + '\n'
-          # Mot mau call webMqttConfig xuat hien dung 2 lan (verify-pin va mqtt-session).
-          # Patch one-time chu y thay tung lan; cho helper replace_once lay match dau tien
-          # thay vi dung lai chi vi co 2 call giong nhau.
           code = code.replace('if count != 1:', 'if count < 1:')
-          exec(compile(code, str(path), 'exec'), {})
+
+          ns = {}
+          try:
+              exec(compile(code, str(path), 'exec'), ns)
+          except SystemExit as exc:
+              # Tat ca patch truoc realtime_link.h da duoc ghi vao workspace.
+              # Phan realtime dung regex theo bien function thay vi so khop ca block
+              # de khong phu thuoc comment/escape nho trong source hien tai.
+              if 'realtime_link.h' not in str(exc):
+                  raise
+              rt_path = Path('MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h')
+              rt = rt_path.read_text(encoding='utf-8')
+              if '#include <mbedtls/md.h>' not in rt:
+                  rt = rt.replace('#include <esp_wifi.h>\n', '#include <esp_wifi.h>\n#include <mbedtls/md.h>\n', 1)
+
+              if 'mqttVerifySignedWrite' not in rt:
+                  trust_new = ns.get('trust_new')
+                  if not trust_new:
+                      raise SystemExit('Khong tim thay trust_new trong patch tam')
+                  trust_re = re.compile(
+                      r'inline bool mqttCommandChannelTrusted\(\) \{.*?\n\}\n\n(?=inline void handleCommandMessage)',
+                      re.S,
+                  )
+                  rt, n = trust_re.subn(trust_new + '\n', rt, count=1)
+                  if n != 1:
+                      raise SystemExit(f'realtime_link.h: khong thay mqttCommandChannelTrusted ({n})')
+
+              if 'JsonDocument wireDoc;' not in rt:
+                  new_callback = ns.get('new_callback')
+                  if not new_callback:
+                      raise SystemExit('Khong tim thay new_callback trong patch tam')
+                  callback_re = re.compile(
+                      r'inline void mqttMessageCallback\(char \*topic, uint8_t \*payload,\n'
+                      r'\s*unsigned int length\) \{.*?\n\}\n\n'
+                      r'(?=// ------------------------------ Vong doi ket noi)',
+                      re.S,
+                  )
+                  rt, n = callback_re.subn(new_callback + '\n', rt, count=1)
+                  if n != 1:
+                      raise SystemExit(f'realtime_link.h: khong thay mqttMessageCallback ({n})')
+              rt_path.write_text(rt, encoding='utf-8')
+
+              wrangler = Path('cloudflare/wrangler.toml')
+              wt = wrangler.read_text(encoding='utf-8')
+              if 'MAYAP_MQTT_PASSWORD' not in wt:
+                  wt = wt.replace(
+                      '# (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, DEVICE_KEY_PEPPER,\n# GITHUB_TOKEN tuy chon cho tinh nang cap nhat firmware) bang\n',
+                      '# (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, DEVICE_KEY_PEPPER,\n# MAYAP_MQTT_PASSWORD, GITHUB_TOKEN tuy chon cho tinh nang cap nhat firmware) bang\n',
+                      1,
+                  )
+                  wrangler.write_text(wt, encoding='utf-8')
+
+          print('online command authentication patch completed')
           PY
           node --check app.js
           node --check cloudflare/src/index.js
@@ -158,7 +209,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
+          cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "./MAYAP-firmware-${GITHUB_REF_NAME#v}.bin"
 
       - name: Ky so firmware
         if: startsWith(github.ref, 'refs/tags/')
