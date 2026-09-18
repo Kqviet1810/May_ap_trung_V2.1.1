@@ -16,6 +16,7 @@
 
 namespace MayapDeviceIdentityInternal {
 static char activeKey[65] = "";
+static char commandKey[65] = "";
 static char webPin[9] = "";
 static bool webPinConfigured = false;
 
@@ -36,6 +37,7 @@ inline void randomHex(char *out, size_t bytes) {
 inline void mayapDeviceIdentityBegin() {
   using namespace MayapDeviceIdentityInternal;
   activeKey[0] = '\0';
+  commandKey[0] = '\0';
   webPin[0] = '\0';
   webPinConfigured = false;
 
@@ -48,6 +50,11 @@ inline void mayapDeviceIdentityBegin() {
     webPinConfigured = true;
   } else {
     webPinConfigured = prefs.getBool("web-pin-set", false);
+  }
+
+  const String storedCommandKey = prefs.getString("command-key", "");
+  if (storedCommandKey.length() == 64U) {
+    strlcpy(commandKey, storedCommandKey.c_str(), sizeof(commandKey));
   }
 
   const String storedKey = prefs.getString("device-key", "");
@@ -71,6 +78,26 @@ inline void mayapDeviceIdentityBegin() {
 
 inline const char *mayapDeviceSecret() {
   return MayapDeviceIdentityInternal::activeKey;
+}
+
+inline bool mayapStoreCommandKey(const char *key) {
+  using namespace MayapDeviceIdentityInternal;
+  if (!key || strlen(key) != 64U) return false;
+  for (size_t i = 0; i < 64U; ++i) {
+    const char c = key[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+(c >= 'A' && c <= 'F'))) return false;
+  }
+  Preferences prefs;
+  if (!prefs.begin("mayap-id", false)) return false;
+  const bool ok = prefs.putString("command-key", key) > 0U;
+  prefs.end();
+  if (ok) strlcpy(commandKey, key, sizeof(commandKey));
+  return ok;
+}
+
+inline const char *mayapCommandKey() {
+  return MayapDeviceIdentityInternal::commandKey;
 }
 
 // Giu API de cloud_alert_link hien tai van bien dich; fresh-install khong bao

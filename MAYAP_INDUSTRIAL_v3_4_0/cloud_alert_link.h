@@ -617,7 +617,7 @@ inline bool postJson(const char *path, const JsonDocument &doc, const char *logT
   return ok;
 }
 
-inline void storePinFromResponse(const String &response) {
+inline void storeProvisioningFromResponse(const String &response) {
   JsonDocument parsed;
   if (deserializeJson(parsed, response)) return;
   if (!parsed["success"].as<bool>()) return;
@@ -627,6 +627,12 @@ inline void storePinFromResponse(const String &response) {
   mayapMarkWebPinConfigured();
   const char *pin = parsed["web_pin"] | "";
   if (pin[0]) mayapStoreWebPin(pin);
+  const char *commandKey = parsed["command_key"] | "";
+  if (commandKey[0]) {
+    if (!mayapStoreCommandKey(commandKey)) {
+      mayapSerialPrintf(true, "[CLOUD] command_key khong hop le/khong luu duoc\n");
+    }
+  }
 }
 
 inline bool rotateLegacyDeviceKey() {
@@ -648,7 +654,7 @@ inline bool sendRegister() {
   doc["device_name"] = mayapDeviceIdText();
   String response;
   if (!postJson("/api/device/register", doc, "register", &response)) return false;
-  storePinFromResponse(response);
+  storeProvisioningFromResponse(response);
   return rotateLegacyDeviceKey();
 }
 
@@ -660,7 +666,7 @@ inline bool sendResetPin() {
   doc["device_key"] = mayapDeviceSecret();
   String response;
   if (!postJson("/api/device/reset-pin", doc, "reset-pin", &response)) return false;
-  storePinFromResponse(response);
+  storeProvisioningFromResponse(response);
   return true;
 }
 

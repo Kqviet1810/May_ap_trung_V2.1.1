@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 
 # Bien KHONG bi mat (khong nhay cam) - xem README de biet cach dat cac secret
 # (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, DEVICE_KEY_PEPPER,
-# GITHUB_TOKEN tuy chon cho tinh nang cap nhat firmware) bang
+# MAYAP_MQTT_PASSWORD, GITHUB_TOKEN tuy chon cho tinh nang cap nhat firmware) bang
 # `wrangler secret put`, KHONG dat o day.
 [vars]
 # Doi thanh dung origin cua trang GitHub Pages, vi du:
