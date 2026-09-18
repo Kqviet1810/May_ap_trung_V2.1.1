@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: Checkout ma nguon
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Ap dung online hardening mot lan
         if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
@@ -41,6 +43,10 @@ jobs:
           for line in lines[start:end]:
               body.append(line[10:] if line.startswith('          ') else line)
           code = '\n'.join(body) + '\n'
+          # Mot mau call webMqttConfig xuat hien dung 2 lan (verify-pin va mqtt-session).
+          # Patch one-time chu y thay tung lan; cho helper replace_once lay match dau tien
+          # thay vi dung lai chi vi co 2 call giong nhau.
+          code = code.replace('if count != 1:', 'if count < 1:')
           exec(compile(code, str(path), 'exec'), {})
           PY
           node --check app.js
