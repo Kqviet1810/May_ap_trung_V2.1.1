@@ -47,9 +47,28 @@ export async function renameDevice(db, deviceId, name) {
   await db.prepare('UPDATE devices SET device_name = ?2 WHERE device_id = ?1').bind(deviceId, name).run();
 }
 
-// Luu hash PIN web moi. Ban hardening khong con chap nhan PIN mac dinh.
+function randomPairingTokenHex() {
+  const bytes = new Uint8Array(12);  // 96 bit ngau nhien, khop token ghep noi hien tai.
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+// Luu hash PIN web moi. Neu thiet bi DA co PIN truoc do thi dong thoi xoay
+// pairing_token de moi trinh duyet/ung dung giu token cu mat quyen xin phien
+// MQTT moi sau khi chu may doi/reset PIN. Lan cap PIN dau tien (web_pin_hash
+// dang NULL) giu nguyen token vua tao boi handleRegister(), tranh tra ve mot
+// token da bi thay doi ngay trong cung giao dich dang ky.
 export async function setDevicePinHash(db, deviceId, pinHash) {
-  await db.prepare('UPDATE devices SET web_pin_hash = ?2 WHERE device_id = ?1').bind(deviceId, pinHash).run();
+  const nextPairingToken = randomPairingTokenHex();
+  await db.prepare(
+    `UPDATE devices
+     SET web_pin_hash = ?2,
+         pairing_token = CASE
+           WHEN web_pin_hash IS NULL THEN pairing_token
+           ELSE ?3
+         END
+     WHERE device_id = ?1`
+  ).bind(deviceId, pinHash, nextPairingToken).run();
 }
 
 export async function setDeviceKeyHash(db, deviceId, deviceKeyHash) {
