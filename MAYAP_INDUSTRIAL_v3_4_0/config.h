@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <math.h>
 
+#include "build_public.h"
+
 #if __has_include("build_secrets.h")
 #include "build_secrets.h"
 #endif
