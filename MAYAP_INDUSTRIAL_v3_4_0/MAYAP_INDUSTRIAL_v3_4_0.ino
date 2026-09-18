@@ -154,9 +154,30 @@ void hmiTask(void *parameter) {
   }
 }
 
+#if MAYAP_DIAGNOSTIC_SERIAL
+static const char *mqttStateText(int state) {
+  switch (state) {
+    case MQTT_CONNECTION_TIMEOUT: return "TIMEOUT";
+    case MQTT_CONNECTION_LOST: return "CONNECTION_LOST";
+    case MQTT_CONNECT_FAILED: return "TCP_TLS_CONNECT_FAILED";
+    case MQTT_DISCONNECTED: return "DISCONNECTED";
+    case MQTT_CONNECTED: return "CONNECTED";
+    case MQTT_CONNECT_BAD_PROTOCOL: return "BAD_PROTOCOL";
+    case MQTT_CONNECT_BAD_CLIENT_ID: return "BAD_CLIENT_ID";
+    case MQTT_CONNECT_UNAVAILABLE: return "BROKER_UNAVAILABLE";
+    case MQTT_CONNECT_BAD_CREDENTIALS: return "BAD_CREDENTIALS";
+    case MQTT_CONNECT_UNAUTHORIZED: return "UNAUTHORIZED";
+    default: return "UNKNOWN";
+  }
+}
+#endif
+
 void networkTask(void *parameter) {
   (void)parameter;
   TickType_t lastWake = xTaskGetTickCount();
+#if MAYAP_DIAGNOSTIC_SERIAL
+  uint32_t lastMqttDiagAt = 0U;
+#endif
   for (;;) {
     const uint32_t now = millis();
     mayapNetworkUpdate(now);
@@ -164,6 +185,37 @@ void networkTask(void *parameter) {
     // networkTask (I/O mang); xem ghi chu dau realtime_link.h/cloud_alert_link.h.
     // Hai lop nay hoan toan doc lap voi nhau - mot ben loi khong lam hong ben kia.
     mayapWebLinkUpdate(now);
+#if MAYAP_DIAGNOSTIC_SERIAL
+    if (lastMqttDiagAt == 0U || elapsedMs(now, lastMqttDiagAt) >= 5000UL) {
+      lastMqttDiagAt = now;
+      const NetworkStatus netStatus = mayapGetNetworkStatus();
+      const int mqttState = MayapRealtimeInternal::mqtt.state();
+      const uint32_t retryInMs = MayapRealtimeInternal::mqttBackoff.ready(now)
+          ? 0U
+          : static_cast<uint32_t>(MayapRealtimeInternal::mqttBackoff.nextAttemptAt - now);
+      // Dung Serial.printf truc tiep: dong chan doan MQTT KHONG bi bo neu
+      // buffer cua mayapSerialPrintf dang day. Khong bao gio in password that.
+      Serial.printf(
+          "[MQTT-DIAG] wifi=%u rssi=%d client=%s host=%s port=%u tls=%u/%u "
+          "user=%s pass=%s mqtt=%u state=%d(%s) tcp=%u backoff=%u retry=%lums heap=%u\n",
+          netStatus.connected ? 1U : 0U,
+          netStatus.connected ? WiFi.RSSI() : 0,
+          MayapRealtimeInternal::deviceId,
+          MQTT_BROKER_HOST,
+          static_cast<unsigned>(MQTT_BROKER_PORT),
+          MQTT_USE_TLS ? 1U : 0U,
+          MayapRealtimeInternal::mqttTlsReady ? 1U : 0U,
+          MQTT_USERNAME[0] ? MQTT_USERNAME : "<EMPTY>",
+          MQTT_PASSWORD[0] ? "SET" : "EMPTY",
+          MayapRealtimeInternal::mqtt.connected() ? 1U : 0U,
+          mqttState,
+          mqttStateText(mqttState),
+          MayapRealtimeInternal::netClient.connected() ? 1U : 0U,
+          static_cast<unsigned>(MayapRealtimeInternal::mqttBackoff.step),
+          static_cast<unsigned long>(retryInMs),
+          static_cast<unsigned>(ESP.getFreeHeap()));
+    }
+#endif
     mayapCloudAlertUpdate(now);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(NETWORK_TASK_PERIOD_MS));
   }
