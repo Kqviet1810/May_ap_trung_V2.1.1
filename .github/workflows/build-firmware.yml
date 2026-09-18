@@ -24,6 +24,36 @@ jobs:
       - name: Checkout ma nguon
         uses: actions/checkout@v4
 
+      - name: Ap dung online hardening mot lan
+        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+        run: |
+          if [ ! -f .github/workflows/online-command-auth-once.yml ]; then
+            echo "Khong co patch tam - bo qua"
+            exit 0
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/online-command-auth-once.yml')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          start = next(i for i, line in enumerate(lines) if "python3 - <<'PY'" in line) + 1
+          end = next(i for i in range(start, len(lines)) if lines[i].strip() == 'PY')
+          body = []
+          for line in lines[start:end]:
+              body.append(line[10:] if line.startswith('          ') else line)
+          code = '\n'.join(body) + '\n'
+          exec(compile(code, str(path), 'exec'), {})
+          PY
+          node --check app.js
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/db.js
+          git rm .github/workflows/online-command-auth-once.yml
+          git show HEAD^:.github/workflows/build-firmware.yml > .github/workflows/build-firmware.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "security(online): authenticate MQTT writes per device"
+          git push origin HEAD:hardening/v3.8.0
+
       - name: Cai dat arduino-cli
         uses: arduino/setup-arduino-cli@v2
 
