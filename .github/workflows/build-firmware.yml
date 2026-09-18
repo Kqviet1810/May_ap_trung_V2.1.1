@@ -51,9 +51,6 @@ jobs:
           try:
               exec(compile(code, str(path), 'exec'), ns)
           except SystemExit as exc:
-              # Tat ca patch truoc realtime_link.h da duoc ghi vao workspace.
-              # Phan realtime dung regex theo bien function thay vi so khop ca block
-              # de khong phu thuoc comment/escape nho trong source hien tai.
               if 'realtime_link.h' not in str(exc):
                   raise
               rt_path = Path('MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h')
@@ -103,11 +100,12 @@ jobs:
           node --check app.js
           node --check cloudflare/src/index.js
           node --check cloudflare/src/db.js
-          git rm .github/workflows/online-command-auth-once.yml
-          git show HEAD^:.github/workflows/build-firmware.yml > .github/workflows/build-firmware.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add app.js cloudflare/src/index.js cloudflare/wrangler.toml \
+            MAYAP_INDUSTRIAL_v3_4_0/device_identity.h \
+            MAYAP_INDUSTRIAL_v3_4_0/cloud_alert_link.h \
+            MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h
           git commit -m "security(online): authenticate MQTT writes per device"
           git push origin HEAD:hardening/v3.8.0
 
