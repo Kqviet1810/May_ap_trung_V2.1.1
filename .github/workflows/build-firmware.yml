@@ -65,47 +65,27 @@ jobs:
             exit 1
           fi
 
-      - name: Nap MQTT secret cho build deploy
+      - name: Tao MQTT secret cho build deploy
         if: github.event_name != 'pull_request'
         env:
-          MAYAP_WIFI_SSID: ${{ secrets.MAYAP_WIFI_SSID }}
-          MAYAP_WIFI_PASSWORD: ${{ secrets.MAYAP_WIFI_PASSWORD }}
-          MAYAP_MQTT_HOST: ${{ secrets.MAYAP_MQTT_HOST }}
           MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
           MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
-          MAYAP_OTA_PASSWORD: ${{ secrets.MAYAP_OTA_PASSWORD }}
         run: |
           python3 - <<'PY'
-          import json, os, re
+          import json, os
           from pathlib import Path
 
-          path = Path('MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h')
-          text = path.read_text(encoding='utf-8')
+          username = os.getenv("MAYAP_MQTT_USERNAME", "")
+          password = os.getenv("MAYAP_MQTT_PASSWORD", "")
+          if not username or not password:
+              raise SystemExit("Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD")
 
-          required = ['MAYAP_MQTT_USERNAME', 'MAYAP_MQTT_PASSWORD']
-          missing = [k for k in required if not os.getenv(k, '')]
-          if missing:
-              raise SystemExit('Thieu GitHub Secrets: ' + ', '.join(missing))
-
-          values = {
-              'MAYAP_WIFI_SSID': os.getenv('MAYAP_WIFI_SSID', ''),
-              'MAYAP_WIFI_PASSWORD': os.getenv('MAYAP_WIFI_PASSWORD', ''),
-              'MAYAP_MQTT_HOST': os.getenv('MAYAP_MQTT_HOST', ''),
-              'MAYAP_MQTT_USERNAME': os.getenv('MAYAP_MQTT_USERNAME', ''),
-              'MAYAP_MQTT_PASSWORD': os.getenv('MAYAP_MQTT_PASSWORD', ''),
-              'MAYAP_OTA_PASSWORD': os.getenv('MAYAP_OTA_PASSWORD', ''),
-          }
-
-          for key, value in values.items():
-              if key == 'MAYAP_MQTT_HOST' and not value:
-                  continue
-              pattern = rf'^#define\s+{re.escape(key)}\s+.*$'
-              replacement = f'#define {key} {json.dumps(value)}'
-              text, count = re.subn(pattern, replacement, text, count=1, flags=re.M)
-              if count != 1:
-                  raise SystemExit(f'Khong tim thay macro {key} trong build_secrets.h')
-
-          path.write_text(text, encoding='utf-8')
+          Path("MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h").write_text(
+              "#pragma once\n"
+              + "#define MAYAP_MQTT_USERNAME " + json.dumps(username) + "\n"
+              + "#define MAYAP_MQTT_PASSWORD " + json.dumps(password) + "\n",
+              encoding="utf-8",
+          )
           PY
 
       - name: Kiem tra JavaScript
