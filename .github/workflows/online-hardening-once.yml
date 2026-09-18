@@ -1,0 +1,236 @@
+name: One-shot online security hardening
+
+on:
+  push:
+    branches:
+      - hardening/v3.8.0
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: contains(github.event.head_commit.message, '[online-hardening-once]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: hardening/v3.8.0
+
+      - name: Apply guarded source patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly 1 match, found {count}')
+              p.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          rt = 'MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h'
+
+          replace_once(rt,
+          '''  const uint32_t sequence = doc["sequence"] | 0UL;
+          const char *action = doc["action"] | "";
+
+          // Chong lap: web co the phat lai cung mot lenh khi mat goi ACK. Sequence
+          // tang dan tu web; requestId trung cung la dau hieu lap.
+          if (requestId[0] && !strcmp(requestId, lastCommandRequestId)) {
+            publishAck(requestId, "duplicate", "");
+            return;
+          }
+          if (sequence != 0U && lastCommandSequence != 0U &&
+              sequence <= lastCommandSequence) {
+            publishAck(requestId, "stale", "");
+            return;
+          }
+          ''',
+          '''  const uint32_t sequence = doc["sequence"] | 0UL;
+          const uint32_t messageBootId = doc["bootId"] | 0UL;
+          const char *action = doc["action"] | "";
+
+          // Lenh dieu khien PHAI co danh tinh giao dich + sequence hop le va
+          // thuoc dung lan khoi dong hien tai. Web da gui bootId/sequence san;
+          // bat buoc kiem tra o firmware de packet cu khong the replay sau reboot.
+          if (!requestId[0] || sequence == 0U) {
+            publishAck(requestId, "invalid", "");
+            return;
+          }
+          if (messageBootId == 0U || messageBootId != bootId) {
+            publishAck(requestId, "stale", "");
+            return;
+          }
+
+          // Chong lap: web co the phat lai cung mot lenh khi mat goi ACK. Sequence
+          // tang dan tu web; requestId trung cung la dau hieu lap.
+          if (!strcmp(requestId, lastCommandRequestId)) {
+            publishAck(requestId, "duplicate", "");
+            return;
+          }
+          if (lastCommandSequence != 0U && sequence <= lastCommandSequence) {
+            publishAck(requestId, "stale", "");
+            return;
+          }
+          ''')
+
+          replace_once(rt,
+          '''  if (type == HmiCommandType::None) {
+            publishAck(requestId, "unsupported", "");
+            return;
+          }
+
+          // "Coi bao" tren dashboard tat tam giong het nut ACK tren HMI (xem
+          ''',
+          '''  if (type == HmiCommandType::None) {
+            publishAck(requestId, "unsupported", "");
+            return;
+          }
+
+          // Rollback thay doi firmware dang boot va khoi dong lai may. MQTT chi
+          // la kenh tu xa dung credential chung trong giai doan Serverless hien
+          // tai, vi vay KHONG cho phep no thuc hien rollback. Nguoi van hanh
+          // phai dung muc "Quay lai ban cu" tren HMI, noi da co man CO/HUY.
+          if (type == HmiCommandType::FirmwareRollback) {
+            publishAck(requestId, "rejected", "QUAY LAI CAN XAC NHAN TAI MAY");
+            return;
+          }
+
+          // "Coi bao" tren dashboard tat tam giong het nut ACK tren HMI (xem
+          ''')
+
+          replace_once(rt,
+          '''  const uint32_t revision = doc["revision"] | 0UL;
+
+          portENTER_CRITICAL(&webMux);
+          const bool busy = pendingConfigSave.used;
+          const bool haveBase = knownConfigValid;
+          MachineConfig candidate = knownConfig;
+          portEXIT_CRITICAL(&webMux);
+
+          if (busy) {
+          ''',
+          '''  const uint32_t revision = doc["revision"] | 0UL;
+          if (!requestId[0] || revision == 0U) {
+            publishAck(requestId, "invalid", "");
+            return;
+          }
+
+          portENTER_CRITICAL(&webMux);
+          const bool busy = pendingConfigSave.used;
+          const bool haveBase = knownConfigValid;
+          const uint32_t currentRevision = webConfigRevision;
+          MachineConfig candidate = knownConfig;
+          portEXIT_CRITICAL(&webMux);
+
+          if (currentRevision != 0U && revision <= currentRevision) {
+            publishAck(requestId, "stale", "");
+            return;
+          }
+          if (busy) {
+          ''')
+
+          replace_once(rt,
+          '''  const uint32_t revision = doc["revision"] | 0UL;
+
+          portENTER_CRITICAL(&webMux);
+          const bool busy = pendingReminderSave.used;
+          portEXIT_CRITICAL(&webMux);
+          if (busy) {
+          ''',
+          '''  const uint32_t revision = doc["revision"] | 0UL;
+          if (!requestId[0] || revision == 0U) {
+            publishAck(requestId, "invalid", "");
+            return;
+          }
+
+          portENTER_CRITICAL(&webMux);
+          const bool busy = pendingReminderSave.used;
+          const uint32_t currentRevision = webRemindersRevision;
+          portEXIT_CRITICAL(&webMux);
+          if (currentRevision != 0U && revision <= currentRevision) {
+            publishAck(requestId, "stale", "");
+            return;
+          }
+          if (busy) {
+          ''')
+
+          app = 'app.js'
+          replace_once(app,
+          '''    'DANG QUAY LAI FIRMWARE CU...': 'Máy đang quay lại firmware trước đó - sắp khởi động lại',
+          'KHONG CO BAN CU DE QUAY LAI': 'Không còn bản firmware trước đó để quay lại',
+          ''',
+          '''    'DANG QUAY LAI FIRMWARE CU...': 'Máy đang quay lại firmware trước đó - sắp khởi động lại',
+          'KHONG CO BAN CU DE QUAY LAI': 'Không còn bản firmware trước đó để quay lại',
+          'QUAY LAI CAN XAC NHAN TAI MAY': 'Quay lại firmware phải được xác nhận trực tiếp trên màn hình máy',
+          ''')
+
+          replace_once(app,
+          '''    $('firmwareRollbackBtn')?.addEventListener('click', () => {
+              // Hanh dong hiem gap, gay khoi dong lai ngay - can 1 buoc xac nhan ro
+              // rang truoc khi gui, tranh bam nham (khac batch/cai dat thong thuong
+              // von khong can vi de sua lai duoc).
+              const ok = window.confirm(
+                'Quay lại firmware trước đó?\\n\\nMáy sẽ khởi động lại ngay. Chỉ nên làm khi bản hiện tại đang có lỗi.'
+              );
+              if (ok) sendCommand('firmware_rollback');
+            });
+          ''',
+          '''    $('firmwareRollbackBtn')?.addEventListener('click', () => {
+              // Rollback la thao tac dac biet: chi cho phep xac nhan vat ly tren
+              // HMI. Web khong gui lenh rollback qua MQTT nua.
+              toast('Quay lại firmware phải xác nhận trực tiếp trên màn hình máy: Cài đặt → Hệ thống → Quay lại bản cũ.', 6500);
+            });
+          ''')
+          PY
+
+      - name: Check JavaScript syntax
+        run: node --check app.js
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 core and libraries
+        run: |
+          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli lib install U8g2@2.36.19 PubSubClient@2.8.0 ArduinoJson@7.4.3
+
+      - name: Compile hardened firmware
+        env:
+          MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
+          MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          u = os.getenv('MAYAP_MQTT_USERNAME', '')
+          p = os.getenv('MAYAP_MQTT_PASSWORD', '')
+          if not u or not p:
+              raise SystemExit('Missing MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD')
+          Path('MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h').write_text(
+              '#pragma once\n#define MAYAP_MQTT_USERNAME ' + json.dumps(u) +
+              '\n#define MAYAP_MQTT_PASSWORD ' + json.dumps(p) + '\n', encoding='utf-8')
+          PY
+          arduino-cli compile \
+            --fqbn 'esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled' \
+            --output-dir ./build-online-hardening \
+            MAYAP_INDUSTRIAL_v3_4_0
+
+      - name: Verify diff
+        run: |
+          rm -f MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h
+          git diff --check
+          git diff -- MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h app.js
+
+      - name: Commit verified patch and remove one-shot workflow
+        run: |
+          rm -f .github/workflows/online-hardening-once.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'security(online): block remote rollback and stale MQTT writes'
+          git push origin HEAD:hardening/v3.8.0
