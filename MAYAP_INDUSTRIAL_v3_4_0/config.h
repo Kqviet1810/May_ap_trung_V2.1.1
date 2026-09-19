@@ -338,20 +338,28 @@ constexpr uint8_t PIN_ATTINY_BUS = 41;
 constexpr uint32_t ATTINY_BUS_PULSE_MS = 30UL;
 constexpr uint32_t ATTINY_BUS_MIN_PULSE_MS = 15UL;
 constexpr uint32_t ATTINY_BUS_END_GAP_MS = 150UL;
-constexpr uint32_t ATTINY_BUS_ACK_TIMEOUT_MS = 200UL;
+constexpr uint32_t ATTINY_BUS_ACK_TIMEOUT_MS = 350UL;
 constexpr uint8_t ATTINY_BUS_MAX_RETRY = 3U;
 
-// Bang ma ban tin (so xung). Chieu ESP32->Tiny: 1-5. Chieu Tiny->ESP32: 6-7.
-constexpr uint8_t ATTINY_MSG_BATCH_START = 1U;  // ESP32->Tiny: me ap vua bat dau
-constexpr uint8_t ATTINY_MSG_BATCH_END   = 2U;  // ESP32->Tiny: me ap vua ket thuc
-constexpr uint8_t ATTINY_MSG_SIREN_ON    = 3U;  // ESP32->Tiny: bat coi (bao nhiet khan cap)
-constexpr uint8_t ATTINY_MSG_SIREN_OFF   = 4U;  // ESP32->Tiny: tat coi
-constexpr uint8_t ATTINY_MSG_PING        = 5U;  // ESP32->Tiny: kiem tra san sang
-constexpr uint8_t ATTINY_MSG_MAX_CODE     = 5U;
-
-// ESP32 gui PING ngay sau khi khoi dong va dinh ky trong luc co me. ATtiny
-// chi ACK de xac nhan san sang; khong co giao thuc do hay canh bao pin.
-constexpr uint32_t ATTINY_PING_INTERVAL_MS = 6UL * 3600UL * 1000UL;
+// ATtiny Link v2: ESP32 la master; status frame Tiny->ESP la 6..13.
+constexpr uint8_t ATTINY_PROTOCOL_VERSION = 2U;
+constexpr uint8_t ATTINY_MSG_BATCH_START = 1U;
+constexpr uint8_t ATTINY_MSG_BATCH_END = 2U;
+constexpr uint8_t ATTINY_MSG_SIREN_ON = 3U;
+constexpr uint8_t ATTINY_MSG_SIREN_OFF = 4U;
+constexpr uint8_t ATTINY_MSG_STATUS_QUERY = 5U;
+constexpr uint8_t ATTINY_MSG_STATUS_BASE = 6U;
+constexpr uint8_t ATTINY_MSG_STATUS_MAX = 13U;
+constexpr uint8_t ATTINY_MSG_MAX_COMMAND = 5U;
+constexpr uint8_t ATTINY_MSG_MAX_CODE = 13U;
+constexpr uint8_t ATTINY_STATUS_FLAG_BATCH = 1U;
+constexpr uint8_t ATTINY_STATUS_FLAG_9V_LOW = 2U;
+constexpr uint8_t ATTINY_STATUS_FLAG_SIREN = 4U;
+constexpr uint32_t ATTINY_STATUS_INTERVAL_MS = 1UL * 3600UL * 1000UL;
+constexpr uint32_t ATTINY_STATUS_RESPONSE_TIMEOUT_MS = 2500UL;
+constexpr uint32_t ATTINY_RESYNC_RETRY_MS = 30000UL;
+constexpr uint32_t ATTINY_SIREN_REASSERT_MS = 15000UL;
+constexpr uint32_t ATTINY_9V_CONFIRM_MS = 3000UL;
 
 // Input opto ACTIVE-LOW: kich 12 V => ngo ra opto keo GPIO xuong GND.
 constexpr uint8_t PIN_IN_LIMIT_LEFT    = 4;
@@ -1273,6 +1281,12 @@ struct MachineRuntime {
   // o tren) - HMI/web dung de hien mot dong trang thai than thien ("Dang tu
   // kiem tra coi") thay vi de nguoi dung tuong nham day la canh bao that.
   bool sirenSelfTestActive = false;
+  // ATtiny backup-alarm diagnostics (RAM only).
+  bool attinyLinkHealthy = false;
+  bool attinyBatchSynced = false;
+  bool attinyStatusKnown = false;
+  bool attinySirenBatteryLow = false;
+  uint32_t attinyLastStatusAgeSec = UINT32_MAX;
   // Lan khoi dong nay la khoi dong lai SAU KHI MAT DIEN giua mot me dang ap
   // (khong phai bat may binh thuong). Chi nam trong RAM (MachineRuntime khong
   // luu EEPROM) va giu nguyen suot phien chay - cloud_alert_link.h dung de

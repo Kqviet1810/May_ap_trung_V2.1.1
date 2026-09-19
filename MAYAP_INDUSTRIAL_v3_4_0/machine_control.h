@@ -431,8 +431,9 @@ enum class FaultCode : uint16_t {
   // Nhom 500: bao mat dien qua ATtiny13A (mach doc lap dung pin CR2032, xem
   // doc/attiny_power_alarm.md) - CHI CANH BAO CHAN DOAN, khong anh huong
   // dieu khien nhiet/dao (dropHeatMaster/inhibitSsr deu false).
-  AttinyBusUnresponsive = 501,  // khong ACK ping/lenh - kiem tra pin CR2032/day noi
-  SirenBatteryLow = 502          // ATtiny bao pin 9V cap coi sap het - can thay pin
+  AttinyBusUnresponsive = 501,  // mat ACK/status - kiem tra CR2032/day BUS
+  SirenBatteryLow = 502,         // status Tiny bao nguon 9V cap coi LOW
+  AttinyStateUnsynced = 503      // link song nhung batch ESP/Tiny khong khop
 };
 
 // So luong gia tri FaultCode THUC (khong tinh None) - dem tay tu enum o tren.
@@ -441,7 +442,7 @@ enum class FaultCode : uint16_t {
 // co 36 ma loi thuc nhung MAX_FAULTS chi la 32, lam FaultManager tran o va
 // ghi de len nhau - vd 4 ma loi dao trung E201-E204 bi xoa khoi he thong canh
 // bao chi sau ~30s).
-constexpr uint8_t FAULT_CODE_REAL_COUNT = 40U;
+constexpr uint8_t FAULT_CODE_REAL_COUNT = 41U;
 
 struct FaultDescriptor {
   FaultCode code;
@@ -567,7 +568,8 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // Nhom 500: bao mat dien qua ATtiny13A - chi chan doan, khong dropHeatMaster/
     // inhibitSsr/inhibitsTurning (mach nay hoan toan tach biet dieu khien chinh).
     {FaultCode::AttinyBusUnresponsive, FaultSeverity::Warning, 73U, AlarmSystem, false, false, false, false, false, false, "ATTINY BUS UNRESPONSIVE"},
-    {FaultCode::SirenBatteryLow, FaultSeverity::Warning, 40U, AlarmSystem, false, false, false, false, false, false, "SIREN BATTERY LOW"}
+    {FaultCode::SirenBatteryLow, FaultSeverity::Warning, 40U, AlarmSystem, false, false, false, false, false, false, "SIREN BATTERY LOW"},
+    {FaultCode::AttinyStateUnsynced, FaultSeverity::Warning, 74U, AlarmSystem, false, false, false, false, false, false, "ATTINY STATE UNSYNC"}
   };
   for (const auto &item : table) if (item.code == code) return item;
   return unknown;
@@ -4682,8 +4684,8 @@ class MachineController {
     // phu), chi canh bao ro rang de nguoi dung tu kiem tra pin CR2032/day
     // noi som, truoc khi mat lop bao ve du phong suot ca me.
     (void)mayapAttinyBusRequest(ATTINY_MSG_BATCH_START);
-    (void)mayapAttinyBusRequest(ATTINY_MSG_PING);
-    attinyLastPingAt_ = now;
+    (void)mayapAttinyBusRequest(ATTINY_MSG_STATUS_QUERY);
+    attinyLastStatusQueryAt_ = now;
     return true;
   }
 
@@ -6241,47 +6243,132 @@ class MachineController {
   //     sang. Khong ACK -> FaultCode::AttinyBusUnresponsive (chi canh bao,
   //     khong khoa van hanh). Khong co do pin ATtiny trong phien ban nay.
   void updateAttinyLink(uint32_t now) {
-    // State machine bus khong chan: moi nhip chi doi mot pha, khong bao gio
-    // cho ACK trong controlTask.
+    // ATTINY_LINK_V2_BEGIN: non-blocking master, status verification, self-heal.
     mayapAttinyBusUpdate(now);
+    const bool expectedBatch = batchRunning_ || resumePending_;
+    const bool desiredSiren = emergencyActive_ && timeReached(now, sirenMutedUntil_);
 
     uint8_t completedCode = 0U;
     bool completedOk = false;
     if (mayapAttinyBusTakeResult(completedCode, completedOk)) {
-      faults_.set(FaultCode::AttinyBusUnresponsive, !completedOk, now);
-      if (completedOk && completedCode == ATTINY_MSG_SIREN_ON) {
-        attinySirenMirrorOn_ = true;
-      } else if (completedOk && completedCode == ATTINY_MSG_SIREN_OFF) {
-        attinySirenMirrorOn_ = false;
+      attinyLinkChecked_ = true;
+      if (completedOk) {
+        attinyLinkHealthy_ = true;
+        if (completedCode == ATTINY_MSG_BATCH_START || completedCode == ATTINY_MSG_BATCH_END) {
+          attinyBatchSynced_ = (completedCode == ATTINY_MSG_BATCH_START) == expectedBatch;
+          attinyLastResyncAt_ = now;
+          if (mayapAttinyBusRequest(ATTINY_MSG_STATUS_QUERY)) attinyLastStatusQueryAt_ = now;
+        } else if (completedCode == ATTINY_MSG_SIREN_ON) {
+          attinySirenMirrorOn_ = true;
+          attinyLastSirenAssertAt_ = now;
+        } else if (completedCode == ATTINY_MSG_SIREN_OFF) {
+          attinySirenMirrorOn_ = false;
+        } else if (completedCode == ATTINY_MSG_STATUS_QUERY) {
+          attinyStatusAwaiting_ = true;
+          attinyStatusDeadline_ = now + ATTINY_STATUS_RESPONSE_TIMEOUT_MS;
+          mayapAttinyBusHoldTxUntil(attinyStatusDeadline_);
+        }
+      } else {
+        attinyLinkHealthy_ = false;
+        if (completedCode == ATTINY_MSG_BATCH_START || completedCode == ATTINY_MSG_BATCH_END) {
+          attinyBatchSynced_ = false;
+        }
+        if (completedCode == ATTINY_MSG_STATUS_QUERY) {
+          attinyStatusAwaiting_ = false;
+          mayapAttinyBusHoldTxUntil(now);
+        }
       }
     }
 
-    const bool emergencySirenOn =
-        emergencyActive_ && timeReached(now, sirenMutedUntil_);
-    if (emergencySirenOn != attinySirenMirrorOn_) {
-      (void)mayapAttinyBusRequest(emergencySirenOn ? ATTINY_MSG_SIREN_ON
-                                                    : ATTINY_MSG_SIREN_OFF);
+    const uint8_t incoming = mayapAttinyBusPollIncoming();
+    if (incoming >= ATTINY_MSG_STATUS_BASE && incoming <= ATTINY_MSG_STATUS_MAX) {
+      const uint8_t flags = static_cast<uint8_t>(incoming - ATTINY_MSG_STATUS_BASE);
+      const bool reported9vLow = (flags & ATTINY_STATUS_FLAG_9V_LOW) != 0U;
+      attinyTinyBatch_ = (flags & ATTINY_STATUS_FLAG_BATCH) != 0U;
+      attinyTinySirenOn_ = (flags & ATTINY_STATUS_FLAG_SIREN) != 0U;
+      attinyStatusKnown_ = true;
+      attinyLinkChecked_ = true;
+      attinyLinkHealthy_ = true;
+      attinyStatusAwaiting_ = false;
+      attinyLastStatusAt_ = now;
+      mayapAttinyBusHoldTxUntil(now);
+
+      if (reported9vLow == attiny9vLow_) {
+        attiny9vConfirmPending_ = false;
+      } else if (!attiny9vConfirmPending_ || attiny9vCandidate_ != reported9vLow) {
+        attiny9vCandidate_ = reported9vLow;
+        attiny9vConfirmPending_ = true;
+        attiny9vConfirmAt_ = now + ATTINY_9V_CONFIRM_MS;
+      } else {
+        attiny9vLow_ = reported9vLow;
+        attiny9vConfirmPending_ = false;
+      }
+
+      attinyBatchSynced_ = (attinyTinyBatch_ == expectedBatch);
+      mayapSerialPrintf(false,
+          "[ATTINY] v=%u link=1 sync=%u expected=%u tinyBatch=%u siren=%u tinySiren=%u 9v=%s\n",
+          ATTINY_PROTOCOL_VERSION, attinyBatchSynced_ ? 1U : 0U,
+          expectedBatch ? 1U : 0U, attinyTinyBatch_ ? 1U : 0U,
+          desiredSiren ? 1U : 0U, attinyTinySirenOn_ ? 1U : 0U,
+          reported9vLow ? "LOW" : "OK");
     }
 
-    if (attinyStartupProbePending_ &&
-        mayapAttinyBusRequest(ATTINY_MSG_PING)) {
-      // Chi can gui mot lan cho moi lan ESP32 boot; ket qua ACK/NACK duoc
-      // xu ly qua mayapAttinyBusTakeResult() o cac nhip sau.
-      attinyStartupProbePending_ = false;
-      attinyLastPingAt_ = now;
+    if (attinyStatusAwaiting_ && timeReached(now, attinyStatusDeadline_)) {
+      attinyStatusAwaiting_ = false;
+      attinyLinkChecked_ = true;
+      attinyLinkHealthy_ = false;
+      mayapAttinyBusHoldTxUntil(now);
     }
 
-    if (batchRunning_ &&
-        elapsedMs(now, attinyLastPingAt_) >= ATTINY_PING_INTERVAL_MS) {
-      attinyLastPingAt_ = now;
-      // Gui lai trang thai me truoc PING de ATtiny tu dong bo sau reset/thay pin.
-      (void)mayapAttinyBusRequest(ATTINY_MSG_BATCH_START);
-      (void)mayapAttinyBusRequest(ATTINY_MSG_PING);
+    if (attinyStatusKnown_) attinyBatchSynced_ = (attinyTinyBatch_ == expectedBatch);
+
+    if (desiredSiren != attinySirenMirrorOn_ ||
+        (desiredSiren && elapsedMs(now, attinyLastSirenAssertAt_) >= ATTINY_SIREN_REASSERT_MS)) {
+      if (mayapAttinyBusRequest(desiredSiren ? ATTINY_MSG_SIREN_ON : ATTINY_MSG_SIREN_OFF) && desiredSiren) {
+        attinyLastSirenAssertAt_ = now;
+      }
+    }
+    if (attinyStatusKnown_ && attinyTinySirenOn_ != desiredSiren) {
+      (void)mayapAttinyBusRequest(desiredSiren ? ATTINY_MSG_SIREN_ON : ATTINY_MSG_SIREN_OFF);
     }
 
-    // Khong xu ly ban tin pin tu ATtiny. Poll van duoc goi de loai bo du
-    // lieu cu tren bus neu firmware ATtiny cu chua duoc nap lai.
-    (void)mayapAttinyBusPollIncoming();
+    if (attinyStartupProbePending_) {
+      if (mayapAttinyBusRequest(ATTINY_MSG_STATUS_QUERY)) {
+        attinyStartupProbePending_ = false;
+        attinyLastStatusQueryAt_ = now;
+      }
+    } else if (attiny9vConfirmPending_ && timeReached(now, attiny9vConfirmAt_)) {
+      if (mayapAttinyBusRequest(ATTINY_MSG_STATUS_QUERY)) {
+        attinyLastStatusQueryAt_ = now;
+        attiny9vConfirmAt_ = now + ATTINY_9V_CONFIRM_MS;
+      }
+    } else if (expectedBatch && elapsedMs(now, attinyLastStatusQueryAt_) >= ATTINY_STATUS_INTERVAL_MS) {
+      if (mayapAttinyBusRequest(ATTINY_MSG_STATUS_QUERY)) attinyLastStatusQueryAt_ = now;
+    } else if (attinyLinkChecked_ && !attinyLinkHealthy_ &&
+               elapsedMs(now, attinyLastStatusQueryAt_) >= ATTINY_RESYNC_RETRY_MS) {
+      if (mayapAttinyBusRequest(ATTINY_MSG_STATUS_QUERY)) attinyLastStatusQueryAt_ = now;
+    }
+
+    if (attinyStatusKnown_ && !attinyBatchSynced_ &&
+        elapsedMs(now, attinyLastResyncAt_) >= ATTINY_RESYNC_RETRY_MS) {
+      if (mayapAttinyBusRequest(expectedBatch ? ATTINY_MSG_BATCH_START : ATTINY_MSG_BATCH_END)) {
+        attinyLastResyncAt_ = now;
+      }
+    }
+
+    faults_.set(FaultCode::AttinyBusUnresponsive,
+                attinyLinkChecked_ && !attinyLinkHealthy_, now);
+    faults_.set(FaultCode::SirenBatteryLow,
+                attinyStatusKnown_ && attiny9vLow_, now);
+    faults_.set(FaultCode::AttinyStateUnsynced,
+                attinyStatusKnown_ && !attinyBatchSynced_, now);
+
+    runtime_.attinyLinkHealthy = attinyLinkChecked_ && attinyLinkHealthy_;
+    runtime_.attinyBatchSynced = attinyStatusKnown_ && attinyBatchSynced_;
+    runtime_.attinyStatusKnown = attinyStatusKnown_;
+    runtime_.attinySirenBatteryLow = attinyStatusKnown_ && attiny9vLow_;
+    runtime_.attinyLastStatusAgeSec = attinyStatusKnown_
+        ? elapsedMs(now, attinyLastStatusAt_) / 1000UL : UINT32_MAX;
   }
 
   void updateBatchTime(uint32_t now) {
@@ -7114,11 +7201,26 @@ class MachineController {
   // Bao mat dien qua ATtiny13A (bus dem xung, xem doc/attiny_power_alarm.md).
   // attinySirenMirrorOn_ ghi nho trang thai coi khan cap DA GUI cho ATtiny
   // lan gan nhat, de chi gui lai ma 3/4 dung luc no THUC SU doi (khong gui
-  // lap lai moi chu ky). attinyLastPingAt_ dung cho ping dinh ky moi 6h
+  // lap lai moi chu ky). attinyLastStatusQueryAt_ dung cho ping dinh ky moi 6h
   // trong luc dang co me ap (xem updateAttinyLink()).
   bool attinySirenMirrorOn_ = false;
   bool attinyStartupProbePending_ = true;
-  uint32_t attinyLastPingAt_ = 0U;
+  bool attinyLinkChecked_ = false;
+  bool attinyLinkHealthy_ = false;
+  bool attinyStatusKnown_ = false;
+  bool attinyTinyBatch_ = false;
+  bool attinyTinySirenOn_ = false;
+  bool attinyBatchSynced_ = false;
+  bool attiny9vLow_ = false;
+  bool attiny9vCandidate_ = false;
+  bool attiny9vConfirmPending_ = false;
+  bool attinyStatusAwaiting_ = false;
+  uint32_t attinyLastStatusQueryAt_ = 0U;
+  uint32_t attinyLastStatusAt_ = 0U;
+  uint32_t attinyLastResyncAt_ = 0U;
+  uint32_t attinyLastSirenAssertAt_ = 0U;
+  uint32_t attinyStatusDeadline_ = 0U;
+  uint32_t attiny9vConfirmAt_ = 0U;
   bool testLimitVerifiedLeft_ = false;
   bool testLimitVerifiedRight_ = false;
   uint32_t moveStartedAt_ = 0;
