@@ -30,10 +30,6 @@ jobs:
         if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'chore: execute offline hardening via build' }}"
         run: python3 tools/apply_offline_hardening_v2.py
 
-      - name: Ap dung ATtiny Link v2 hardening (mot lan)
-        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'chore: execute attiny link v2 hardening' }}"
-        run: python3 tools/apply_attiny_link_v2.py
-
       - name: Cai dat arduino-cli
         uses: arduino/setup-arduino-cli@v2
 
@@ -186,10 +182,8 @@ jobs:
             --verbose \
             MAYAP_INDUSTRIAL_v3_4_0
 
-      - name: Commit hardening sau khi ca hai firmware compile xanh
-        if: "${{ github.event_name == 'push' && (github.event.head_commit.message == 'chore: execute offline hardening via build' || github.event.head_commit.message == 'chore: execute attiny link v2 hardening') }}"
-        env:
-          TRIGGER_MESSAGE: ${{ github.event.head_commit.message }}
+      - name: Commit offline hardening sau khi ca hai firmware compile xanh
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'chore: execute offline hardening via build' }}"
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -202,11 +196,7 @@ jobs:
                   doc/attiny_power_alarm.md
           git diff --cached --check
           git diff --cached --quiet && { echo "::error::Hardening patch khong tao thay doi source"; exit 1; }
-          if [[ "$TRIGGER_MESSAGE" == "chore: execute attiny link v2 hardening" ]]; then
-            git commit -m "feat(attiny): harden backup alarm link v2"
-          else
-            git commit -m "feat(offline): harden control and commissioning"
-          fi
+          git commit -m "feat(offline): harden control and commissioning"
           git push origin HEAD:hardening/v3.8.0
 
       - name: Bao cao kich thuoc
