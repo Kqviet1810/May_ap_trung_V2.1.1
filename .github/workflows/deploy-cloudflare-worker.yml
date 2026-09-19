@@ -21,6 +21,14 @@ jobs:
         run: |
           test -n "$CF_TOKEN" || { echo "::error::Thieu CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CF_ACCOUNT" || { echo "::error::Thieu CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+      - name: Kiem tra JavaScript Worker
+        run: |
+          node --check cloudflare/src/security-wrapper.js
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/auth.js
+          node --check cloudflare/src/db.js
+          node --check cloudflare/src/push.js
+          node --check config.js
       - name: Cai phu thuoc
         working-directory: cloudflare
         run: npm install --ignore-scripts
