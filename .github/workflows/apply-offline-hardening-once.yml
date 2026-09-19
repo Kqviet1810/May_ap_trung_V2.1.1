@@ -1,0 +1,94 @@
+name: Apply offline hardening once
+
+on:
+  push:
+    branches:
+      - hardening/v3.8.0
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  MAYAP_FQBN: esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
+
+jobs:
+  patch-build-commit:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'chore: run offline hardening patch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: hardening/v3.8.0
+          fetch-depth: 0
+
+      - name: Apply strict offline patch
+        run: python3 tools/apply_offline_hardening.py
+
+      - name: Install arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 core
+        run: |
+          for attempt in 1 2 3; do
+            arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json && break
+            test "$attempt" = 3 && exit 1
+            sleep 5
+          done
+          for attempt in 1 2 3; do
+            arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json && break
+            test "$attempt" = 3 && exit 1
+            sleep 5
+          done
+
+      - name: Install libraries
+        run: |
+          for attempt in 1 2 3; do
+            arduino-cli lib install U8g2@2.36.19 PubSubClient@2.8.0 ArduinoJson@7.4.3 && break
+            test "$attempt" = 3 && exit 1
+            sleep 5
+          done
+
+      - name: Create local MQTT build secrets
+        env:
+          MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
+          MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          username = os.getenv('MAYAP_MQTT_USERNAME', '')
+          password = os.getenv('MAYAP_MQTT_PASSWORD', '')
+          if not username or not password:
+              raise SystemExit('Missing MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD')
+          Path('MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h').write_text(
+              '#pragma once\n'
+              + '#define MAYAP_MQTT_USERNAME ' + json.dumps(username) + '\n'
+              + '#define MAYAP_MQTT_PASSWORD ' + json.dumps(password) + '\n',
+              encoding='utf-8')
+          PY
+
+      - name: Compile patched firmware before commit
+        run: |
+          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
+            echo "::error::TLS verification bypass found"
+            exit 1
+          fi
+          arduino-cli compile \
+            --fqbn "${{ env.MAYAP_FQBN }}" \
+            --output-dir ./build-offline-hardening \
+            MAYAP_INDUSTRIAL_v3_4_0
+
+      - name: Commit only verified source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add MAYAP_INDUSTRIAL_v3_4_0/config.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/machine_control.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/hmi.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino
+          git diff --cached --check
+          git diff --cached --quiet && { echo "::error::Patch produced no source changes"; exit 1; }
+          git commit -m "feat(offline): harden control and commissioning"
+          git push origin HEAD:hardening/v3.8.0
