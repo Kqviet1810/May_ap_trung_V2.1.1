@@ -873,6 +873,13 @@ enum class TestResult : uint8_t { Untested, Pass, Fail };
 TestResult testDeviceResult[TEST_MODE_OUTPUT_ROWS] = {};
 TestResult testLimitResult[TEST_MODE_LIMIT_ROWS] = {};
 TestLimitPhase lastObservedTestLimitPhase = TestLimitPhase::Idle;
+// Workflow rieng cho SSR nhiet: 5s quat prestart -> toi da 3p gia nhiet ->
+// hoi NHIET DA LEN? -> bat quat hut -> hoi QUAT HUT DA CHAY?.
+enum class HeaterTestUiPhase : uint8_t { Idle, Heating, ConfirmHeat, ConfirmVent };
+HeaterTestUiPhase heaterTestUiPhase = HeaterTestUiPhase::Idle;
+uint32_t heaterTestUiStartedAt = 0U;
+uint32_t heaterTestUiLastRefreshAt = 0U;
+bool heaterTestConfirmYes = true;
 bool testDeviceConfirmActive = false;
 uint8_t testDeviceConfirmIndex = 0;
 bool testDeviceConfirmYes = true;
@@ -1041,18 +1048,21 @@ const char *groupExtraLabelFor(GroupExtra extra) {
   }
 }
 bool settingLockedDuringBatch(uint8_t settingIndex) {
-  if (!currentRuntime.batchRunning) return false;
-  // Chi con khoa so ngay ap tong (thay doi giua chung se lam sai lich/ngay
-  // du kien no). Cac tham so dao (bat/tat dao tu dong, chu ky, thoi gian
-  // hanh trinh) KHONG con bi khoa khi dang ap nua - cho phep chinh nhu binh
-  // thuong, rieng bat/tat dao tu dong se hoi CO/HUY truoc khi ap dung (xem
-  // openTurningToggleConfirm()) vi day la thay doi anh huong truc tiep den
-  // dao trung dang chay. So sanh theo offset field (khong phai chi so cung
-  // trong mang SETTINGS[]) de khong vo tinh khoa nham muc khac neu sau nay
-  // them/xoa/doi cho thong so trong bang (da tung la loi thuc te khi them
-  // "Bu nhiet do").
+  if (!currentRuntime.batchRunning && !currentRuntime.resumeConfirmationRequired) return false;
   const uint16_t offset = SETTINGS[settingIndex].offset;
-  return offset == offsetof(MachineConfig, totalIncubationDays);
+  // Mo dung nhom VAN HANH co the can chinh khi dang ap. Calibration, alarm
+  // safety, PID/tuning, timeout co khi va recovery/system settings bi khoa.
+  if (offset == offsetof(MachineConfig, targetTemp) ||
+      offset == offsetof(MachineConfig, lowHumidityAlarm) ||
+      offset == offsetof(MachineConfig, ventOnTemp) ||
+      offset == offsetof(MachineConfig, ventOffTemp) ||
+      offset == offsetof(MachineConfig, turningEnabled) ||
+      offset == offsetof(MachineConfig, turnIntervalMin) ||
+      offset == offsetof(MachineConfig, manualTurnReanchorsSchedule) ||
+      offset == offsetof(MachineConfig, connectivityMode)) {
+    return false;
+  }
+  return true;
 }
 
 uint8_t settingListItemCount(uint8_t group) {
@@ -1196,6 +1206,44 @@ bool queueCommand(HmiCommandType type,
   }
   if (commandId) *commandId = id;
   return true;
+}
+
+void finishHeaterPowerPhase(uint32_t now) {
+  if (heaterTestUiPhase != HeaterTestUiPhase::Heating) return;
+  (void)queueCommand(HmiCommandType::TestOutputStop, COMMAND_DEFAULT_VALID_MS,
+                     0, static_cast<uint32_t>(TestOutputId::HeaterSsr));
+  testModeLastCommandAt = now;
+  heaterTestUiPhase = HeaterTestUiPhase::ConfirmHeat;
+  heaterTestConfirmYes = true;
+  armInputGuard();
+  dirty = true;
+}
+
+void serviceHeaterTestWorkflow(uint32_t now) {
+  if (heaterTestUiPhase == HeaterTestUiPhase::Idle) return;
+  if (!currentRuntime.testModeActive) {
+    heaterTestUiPhase = HeaterTestUiPhase::Idle;
+    dirty = true;
+    return;
+  }
+  if (heaterTestUiPhase == HeaterTestUiPhase::Heating) {
+    const uint32_t totalMs = TEST_HEATER_FAN_PRESTART_MS + TEST_HEATER_HOLD_MAX_MS;
+    const uint32_t elapsed = now - heaterTestUiStartedAt;
+    const bool requestStillActive =
+        (currentRuntime.testOutputMaskActive &
+         (1U << static_cast<uint8_t>(TestOutputId::HeaterSsr))) != 0U;
+    // 1.5 s dau cho command/control/runtime mailbox kip phan anh. Sau do neu
+    // firmware da cat request vi safety thi cung chuyen sang buoc xac nhan,
+    // khong de HMI dung o man "dang test" gia.
+    if (elapsed >= totalMs || (elapsed >= 1500UL && !requestStillActive)) {
+      finishHeaterPowerPhase(now);
+      return;
+    }
+    if (now - heaterTestUiLastRefreshAt >= 500UL) {
+      heaterTestUiLastRefreshAt = now;
+      dirty = true;
+    }
+  }
 }
 
 void setListSelection(int value, uint8_t count) {
@@ -2239,6 +2287,13 @@ void handleInput() {
   }
 
   if (rotary.button == ButtonEvent::LongPress) {
+    // Trong workflow test nhiet, nhan giu KHONG duoc thoat tat ca va bo qua
+    // 2 cau xac nhan bat buoc. Muon dung heater som thi nhan NGAN; o man
+    // xac nhan phai chon CO/KHONG va nhan ngan de ghi ket qua.
+    if (view == View::TestMode && heaterTestUiPhase != HeaterTestUiPhase::Idle) {
+      resetRotaryPending();
+      return;
+    }
     if (view == View::Home) {
       activateHomeContext(true);
       return;
@@ -2362,10 +2417,44 @@ void handleInput() {
       break;
 
     case View::TestMode: {
-      // Sau khi xung mot thiet bi, hoi nguoi lap dat CO/KHONG thay no chay -
-      // day la buoc "kiem thu" that su thay vi tu tat sau vai giay ma khong
-      // ai xac nhan gi. Cong tac hanh trinh khong can hoi vi phan cung tu
-      // bao ket qua khach quan (da xu ly rieng qua testLimitPhase).
+      if (heaterTestUiPhase == HeaterTestUiPhase::Heating) {
+        if (rotary.button == ButtonEvent::ShortPress) finishHeaterPowerPhase(now);
+        break;
+      }
+      if (heaterTestUiPhase == HeaterTestUiPhase::ConfirmHeat) {
+        if (rotary.step) { heaterTestConfirmYes = !heaterTestConfirmYes; dirty = true; }
+        if (rotary.button == ButtonEvent::ShortPress) {
+          testDeviceResult[static_cast<uint8_t>(TestOutputId::HeaterSsr)] =
+              heaterTestConfirmYes ? TestResult::Pass : TestResult::Fail;
+          if (queueCommand(HmiCommandType::TestOutputPulse, COMMAND_DEFAULT_VALID_MS,
+                           0, static_cast<uint32_t>(TestOutputId::VentFan))) {
+            testModeLastCommandAt = now;
+            heaterTestUiPhase = HeaterTestUiPhase::ConfirmVent;
+            heaterTestConfirmYes = true;
+            armInputGuard();
+          } else {
+            testDeviceResult[static_cast<uint8_t>(TestOutputId::VentFan)] = TestResult::Fail;
+            heaterTestUiPhase = HeaterTestUiPhase::Idle;
+          }
+          dirty = true;
+        }
+        break;
+      }
+      if (heaterTestUiPhase == HeaterTestUiPhase::ConfirmVent) {
+        if (rotary.step) { heaterTestConfirmYes = !heaterTestConfirmYes; dirty = true; }
+        if (rotary.button == ButtonEvent::ShortPress) {
+          testDeviceResult[static_cast<uint8_t>(TestOutputId::VentFan)] =
+              heaterTestConfirmYes ? TestResult::Pass : TestResult::Fail;
+          (void)queueCommand(HmiCommandType::TestOutputStop, COMMAND_DEFAULT_VALID_MS,
+                             0, static_cast<uint32_t>(TestOutputId::VentFan));
+          testModeLastCommandAt = now;
+          heaterTestUiPhase = HeaterTestUiPhase::Idle;
+          dirty = true;
+        }
+        break;
+      }
+
+      // Cac output con lai van dung hoi CO/KHONG chung nhu cu.
       if (testDeviceConfirmActive) {
         if (rotary.step) {
           testDeviceConfirmYes = !testDeviceConfirmYes;
@@ -2376,7 +2465,7 @@ void handleInput() {
               testDeviceConfirmYes ? TestResult::Pass : TestResult::Fail;
           queueCommand(HmiCommandType::TestOutputStop, COMMAND_DEFAULT_VALID_MS,
                       0, static_cast<uint32_t>(testDeviceConfirmIndex));
-          testModeLastCommandAt = millis();
+          testModeLastCommandAt = now;
           testDeviceConfirmActive = false;
           dirty = true;
         }
@@ -2388,29 +2477,22 @@ void handleInput() {
       }
       if (rotary.button == ButtonEvent::ShortPress) {
         if (listIndex < TEST_MODE_OUTPUT_ROWS) {
-          // CHI mo hoi thoai "CO CHAY KHONG?" khi lenh THAT SU vao duoc hang
-          // doi (queueCommand() tra ve true) - truoc day mo vo dieu kien du
-          // lenh co gui di duoc hay khong (hang doi day/trung lenh cung
-          // loai dang cho). Neu lenh khong toi noi, thiet bi KHONG he duoc
-          // xung dien, nhung hoi thoai van hoi Dat/Loi nhu binh thuong - de
-          // nguoi lap dat ghi nham ket qua cho 1 dau ra chua he duoc thu.
-          // queueCommand() tu hien toast loi + keu coi khi that bai, nen o
-          // day chi can KHONG mo hoi thoai la du, khong can bao them.
           if (queueCommand(HmiCommandType::TestOutputPulse,
                            COMMAND_DEFAULT_VALID_MS, 0,
                            static_cast<uint32_t>(listIndex))) {
-            testModeLastCommandAt = millis();
-            testDeviceConfirmActive = true;
-            testDeviceConfirmIndex = listIndex;
-            testDeviceConfirmYes = true;
-            // Moi ConfirmAction khac trong file nay deu goi armInputGuard()
-            // ngay luc mo hoi thoai - rieng hoi thoai CO/KHONG long trong Test
-            // Mode nay (khong doi View, chi bat co noi bo) truoc day thieu
-            // buoc nay. Nut nhan tren encoder co the lam rung nhe truc xoay
-            // (ghep co that tren mot so module encoder re), tao ra vai xung
-            // rotary.step "ma" ngay sau cu nhan - neu khong chan lai, no co
-            // the tu lat testDeviceConfirmYes tu true (Dat) sang false (Loi)
-            // truoc khi nguoi lap dat kip nhin man hinh, ghi nham ket qua.
+            testModeLastCommandAt = now;
+            if (listIndex == static_cast<uint8_t>(TestOutputId::HeaterSsr)) {
+              heaterTestUiPhase = HeaterTestUiPhase::Heating;
+              heaterTestUiStartedAt = now;
+              heaterTestUiLastRefreshAt = now;
+              heaterTestConfirmYes = true;
+              testDeviceResult[static_cast<uint8_t>(TestOutputId::HeaterSsr)] = TestResult::Untested;
+              testDeviceResult[static_cast<uint8_t>(TestOutputId::VentFan)] = TestResult::Untested;
+            } else {
+              testDeviceConfirmActive = true;
+              testDeviceConfirmIndex = listIndex;
+              testDeviceConfirmYes = true;
+            }
             armInputGuard();
           }
         } else if (listIndex < TEST_MODE_OUTPUT_ROWS + TEST_MODE_LIMIT_ROWS) {
@@ -2418,9 +2500,8 @@ void handleInput() {
               ? TestLimitId::Left : TestLimitId::Right;
           queueCommand(HmiCommandType::TestLimitStart, COMMAND_DEFAULT_VALID_MS,
                       0, static_cast<uint32_t>(testLimitSelected));
-          testModeLastCommandAt = millis();
+          testModeLastCommandAt = now;
         } else {
-          // Dong "Ket thuc": xem tong ket ai chay ai khong truoc khi thoat hAn.
           testSummaryIndex = 0;
           view = View::TestSummary;
         }
@@ -2562,7 +2643,7 @@ void drawLeftFit2(int16_t x, int16_t y, const char *text, int16_t maxRight,
 
 uint32_t alarmBitForFaultCode(uint16_t code) {
   switch (code) {
-    case 101: case 102: case 103: return AlarmSensor;
+    case 101: case 102: case 103: case 104: return AlarmSensor;
     case 110: return AlarmTempLow;
     case 111: return AlarmTempHigh;
     case 112: return AlarmEmergency;
@@ -2587,6 +2668,7 @@ const char *faultTitle(uint16_t code) {
     case 101: return "MAT CAM BIEN";
     case 102: return "CAM BIEN SAI";
     case 103: return "CAM BIEN BAT THUONG";
+    case 104: return "CAM BIEN DUNG HINH";
     case 110: return "NHIET DO THAP";
     case 111: return "NHIET DO CAO";
     case 112: return "QUA NHIET KHAN";
@@ -2628,6 +2710,7 @@ void faultDetail(const HmiFaultItem &fault, char *out, size_t size) {
     case 101: snprintf(out, size, "KHONG CO DU LIEU RS485"); break;
     case 102: snprintf(out, size, "DU LIEU NGOAI PHAM VI"); break;
     case 103: snprintf(out, size, "MAU NGHI NGO %.1fC", fault.detail * 0.1f); break;
+    case 104: snprintf(out, size, "PV KET %.1fC - DA CAT NHIET", fault.detail * 0.1f); break;
     case 110: snprintf(out, size, "PV %.1f < %.1fC", currentRuntime.temperature,
                        currentConfig.lowTempAlarm); break;
     case 111: snprintf(out, size, "PV %.1f > %.1fC", fault.detail * 0.1f,
@@ -3249,7 +3332,46 @@ void drawTestDeviceConfirm() {
   drawYesNoButtons(testDeviceConfirmYes, "CO", "KHONG");
 }
 
+void drawHeaterTestWorkflow() {
+  drawHeader("TEST NHIET", false);
+  lcd.setFont(u8g2_font_6x12_tf);
+  if (heaterTestUiPhase == HeaterTestUiPhase::Heating) {
+    const uint32_t now = millis();
+    const uint32_t elapsed = now - heaterTestUiStartedAt;
+    char line[28];
+    if (elapsed < TEST_HEATER_FAN_PRESTART_MS) {
+      const uint32_t left = (TEST_HEATER_FAN_PRESTART_MS - elapsed + 999UL) / 1000UL;
+      snprintf(line, sizeof(line), "QUAT KHOI DONG %lus", static_cast<unsigned long>(left));
+      drawCenteredFit(24, line, u8g2_font_6x12_tf, u8g2_font_5x8_tf, u8g2_font_5x8_tf);
+    } else {
+      const uint32_t heatElapsed = elapsed - TEST_HEATER_FAN_PRESTART_MS;
+      const uint32_t leftSec = heatElapsed >= TEST_HEATER_HOLD_MAX_MS ? 0U :
+          (TEST_HEATER_HOLD_MAX_MS - heatElapsed + 999UL) / 1000UL;
+      snprintf(line, sizeof(line), "CON LAI %02lu:%02lu",
+               static_cast<unsigned long>(leftSec / 60UL),
+               static_cast<unsigned long>(leftSec % 60UL));
+      drawCenteredFit(24, line, u8g2_font_6x12_tf, u8g2_font_5x8_tf, u8g2_font_5x8_tf);
+    }
+    if (currentRuntime.sensorOnline) snprintf(line, sizeof(line), "NHIET %.1fC", currentRuntime.temperature);
+    else snprintf(line, sizeof(line), "CAM BIEN LOI");
+    drawCenteredFit(40, line, u8g2_font_helvB12_tf, u8g2_font_6x12_tf, u8g2_font_5x8_tf);
+    drawCenteredFit(58, "NHAN = DUNG SOM", u8g2_font_5x8_tf,
+                    u8g2_font_5x8_tf, u8g2_font_5x8_tf);
+    return;
+  }
+  if (heaterTestUiPhase == HeaterTestUiPhase::ConfirmHeat) {
+    drawCenteredFit(29, "NHIET DA LEN CHUA?", u8g2_font_6x12_tf,
+                    u8g2_font_5x8_tf, u8g2_font_5x8_tf);
+    drawYesNoButtons(heaterTestConfirmYes, "CO", "KHONG");
+    return;
+  }
+  drawCenteredFit(29, "QUAT HUT DA CHAY?", u8g2_font_6x12_tf,
+                  u8g2_font_5x8_tf, u8g2_font_5x8_tf);
+  drawYesNoButtons(heaterTestConfirmYes, "CO", "KHONG");
+}
+
 void drawTestMode() {
+  if (heaterTestUiPhase != HeaterTestUiPhase::Idle) { drawHeaterTestWorkflow(); return; }
   if (testDeviceConfirmActive) { drawTestDeviceConfirm(); return; }
   drawHeader("TEST");
   lcd.setFont(u8g2_font_6x12_tf);
@@ -4352,6 +4474,11 @@ void processCommandAcks() {
         view == View::WifiChange) {
       goBack();
     }
+    if (!ack.ok && command.type == HmiCommandType::TestOutputPulse &&
+        command.alarmMask == static_cast<uint32_t>(TestOutputId::HeaterSsr)) {
+      heaterTestUiPhase = HeaterTestUiPhase::Idle;
+      dirty = true;
+    }
     if (!ack.ok && command.type == HmiCommandType::TestModeEnter &&
         view == View::TestMode) {
       view = View::ChungMenu;
@@ -4515,6 +4642,7 @@ void serviceConfigSaveTimeout(uint32_t now) {
 
 void hmiUpdate(uint32_t now) {
   serviceApiMailboxes();
+  serviceHeaterTestWorkflow(now);
   stabilizeViewTransition();
   if (now - lastCommandPollAt >= HMI_COMMAND_POLL_MS) {
     lastCommandPollAt = now;
@@ -4529,7 +4657,8 @@ void hmiUpdate(uint32_t now) {
   handleInput();
   stabilizeViewTransition();
 
-  if (!confirmationActive() && view != View::Home && view != View::Alarm &&
+  if (!confirmationActive() && heaterTestUiPhase == HeaterTestUiPhase::Idle &&
+      view != View::Home && view != View::Alarm &&
       now - lastInteractionAt >= MENU_IDLE_TIMEOUT_MS) {
     // Roi Che do thu nghiem/Doi Wi-Fi do khong thao tac phai dong hang han
     // ngay tren firmware tong, khong chi tam roi man hinh.

@@ -73,6 +73,9 @@ static volatile uint32_t hmiHeartbeatMs = 0U;
 static volatile uint32_t controlLastCycleUs = 0U;
 static volatile uint32_t controlMaxCycleUs = 0U;
 static volatile uint8_t controlTripCycleCount = 0U;
+static volatile uint32_t hmiLastCycleUs = 0U;
+static volatile uint32_t hmiMaxCycleUs = 0U;
+static volatile uint8_t hmiTripCycleCount = 0U;
 
 static_assert(sizeof(controlTaskStack) >= CONTROL_TASK_STACK_BYTES,
               "Control stack buffer qua nho");
@@ -133,13 +136,15 @@ void controlTask(void *parameter) {
     if (elapsedMs(now, lastStackReportAt) >= TASK_STACK_MONITOR_MS) {
       lastStackReportAt = now;
       mayapSerialPrintf(false,
-          "[TASK] stack ctrl=%u hmi=%u sup=%u net=%u bytes cycle=%luus max=%luus\n",
+          "[TASK] stack ctrl=%u hmi=%u sup=%u net=%u bytes ctrl=%lu/%luus hmi=%lu/%luus\n",
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(controlTaskHandle)),
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(hmiTaskHandle)),
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(supervisorTaskHandle)),
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(networkTaskHandle)),
           static_cast<unsigned long>(__atomic_load_n(&controlLastCycleUs, __ATOMIC_ACQUIRE)),
-          static_cast<unsigned long>(__atomic_load_n(&controlMaxCycleUs, __ATOMIC_ACQUIRE)));
+          static_cast<unsigned long>(__atomic_load_n(&controlMaxCycleUs, __ATOMIC_ACQUIRE)),
+          static_cast<unsigned long>(__atomic_load_n(&hmiLastCycleUs, __ATOMIC_ACQUIRE)),
+          static_cast<unsigned long>(__atomic_load_n(&hmiMaxCycleUs, __ATOMIC_ACQUIRE)));
     }
 #endif
 
@@ -154,8 +159,25 @@ void hmiTask(void *parameter) {
   TickType_t lastWake = xTaskGetTickCount();
   for (;;) {
     const uint32_t now = millis();
+    const int64_t cycleStartedUs = esp_timer_get_time();
     hmiUpdate(now);
-    __atomic_store_n(&hmiHeartbeatMs, now, __ATOMIC_RELEASE);
+    const uint32_t cycleUs = static_cast<uint32_t>(
+        std::min<int64_t>(UINT32_MAX, esp_timer_get_time() - cycleStartedUs));
+    __atomic_store_n(&hmiLastCycleUs, cycleUs, __ATOMIC_RELEASE);
+    uint32_t previousMax = __atomic_load_n(&hmiMaxCycleUs, __ATOMIC_ACQUIRE);
+    while (cycleUs > previousMax &&
+           !__atomic_compare_exchange_n(&hmiMaxCycleUs, &previousMax, cycleUs,
+                                        false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {}
+    uint8_t slowCount = __atomic_load_n(&hmiTripCycleCount, __ATOMIC_ACQUIRE);
+    if (cycleUs >= HMI_CYCLE_TRIP_US) {
+      if (slowCount < UINT8_MAX) ++slowCount;
+    } else {
+      slowCount = 0U;
+    }
+    __atomic_store_n(&hmiTripCycleCount, slowCount, __ATOMIC_RELEASE);
+    // Ghi heartbeat SAU khi hmiUpdate tra ve va dung millis() moi nhat; neu
+    // I2C/HMI bi block thi supervisor se thay stale dung thoi gian thuc.
+    __atomic_store_n(&hmiHeartbeatMs, millis(), __ATOMIC_RELEASE);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(HMI_TASK_PERIOD_MS));
   }
 }
@@ -263,6 +285,10 @@ void supervisorTask(void *parameter) {
         elapsedMs(now, ctrlBeat) <= CONTROL_HEARTBEAT_TIMEOUT_MS;
     const bool hmiHealthy = hmiBeat != 0U &&
         elapsedMs(now, hmiBeat) <= HMI_HEARTBEAT_TIMEOUT_MS;
+    const uint8_t hmiSlowCycles = __atomic_load_n(&hmiTripCycleCount, __ATOMIC_ACQUIRE);
+    const bool hmiFatal = hmiBeat != 0U &&
+        (elapsedMs(now, hmiBeat) >= HMI_FATAL_HEARTBEAT_TIMEOUT_MS ||
+         hmiSlowCycles >= HMI_CYCLE_TRIP_COUNT);
 
     const uint8_t slowCycles = __atomic_load_n(
         &controlTripCycleCount, __ATOMIC_ACQUIRE);
@@ -291,8 +317,27 @@ void supervisorTask(void *parameter) {
 
     if (hmiBeat != 0U && hmiHealthy != previousHmiHealthy) {
       previousHmiHealthy = hmiHealthy;
-      mayapSerialPrintf(false, "[SUPERVISOR] HMI %s\n",
-                        hmiHealthy ? "RECOVERED" : "HEARTBEAT SLOW");
+      mayapSerialPrintf(false, "[SUPERVISOR] HMI %s cycle=%luus slow=%u\n",
+                        hmiHealthy ? "RECOVERED" : "HEARTBEAT SLOW",
+                        static_cast<unsigned long>(__atomic_load_n(&hmiLastCycleUs, __ATOMIC_ACQUIRE)),
+                        static_cast<unsigned>(hmiSlowCycles));
+    }
+
+    if (hmiFatal) {
+      // HMI chet that su khong duoc de may chay vo han ma nguoi van hanh mat
+      // quyen quan sat/thao tac. Cat output an toan truoc, roi software reset;
+      // neu dang co me, co che EEPROM/RTC hien co se phuc hoi theo policy reset.
+      mayapLatchSystemTrip();
+      if (controlTaskHandle) vTaskSuspend(controlTaskHandle);
+      if (hmiTaskHandle) vTaskSuspend(hmiTaskHandle);
+      mayapSafeOutputsEarly();
+      mayapSerialPrintf(true,
+          "[SUPERVISOR] HMI FATAL heartbeatAge=%lums cycle=%luus slow=%u -> RESTART\n",
+          static_cast<unsigned long>(elapsedMs(now, hmiBeat)),
+          static_cast<unsigned long>(__atomic_load_n(&hmiLastCycleUs, __ATOMIC_ACQUIRE)),
+          static_cast<unsigned>(hmiSlowCycles));
+      esp_restart();
+      abort();
     }
 
     // Giam sat suc khoe he thong (v3.6.0, xem serviceHealthMonitor() trong

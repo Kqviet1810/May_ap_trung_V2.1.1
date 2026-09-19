@@ -484,7 +484,7 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // dong bang o muc THAP hon thuc te, PID se tiep tuc gia nhiet binh
     // thuong (dung), chi la khong con phan anh dung nhiet do that; can nguoi
     // van hanh kiem tra cam bien thu cong khi thay canh bao nay.
-    {FaultCode::SensorFrozen, FaultSeverity::Warning, 58U, AlarmSensor, false, false, false, false, false, false, "SENSOR FROZEN"},
+    {FaultCode::SensorFrozen, FaultSeverity::Stop, 228U, AlarmSensor, true, true, true, false, true, true, "SENSOR FROZEN"},
     {FaultCode::LowTemperature, FaultSeverity::Warning, 55U, AlarmTempLow, false, false, false, false, false, false, "TEMP LOW"},
     // Nhiet cao: chi cam SSR, giu contactor tong, bat ca hai quat.
     {FaultCode::HighTemperature, FaultSeverity::Stop, 240U, AlarmTempHigh, false, true, true, true, true, true, "TEMP HIGH"},
@@ -496,7 +496,7 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // toan cung nhu Low/HighTemperature - khong inhibit SSR/master, chi bao.
     {FaultCode::TemperatureRateExceeded, FaultSeverity::Warning, 60U, AlarmTempHigh, false, false, false, false, false, false, "TEMP RATE HIGH"},
     {FaultCode::TemperatureUnstable, FaultSeverity::Warning, 45U, AlarmTempHigh, false, false, false, false, false, false, "TEMP UNSTABLE"},
-    {FaultCode::HeaterNotHeating, FaultSeverity::Warning, 65U, AlarmSystem, false, false, false, false, false, false, "HEATER NOT HEATING"},
+    {FaultCode::HeaterNotHeating, FaultSeverity::Stop, 226U, AlarmSystem, true, true, true, false, true, true, "HEATER NOT HEATING"},
     // Mat mot chuc nang thiet yeu trong luc me dang chay phai bao ngay.
     {FaultCode::HeaterSwitchOffDuringBatch, FaultSeverity::Stop, 222U, AlarmSystem, false, true, true, false, false, false, "HEATER SWITCH OFF"},
     {FaultCode::ResumeRequiresAuto, FaultSeverity::Warning, 180U, AlarmSystem, false, false, false, false, false, false, "RESUME NEEDS AUTO"},
@@ -4296,15 +4296,39 @@ class MachineController {
       requested.nextDirection = config_.nextDirection;
       // turningEnabled/turnIntervalMin/turnMaxRunSec KHONG con bi khoa khi
       // dang co me nua (theo dung UI HMI/web da mo khoa cho "phan dao" -
-      // xem settingLockedDuringBatch() trong hmi.h va man xac nhan CO/HUY
-      // ConfirmAction::TurningToggle) - truoc day 2 tang khoa (UI va luu
-      // thuc te o day) khong khop nhau, khien thao tac bi am tham tu choi
-      // du da qua xac nhan. Chi con totalIncubationDays bi khoa (doi giua
-      // me se lam sai lich/ngay du kien no, khong lien quan phan dao).
-      const bool protectedBatchChange = (batchRunning_ || resumePending_) &&
-          (requested.totalIncubationDays != config_.totalIncubationDays ||
-           (requested.connectivityMode == ConnectivityMode::Online &&
-            config_.connectivityMode != ConnectivityMode::Online));
+      // Trong me/resume chi mo cac tham so VAN HANH: SV, bao am, nguong
+      // quat hut, chu ky/bat-tat dao, dao tay dong lich va cho phep ONLINE->
+      // OFFLINE. Calibration, nguong safety, PID/tuning, timeout co khi,
+      // sensor/recovery va OFFLINE->ONLINE deu bi khoa o lop luu that su nay
+      // de web/Serial/HMI khong the di vong qua khoa giao dien.
+      const bool protectedBatchChange = (batchRunning_ || resumePending_) && (
+          requested.autoResumeOnPowerLoss != config_.autoResumeOnPowerLoss ||
+          requested.totalIncubationDays != config_.totalIncubationDays ||
+          requested.lowTempAlarm != config_.lowTempAlarm ||
+          requested.highTempAlarm != config_.highTempAlarm ||
+          requested.emergencyTemp != config_.emergencyTemp ||
+          requested.tempOffset != config_.tempOffset ||
+          requested.humidityOffset != config_.humidityOffset ||
+          requested.highTempAlarmWithoutBatch != config_.highTempAlarmWithoutBatch ||
+          requested.kp != config_.kp || requested.ki != config_.ki ||
+          requested.kd != config_.kd ||
+          requested.pidCycleSec != config_.pidCycleSec ||
+          requested.maxHeaterPower != config_.maxHeaterPower ||
+          requested.heaterStuckMinRiseC != config_.heaterStuckMinRiseC ||
+          requested.heaterStuckDurationSec != config_.heaterStuckDurationSec ||
+          requested.tempRateLimitC != config_.tempRateLimitC ||
+          requested.tempRateWindowSec != config_.tempRateWindowSec ||
+          requested.tempOscillationCrossLimit != config_.tempOscillationCrossLimit ||
+          requested.tempOscillationWindowSec != config_.tempOscillationWindowSec ||
+          requested.autotuneRelayPowerPercent != config_.autotuneRelayPowerPercent ||
+          requested.autotuneBandC != config_.autotuneBandC ||
+          requested.turnMaxRunSec != config_.turnMaxRunSec ||
+          requested.powerRestoreDelaySec != config_.powerRestoreDelaySec ||
+          requested.sensorTimeoutSec != config_.sensorTimeoutSec ||
+          requested.allowHeatWithoutBatch != config_.allowHeatWithoutBatch ||
+          requested.sirenSelfTestEnabled != config_.sirenSelfTestEnabled ||
+          (requested.connectivityMode == ConnectivityMode::Online &&
+           config_.connectivityMode != ConnectivityMode::Online));
       MachineConfig readback{};
       const bool saveAllowed = !batchClearPending_ &&
           !safetyJournalFaultLatched_ && !protectedBatchChange;
@@ -5081,31 +5105,50 @@ class MachineController {
       if (sign != 0) tempOscillationLastSign_ = sign;
     }
 
-    // Thanh nhiet duoc lenh BAT lien tuc (khong ngat quang) qua
-    // HEATER_STUCK_DURATION_MS ma nhiet khong tang du HEATER_STUCK_MIN_RISE_C
-    // va van con thap hon diem dat - nghi ngo SSR/relay dinh, khong that su
-    // dieu khien duoc thanh nhiet du lenh da gui dung.
-    const bool heaterCommandedOn = outputs_.state().heaterSsr;
-    if (!heaterCommandedOn || !batchRunning_) {
+    // Watchdog dap ung nhiet: khong con doi SSR phai ON LIEN TUC. PID co the
+    // chia xung theo cua so nen ta tich luy thoi gian SSR THUC SU ON (tuong
+    // duong nang luong full-power). Neu dang can gia nhiet ma da cap du tong
+    // on-time cau hinh nhung PV khong tang toi thieu -> nghi thanh nhiet/SSR/
+    // sensor khong dap ung. Loi nay cat CA SSR + contactor tong va bat 2 quat.
+    const bool responseDemand = batchRunning_ && inputs_.state().heaterEnable &&
+        sensorUsable_ && isfinite(temperature_) &&
+        temperature_ < config_.targetTemp - config_.tempHysteresis;
+    const uint32_t responseRequiredOnMs =
+        static_cast<uint32_t>(config_.heaterStuckDurationSec) * 1000UL;
+    if (!responseDemand) {
       heaterStuckTracking_ = false;
-      heaterNotHeatingActive_ = false;
-    } else if (!sensorUsable_) {
-      // Cam bien mat CHOANG QUA (vai giay/vai chu ky) khong duoc xoa het
-      // tien do da dem - se phai doi lai du HEATER_STUCK_DURATION_MS tu dau
-      // moi lan chop tat, lam cham phat hien that su. Chi TAM DUNG (khong
-      // dem tiep, khong reset) trong luc mat cam bien; SensorLost/Invalid da
-      // co canh bao rieng cho khoang nay. Neu cam bien mat that su keo dai,
-      // SensorLost se cat SSR (dropHeatMaster) va heaterCommandedOn tu OFF
-      // ngay sau do, tu dong reset tracking qua nhanh o tren.
-    } else if (!heaterStuckTracking_) {
-      heaterStuckTracking_ = true;
       heaterStuckSinceAt_ = now;
-      heaterStuckStartTemp_ = temperature_;
-    } else if (elapsedMs(now, heaterStuckSinceAt_) >=
-               config_.heaterStuckDurationSec * 1000UL) {
-      heaterNotHeatingActive_ = isfinite(heaterStuckStartTemp_) &&
-          (temperature_ - heaterStuckStartTemp_) < config_.heaterStuckMinRiseC &&
-          temperature_ < config_.targetTemp - config_.tempHysteresis;
+      heaterStuckAccumOnMs_ = 0U;
+      heaterStuckStartTemp_ = NAN;
+      heaterNotHeatingActive_ = false;
+    } else {
+      if (!heaterStuckTracking_) {
+        heaterStuckTracking_ = true;
+        heaterStuckSinceAt_ = now;
+        heaterStuckAccumOnMs_ = 0U;
+        heaterStuckStartTemp_ = temperature_;
+        heaterNotHeatingActive_ = false;
+      } else {
+        // Gioi han dt 1 s de mot lan task tre bat thuong khong duoc tinh nhu
+        // da cap nhiet lien tuc trong ca khoang tre do.
+        const uint32_t dt = std::min<uint32_t>(elapsedMs(now, heaterStuckSinceAt_), 1000UL);
+        heaterStuckSinceAt_ = now;
+        if (outputs_.state().heaterSsr &&
+            heaterStuckAccumOnMs_ < UINT32_MAX - dt) {
+          heaterStuckAccumOnMs_ += dt;
+        }
+        const float rise = isfinite(heaterStuckStartTemp_)
+            ? temperature_ - heaterStuckStartTemp_ : 0.0f;
+        if (isfinite(heaterStuckStartTemp_) &&
+            rise >= config_.heaterStuckMinRiseC) {
+          // He thong co dap ung: bat dau cua so nang luong moi tu PV hien tai.
+          heaterStuckStartTemp_ = temperature_;
+          heaterStuckAccumOnMs_ = 0U;
+          heaterNotHeatingActive_ = false;
+        } else if (heaterStuckAccumOnMs_ >= responseRequiredOnMs) {
+          heaterNotHeatingActive_ = true;
+        }
+      }
     }
 
     const bool sensorGrace = !timeReached(now, sensorStartupGraceUntil_) &&
@@ -5139,9 +5182,17 @@ class MachineController {
     // F-08: cam bien "dung hinh" - chi canh bao trong luc dang co me (giong
     // cach LowTemperature/HumidityLow chi xet trong batch), vi ngoai me gia
     // tri on dinh dai han la binh thuong (khong dieu nhiet chu dong).
+    // Khong cat nhiet chi vi buong dang on dinh that su. SensorFrozen chi
+    // duoc nang thanh STOP khi gia tri dung hinh lau VA trong chinh thoi gian
+    // do heater da cap mot luong on-time dang ke ma PV van khong nhuc nhich.
+    // Dieu nay tranh false-trip o diem dat, nhung van bat duoc tinh huong nguy
+    // hiem "sensor ket o muc thap -> PID cu tiep tuc gia nhiet".
+    const uint32_t frozenEvidenceOnMs = std::max<uint32_t>(60000UL,
+        (static_cast<uint32_t>(config_.heaterStuckDurationSec) * 1000UL) / 2UL);
     const bool sensorFrozenActive = batchRunning_ && sensorUsable_ &&
         isfinite(sensorFrozenRefTemp_) &&
-        elapsedMs(now, sensorFrozenSince_) >= SENSOR_FROZEN_TIMEOUT_MS;
+        elapsedMs(now, sensorFrozenSince_) >= SENSOR_FROZEN_TIMEOUT_MS &&
+        heaterStuckAccumOnMs_ >= frozenEvidenceOnMs;
     faults_.set(FaultCode::SensorFrozen, sensorFrozenActive, now,
                 isfinite(sensorFrozenRefTemp_)
                     ? static_cast<int16_t>(lroundf(sensorFrozenRefTemp_ * 10.0f)) : 0);
@@ -5853,6 +5904,11 @@ class MachineController {
     testModeActive_ = true;
     testOutputMaskActive_ = 0U;
     for (uint32_t &t : testOutputPulseUntil_) t = 0U;
+    testHeaterStartedAt_ = 0U;
+    testHeaterPostCoolUntil_ = 0U;
+    testTurnStartedAt_ = 0U;
+    testTurnOrigin_ = TrayPosition::Unknown;
+    testTurnDirection_ = TestOutputId::Count;
     testLimitPhase_ = TestLimitPhase::Idle;
     testLimitDeadline_ = 0U;
     testLimitBuzzUntil_ = 0U;
@@ -5868,6 +5924,11 @@ class MachineController {
     testModeActive_ = false;
     testOutputMaskActive_ = 0U;
     for (uint32_t &t : testOutputPulseUntil_) t = 0U;
+    testHeaterStartedAt_ = 0U;
+    testHeaterPostCoolUntil_ = 0U;
+    testTurnStartedAt_ = 0U;
+    testTurnOrigin_ = TrayPosition::Unknown;
+    testTurnDirection_ = TestOutputId::Count;
     testLimitPhase_ = TestLimitPhase::Idle;
     testLimitDeadline_ = 0U;
     testLimitBuzzUntil_ = 0U;
@@ -5881,16 +5942,43 @@ class MachineController {
     if (idx >= static_cast<uint8_t>(TestOutputId::Count)) {
       message = "THIET BI KHONG HOP LE"; return false;
     }
-    // Dao trai/phai loai tru nhau nhu khi van hanh that; OutputArbiter cung
-    // tu chan xung dot nhung huy truoc de UI phan hoi dung ngay.
-    if (id == TestOutputId::TurnLeft) {
-      testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::TurnRight)] = 0U;
-    } else if (id == TestOutputId::TurnRight) {
-      testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::TurnLeft)] = 0U;
+    const InputState &in = inputs_.state();
+    if ((id == TestOutputId::TurnLeft || id == TestOutputId::TurnRight) &&
+        in.limitLeft && in.limitRight) {
+      message = "HAI HANH TRINH CUNG ON"; return false;
     }
-    // Bat lien tuc toi khi nguoi lap dat tra loi CO/KHONG (testOutputStop),
-    // gioi han boi TEST_OUTPUT_HOLD_MAX_MS phong khi quen tra loi.
-    testOutputPulseUntil_[idx] = now + TEST_OUTPUT_HOLD_MAX_MS;
+    if (id == TestOutputId::TurnLeft && in.limitLeft) {
+      message = "DA O HANH TRINH TRAI"; return false;
+    }
+    if (id == TestOutputId::TurnRight && in.limitRight) {
+      message = "DA O HANH TRINH PHAI"; return false;
+    }
+    if (id == TestOutputId::HeaterSsr) {
+      const bool heaterSafe = sensorUsable_ && !faults_.masterDropRequired() &&
+          !faults_.ssrInhibited() && !emergencyActive_ && !highTemperatureActive_;
+      if (!heaterSafe) { message = "NHIET CHUA AN TOAN DE TEST"; return false; }
+      testHeaterStartedAt_ = now;
+      testHeaterPostCoolUntil_ = 0U;
+      testOutputPulseUntil_[idx] = now + TEST_HEATER_FAN_PRESTART_MS +
+                                   TEST_HEATER_HOLD_MAX_MS;
+      testModeLastActivityAt_ = now;
+      message = "QUAT CHAY TRUOC - CHO 5 GIAY";
+      return true;
+    }
+    // Dao trai/phai loai tru nhau; OutputArbiter van giu dead-time 500 ms.
+    if (id == TestOutputId::TurnLeft || id == TestOutputId::TurnRight) {
+      const TestOutputId opposite = id == TestOutputId::TurnLeft
+          ? TestOutputId::TurnRight : TestOutputId::TurnLeft;
+      testOutputPulseUntil_[static_cast<uint8_t>(opposite)] = 0U;
+      testTurnStartedAt_ = now;
+      if (in.limitLeft) testTurnOrigin_ = TrayPosition::Left;
+      else if (in.limitRight) testTurnOrigin_ = TrayPosition::Right;
+      else testTurnOrigin_ = TrayPosition::Unknown;
+      testTurnDirection_ = id;
+    }
+    const uint32_t hold = id == TestOutputId::VentFan
+        ? TEST_VENT_CONFIRM_HOLD_MAX_MS : TEST_OUTPUT_HOLD_MAX_MS;
+    testOutputPulseUntil_[idx] = now + hold;
     testModeLastActivityAt_ = now;
     message = "DANG BAT THIET BI";
     return true;
@@ -5900,6 +5988,15 @@ class MachineController {
     const uint8_t idx = static_cast<uint8_t>(id);
     if (idx >= static_cast<uint8_t>(TestOutputId::Count)) return;
     testOutputPulseUntil_[idx] = 0U;
+    if (id == TestOutputId::HeaterSsr) {
+      testHeaterStartedAt_ = 0U;
+      testHeaterPostCoolUntil_ = now + POST_COOL_MS;
+    }
+    if (id == TestOutputId::TurnLeft || id == TestOutputId::TurnRight) {
+      testTurnStartedAt_ = 0U;
+      testTurnOrigin_ = TrayPosition::Unknown;
+      testTurnDirection_ = TestOutputId::Count;
+    }
     testModeLastActivityAt_ = now;
   }
 
@@ -5954,9 +6051,60 @@ class MachineController {
                timeReached(now, testLimitBuzzUntil_)) {
       testLimitPhase_ = TestLimitPhase::Idle;
     }
+
+    // SSR test: het 3 phut nhiet that (sau 5 s prestart) hoac safety mat thi
+    // cat heater ngay. Ghi lai moc activity de HMI con du thoi gian hoi 2
+    // cau xac nhan, khong bi idle-timeout da ra khoi Test Mode ngay lap tuc.
+    uint32_t &heaterDeadline = testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::HeaterSsr)];
+    if (heaterDeadline != 0U) {
+      const bool heaterSafe = sensorUsable_ && !faults_.masterDropRequired() &&
+          !faults_.ssrInhibited() && !emergencyActive_ && !highTemperatureActive_;
+      if (!heaterSafe || timeReached(now, heaterDeadline)) {
+        heaterDeadline = 0U;
+        testHeaterStartedAt_ = 0U;
+        testHeaterPostCoolUntil_ = now + POST_COOL_MS;
+        testModeLastActivityAt_ = now;
+      }
+    }
+
+    // Test motor cung ton trong CTHT nhu van hanh that, khong con la cap relay
+    // tho. Cham dich -> OFF ngay; hai CTHT cung ON / CTHT goc khong nha ->
+    // OFF va latch loi co khi. OutputArbiter van dam bao dead-time doi chieu.
+    const bool testLeft = testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::TurnLeft)] != 0U &&
+        !timeReached(now, testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::TurnLeft)]);
+    const bool testRight = testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::TurnRight)] != 0U &&
+        !timeReached(now, testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::TurnRight)]);
+    if (testLeft || testRight) {
+      bool stopTestTurn = false;
+      if (in.limitLeft && in.limitRight) {
+        stopTestTurn = true;
+        latchTurnFault(FaultCode::TurnLimitConflict, "TEST: HAI HANH TRINH CUNG ON");
+      } else if ((testLeft && in.limitLeft) || (testRight && in.limitRight)) {
+        stopTestTurn = true; // den dung CTHT dich: ket thuc binh thuong
+      } else {
+        const bool originStillActive =
+            (testLeft && testTurnOrigin_ == TrayPosition::Right && in.limitRight) ||
+            (testRight && testTurnOrigin_ == TrayPosition::Left && in.limitLeft);
+        if (originStillActive && testTurnStartedAt_ != 0U &&
+            elapsedMs(now, testTurnStartedAt_) >= TURN_LIMIT_RELEASE_TIMEOUT_MS) {
+          stopTestTurn = true;
+          latchTurnFault(FaultCode::TurnLimitStuck, "TEST: HANH TRINH KHONG NHA");
+        }
+      }
+      if (stopTestTurn) {
+        testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::TurnLeft)] = 0U;
+        testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::TurnRight)] = 0U;
+        testTurnStartedAt_ = 0U;
+        testTurnOrigin_ = TrayPosition::Unknown;
+        testTurnDirection_ = TestOutputId::Count;
+        testModeLastActivityAt_ = now;
+      }
+    }
     // Quen thoat trang thu nghiem: tu dong ve trang thai an toan sau mot thoi
     // gian khong thao tac, tranh de may "mo cua" cho lenh tay vo thoi han.
-    if (elapsedMs(now, testModeLastActivityAt_) >= TEST_MODE_IDLE_EXIT_MS) {
+    const bool longHeaterTestActive = heaterDeadline != 0U && !timeReached(now, heaterDeadline);
+    if (!longHeaterTestActive &&
+        elapsedMs(now, testModeLastActivityAt_) >= TEST_MODE_IDLE_EXIT_MS) {
       exitTestMode(now);
     }
   }
@@ -5966,28 +6114,31 @@ class MachineController {
       const uint32_t deadline = testOutputPulseUntil_[static_cast<uint8_t>(id)];
       return deadline != 0U && !timeReached(now, deadline);
     };
-    // Nhiet van phai ton trong cac lien dong an toan that: khong cam bien/
-    // dang qua nhiet/dang bi cam SSR thi khong duoc xung thu SSR hay contactor.
+    const InputState &in = inputs_.state();
     const bool heaterTestSafe = sensorUsable_ && !faults_.masterDropRequired() &&
         !faults_.ssrInhibited() && !emergencyActive_ && !highTemperatureActive_;
+    const bool heaterRequested = pulseOn(TestOutputId::HeaterSsr);
+    const bool heaterPrestartDone = heaterRequested && testHeaterStartedAt_ != 0U &&
+        elapsedMs(now, testHeaterStartedAt_) >= TEST_HEATER_FAN_PRESTART_MS;
+    const bool heaterPostCool = testHeaterPostCoolUntil_ != 0U &&
+        !timeReached(now, testHeaterPostCoolUntil_);
 
     OutputRequest req{};
-    req.heaterSsr = pulseOn(TestOutputId::HeaterSsr) && heaterTestSafe;
+    req.heaterSsr = heaterPrestartDone && heaterTestSafe;
     req.heatMaster = (req.heaterSsr || pulseOn(TestOutputId::HeatMaster)) && heaterTestSafe;
-    req.circulationFan = pulseOn(TestOutputId::CirculationFan);
-    req.ventFan = pulseOn(TestOutputId::VentFan);
+    // Test SSR luon ep quat tuan hoan tu TRUOC khi cap nhiet va giu them
+    // POST_COOL_MS sau khi dung; fault safety van co quyen ep 2 quat rieng.
+    req.circulationFan = pulseOn(TestOutputId::CirculationFan) || heaterRequested ||
+                         heaterPostCool || faults_.circulationForced();
+    req.ventFan = pulseOn(TestOutputId::VentFan) || faults_.ventForced();
     req.light = pulseOn(TestOutputId::Light);
-    // LOI DA SUA: truoc day khi tac dong cong tac hanh trinh thanh cong, code
-    // tu dong bat CA RELAY COI THAT (req.siren) trong TEST_LIMIT_CONFIRM_BUZZ_MS
-    // de lam "tieng bip xac nhan" - nhung day la 1 ngo ra vat ly that (qua
-    // relay), khong phai coi bao noi bo cua HMI, nen moi lan test cong tac
-    // hanh trinh lai lam keu coi that ngoai y muon. Coi (siren) gio CHI theo
-    // dung nut test rieng cua no; xac nhan am thanh cho test cong tac hanh
-    // trinh da chuyen sang coi noi bo HMI (xem hmi.h - buzzerPlayCue khi
-    // testLimitPhase chuyen sang Success).
     req.siren = pulseOn(TestOutputId::Siren);
-    req.turnLeft = pulseOn(TestOutputId::TurnLeft);
-    req.turnRight = pulseOn(TestOutputId::TurnRight);
+    // CTHT la interlock cuoi cung ngay tai output request, ngoai logic stop/
+    // latch o updateTestMode(): du 1 chu ky state chua kip clear cung khong
+    // the tiep tuc day motor vao dung dau hanh trinh.
+    req.turnLeft = pulseOn(TestOutputId::TurnLeft) && !in.limitLeft && !in.limitRight;
+    req.turnRight = pulseOn(TestOutputId::TurnRight) && !in.limitRight && !in.limitLeft;
+    req.immediateMasterDrop = !heaterTestSafe || faults_.masterDropRequired() || !sensorUsable_;
 
     outputs_.update(now, req);
     runtime_.heaterPower = req.heaterSsr ? 100.0f : 0.0f;
@@ -6987,6 +7138,11 @@ class MachineController {
   bool testModeActive_ = false;
   uint8_t testOutputMaskActive_ = 0U;
   uint32_t testOutputPulseUntil_[static_cast<uint8_t>(TestOutputId::Count)]{};
+  uint32_t testHeaterStartedAt_ = 0U;
+  uint32_t testHeaterPostCoolUntil_ = 0U;
+  uint32_t testTurnStartedAt_ = 0U;
+  TrayPosition testTurnOrigin_ = TrayPosition::Unknown;
+  TestOutputId testTurnDirection_ = TestOutputId::Count;
   TestLimitId testLimitTarget_ = TestLimitId::Left;
   TestLimitPhase testLimitPhase_ = TestLimitPhase::Idle;
   uint32_t testLimitDeadline_ = 0U;
@@ -7021,6 +7177,7 @@ class MachineController {
   bool temperatureUnstableActive_ = false;
   bool heaterStuckTracking_ = false;
   uint32_t heaterStuckSinceAt_ = 0U;
+  uint32_t heaterStuckAccumOnMs_ = 0U;
   float heaterStuckStartTemp_ = NAN;
   bool heaterNotHeatingActive_ = false;
 

@@ -746,6 +746,12 @@ constexpr uint32_t CONTROL_HEARTBEAT_TIMEOUT_MS = 500UL;
 constexpr uint32_t CONTROL_CYCLE_TRIP_US = 400000UL;
 constexpr uint8_t CONTROL_CYCLE_TRIP_COUNT = 3U;
 constexpr uint32_t HMI_HEARTBEAT_TIMEOUT_MS = 2000UL;
+// HMI cham thoang qua chi canh bao; neu treo that su lau hon 8 s hoac
+// lien tuc co chu ky >1.2 s thi supervisor khoi dong lai CO KIEM SOAT:
+// latch output an toan -> suspend control/HMI -> safe outputs -> restart.
+constexpr uint32_t HMI_FATAL_HEARTBEAT_TIMEOUT_MS = 8000UL;
+constexpr uint32_t HMI_CYCLE_TRIP_US = 1200000UL;
+constexpr uint8_t HMI_CYCLE_TRIP_COUNT = 3U;
 constexpr uint32_t SUPERVISOR_RESTART_FALLBACK_MS = 7000UL; // TWDT 5 s duoc uu tien; day la fallback
 
 // ------------------------- Exponential backoff (dung chung) -------------------
@@ -816,6 +822,14 @@ constexpr uint16_t WIFI_PORTAL_PASSWORD_MAX = 64U;
 // dong/cat lap lai gay soc thiet bi. Gioi han an toan toi da phong khi
 // quen khong tra loi (vd rot khoi man hinh do mat nguon/loi).
 constexpr uint32_t TEST_OUTPUT_HOLD_MAX_MS = 20000UL;
+// Test SSR nhiet la quy trinh rieng: quat tuan hoan chay truoc 5 s,
+// sau do thanh nhiet duoc phep ON toi da 3 phut. Day la tran CUNG;
+// nut HMI co the dung som hon nhung van phai qua 2 man xac nhan.
+constexpr uint32_t TEST_HEATER_FAN_PRESTART_MS = 5000UL;
+constexpr uint32_t TEST_HEATER_HOLD_MAX_MS = 180000UL;
+// Quat hut trong buoc xac nhan sau test nhiet: cho nguoi lap dat du
+// thoi gian quan sat, nhung khong the bi bo quen ON vo han.
+constexpr uint32_t TEST_VENT_CONFIRM_HOLD_MAX_MS = 60000UL;
 constexpr uint32_t TEST_LIMIT_TIMEOUT_MS = 20000UL;
 constexpr uint32_t TEST_LIMIT_CONFIRM_BUZZ_MS = 2000UL;
 // Roi trang Che do thu nghiem qua lau ma khong thao tac: tu dong thoat de
