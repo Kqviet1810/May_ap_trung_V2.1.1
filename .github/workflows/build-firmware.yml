@@ -28,7 +28,7 @@ jobs:
 
       - name: Ap dung offline hardening (mot lan)
         if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'chore: execute offline hardening via build' }}"
-        run: python3 tools/apply_offline_hardening.py
+        run: python3 tools/apply_offline_hardening_v2.py
 
       - name: Cai dat arduino-cli
         uses: arduino/setup-arduino-cli@v2
