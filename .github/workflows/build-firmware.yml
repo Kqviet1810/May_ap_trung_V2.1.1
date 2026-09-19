@@ -30,8 +30,17 @@ jobs:
         if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'chore: execute offline hardening via build' }}"
         run: python3 tools/apply_offline_hardening_v2.py
 
+      - name: Ap dung ATtiny Link v2 hardening (mot lan)
+        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'chore: execute attiny link v2 hardening' }}"
+        run: python3 tools/apply_attiny_link_v2.py
+
       - name: Cai dat arduino-cli
         uses: arduino/setup-arduino-cli@v2
+
+      - name: Cai toolchain ATtiny13A
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-avr avr-libc binutils-avr
 
       - name: Cai loi ESP32
         run: |
@@ -71,6 +80,44 @@ jobs:
             exit 1
           fi
 
+      - name: Kiem tra hop dong protocol ESP32 ATtiny
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          cfg = Path('MAYAP_INDUSTRIAL_v3_4_0/config.h').read_text(encoding='utf-8')
+          tiny = Path('ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino').read_text(encoding='utf-8')
+
+          def number(text, pattern, label):
+              m = re.search(pattern, text)
+              if not m:
+                  raise SystemExit(f'Thieu {label}')
+              return int(m.group(1))
+
+          esp_proto = number(cfg, r'ATTINY_PROTOCOL_VERSION\s*=\s*(\d+)U', 'ATTINY_PROTOCOL_VERSION')
+          tiny_proto = number(tiny, r'PROTOCOL_VERSION\s*=\s*(\d+)U', 'PROTOCOL_VERSION')
+          if esp_proto != tiny_proto:
+              raise SystemExit(f'Protocol mismatch ESP={esp_proto} Tiny={tiny_proto}')
+
+          pairs = [
+              ('BATCH_START', r'ATTINY_MSG_BATCH_START\s*=\s*(\d+)U', r'MSG_BATCH_START\s*=\s*(\d+)U'),
+              ('BATCH_END', r'ATTINY_MSG_BATCH_END\s*=\s*(\d+)U', r'MSG_BATCH_END\s*=\s*(\d+)U'),
+              ('SIREN_ON', r'ATTINY_MSG_SIREN_ON\s*=\s*(\d+)U', r'MSG_SIREN_ON\s*=\s*(\d+)U'),
+              ('SIREN_OFF', r'ATTINY_MSG_SIREN_OFF\s*=\s*(\d+)U', r'MSG_SIREN_OFF\s*=\s*(\d+)U'),
+              ('STATUS_QUERY', r'ATTINY_MSG_STATUS_QUERY\s*=\s*(\d+)U', r'MSG_STATUS_QUERY\s*=\s*(\d+)U'),
+              ('STATUS_BASE', r'ATTINY_MSG_STATUS_BASE\s*=\s*(\d+)U', r'MSG_STATUS_BASE\s*=\s*(\d+)U'),
+              ('STATUS_MAX', r'ATTINY_MSG_STATUS_MAX\s*=\s*(\d+)U', r'MSG_STATUS_MAX\s*=\s*(\d+)U'),
+          ]
+          for label, ep, tp in pairs:
+              ev = number(cfg, ep, 'ESP ' + label)
+              tv = number(tiny, tp, 'Tiny ' + label)
+              if ev != tv:
+                  raise SystemExit(f'{label} mismatch ESP={ev} Tiny={tv}')
+
+          print(f'ATtiny protocol v{esp_proto}: contract OK')
+          PY
+
       - name: Tao MQTT secret cho build deploy
         if: github.event_name != 'pull_request'
         env:
@@ -105,7 +152,33 @@ jobs:
           node --check cloudflare/src/db.js
           node --check cloudflare/src/push.js
 
-      - name: Bien dich firmware
+      - name: Bien dich ATtiny13A
+        run: |
+          mkdir -p build-attiny
+          avr-g++ -x c++ \
+            -mmcu=attiny13a \
+            -DF_CPU=1200000UL \
+            -Os -flto -std=gnu++11 \
+            -ffunction-sections -fdata-sections \
+            -fno-exceptions -fno-rtti \
+            -Wall -Wextra \
+            -Wl,--gc-sections \
+            ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino \
+            -o build-attiny/ATTINY13A_POWER_ALARM.elf
+
+          avr-size -C --mcu=attiny13a build-attiny/ATTINY13A_POWER_ALARM.elf
+          read TEXT DATA BSS <<< "$(avr-size build-attiny/ATTINY13A_POWER_ALARM.elf | tail -n 1 | awk '{print $1, $2, $3}')"
+          FLASH=$((TEXT + DATA))
+          RAM=$((DATA + BSS))
+          echo "ATtiny flash=${FLASH}/1024 bytes, static RAM=${RAM}/64 bytes"
+          test "$FLASH" -le 1024 || { echo "::error::ATtiny flash vuot 1KB"; exit 1; }
+          test "$RAM" -le 64 || { echo "::error::ATtiny static RAM vuot 64B"; exit 1; }
+
+          avr-objcopy -O ihex -R .eeprom \
+            build-attiny/ATTINY13A_POWER_ALARM.elf \
+            build-attiny/ATTINY13A_POWER_ALARM.hex
+
+      - name: Bien dich firmware ESP32
         run: |
           arduino-cli compile \
             --fqbn "${{ env.MAYAP_FQBN }}" \
@@ -113,29 +186,42 @@ jobs:
             --verbose \
             MAYAP_INDUSTRIAL_v3_4_0
 
-      - name: Commit offline hardening sau khi compile xanh
-        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'chore: execute offline hardening via build' }}"
+      - name: Commit hardening sau khi ca hai firmware compile xanh
+        if: "${{ github.event_name == 'push' && (github.event.head_commit.message == 'chore: execute offline hardening via build' || github.event.head_commit.message == 'chore: execute attiny link v2 hardening') }}"
+        env:
+          TRIGGER_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add MAYAP_INDUSTRIAL_v3_4_0/config.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/attiny_bus.h \
                   MAYAP_INDUSTRIAL_v3_4_0/machine_control.h \
                   MAYAP_INDUSTRIAL_v3_4_0/hmi.h \
-                  MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino
+                  MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino \
+                  ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino \
+                  doc/attiny_power_alarm.md
           git diff --cached --check
-          git diff --cached --quiet && { echo "::error::Offline patch khong tao thay doi source"; exit 1; }
-          git commit -m "feat(offline): harden control and commissioning"
+          git diff --cached --quiet && { echo "::error::Hardening patch khong tao thay doi source"; exit 1; }
+          if [[ "$TRIGGER_MESSAGE" == "chore: execute attiny link v2 hardening" ]]; then
+            git commit -m "feat(attiny): harden backup alarm link v2"
+          else
+            git commit -m "feat(offline): harden control and commissioning"
+          fi
           git push origin HEAD:hardening/v3.8.0
 
       - name: Bao cao kich thuoc
-        run: ls -la ./build/*.bin
+        run: |
+          ls -la ./build/*.bin
+          ls -la ./build-attiny/*.hex
 
-      - name: Luu file .bin pilot
+      - name: Luu firmware pilot
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: firmware-bin-pilot
-          path: ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
+          name: firmware-pilot
+          path: |
+            ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
+            ./build-attiny/ATTINY13A_POWER_ALARM.hex
           retention-days: 7
 
       - name: Doi ten file .bin theo tag
