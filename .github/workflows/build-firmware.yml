@@ -23,6 +23,12 @@ jobs:
     steps:
       - name: Checkout ma nguon
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ap dung offline hardening (mot lan)
+        if: github.event_name == 'push' && github.event.head_commit.message == 'chore: execute offline hardening via build'
+        run: python3 tools/apply_offline_hardening.py
 
       - name: Cai dat arduino-cli
         uses: arduino/setup-arduino-cli@v2
@@ -106,6 +112,20 @@ jobs:
             --output-dir ./build \
             --verbose \
             MAYAP_INDUSTRIAL_v3_4_0
+
+      - name: Commit offline hardening sau khi compile xanh
+        if: github.event_name == 'push' && github.event.head_commit.message == 'chore: execute offline hardening via build'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add MAYAP_INDUSTRIAL_v3_4_0/config.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/machine_control.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/hmi.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino
+          git diff --cached --check
+          git diff --cached --quiet && { echo "::error::Offline patch khong tao thay doi source"; exit 1; }
+          git commit -m "feat(offline): harden control and commissioning"
+          git push origin HEAD:hardening/v3.8.0
 
       - name: Bao cao kich thuoc
         run: ls -la ./build/*.bin
