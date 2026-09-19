@@ -1,26 +1,25 @@
 name = "mayap-push-worker"
-main = "src/index.js"
+main = "src/security-wrapper.js"
 compatibility_date = "2026-08-01"
 # Bat buoc: thu vien gui Web Push (@block65/webcrypto-web-push) tham chieu
 # node:crypto lam fallback - thieu co nay Worker co the loi luc gui push that.
 compatibility_flags = ["nodejs_compat"]
 
-# Bien KHONG bi mat (khong nhay cam) - xem README de biet cach dat cac secret
-# (VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, DEVICE_KEY_PEPPER,
-# MAYAP_MQTT_PASSWORD, GITHUB_TOKEN tuy chon cho tinh nang cap nhat firmware) bang
-# `wrangler secret put`, KHONG dat o day.
+# Bien KHONG bi mat (khong nhay cam). Secret that van dat bang Dashboard/
+# wrangler secret put, KHONG commit vao repo.
 [vars]
-# Doi thanh dung origin cua trang GitHub Pages, vi du:
-# "https://ten-user.github.io"  (khong co dau / o cuoi)
 ALLOWED_ORIGIN = "https://kqviet1810.github.io"
+# Gioi han mac dinh cho moi may. Doi 3 -> 5 sau nay chi can sua bien nay
+# va deploy lai Worker; khong can nap lai ESP32 hay doi schema.
+MAX_PAIRED_BROWSERS = "3"
+# Moi browser session phai xac thuc PIN lai sau thoi gian nay.
+BROWSER_SESSION_DAYS = "90"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "mayap_push"
 database_id = "e92a393c-8596-4254-b274-68e57a6de290"
 
-# Chay doc lap voi ESP32 - phat hien khi thiet bi im lang bat thuong (mat
-# dien/mat mang) va tu gui push "mat ket noi", vi luc do chinh ESP32 da chet
-# nen khong the tu bao duoc. Xem scheduled() trong src/index.js.
+# Chay doc lap voi ESP32 - phat hien khi thiet bi im lang bat thuong.
 [triggers]
 crons = ["* * * * *"]
