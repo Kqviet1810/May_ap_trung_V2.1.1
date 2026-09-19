@@ -20,6 +20,11 @@ if source.count(old) != 1:
     raise SystemExit(f"wrapper could not patch v1 script; matches={source.count(old)}")
 source = source.replace(old, new, 1)
 
+# MachineRuntime chi cong bo co resumeConfirmationRequired; resumePending la
+# state noi bo cua MachineController. HMI dung co cong khai nay de khoa cac
+# setting service trong giai doan cho nguoi dung quyet dinh phuc hoi.
+source = source.replace("currentRuntime.resumePending", "currentRuntime.resumeConfirmationRequired")
+
 # Run the corrected one-shot patch in this process. __file__ is kept pointing
 # at v1 so ROOT still resolves to the repository root exactly as designed.
 namespace = {"__name__": "__main__", "__file__": str(base)}
