@@ -1,0 +1,85 @@
+name: Finalize v3.8.1 C1-C2 remediation
+
+on:
+  push:
+    branches:
+      - hardening/v3.8.1-reliability
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: hardening/v3.8.1-reliability
+          fetch-depth: 2
+
+      - name: Normalize guarded patch matchers
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          patch = Path('tools/apply_v381_c1c2_fixes.py')
+          s = patch.read_text(encoding='utf-8')
+
+          # E502 enum has an inline comment in current source.
+          old = "t = exact(t, '  SirenBatteryLow = 502,\\n', '', \"remove E502 enum\")"
+          new = "t = rex(t, r'^\\s*SirenBatteryLow = 502,.*?\\n', '', \"remove E502 enum\", flags=re.MULTILINE)"
+          if s.count(old) == 1:
+              s = s.replace(old, new)
+
+          # High Temp descriptor is pre-applied below; remove the byte-exact block
+          # from the patch script while preserving every other precondition.
+          pattern = r"t = exact\(t, '  // Nhiet cao: cam SSR, nha contactor tong, bat ca hai quat\\.\\n.*?\"High Temp D14\"\)\n"
+          s2, n = re.subn(pattern, '', s, count=1, flags=re.S)
+          if n != 1:
+              raise SystemExit(f'High Temp patch matcher not unique: {n}')
+          patch.write_text(s2, encoding='utf-8')
+
+          mc = Path('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h')
+          m = mc.read_text(encoding='utf-8')
+          old_desc = '{FaultCode::HighTemperature, FaultSeverity::Stop, 240U, AlarmTempHigh, false, true, true, true, true, true, "TEMP HIGH"}'
+          new_desc = '{FaultCode::HighTemperature, FaultSeverity::Stop, 240U, AlarmTempHigh, false, true, false, true, true, true, "TEMP HIGH"}'
+          if m.count(old_desc) != 1:
+              raise SystemExit(f'High Temp descriptor expected once, got {m.count(old_desc)}')
+          m = m.replace(old_desc, new_desc, 1)
+          m = m.replace('// Nhiet cao: cam SSR, nha contactor tong, bat ca hai quat.',
+                        '// Nhiet cao: cam SSR + bat hai quat, GIU D14/contactor ON; Emergency/master-drop moi nha D14.', 1)
+          mc.write_text(m, encoding='utf-8')
+          PY
+
+      - name: Apply remaining guarded source patch
+        run: python3 tools/apply_v381_c1c2_fixes.py
+
+      - name: Validate JavaScript and permanent regression gates
+        run: |
+          node --check app.js
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/security-wrapper.js
+          node --check cloudflare/src/reliability-wrapper.js
+          python3 tools/check_release_sync.py
+          python3 tools/check_v381_reliability.py
+          git diff --check
+
+      - name: Remove all one-shot patch machinery
+        run: |
+          git rm -f tools/apply_v381_c1c2_fixes.py
+          git rm -f .github/workflows/apply-v381-c1c2-once.yml
+          git rm -f .github/workflows/apply-v381-c1c2-retry.yml
+          git rm -f .github/workflows/apply-v381-c1c2-final.yml
+
+      - name: Commit verified remediation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git diff --cached --quiet && { echo "::error::Patch produced no changes"; exit 1; }
+          git commit -m "fix(v3.8.1): resolve C1/C2 safety and lifecycle findings"
+          git push origin HEAD:hardening/v3.8.1-reliability
