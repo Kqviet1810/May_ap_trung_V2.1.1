@@ -81,8 +81,10 @@ patch(
     'require(config, "WIFI_PORTAL_MAX_OPEN_MS = 120000UL", "Wi-Fi portal 2 minute network timeout")\n'
     'require(config, "WIFI_PORTAL_UI_IDLE_TIMEOUT_MS = 120000UL", "Wi-Fi portal 2 minute HMI timeout")\n'
     'require(hmi, "(view == View::WifiChange) ? WIFI_PORTAL_UI_IDLE_TIMEOUT_MS", "Wi-Fi screen uses dedicated timeout")\n'
+    'require(network, "id=wifiPassword", "Wi-Fi portal password input id")\n'
     'require(network, "id=showPassword", "Wi-Fi portal show-password control")\n'
-    'require(network, "this.checked?\\\'text\\\':\\\'password\\\'", "Wi-Fi portal password visibility toggle")\n',
+    'require(network, "document.getElementById", "Wi-Fi portal password visibility JS")\n'
+    'require(network, "this.checked?", "Wi-Fi portal password visibility toggle")\n',
 )
 
 print("Wi-Fi portal 2-minute + show-password patch applied")
