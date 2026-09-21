@@ -55,6 +55,7 @@ require(app, "state.mqttSessionState === 'error' || state.mqttSessionState === '
 require(network, "PortalPhase::Quiescing", "Wi-Fi portal quiescing phase")
 require(network, "WiFi.disconnect(false, false)", "portal disconnect keeps radio alive")
 require(network, "portalOtaQuiescedFlag", "portal/OTA quiesce handshake")
+require(network, "portalPhase != PortalPhase::Quiescing", "cancel during quiesce must not touch radio")
 require(network, "[PORTAL-PANIC] stage=", "portal panic RTC breadcrumb")
 require(ota, "mayapOtaQuiesceForWifiPortal", "ArduinoOTA portal quiesce helper")
 require(ota, "if (MayapOtaInternal::inProgress)", "do not abort active ArduinoOTA")

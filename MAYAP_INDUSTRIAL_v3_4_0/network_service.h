@@ -408,8 +408,11 @@ inline void portalStop() {
   portalCrashMark(80U);
   portalServer.stop();
   portalDns.stop();
-  if (portalPhase != PortalPhase::Idle) {
-    // Neu dang o STA co ket noi that thi giu nguyen; chi tat AP.
+  // Quiescing nghia la AP CHUA duoc bat va otaTask co the chua ACK.
+  // Huy dung o pha nay tuyet doi khong duoc cham radio; chi khi da qua
+  // quiesce moi co quyen tat AP/doi mode.
+  if (portalPhase != PortalPhase::Idle &&
+      portalPhase != PortalPhase::Quiescing) {
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
   }
