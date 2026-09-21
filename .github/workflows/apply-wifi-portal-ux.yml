@@ -31,8 +31,10 @@ jobs:
         run: |
           grep -F 'WIFI_PORTAL_MAX_OPEN_MS = 120000UL' MAYAP_INDUSTRIAL_v3_4_0/config.h
           grep -F 'WIFI_PORTAL_UI_IDLE_TIMEOUT_MS = 120000UL' MAYAP_INDUSTRIAL_v3_4_0/config.h
+          grep -F 'id=wifiPassword' MAYAP_INDUSTRIAL_v3_4_0/network_service.h
           grep -F 'id=showPassword' MAYAP_INDUSTRIAL_v3_4_0/network_service.h
-          grep -F "this.checked?'text':'password'" MAYAP_INDUSTRIAL_v3_4_0/network_service.h
+          grep -F 'document.getElementById' MAYAP_INDUSTRIAL_v3_4_0/network_service.h
+          grep -F 'this.checked?' MAYAP_INDUSTRIAL_v3_4_0/network_service.h
 
       - name: Commit final source and remove one-shot files
         shell: bash
