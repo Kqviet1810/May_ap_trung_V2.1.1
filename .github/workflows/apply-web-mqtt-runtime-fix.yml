@@ -1,0 +1,41 @@
+name: Apply web MQTT runtime fix
+
+on:
+  push:
+    branches:
+      - hardening/v3.8.1-reliability
+    paths:
+      - '.github/workflows/apply-web-mqtt-runtime-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Apply runtime fix
+        run: python3 tools/apply_web_mqtt_runtime_fix.py
+
+      - name: Validate JavaScript
+        run: node --check app.js
+
+      - name: Run reliability regression
+        run: python3 tools/check_v381_reliability.py
+
+      - name: Commit repaired source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app.js tools/check_v381_reliability.py
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No source changes'; exit 1; }
+          git commit -m 'fix(web): apply MQTT session credentials to live runtime'
+          git push origin HEAD:hardening/v3.8.1-reliability
