@@ -1,1 +1,1 @@
-apply mqtt build guard 2026-09-21
+apply mqtt build guard retry 2 2026-09-21
