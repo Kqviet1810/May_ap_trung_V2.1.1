@@ -26,14 +26,19 @@ wrangler = read("cloudflare/wrangler.toml")
 wrapper = read("cloudflare/src/reliability-wrapper.js")
 security = read("cloudflare/src/security-wrapper.js")
 safety = read("doc/SAFETY_HARDWARE_REQUIREMENTS.md")
+build_workflow = read(".github/workflows/build-firmware.yml")
 
 require_re(config, r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"3\.8\.1"', "firmware version")
-
 
 # MQTT deploy image must fail at compile time if broker credentials are absent.
 require(config, "static_assert(sizeof(MQTT_BROKER_HOST) > 1U", "MQTT host compile guard")
 require(config, "static_assert(sizeof(MQTT_USERNAME) > 1U", "MQTT username compile guard")
 require(config, "static_assert(sizeof(MQTT_PASSWORD) > 1U", "MQTT password compile guard")
+require(build_workflow, 'username = "__ci_pr_mqtt_user__"', "PR MQTT compile placeholder")
+require(build_workflow, 'password = "__ci_pr_mqtt_password__"', "PR MQTT password placeholder")
+require(build_workflow, 'Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD', "deploy MQTT secrets gate")
+require(build_workflow, "startsWith(github.ref, 'refs/heads/hardening/')", "hardening test artifact")
+require(build_workflow, "firmware-test-${{ github.sha }}", "test artifact tied to commit SHA")
 
 # Provisioning diagnostics must remain visible on the local HMI path.
 for state in ["CloudOffline", "TlsError", "ServerDenied", "KeyMismatch", "CloudError"]:
