@@ -1,0 +1,50 @@
+name: Reliability regression checks
+
+on:
+  push:
+    branches:
+      - hardening/v3.8.1-reliability
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reliability:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate JavaScript entrypoints
+        run: |
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/security-wrapper.js
+          node --check cloudflare/src/reliability-wrapper.js
+          node --check cloudflare/src/auth.js
+          node --check cloudflare/src/db.js
+          node --check cloudflare/src/push.js
+          node --check app.js
+          node --check config.js
+          node --check push.js
+          node --check sw.js
+
+      - name: Static reliability regression checks
+        run: python3 tools/check_v381_reliability.py
+
+      - name: Reject unsafe firmware shortcuts
+        run: |
+          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
+            echo "::error::TLS verification bypass detected"
+            exit 1
+          fi
+          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
+            echo "::error::Private key must not be embedded in firmware"
+            exit 1
+          fi
+
+      - name: Verify formatting
+        run: git diff --check HEAD^
