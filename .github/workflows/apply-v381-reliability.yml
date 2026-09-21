@@ -1,0 +1,41 @@
+name: Apply v3.8.1 reliability patch
+
+on:
+  push:
+    branches:
+      - hardening/v3.8.1-reliability
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: "${{ github.event.head_commit.message == 'chore: apply v3.8.1 reliability patch' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply deterministic source patch
+        run: python3 tools/apply_v381_reliability.py
+
+      - name: Sanity check patched sources
+        run: |
+          python3 -m py_compile tools/apply_v381_reliability.py
+          grep -q 'MAYAP_FIRMWARE_VERSION\[\].*"3.8.1"' MAYAP_INDUSTRIAL_v3_4_0/config.h
+          grep -q 'MayapProvisioningState::ServerDenied' MAYAP_INDUSTRIAL_v3_4_0/cloud_alert_link.h
+          grep -q 'case 104:' MAYAP_INDUSTRIAL_v3_4_0/cloud_alert_link.h
+          git diff --check
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add MAYAP_INDUSTRIAL_v3_4_0/config.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/cloud_alert_link.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/machine_control.h
+          git diff --cached --quiet && { echo "::error::Reliability patch produced no source changes"; exit 1; }
+          git commit -m "feat(reliability): harden provisioning diagnostics and safety consistency"
+          git push origin HEAD:hardening/v3.8.1-reliability
