@@ -17,7 +17,6 @@ import worker from './security-wrapper.js';
 
 const DEVICE_ID_RE = /^MAP-[A-F0-9]{12}$/;
 const DEVICE_KEY_RE = /^[A-Fa-f0-9]{64}$/;
-const REGISTER_WINDOW_MS = 60 * 60 * 1000;
 
 function strictInventoryRequired(env) {
   return String(env.REQUIRE_DEVICE_INVENTORY || '0') === '1';
@@ -26,6 +25,12 @@ function strictInventoryRequired(env) {
 function registrationLimit(env) {
   const parsed = Number.parseInt(String(env.MAX_NEW_DEVICE_REGISTRATIONS_PER_HOUR || '20'), 10);
   return Number.isFinite(parsed) ? Math.min(200, Math.max(1, parsed)) : 20;
+}
+
+function registrationWindowMs(env) {
+  const parsed = Number.parseInt(String(env.NEW_DEVICE_REGISTRATION_WINDOW_MINUTES || '60'), 10);
+  const minutes = Number.isFinite(parsed) ? Math.min(1440, Math.max(1, parsed)) : 60;
+  return minutes * 60 * 1000;
 }
 
 function corsHeaders(env) {
@@ -68,16 +73,17 @@ function registerRateKey(request) {
 
 async function registrationAllowed(request, env, now) {
   const key = registerRateKey(request);
+  const windowMs = registrationWindowMs(env);
   const row = await env.DB.prepare(
     'SELECT attempts, window_started_at FROM auth_rate_limits WHERE rate_key = ?1'
   ).bind(key).first();
 
-  if (!row) return { allowed: true, key, attempts: 0, startedAt: now };
+  if (!row) return { allowed: true, key, attempts: 0, startedAt: now, windowMs };
 
   const startedAt = Number(row.window_started_at || 0);
-  if (!startedAt || now - startedAt >= REGISTER_WINDOW_MS) {
+  if (!startedAt || now - startedAt >= windowMs) {
     await env.DB.prepare('DELETE FROM auth_rate_limits WHERE rate_key = ?1').bind(key).run();
-    return { allowed: true, key, attempts: 0, startedAt: now };
+    return { allowed: true, key, attempts: 0, startedAt: now, windowMs };
   }
 
   const attempts = Number(row.attempts || 0);
@@ -88,10 +94,11 @@ async function registrationAllowed(request, env, now) {
       key,
       attempts,
       startedAt,
-      retryAfterMs: Math.max(1000, REGISTER_WINDOW_MS - (now - startedAt)),
+      windowMs,
+      retryAfterMs: Math.max(1000, windowMs - (now - startedAt)),
     };
   }
-  return { allowed: true, key, attempts, startedAt };
+  return { allowed: true, key, attempts, startedAt, windowMs };
 }
 
 async function recordNewDeviceAdmission(env, rate, now) {
