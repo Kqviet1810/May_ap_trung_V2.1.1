@@ -466,28 +466,21 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
       AlarmNone, false, false, false, false, false, false, "NONE"};
   static const FaultDescriptor table[] = {
     // code, severity, priority, alarm, latch, inhibitSSR, dropMaster, stopTurn, forceVent, forceCirculation, text
-    // F-03: dropHeatMaster=false o ca 3 dong duoi day (truoc day khai la
-    // true) - contactor tong THUC SU khong nha duoc trong luc me dang chay,
-    // vi normalMasterPermit (updateHeatingAndOutputs) chu dich khong xet
-    // faults_.masterDropRequired() nua, theo yeu cau nguoi lap dat de cong
-    // tac nhiet vat ly la "quyen cao nhat" khi dang ap (chi Nhiet do khan
-    // cap moi nha duoc). Giu inhibitSsr=true (D1 van bi cam dung) va
-    // inhibitsTurning tuong ung; bo dropHeatMaster de bang khai bao khop
-    // dung hanh vi thuc te, tranh hieu lam co lop bao ve thu 2 dang hoat
-    // dong. Bu lai bang ro-le nhiet co khi doc lap ngoai mach neu can lop
-    // cat nhiet tu dong that su cho truong hop SSR dinh + mat cam bien.
+    // v3.8.x: mat/sai/nghi ngo cam bien la STOP fault. Ca SSR va contactor
+    // tong nhiet deu bi cat; cong tac HEATER vat ly chi la dieu kien cho
+    // phep, khong duoc vuot qua fault. Day la lop software bo sung cho
+    // thermostat co khi + cau chi nhiet doc lap ngoai firmware.
     {FaultCode::SensorLost, FaultSeverity::Stop, 235U, AlarmSensor, false, true, true, false, false, true, "SENSOR LOST"},
     {FaultCode::SensorInvalid, FaultSeverity::Stop, 230U, AlarmSensor, false, true, true, false, false, true, "SENSOR INVALID"},
     {FaultCode::SensorSuspect, FaultSeverity::Stop, 225U, AlarmSensor, false, true, true, false, false, true, "SENSOR SUSPECT"},
     // F-08: canh bao THUAN CHAN DOAN - gia tri cam bien "dung hinh" (khong
-    // doi trong thoi gian dai du frame van hop le, CRC dung, khong mat tin
-    // hieu) trong luc dang chay me. KHONG cam SSR/nha contactor: neu gia tri
-    // dong bang o muc THAP hon thuc te, PID se tiep tuc gia nhiet binh
-    // thuong (dung), chi la khong con phan anh dung nhiet do that; can nguoi
-    // van hanh kiem tra cam bien thu cong khi thay canh bao nay.
+    // SensorFrozen chi active khi PV dung gia du lau VA heater da tich luy
+    // ON-time dang ke trong cung cua so. Khi da co bang chung nay, fault
+    // STOP cat ca SSR va contactor; o diem dat on dinh voi heater gan nhu
+    // khong cap se khong bi false-trip.
     {FaultCode::SensorFrozen, FaultSeverity::Stop, 228U, AlarmSensor, true, true, true, false, true, true, "SENSOR FROZEN"},
     {FaultCode::LowTemperature, FaultSeverity::Warning, 55U, AlarmTempLow, false, false, false, false, false, false, "TEMP LOW"},
-    // Nhiet cao: chi cam SSR, giu contactor tong, bat ca hai quat.
+    // Nhiet cao: cam SSR, nha contactor tong, bat ca hai quat.
     {FaultCode::HighTemperature, FaultSeverity::Stop, 240U, AlarmTempHigh, false, true, true, true, true, true, "TEMP HIGH"},
     // Khan cap: cam SSR va nha contactor tong ngay.
     {FaultCode::EmergencyTemperature, FaultSeverity::Emergency, 255U, AlarmEmergency, false, true, true, true, true, true, "TEMP EMERGENCY"},

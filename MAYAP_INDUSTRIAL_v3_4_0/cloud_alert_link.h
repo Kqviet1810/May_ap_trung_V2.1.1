@@ -165,6 +165,7 @@ inline const char *faultSummaryText(uint16_t code) {
     case 101: return "Mất cảm biến nhiệt độ/độ ẩm";
     case 102: return "Cảm biến trả về giá trị sai";
     case 103: return "Cảm biến bất thường (nghi ngờ hỏng)";
+    case 104: return "Cảm biến đứng giá khi heater vẫn cấp nhiệt";
     case 110: return "Nhiệt độ xuống thấp hơn ngưỡng cảnh báo";
     case 111: return "Nhiệt độ vượt quá ngưỡng cảnh báo cao";
     case 112: return "QUÁ NHIỆT KHẨN CẤP - đã ngắt nguồn nhiệt ngay lập tức";
@@ -197,6 +198,7 @@ inline const char *faultSummaryText(uint16_t code) {
     case 404: return "Bộ nhớ EEPROM phải thử lại nhiều bất thường - có thể đang suy giảm";
     case 501: return "Mất liên lạc mạch báo mất điện ATtiny - kiểm tra pin CR2032 và dây tín hiệu";
     case 502: return "Pin còi 9V sắp hết - hãy thay pin sớm để bảo đảm còi báo khi mất điện";
+    case 503: return "Trạng thái mẻ giữa ESP32 và ATtiny chưa đồng bộ";
     default: return "Lỗi không xác định";
   }
 }
@@ -580,6 +582,7 @@ inline void checkWifiSignal(uint32_t now) {
 // ------------------------------- Goi HTTPS ---------------------------------------
 inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const char *path) {
   if (!TLS_ROOT_CA[0]) {
+    mayapSetProvisioningState(MayapProvisioningState::TlsError);
     mayapSerialPrintf(true, "[CLOUD] TLS bi khoa: thieu CA goc tin cay\n");
     return false;
   }
@@ -588,14 +591,17 @@ inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const 
   http.setTimeout(CLOUD_HTTP_TIMEOUT_MS);
   char url[160];
   snprintf(url, sizeof(url), "https://%s%s", CLOUD_API_HOST, path);
-  return http.begin(client, url);
+  const bool started = http.begin(client, url);
+  if (!started) mayapSetProvisioningState(MayapProvisioningState::CloudError);
+  return started;
 }
 
 inline bool postJson(const char *path, const JsonDocument &doc, const char *logTag,
-                     String *responseBody = nullptr) {
+                     String *responseBody = nullptr, int *responseCode = nullptr) {
   WiFiClientSecure client;
   HTTPClient http;
   if (!beginCloudRequest(http, client, path)) {
+    if (responseCode) *responseCode = 0;
     mayapSerialPrintf(false, "[CLOUD] %s -> http.begin() THAT BAI (URL/TLS)\n", logTag);
     return false;
   }
@@ -603,6 +609,7 @@ inline bool postJson(const char *path, const JsonDocument &doc, const char *logT
   String body;
   serializeJson(doc, body);
   const int code = http.POST(body);
+  if (responseCode) *responseCode = code;
   const bool ok = code == 200;
   String resp = code > 0 ? http.getString() : String();
   if (responseBody) *responseBody = resp;
@@ -648,12 +655,23 @@ inline bool rotateLegacyDeviceKey() {
 }
 
 inline bool sendRegister() {
+  mayapSetProvisioningState(MayapProvisioningState::Syncing);
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
   doc["device_key"] = mayapDeviceSecret();
   doc["device_name"] = mayapDeviceIdText();
   String response;
-  if (!postJson("/api/device/register", doc, "register", &response)) return false;
+  int code = 0;
+  if (!postJson("/api/device/register", doc, "register", &response, &code)) {
+    if (code == 403) {
+      mayapSetProvisioningState(MayapProvisioningState::ServerDenied);
+    } else if (code == 401) {
+      mayapSetProvisioningState(MayapProvisioningState::KeyMismatch);
+    } else if (code != 0) {
+      mayapSetProvisioningState(MayapProvisioningState::CloudError);
+    }
+    return false;
+  }
   storeProvisioningFromResponse(response);
   return rotateLegacyDeviceKey();
 }
@@ -665,7 +683,17 @@ inline bool sendResetPin() {
   doc["device_id"] = mayapDeviceIdText();
   doc["device_key"] = mayapDeviceSecret();
   String response;
-  if (!postJson("/api/device/reset-pin", doc, "reset-pin", &response)) return false;
+  int code = 0;
+  if (!postJson("/api/device/reset-pin", doc, "reset-pin", &response, &code)) {
+    if (code == 403) {
+      mayapSetProvisioningState(MayapProvisioningState::ServerDenied);
+    } else if (code == 401) {
+      mayapSetProvisioningState(MayapProvisioningState::KeyMismatch);
+    } else if (code != 0) {
+      mayapSetProvisioningState(MayapProvisioningState::CloudError);
+    }
+    return false;
+  }
   storeProvisioningFromResponse(response);
   return true;
 }
@@ -740,7 +768,11 @@ inline void serviceRegister(uint32_t now) {
   if (registered) return;
   if (!cloudBackoff.ready(now)) return;
   const NetworkStatus status = mayapGetNetworkStatus();
-  if (!(status.requestedMode == ConnectivityMode::Online && status.connected)) return;
+  if (status.requestedMode != ConnectivityMode::Online) return;
+  if (!status.connected) {
+    mayapSetProvisioningState(MayapProvisioningState::CloudOffline);
+    return;
+  }
   if (sendRegister()) {
     registered = true;
     cloudBackoff.onSuccess();
