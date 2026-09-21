@@ -1,5 +1,5 @@
 name = "mayap-push-worker"
-main = "src/security-wrapper.js"
+main = "src/reliability-wrapper.js"
 compatibility_date = "2026-08-01"
 # Bat buoc: thu vien gui Web Push (@block65/webcrypto-web-push) tham chieu
 # node:crypto lam fallback - thieu co nay Worker co the loi luc gui push that.
@@ -9,6 +9,12 @@ compatibility_flags = ["nodejs_compat"]
 # wrangler secret put, KHONG commit vao repo.
 [vars]
 ALLOWED_ORIGIN = "https://kqviet1810.github.io"
+# Quy mo hien tai: cho may moi tu provisioning. Dat = "1" neu sau nay muon
+# quay lai che do factory allowlist bat buoc trong device_inventory.
+REQUIRE_DEVICE_INVENTORY = "0"
+# Gioi han admission may moi theo IP trong 1 gio. Chi ap dung khi inventory
+# chua co device_id va REQUIRE_DEVICE_INVENTORY=0; may da dang ky khong bi tinh.
+MAX_NEW_DEVICE_REGISTRATIONS_PER_HOUR = "20"
 # Gioi han mac dinh cho moi may. Doi 3 -> 5 sau nay chi can sua bien nay
 # va deploy lai Worker; khong can nap lai ESP32 hay doi schema.
 MAX_PAIRED_BROWSERS = "3"
