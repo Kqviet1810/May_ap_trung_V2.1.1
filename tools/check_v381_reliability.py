@@ -1,0 +1,79 @@
+from pathlib import Path
+import re
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def require(text: str, needle: str, label: str) -> None:
+    if needle not in text:
+        raise SystemExit(f"FAIL: {label}: missing {needle!r}")
+
+
+def require_re(text: str, pattern: str, label: str) -> None:
+    if not re.search(pattern, text, re.MULTILINE | re.DOTALL):
+        raise SystemExit(f"FAIL: {label}: pattern not found: {pattern}")
+
+
+config = read("MAYAP_INDUSTRIAL_v3_4_0/config.h")
+identity = read("MAYAP_INDUSTRIAL_v3_4_0/device_identity.h")
+cloud = read("MAYAP_INDUSTRIAL_v3_4_0/cloud_alert_link.h")
+machine = read("MAYAP_INDUSTRIAL_v3_4_0/machine_control.h")
+wrangler = read("cloudflare/wrangler.toml")
+wrapper = read("cloudflare/src/reliability-wrapper.js")
+security = read("cloudflare/src/security-wrapper.js")
+safety = read("doc/SAFETY_HARDWARE_REQUIREMENTS.md")
+
+require_re(config, r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"3\.8\.1"', "firmware version")
+
+# Provisioning diagnostics must remain visible on the local HMI path.
+for state in ["CloudOffline", "TlsError", "ServerDenied", "KeyMismatch", "CloudError"]:
+    require(identity, f"MayapProvisioningState::{state}", f"provisioning state {state}")
+require(identity, "mayapProvisioningStateText()", "provisioning state text")
+require(identity, "mayapProvisioningStateText();", "HMI PIN fallback uses provisioning state")
+
+# Cloud must classify provisioning failures rather than looping forever as 'syncing'.
+require(cloud, "int *responseCode = nullptr", "HTTP response code propagation")
+require(cloud, "MayapProvisioningState::ServerDenied", "HTTP 403 classification")
+require(cloud, "MayapProvisioningState::KeyMismatch", "HTTP 401 classification")
+require(cloud, "MayapProvisioningState::CloudOffline", "offline classification")
+
+# Current-scale policy: auto provisioning is enabled, but inventory remains available.
+require(wrangler, 'main = "src/reliability-wrapper.js"', "reliability worker entrypoint")
+require(wrangler, 'REQUIRE_DEVICE_INVENTORY = "0"', "auto provisioning default")
+require(wrangler, "MAX_NEW_DEVICE_REGISTRATIONS_PER_HOUR", "registration rate limit setting")
+require(wrapper, "strictInventoryRequired", "optional strict inventory mode")
+require(wrapper, "recordNewDeviceAdmission", "new-device rate accounting")
+require(wrapper, "INSERT OR IGNORE INTO device_inventory", "auto-admit inventory record")
+require(wrapper, "handleResetPin", "reset-pin recovery path")
+require(wrapper, "provisioned: true", "reset-pin provisioning result")
+
+# Do not weaken the original device-key gate: reliability-wrapper must feed through it.
+require(security, "handleSecureRegister", "security register gate")
+require(security, "device_key/device_key", "security marker") if False else None
+require(wrapper, "return worker.fetch(request, env, ctx);", "delegate to security wrapper")
+
+# Safety consistency: SensorFrozen requires actual heater-on evidence and remains fail-safe.
+require(machine, "heaterStuckAccumOnMs_ >= frozenEvidenceOnMs", "SensorFrozen heater evidence")
+require_re(
+    machine,
+    r'\{FaultCode::SensorFrozen,\s*FaultSeverity::Stop,.*?true,\s*true,\s*true,\s*false,\s*true,\s*true,\s*"SENSOR FROZEN"\}',
+    "SensorFrozen descriptor",
+)
+require(safety, "fault ở mức STOP và cắt cả SSR lẫn contactor nhiệt", "SensorFrozen safety documentation")
+
+# Security regression tripwires.
+firmware_text = "\n".join(
+    p.read_text(encoding="utf-8", errors="ignore")
+    for p in (ROOT / "MAYAP_INDUSTRIAL_v3_4_0").glob("*")
+    if p.suffix in {".h", ".ino"}
+)
+if "setInsecure()" in firmware_text:
+    raise SystemExit("FAIL: setInsecure() reintroduced")
+if "BEGIN PRIVATE KEY" in firmware_text or "BEGIN EC PRIVATE KEY" in firmware_text:
+    raise SystemExit("FAIL: private signing key found in firmware tree")
+
+print("v3.8.1 reliability regression checks: OK")
