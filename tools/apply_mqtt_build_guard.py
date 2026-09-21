@@ -11,16 +11,7 @@ def write(path: str, text: str) -> None:
     (ROOT / path).write_text(text, encoding="utf-8")
 
 
-def replace_once(path: str, old: str, new: str, label: str) -> None:
-    text = read(path)
-    count = text.count(old)
-    if count != 1:
-        raise SystemExit(f"PATCH FAIL {label}: expected 1 match, found {count}")
-    write(path, text.replace(old, new, 1))
-    print(f"PATCH OK {label}")
-
-
-# 1) Firmware must never compile a deployable image with empty broker credentials.
+# 1) Firmware: fail compile if a deployable MQTT configuration is incomplete.
 config_path = "MAYAP_INDUSTRIAL_v3_4_0/config.h"
 config = read(config_path)
 old_comment = """// Broker mac dinh la broker cong cong (chi de kiem tra, xem canh bao trong
@@ -41,12 +32,12 @@ new_comment = """// Host/port/CA cong khai nam trong build_public.h. Username/pa
 // nay tu GitHub Secrets. Tuyet doi khong commit credential that vao repo.
 //
 // Fail-fast la chu dich: firmware co realtime Web nen mot binary deploy ma
-// username/password rong la binary loi. Truoc v3.8.1 code im lang fallback
-// thanh chuoi rong, van compile/boot va broker chi tra state=5 UNAUTHORIZED.
+// username/password rong la binary loi. Truoc day code im lang fallback thanh
+// chuoi rong, van compile/boot va broker chi tra state=5 UNAUTHORIZED.
 // Cac static_assert ben duoi chan loi ngay luc compile de khong lap lai su co.
 """
-if old_comment not in config:
-    raise SystemExit("PATCH FAIL mqtt comment: source drift")
+if config.count(old_comment) != 1:
+    raise SystemExit(f"PATCH FAIL mqtt comment: expected 1, found {config.count(old_comment)}")
 config = config.replace(old_comment, new_comment, 1)
 old_constants = """constexpr char MQTT_BROKER_HOST[] = MAYAP_MQTT_HOST;
 constexpr uint16_t MQTT_BROKER_PORT = MAYAP_MQTT_PORT;
@@ -57,8 +48,6 @@ constexpr char MQTT_TOPIC_ROOT[] = MAYAP_MQTT_TOPIC_ROOT;
 """
 new_constants = old_constants + """
 // Deploy invariant: khong cho tao .bin neu realtime MQTT khong co host/account.
-// PR CI duoc workflow tao credential gia chi de kiem compile; branch/tag van
-// bat buoc lay credential that tu GitHub Secrets.
 static_assert(sizeof(MQTT_BROKER_HOST) > 1U,
               "THIEU MAYAP_MQTT_HOST trong build_public.h");
 static_assert(MQTT_BROKER_PORT != 0U,
@@ -74,9 +63,8 @@ config = config.replace(old_constants, new_constants, 1)
 write(config_path, config)
 print("PATCH OK config MQTT fail-fast")
 
-# 2) Make the local secret template explicit and hard to misuse.
-example_path = "MAYAP_INDUSTRIAL_v3_4_0/build_secrets.example.h"
-write(example_path, """#pragma once
+# 2) Local-build template: make correct usage explicit.
+write("MAYAP_INDUSTRIAL_v3_4_0/build_secrets.example.h", """#pragma once
 
 // LOCAL BUILD ONLY:
 // 1) Copy file nay thanh build_secrets.h trong CUNG thu muc sketch.
@@ -90,97 +78,9 @@ write(example_path, """#pragma once
 """)
 print("PATCH OK build_secrets.example.h")
 
-# 3) CI: PR uses non-secret placeholders only for compile. Branch/tag must use real Secrets.
-workflow_path = ".github/workflows/build-firmware.yml"
-workflow = read(workflow_path)
-old_secret_step = """      - name: Tao MQTT secret cho build deploy
-        if: github.event_name != 'pull_request'
-        env:
-          MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
-          MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
-        run: |
-          python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-
-          username = os.getenv(\"MAYAP_MQTT_USERNAME\", \"\")
-          password = os.getenv(\"MAYAP_MQTT_PASSWORD\", \"\")
-          if not username or not password:
-              raise SystemExit(\"Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD\")
-
-          Path(\"MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h\").write_text(
-              \"#pragma once\\n\"
-              + \"#define MAYAP_MQTT_USERNAME \" + json.dumps(username) + \"\\n\"
-              + \"#define MAYAP_MQTT_PASSWORD \" + json.dumps(password) + \"\\n\",
-              encoding=\"utf-8\",
-          )
-          PY
-"""
-new_secret_step = """      - name: Tao MQTT credential cho compile
-        env:
-          MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
-          MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
-        run: |
-          python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-
-          if os.getenv(\"GITHUB_EVENT_NAME\") == \"pull_request\":
-              # PR khong duoc doc repository secrets. Dung placeholder KHONG BI MAT
-              # chi de compile/regression; PR workflow khong phat hanh artifact deploy.
-              username = \"__ci_pr_mqtt_user__\"
-              password = \"__ci_pr_mqtt_password__\"
-          else:
-              username = os.getenv(\"MAYAP_MQTT_USERNAME\", \"\").strip()
-              password = os.getenv(\"MAYAP_MQTT_PASSWORD\", \"\")
-              if not username or not password:
-                  raise SystemExit(\"Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD\")
-
-          Path(\"MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h\").write_text(
-              \"#pragma once\\n\"
-              + \"#define MAYAP_MQTT_USERNAME \" + json.dumps(username) + \"\\n\"
-              + \"#define MAYAP_MQTT_PASSWORD \" + json.dumps(password) + \"\\n\",
-              encoding=\"utf-8\",
-          )
-          PY
-"""
-if workflow.count(old_secret_step) != 1:
-    raise SystemExit(f"PATCH FAIL workflow credential step: expected 1, found {workflow.count(old_secret_step)}")
-workflow = workflow.replace(old_secret_step, new_secret_step, 1)
-old_artifact = """      - name: Luu firmware pilot
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v6
-        with:
-          name: firmware-pilot
-          path: |
-            ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
-            ./build-attiny/ATTINY13A_POWER_ALARM.hex
-          retention-days: 7
-"""
-new_artifact = """      - name: Luu firmware test
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/hardening/')
-        uses: actions/upload-artifact@v6
-        with:
-          name: firmware-test-${{ github.sha }}
-          path: |
-            ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
-            ./build-attiny/ATTINY13A_POWER_ALARM.hex
-          retention-days: 7
-"""
-if workflow.count(old_artifact) != 1:
-    raise SystemExit(f"PATCH FAIL workflow artifact step: expected 1, found {workflow.count(old_artifact)}")
-workflow = workflow.replace(old_artifact, new_artifact, 1)
-write(workflow_path, workflow)
-print("PATCH OK build workflow")
-
-# 4) Regression tripwires: enforce the guard and CI credential policy forever.
+# 3) Regression: source guard may never disappear silently.
 checker_path = "tools/check_v381_reliability.py"
 checker = read(checker_path)
-old_reads = 'safety = read("doc/SAFETY_HARDWARE_REQUIREMENTS.md")\n'
-new_reads = old_reads + 'build_workflow = read(".github/workflows/build-firmware.yml")\n'
-if checker.count(old_reads) != 1:
-    raise SystemExit("PATCH FAIL checker reads")
-checker = checker.replace(old_reads, new_reads, 1)
 anchor = 'require_re(config, r\'MAYAP_FIRMWARE_VERSION\\[\\]\\s*=\\s*"3\\.8\\.1"\', "firmware version")\n'
 checks = anchor + """
 
@@ -188,17 +88,14 @@ checks = anchor + """
 require(config, "static_assert(sizeof(MQTT_BROKER_HOST) > 1U", "MQTT host compile guard")
 require(config, "static_assert(sizeof(MQTT_USERNAME) > 1U", "MQTT username compile guard")
 require(config, "static_assert(sizeof(MQTT_PASSWORD) > 1U", "MQTT password compile guard")
-require(build_workflow, 'username = "__ci_pr_mqtt_user__"', "PR MQTT compile placeholder")
-require(build_workflow, 'Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD', "deploy MQTT secrets gate")
-require(build_workflow, "startsWith(github.ref, 'refs/heads/hardening/')", "hardening test artifact")
 """
 if checker.count(anchor) != 1:
-    raise SystemExit("PATCH FAIL checker anchor")
+    raise SystemExit(f"PATCH FAIL checker anchor: expected 1, found {checker.count(anchor)}")
 checker = checker.replace(anchor, checks, 1)
 write(checker_path, checker)
 print("PATCH OK reliability checker")
 
-# 5) README: make local-build procedure explicit.
+# 4) README: document the only valid local-build path.
 readme_path = "README.md"
 readme = read(readme_path)
 marker = "### Build profile\n"
@@ -220,9 +117,9 @@ placeholder không bí mật để kiểm compile và không phát hành binary 
 """
 if section not in readme:
     if readme.count(marker) != 1:
-        raise SystemExit("PATCH FAIL README build profile marker")
+        raise SystemExit(f"PATCH FAIL README marker: expected 1, found {readme.count(marker)}")
     readme = readme.replace(marker, section + marker, 1)
-    write(readme_path, readme)
+write(readme_path, readme)
 print("PATCH OK README")
 
-print("ALL MQTT BUILD-GUARD PATCHES APPLIED")
+print("ALL SOURCE MQTT BUILD-GUARD PATCHES APPLIED")
