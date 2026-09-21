@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply:
-    if: ${{ github.actor != 'github-actions[bot]' }}
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact branch
@@ -20,23 +20,8 @@ jobs:
           fetch-depth: 2
 
       - name: Normalize current LOG FILES branch
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h')
-          s = p.read_text(encoding='utf-8')
-          old = '''    } else if (cmd && !strcmp(cmd, "LOG") && arg1 && !strcmp(arg1, "FILES")) {
-              batchLogger_.printFiles();
-            } else if (cmd && !strcmp(cmd, "LOG") && arg1 && !strcmp(arg1, "CLEAR")) {'''
-          if old not in s:
-              old = '''    } else if (cmd && !strcmp(cmd, "LOG") && arg1 && !strcmp(arg1, "FILES")) {
-      batchLogger_.printFiles();
-    } else if (cmd && !strcmp(cmd, "LOG") && arg1 && !strcmp(arg1, "CLEAR")) {'''
-          if old not in s:
-              raise SystemExit('LOG FILES branch not found in current source')
-          s = s.replace(old, '''    } else if (cmd && !strcmp(cmd, "LOG") && arg1 && !strcmp(arg1, "CLEAR")) {''', 1)
-          p.write_text(s, encoding='utf-8')
-          PY
+        run: >-
+          python3 -c "from pathlib import Path; p=Path('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h'); s=p.read_text(encoding='utf-8'); old='    } else if (cmd && !strcmp(cmd, \"LOG\") && arg1 && !strcmp(arg1, \"FILES\")) {\n      batchLogger_.printFiles();\n    } else if (cmd && !strcmp(cmd, \"LOG\") && arg1 && !strcmp(arg1, \"CLEAR\")) {'; new='    } else if (cmd && !strcmp(cmd, \"LOG\") && arg1 && !strcmp(arg1, \"CLEAR\")) {'; assert s.count(old)==1, 'LOG FILES branch mismatch'; p.write_text(s.replace(old,new,1), encoding='utf-8')"
 
       - name: Apply final guarded remediation
         run: python3 tools/apply_v381_c1c2_final.py
@@ -53,6 +38,7 @@ jobs:
 
       - name: Remove temporary patch machinery
         run: |
+          rm -f .v381-remediation-trigger
           rm -f tools/apply_v381_c1c2_fixes.py
           rm -f tools/apply_v381_c1c2_final.py
           rm -f .github/workflows/apply-v381-c1c2-once.yml
