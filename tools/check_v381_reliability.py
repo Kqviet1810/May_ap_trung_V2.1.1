@@ -45,7 +45,9 @@ require(cloud, "MayapProvisioningState::CloudOffline", "offline classification")
 require(wrangler, 'main = "src/reliability-wrapper.js"', "reliability worker entrypoint")
 require(wrangler, 'REQUIRE_DEVICE_INVENTORY = "0"', "auto provisioning default")
 require(wrangler, "MAX_NEW_DEVICE_REGISTRATIONS_PER_HOUR", "registration rate limit setting")
+require(wrangler, "NEW_DEVICE_REGISTRATION_WINDOW_MINUTES", "registration window setting")
 require(wrapper, "strictInventoryRequired", "optional strict inventory mode")
+require(wrapper, "registrationWindowMs", "configurable registration window")
 require(wrapper, "recordNewDeviceAdmission", "new-device rate accounting")
 require(wrapper, "INSERT OR IGNORE INTO device_inventory", "auto-admit inventory record")
 require(wrapper, "handleResetPin", "reset-pin recovery path")
@@ -53,7 +55,6 @@ require(wrapper, "provisioned: true", "reset-pin provisioning result")
 
 # Do not weaken the original device-key gate: reliability-wrapper must feed through it.
 require(security, "handleSecureRegister", "security register gate")
-require(security, "device_key/device_key", "security marker") if False else None
 require(wrapper, "return worker.fetch(request, env, ctx);", "delegate to security wrapper")
 
 # Safety consistency: SensorFrozen requires actual heater-on evidence and remains fail-safe.
