@@ -83,18 +83,14 @@ constexpr char OTA_PASSWORD[] = MAYAP_OTA_PASSWORD;
 static_assert(sizeof(OTA_PASSWORD) <= 64U, "Mat khau OTA toi da 63 ky tu");
 
 // ------------------------- Web realtime (MQTT) --------------------------------
-// Broker mac dinh la broker cong cong (chi de kiem tra, xem canh bao trong
-// config.js ban web). May thuong mai PHAI doi sang broker rieng + tai khoan
-// bang cach dinh nghia lai cac macro nay truoc khi include config.h (vi du
-// qua build_flags), khong sua truc tiep gia tri mac dinh o day.
+// Host/port/CA cong khai nam trong build_public.h. Username/password MQTT la
+// BUILD SECRET: local build phai tao build_secrets.h; CI branch/tag tu tao file
+// nay tu GitHub Secrets. Tuyet doi khong commit credential that vao repo.
 //
-// F-01 (audit truoc phat hanh v3.7.1): khi MQTT_USERNAME/MQTT_PASSWORD con la
-// chuoi rong (gia tri mac dinh o duoi day), realtime_link.h::mqttCommandChannelTrusted()
-// tra ve false va KHOA toan bo lenh dieu khien/cau hinh tu xa qua MQTT (chi
-// con publish mot chieu snapshot/presence/log) - vi broker cong khai khong
-// xac thuc nghia la BAT KY AI tren internet co the gui lenh that (dung me,
-// tat coi khan cap, doi cau hinh...) neu khong co hang rao nay. Dat 2 macro
-// nay (tro toi broker rieng) la cach duy nhat de bat lai dieu khien tu xa.
+// Fail-fast la chu dich: firmware co realtime Web nen mot binary deploy ma
+// username/password rong la binary loi. Truoc day code im lang fallback thanh
+// chuoi rong, van compile/boot va broker chi tra state=5 UNAUTHORIZED.
+// Cac static_assert ben duoi chan loi ngay luc compile de khong lap lai su co.
 #ifndef MAYAP_MQTT_HOST
 #define MAYAP_MQTT_HOST ""
 #endif
@@ -119,6 +115,16 @@ constexpr bool MQTT_USE_TLS = (MAYAP_MQTT_USE_TLS) != 0;
 constexpr char MQTT_USERNAME[] = MAYAP_MQTT_USERNAME;
 constexpr char MQTT_PASSWORD[] = MAYAP_MQTT_PASSWORD;
 constexpr char MQTT_TOPIC_ROOT[] = MAYAP_MQTT_TOPIC_ROOT;
+
+// Deploy invariant: khong cho tao .bin neu realtime MQTT khong co host/account.
+static_assert(sizeof(MQTT_BROKER_HOST) > 1U,
+              "THIEU MAYAP_MQTT_HOST trong build_public.h");
+static_assert(MQTT_BROKER_PORT != 0U,
+              "MAYAP_MQTT_PORT khong hop le");
+static_assert(sizeof(MQTT_USERNAME) > 1U,
+              "THIEU MAYAP_MQTT_USERNAME: tao build_secrets.h tu build_secrets.example.h");
+static_assert(sizeof(MQTT_PASSWORD) > 1U,
+              "THIEU MAYAP_MQTT_PASSWORD: tao build_secrets.h tu build_secrets.example.h");
 
 // Reconnect MQTT dung BackoffTimer dung chung (xem phia duoi file) thay vi
 // chu ky co dinh - khong con hang so rieng o day.

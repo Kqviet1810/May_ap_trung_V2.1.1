@@ -29,6 +29,12 @@ safety = read("doc/SAFETY_HARDWARE_REQUIREMENTS.md")
 
 require_re(config, r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"3\.8\.1"', "firmware version")
 
+
+# MQTT deploy image must fail at compile time if broker credentials are absent.
+require(config, "static_assert(sizeof(MQTT_BROKER_HOST) > 1U", "MQTT host compile guard")
+require(config, "static_assert(sizeof(MQTT_USERNAME) > 1U", "MQTT username compile guard")
+require(config, "static_assert(sizeof(MQTT_PASSWORD) > 1U", "MQTT password compile guard")
+
 # Provisioning diagnostics must remain visible on the local HMI path.
 for state in ["CloudOffline", "TlsError", "ServerDenied", "KeyMismatch", "CloudError"]:
     require(identity, f"MayapProvisioningState::{state}", f"provisioning state {state}")

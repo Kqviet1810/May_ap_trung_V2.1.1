@@ -83,6 +83,21 @@ CI dùng FQBN:
 esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
 ```
 
+### MQTT credential bắt buộc khi build local
+
+Firmware ESP32 **không còn cho phép tạo `.bin` với MQTT username/password rỗng**.
+Khi build bằng Arduino IDE/CLI trên máy cá nhân:
+
+1. copy `MAYAP_INDUSTRIAL_v3_4_0/build_secrets.example.h` thành
+   `MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h`;
+2. điền `MAYAP_MQTT_USERNAME` và `MAYAP_MQTT_PASSWORD` thật của HiveMQ;
+3. compile lại firmware. `build_secrets.h` đã nằm trong `.gitignore` và không được commit.
+
+Nếu file thiếu hoặc credential rỗng, compile phải fail. Đây là invariant có chủ ý để
+không thể phát sinh lại binary vẫn boot nhưng MQTT lặp `state=5 (UNAUTHORIZED)`.
+GitHub Actions branch/tag tự tạo `build_secrets.h` từ Repository Secrets; PR chỉ dùng
+placeholder không bí mật để kiểm compile và không phát hành binary deploy.
+
 ### Build profile
 
 Workflow hiện chia 3 profile mà không cần sửa source:
