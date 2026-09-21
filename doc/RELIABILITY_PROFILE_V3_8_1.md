@@ -37,8 +37,8 @@ Máy mới:
 2. Kết nối Cloudflare qua TLS.
 3. `reliability-wrapper.js` kiểm tra định dạng ID/key.
 4. Nếu ID đã tồn tại, đi thẳng qua security-wrapper để kiểm tra Device Key cũ.
-5. Nếu ID mới và chưa có inventory, admission được rate-limit theo IP rồi tự
-   thêm vào `device_inventory`.
+5. Nếu ID mới và chưa có inventory, admission được rate-limit rồi tự thêm vào
+   `device_inventory`.
 6. Request tiếp tục đi qua `security-wrapper.js`, sau đó core Worker mới tạo
    record `devices`, command key và Web PIN.
 
@@ -53,10 +53,14 @@ Chỉ cần đổi:
 
 Khi đó máy mới lại bắt buộc phải có trong inventory như thiết kế v3.8.0.
 
-### Chống spam
+### Chống spam provisioning
 
-`MAX_NEW_DEVICE_REGISTRATIONS_PER_HOUR` giới hạn số ID mới được auto-admit theo
-IP. Máy đã đăng ký và reboot/reconnect không bị tính vào giới hạn này.
+- `MAX_NEW_DEVICE_REGISTRATIONS_PER_HOUR` đặt số admission tối đa trong một cửa
+  sổ đối với nguồn tạo máy mới.
+- `NEW_DEVICE_REGISTRATION_WINDOW_MINUTES` đặt độ dài cửa sổ; mặc định 60 phút.
+- Máy đã đăng ký và reboot/reconnect không bị tính như thiết bị mới.
+- Đây là hàng rào chống lạm dụng nhẹ cho quy mô hiện tại; không thay thế factory
+  allowlist nếu sau này threat model thay đổi.
 
 ## 4. Reset PIN self-heal
 
@@ -104,7 +108,7 @@ Một build được coi là ứng viên chạy máy thật chỉ khi:
 
 - Build ESP32 thành công với 8MB/default_8MB/PSRAM disabled.
 - Build ATtiny13A thành công và không vượt flash/RAM budget.
-- Reliability Guard xanh.
+- `Reliability regression checks` xanh.
 - Không có `setInsecure()` trong firmware.
 - Không có private key trong source firmware.
 - Protocol ESP32 <-> ATtiny contract xanh.
