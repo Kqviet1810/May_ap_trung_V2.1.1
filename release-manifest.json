@@ -1,0 +1,26 @@
+{
+  "release": "3.8.1",
+  "firmware": "3.8.1",
+  "hmi": "3.7.0",
+  "web": "11.7.3",
+  "web_storage_schema": 10,
+  "attiny_protocol": 2,
+  "esp32_core": "3.3.11",
+  "arduino_cli": "1.5.1",
+  "node_ci": 24,
+  "build_profiles": {
+    "DEV": {
+      "diagnostic_serial": true,
+      "serial_input_sim": false
+    },
+    "PILOT": {
+      "diagnostic_serial": true,
+      "serial_input_sim": false
+    },
+    "PROD": {
+      "diagnostic_serial": false,
+      "serial_input_sim": false
+    }
+  },
+  "notes": "Manifest dong bo release. tools/check_release_sync.py phai pass truoc build, release va deploy Worker."
+}

@@ -6,14 +6,19 @@ on:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: '24'
+          package-manager-cache: false
+
       - name: Kiem tra secret trien khai
         env:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -21,6 +26,7 @@ jobs:
         run: |
           test -n "$CF_TOKEN" || { echo "::error::Thieu CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CF_ACCOUNT" || { echo "::error::Thieu CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+
       - name: Kiem tra JavaScript Worker
         run: |
           node --check cloudflare/src/reliability-wrapper.js
@@ -30,17 +36,32 @@ jobs:
           node --check cloudflare/src/db.js
           node --check cloudflare/src/push.js
           node --check config.js
+
+      - name: Kiem tra dong bo release
+        run: python3 tools/check_release_sync.py
+
       - name: Kiem tra reliability truoc deploy
         run: python3 tools/check_v381_reliability.py
-      - name: Cai phu thuoc
+
+      - name: Cai phu thuoc Worker
         working-directory: cloudflare
-        run: npm install --ignore-scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
+            npm ci --ignore-scripts --no-audit --no-fund
+          else
+            echo "::warning::cloudflare chua co package-lock.json; tam dung npm install. Hay commit lockfile de CI chuyen sang npm ci dong bang dependency tree."
+            npm install --ignore-scripts --no-audit --no-fund --package-lock=false
+          fi
+
       - name: Cap nhat D1 schema
         working-directory: cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler d1 migrations apply mayap_push --remote
+
       - name: Trien khai Worker
         working-directory: cloudflare
         env:

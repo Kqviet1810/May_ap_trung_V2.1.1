@@ -16,22 +16,37 @@ permissions:
 
 env:
   MAYAP_FQBN: esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
+  ARDUINO_CLI_VERSION: '1.5.1'
+  ARDUINO_CLI_SHA256: '28a8e119c498a25607821c36cb2dc49e8463941b261a0d99091baa7bc692dd2b'
+  NODE_VERSION: '24'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout ma nguon
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Ap dung offline hardening (mot lan)
-        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'chore: execute offline hardening via build' }}"
-        run: python3 tools/apply_offline_hardening_v2.py
+      - name: Chuan hoa Node.js cho cong cu kiem tra
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
 
-      - name: Cai dat arduino-cli
-        uses: arduino/setup-arduino-cli@v2
+      - name: Cai Arduino CLI co kiem checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="arduino-cli_${ARDUINO_CLI_VERSION}_Linux_64bit.tar.gz"
+          url="https://github.com/arduino/arduino-cli/releases/download/v${ARDUINO_CLI_VERSION}/${archive}"
+          curl -fL --retry 3 --retry-delay 2 -o "$archive" "$url"
+          echo "${ARDUINO_CLI_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" arduino-cli
+          sudo install -m 0755 arduino-cli /usr/local/bin/arduino-cli
+          arduino-cli version
 
       - name: Cai toolchain ATtiny13A
         run: |
@@ -114,6 +129,12 @@ jobs:
           print(f'ATtiny protocol v{esp_proto}: contract OK')
           PY
 
+      - name: Kiem tra dong bo release v3.8.1
+        run: python3 tools/check_release_sync.py
+
+      - name: Kiem tra reliability truoc build/release
+        run: python3 tools/check_v381_reliability.py
+
       - name: Tao MQTT secret cho build deploy
         if: github.event_name != 'pull_request'
         env:
@@ -143,6 +164,8 @@ jobs:
           node --check push.js
           node --check sw.js
           node --check config.js
+          node --check cloudflare/src/reliability-wrapper.js
+          node --check cloudflare/src/security-wrapper.js
           node --check cloudflare/src/index.js
           node --check cloudflare/src/auth.js
           node --check cloudflare/src/db.js
@@ -174,30 +197,29 @@ jobs:
             build-attiny/ATTINY13A_POWER_ALARM.elf \
             build-attiny/ATTINY13A_POWER_ALARM.hex
 
+      - name: Chon build profile
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "MAYAP_BUILD_PROFILE=PROD" >> "$GITHUB_ENV"
+            echo "MAYAP_CPP_FLAGS=-DMAYAP_DIAGNOSTIC_SERIAL=0 -DMAYAP_SERIAL_INPUT_SIM=0" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "MAYAP_BUILD_PROFILE=PILOT" >> "$GITHUB_ENV"
+            echo "MAYAP_CPP_FLAGS=-DMAYAP_DIAGNOSTIC_SERIAL=1 -DMAYAP_SERIAL_INPUT_SIM=0" >> "$GITHUB_ENV"
+          else
+            echo "MAYAP_BUILD_PROFILE=DEV" >> "$GITHUB_ENV"
+            echo "MAYAP_CPP_FLAGS=-DMAYAP_DIAGNOSTIC_SERIAL=1 -DMAYAP_SERIAL_INPUT_SIM=0" >> "$GITHUB_ENV"
+          fi
+
       - name: Bien dich firmware ESP32
         run: |
+          echo "Build profile: ${MAYAP_BUILD_PROFILE}"
           arduino-cli compile \
             --fqbn "${{ env.MAYAP_FQBN }}" \
+            --build-property "compiler.cpp.extra_flags=${MAYAP_CPP_FLAGS}" \
             --output-dir ./build \
             --verbose \
             MAYAP_INDUSTRIAL_v3_4_0
-
-      - name: Commit offline hardening sau khi ca hai firmware compile xanh
-        if: "${{ github.event_name == 'push' && github.event.head_commit.message == 'chore: execute offline hardening via build' }}"
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add MAYAP_INDUSTRIAL_v3_4_0/config.h \
-                  MAYAP_INDUSTRIAL_v3_4_0/attiny_bus.h \
-                  MAYAP_INDUSTRIAL_v3_4_0/machine_control.h \
-                  MAYAP_INDUSTRIAL_v3_4_0/hmi.h \
-                  MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino \
-                  ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino \
-                  doc/attiny_power_alarm.md
-          git diff --cached --check
-          git diff --cached --quiet && { echo "::error::Hardening patch khong tao thay doi source"; exit 1; }
-          git commit -m "feat(offline): harden control and commissioning"
-          git push origin HEAD:hardening/v3.8.0
 
       - name: Bao cao kich thuoc
         run: |
@@ -206,7 +228,7 @@ jobs:
 
       - name: Luu firmware pilot
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: firmware-pilot
           path: |
@@ -233,7 +255,7 @@ jobs:
 
       - name: Tao GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             ./MAYAP-firmware-*.bin
