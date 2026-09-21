@@ -4659,7 +4659,9 @@ void hmiUpdate(uint32_t now) {
 
   if (!confirmationActive() && heaterTestUiPhase == HeaterTestUiPhase::Idle &&
       view != View::Home && view != View::Alarm &&
-      now - lastInteractionAt >= MENU_IDLE_TIMEOUT_MS) {
+      now - lastInteractionAt >=
+          ((view == View::WifiChange) ? WIFI_PORTAL_UI_IDLE_TIMEOUT_MS
+                                      : MENU_IDLE_TIMEOUT_MS)) {
     // Roi Che do thu nghiem/Doi Wi-Fi do khong thao tac phai dong hang han
     // ngay tren firmware tong, khong chi tam roi man hinh.
     if (view == View::TestMode) queueCommand(HmiCommandType::TestModeExit);

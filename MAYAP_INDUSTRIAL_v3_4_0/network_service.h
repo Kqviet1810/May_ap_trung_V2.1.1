@@ -318,6 +318,9 @@ inline void handlePortalRoot() {
     "font-size:15px;box-sizing:border-box}"
     "select:focus,input:focus{outline:0;border-color:#42aa9c;"
     "box-shadow:0 0 0 3px rgba(66,170,156,.15)}"
+    ".showPass{display:flex;align-items:center;gap:8px;margin:10px 2px 0;"
+    "text-transform:none;letter-spacing:0;font-size:13px;color:#496963;cursor:pointer}"
+    ".showPass input{width:18px;height:18px;margin:0;padding:0;flex:none;box-shadow:none}"
     "button,a.reload{width:100%;height:48px;margin-top:18px;border:0;"
     "border-radius:14px;background:#0d8275;color:#fff;font-weight:800;"
     "font-size:15px;display:flex;align-items:center;justify-content:center;"
@@ -338,7 +341,10 @@ inline void handlePortalRoot() {
   html += options;
   html += F(
     "</select><label>Mat khau</label>"
-    "<input name=password type=password maxlength=64 autocomplete=off>"
+    "<input id=wifiPassword name=password type=password maxlength=64 autocomplete=off>"
+    "<label class=showPass><input id=showPassword type=checkbox "
+    "onchange=\"document.getElementById(\'wifiPassword\').type=this.checked?\'text\':\'password\'\">"
+    "<span>Hien mat khau</span></label>"
     "<button type=submit>Luu &amp; ket noi</button></form>"
     "<a class=reload href=/rescan>&#8635; Tim lai Wi-Fi</a>"
     "<p><b>Sau khi luu:</b> may se tu thu ket noi mang moi, kiem tra man "

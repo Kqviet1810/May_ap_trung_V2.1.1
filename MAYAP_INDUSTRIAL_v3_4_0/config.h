@@ -510,6 +510,8 @@ constexpr uint32_t ALARM_REFRESH_MS = 5000UL;
 constexpr uint32_t FIRMWARE_PROGRESS_REFRESH_MS = 400UL;
 constexpr uint32_t HMI_COMMAND_POLL_MS = 100UL;
 constexpr uint32_t MENU_IDLE_TIMEOUT_MS = 60000UL;
+// Rieng man DOI WIFI can du 2 phut de nguoi dung ket noi AP va nhap mat khau.
+constexpr uint32_t WIFI_PORTAL_UI_IDLE_TIMEOUT_MS = 120000UL;
 constexpr uint32_t SAVE_CONFIRM_TIMEOUT_MS = 8000UL;
 constexpr uint32_t COMMAND_CONFIRM_TIMEOUT_MS = 8000UL;
 constexpr uint16_t COMMAND_DEFAULT_VALID_MS = 5000U;
@@ -824,9 +826,9 @@ struct BackoffTimer {
 
 // Wi-Fi chi chay o task rieng core 0; khong duoc goi tu task dieu khien.
 constexpr uint32_t NETWORK_CONNECT_TIMEOUT_MS = 20000UL;
-// Cong 1 doi Wi-Fi: mo AP toi da 5 phut cho nguoi dung nhap SSID/mat khau moi,
+// Cong 1 doi Wi-Fi: mo AP toi da 2 phut cho nguoi dung nhap SSID/mat khau moi,
 // sau do tu dong dong portal va quay lai ket noi binh thuong.
-constexpr uint32_t WIFI_PORTAL_MAX_OPEN_MS = 300000UL;
+constexpr uint32_t WIFI_PORTAL_MAX_OPEN_MS = 120000UL;
 constexpr uint32_t WIFI_PORTAL_TEST_TIMEOUT_MS = 15000UL;
 constexpr uint16_t WIFI_PORTAL_SSID_MAX = 32U;
 constexpr uint16_t WIFI_PORTAL_PASSWORD_MAX = 64U;
