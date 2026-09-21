@@ -23,12 +23,15 @@ jobs:
           test -n "$CF_ACCOUNT" || { echo "::error::Thieu CLOUDFLARE_ACCOUNT_ID"; exit 1; }
       - name: Kiem tra JavaScript Worker
         run: |
+          node --check cloudflare/src/reliability-wrapper.js
           node --check cloudflare/src/security-wrapper.js
           node --check cloudflare/src/index.js
           node --check cloudflare/src/auth.js
           node --check cloudflare/src/db.js
           node --check cloudflare/src/push.js
           node --check config.js
+      - name: Kiem tra reliability truoc deploy
+        run: python3 tools/check_v381_reliability.py
       - name: Cai phu thuoc
         working-directory: cloudflare
         run: npm install --ignore-scripts
