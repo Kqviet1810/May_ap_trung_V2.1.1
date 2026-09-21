@@ -1,0 +1,44 @@
+name: Reliability guard
+
+on:
+  push:
+    branches:
+      - 'hardening/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: JavaScript syntax
+        run: |
+          node --check app.js
+          node --check push.js
+          node --check sw.js
+          node --check config.js
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/auth.js
+          node --check cloudflare/src/db.js
+          node --check cloudflare/src/push.js
+          node --check cloudflare/src/security-wrapper.js
+          node --check cloudflare/src/reliability-wrapper.js
+
+      - name: Python syntax
+        run: |
+          python3 -m py_compile tools/check_reliability_contract.py
+          python3 -m py_compile tools/apply_v381_reliability.py
+
+      - name: Reliability contract
+        run: python3 tools/check_reliability_contract.py
+
+      - name: Diff hygiene
+        run: git diff --check
