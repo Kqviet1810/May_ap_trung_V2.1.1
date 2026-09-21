@@ -1,180 +1,151 @@
-# MAYAP - Máy ấp trứng thông minh
+# MAYAP — Máy ấp trứng thông minh
 
-> Firmware ESP32-S3 + Dashboard web PWA + Backend Cloudflare Worker cho hệ thống điều khiển và giám sát máy ấp trứng công nghiệp, giao tiếp thời gian thực qua MQTT và cảnh báo qua Web Push.
+> Baseline hiện hành: **MAYAP release 3.8.1** trên ESP32-S3-WROOM-1U-N8, Web PWA và Cloudflare Worker.
 
-![Firmware](https://img.shields.io/badge/firmware-v3.4.0-0d8275)
-![HMI](https://img.shields.io/badge/HMI-v3.6.0-0d8275)
-![Web UI](https://img.shields.io/badge/web%20UI-v9.0.3-0d8275)
-![Platform](https://img.shields.io/badge/platform-ESP32--S3-informational)
-![License](https://img.shields.io/badge/license-Private-lightgrey)
+| Thành phần | Phiên bản hiện hành |
+|---|---:|
+| Release | 3.8.1 |
+| ESP32 firmware | 3.8.1 |
+| HMI firmware | 3.7.0 |
+| Web cache | 11.7.3 |
+| ATtiny protocol | 2 |
+| ESP32 Arduino core CI | 3.3.11 |
+| Arduino CLI CI | 1.5.1 |
+| Node CI | 24 |
 
----
+Các giá trị trên được khai báo ở `release-manifest.json` và được CI đối chiếu với source bằng `tools/check_release_sync.py`. Không sửa một phiên bản đơn lẻ mà không cập nhật manifest/checker tương ứng.
 
-## Giới thiệu
+## Kiến trúc hiện hành
 
-MAYAP là hệ thống điều khiển máy ấp trứng chạy trên **ESP32-S3**, gồm 3 thành phần phối hợp với nhau:
+```text
+                 MQTT/TLS + WSS
+ESP32-S3  <---------------------------->  Web PWA
+   |                                          |
+   | HTTPS/TLS                                | HTTPS
+   v                                          v
+Cloudflare Worker + D1  ---------------->  Web Push
+   |
+   +--> GitHub Releases (metadata + firmware OTA)
 
-1. **Firmware ESP32-S3** (`MAYAP_INDUSTRIAL_v3_4_0/`) - điều khiển nhiệt độ (PID), độ ẩm, đảo trứng, quạt tuần hoàn/thông gió, đèn, còi báo; hiển thị HMI (màn hình + encoder xoay) trực tiếp trên máy; đồng bộ trạng thái qua MQTT.
-2. **Web Dashboard** (PWA tĩnh - `index.html`, `app.js`, `styles.css`) - theo dõi và điều khiển máy từ xa qua trình duyệt/điện thoại, kết nối trực tiếp tới broker MQTT (không qua backend trung gian cho luồng điều khiển).
-3. **Cloudflare Worker backend** (`cloudflare/`) - dịch vụ đăng ký & gửi **Web Push** (thông báo đẩy) khi máy gặp sự cố, thay thế cho kênh Telegram trước đây.
-
-Toàn bộ giao diện, log và tài liệu trong dự án đều bằng **tiếng Việt** (đối tượng sử dụng là người vận hành trại ấp trong nước).
-
-## Mục lục
-
-- [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
-- [Cấu trúc thư mục](#cấu-trúc-thư-mục)
-- [Bắt đầu nhanh](#bắt-đầu-nhanh)
-  - [1. Nạp firmware cho ESP32-S3](#1-nạp-firmware-cho-esp32-s3)
-  - [2. Chạy Web Dashboard](#2-chạy-web-dashboard)
-  - [3. Triển khai Cloudflare Worker (tuỳ chọn)](#3-triển-khai-cloudflare-worker-tuỳ-chọn)
-- [Tính năng chính](#tính-năng-chính)
-- [An toàn & thiết kế điều khiển](#an-toàn--thiết-kế-điều-khiển)
-- [Cấu hình](#cấu-hình)
-- [Đóng góp / phát triển thêm](#đóng-góp--phát-triển-thêm)
-
-## Kiến trúc hệ thống
-
-```
-┌─────────────────────┐        MQTT (WSS)        ┌──────────────────────┐
-│   ESP32-S3 firmware   │◄────────────────────────►│    Web Dashboard      │
-│  (FreeRTOS, HMI, PID) │        mayap/v1/*         │  (GitHub Pages PWA)  │
-└──────────┬───────────┘                           └──────────┬───────────┘
-           │ HTTPS (cảnh báo)                                  │ đăng ký nhận Push
-           ▼                                                   ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                  Cloudflare Worker (cloud_alert_link.h ↔ push.js)        │
-│         D1 database (device, subscription)  +  Web Push (VAPID)          │
-└─────────────────────────────────────────────────────────────────────────┘
+ESP32-S3 <---- pulse protocol v2 ----> ATtiny13A
 ```
 
-- **Điều khiển thời gian thực**: web ↔ ESP32 qua MQTT trực tiếp (không đi qua Worker) để độ trễ thấp nhất.
-- **Cảnh báo khi mất kết nối**: ESP32 tự gửi HTTPS lên Worker; Worker phát Web Push tới mọi trình duyệt đã đăng ký cho thiết bị đó, kể cả khi không mở trang web.
-- **Nhiều máy trên một dashboard**: dashboard quản lý danh sách nhiều thiết bị (ID + PIN riêng từng máy), chuyển đổi nhanh giữa các máy.
+- **Điều khiển thời gian thực:** Web ↔ ESP32 qua MQTT. Network I/O không chạy trong `controlTask`.
+- **Lệnh ghi MQTT:** Web chỉ nhận broker credential sau khi phiên trình duyệt đã xác thực; các kênh ghi quan trọng còn được ký HMAC riêng theo thiết bị.
+- **Cloud:** Worker đảm nhiệm provisioning, PIN/session, Web Push, trạng thái online/offline và metadata OTA.
+- **OTA Internet:** chỉ kiểm tra/tải firmware sau khi operator xác nhận tại HMI; ESP32 kiểm SHA-256 và chữ ký ECDSA trước khi nạp.
+- **An toàn nhiệt:** firmware không phải lớp bảo vệ duy nhất. Phần cứng phải có thermostat/thermal relay độc lập, contactor an toàn và thermal fuse theo `doc/SAFETY_HARDWARE_REQUIREMENTS.md`.
 
-## Cấu trúc thư mục
+Chi tiết: `doc/ARCHITECTURE_V3_8_1.md`.
 
-```
-├── MAYAP_INDUSTRIAL_v3_4_0/     # Firmware ESP32-S3 (Arduino IDE)
-│   ├── MAYAP_INDUSTRIAL_v3_4_0.ino   # Entry point, task FreeRTOS
-│   ├── config.h                      # Chân GPIO, hằng số, cấu trúc cấu hình/runtime
-│   ├── machine_control.h             # Logic điều khiển, PID, an toàn, lỗi, EEPROM
-│   ├── hmi.h                         # Màn hình LCD + encoder (giao diện tại máy)
-│   ├── network_service.h             # WiFi + captive portal đổi mạng
-│   ├── realtime_link.h               # Đồng bộ MQTT với dashboard
-│   ├── cloud_alert_link.h            # Gửi cảnh báo lên Cloudflare Worker
-│   ├── ota_update.h                  # Nạp firmware qua Wi-Fi bằng Arduino IDE (cùng mạng LAN)
-│   └── ota_web_update.h              # Cập nhật firmware từ xa qua Cloudflare (nguồn: GitHub Releases)
-│
-├── index.html / app.js / styles.css  # Web Dashboard (PWA, chạy tĩnh trên GitHub Pages)
-├── setup.html                        # Trang bật Web Push qua quét QR trên máy
-├── push.js / sw.js                   # Đăng ký Web Push + Service Worker
-├── config.js                         # Cấu hình broker MQTT + Worker cho môi trường test
-├── config.production.example.js      # Mẫu cấu hình cho triển khai thương mại
-├── manifest.webmanifest              # Cấu hình PWA (cài vào màn hình chính)
-│
-└── cloudflare/                  # Backend Worker + D1 cho Web Push
-    ├── src/index.js                  # Route API (đăng ký thiết bị, nhận cảnh báo, gửi push)
-    ├── src/auth.js                   # Xác thực Device ID + PIN
-    ├── src/push.js                   # Gửi Web Push (VAPID)
-    ├── src/db.js                     # Truy vấn D1
-    ├── schema.sql                    # Schema D1
-    └── README.md                     # Hướng dẫn deploy Worker chi tiết
-```
+## Trải nghiệm người dùng
 
-## Bắt đầu nhanh
+Người dùng cuối **không nhập hostname, port, WSS, MQTT username/password hay Cloudflare token**. Luồng chuẩn là:
 
-### 1. Nạp firmware cho ESP32-S3
+1. Máy tạo Device ID dạng `MAP-XXXXXXXXXXXX` từ eFuse MAC.
+2. ESP32 có device key 256-bit riêng, lưu NVS.
+3. Máy đăng ký/provision qua Worker và đồng bộ PIN Web.
+4. Trên web, người dùng thêm máy bằng **Device ID + PIN**.
+5. Worker cấp browser session; dashboard tự lấy cấu hình MQTT cần thiết cho phiên đã xác thực.
 
-Firmware viết cho **Arduino IDE** (không dùng PlatformIO):
+Nếu `REQUIRE_DEVICE_INVENTORY=0`, Worker v3.8.1 có thể auto-admit máy mới theo rate-limit và ghi vào `device_inventory`. Nếu đặt `=1`, quay lại chế độ factory allowlist nghiêm ngặt.
 
-1. Mở `MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino` bằng Arduino IDE.
-2. Cài board **ESP32** (Espressif) qua Board Manager, chọn đúng board ESP32-S3.
-3. Cài các thư viện được `#include` trong `config.h`/`network_service.h` (LCD, MQTT client, v.v. - xem đầu các file `.h`).
-4. Kiểm tra sơ đồ chân trong `config.h` (mục `PIN_OUT_*` / `PIN_IN_*`) khớp với phần cứng thực tế.
-5. Biên dịch và nạp vào board.
-6. Theo dõi Serial Monitor ở lần boot đầu để xác nhận `[BOOT] config=...` (đặc biệt quan trọng sau khi nâng cấp firmware làm thay đổi schema cấu hình EEPROM).
+## Cấu trúc repo
 
-**Nạp lại firmware qua Wi-Fi (OTA), không cần cáp USB** (xem `ota_update.h`):
-
-1. Nạp lần đầu qua USB như trên là dùng được OTA ngay, mật khẩu mặc định là `181020` (đặt trong `config.h`, macro `MAYAP_OTA_PASSWORD`). Muốn đổi riêng cho một bản build khác: build flag `-D MAYAP_OTA_PASSWORD=\"mat_khau_khac\"` (Arduino IDE: **Sketch > Compiler flags**, hoặc `arduino-cli` với `--build-property`); để trống flag/macro này sẽ **tắt hẳn** tính năng OTA.
-2. Chuyển máy sang **ONLINE** và chờ kết nối Wi-Fi thành công (xem màn KẾT NỐI trên HMI).
-3. Mở lại Arduino IDE trên máy tính **cùng mạng LAN**: **Tools > Port** sẽ xuất hiện thêm mục mạng dạng `mayap-industrial at <IP> (ESP32S3 Dev Module)` (cần Bonjour/mDNS trên máy tính - Windows cài kèm iTunes/Bonjour Print Services, macOS/Linux có sẵn). Chọn cổng đó rồi bấm Upload như bình thường, IDE sẽ hỏi mật khẩu OTA.
-4. Khuyến nghị chỉ nạp OTA lúc máy **đang rảnh** (ngoài mẻ ấp): lúc ghi flash, cả hai lõi CPU tạm dừng vài mili giây mỗi lần - vô hại với máy rảnh, nhưng nên tránh trùng lúc đang kiểm soát nhiệt sát ngưỡng.
-
-**Cập nhật firmware TỪ XA qua Cloudflare (không cần cùng mạng LAN)** - xem `ota_web_update.h`:
-
-Khác với OTA-Arduino-IDE ở trên (bắt buộc cùng Wi-Fi), cách này đẩy firmware qua Internet - dùng khi máy đã lắp đặt ở xa, không tiện mang máy tính đến tận nơi. Nguồn là **GitHub Releases của chính repo này** - không cần trang quản trị hay upload thủ công:
-
-1. Phát hành bản mới bằng cách đẩy 1 tag dạng `vX.Y.Z` lên GitHub (`git tag v3.5.0 && git push origin v3.5.0`) - xem [`.github/workflows/build-firmware.yml`](.github/workflows/build-firmware.yml). GitHub Actions tự biên dịch (arduino-cli trên máy chủ GitHub) và tạo Release kèm file `.bin`, không ai phải tự tay build.
-2. Máy tự kiểm tra bản mới mỗi 6 giờ khi đang ONLINE; người dùng cũng có thể bấm nút **"Cập nhật"** ngay trên trang chủ dashboard (mục **Cài đặt → Cập nhật firmware**) để yêu cầu máy kiểm tra ngay lập tức - nút này chỉ hiện khi thật sự có bản mới hơn phiên bản đang chạy, còn lại hiện thông tin phiên bản hiện tại.
-3. Dù kiểm tra bằng cách nào, máy chỉ hiện mục "Cập nhật firmware" trên HMI (trong KẾT NỐI) - người vận hành phải tự xác nhận **tại máy** mới thực sự tải về/nạp (không bao giờ tự động từ xa).
-4. Thiết lập backend (không cần R2, chỉ D1 có sẵn) xem [`cloudflare/README.md`](cloudflare/README.md#cập-nhật-firmware-từ-xa-qua-github-releases).
-
-### 2. Chạy Web Dashboard
-
-Dashboard là site tĩnh, có thể chạy trực tiếp bằng cách mở `index.html`, hoặc deploy lên **GitHub Pages**:
-
-1. Copy `config.production.example.js` thành `config.js`, chỉnh `mqttUrl` trỏ tới broker MQTT thật (khuyến nghị broker riêng cho môi trường thương mại, **không dùng broker công cộng**) và `cloudApiBase` trỏ tới Worker đã deploy (bước 3). Firmware cũng phải trỏ tới cùng broker riêng đó (macro `MAYAP_MQTT_HOST/USERNAME/PASSWORD` trong `config.h`, đặt qua build_flags) - nếu không, firmware tự khoá mọi lệnh điều khiển/cấu hình từ xa qua MQTT (chỉ còn xem dữ liệu một chiều) vì đang phát hiện dùng broker công khai không xác thực.
-2. Bật GitHub Pages cho repo (hoặc host bằng bất kỳ static hosting nào - Cloudflare Pages, Netlify...).
-3. Truy cập trang, bấm **+** để thêm thiết bị bằng Device ID + PIN hiển thị trên máy (mặc định `1111`, nên đổi ngay sau khi thêm).
-4. Trên điện thoại, có thể "Thêm vào Màn hình chính" để dùng như app PWA, nhận thông báo đẩy kể cả khi không mở trình duyệt.
-
-### 3. Triển khai Cloudflare Worker (tuỳ chọn)
-
-Bắt buộc nếu muốn nhận **cảnh báo đẩy** (mất điện, mất mạng, lỗi cảm biến...) trên điện thoại. Xem hướng dẫn đầy đủ tại [`cloudflare/README.md`](cloudflare/README.md), tóm tắt:
-
-```bash
-cd cloudflare
-npm install
-npx wrangler d1 create mayap_push        # rồi dán database_id vào wrangler.toml
-npm run db:migrate:remote
-npx web-push generate-vapid-keys         # tạo cặp khoá VAPID
-npx wrangler secret put VAPID_PUBLIC_KEY
-npx wrangler secret put VAPID_PRIVATE_KEY
-npx wrangler secret put VAPID_SUBJECT
-npx wrangler secret put DEVICE_KEY_PEPPER
-npm run deploy
+```text
+MAYAP_INDUSTRIAL_v3_4_0/   ESP32 firmware
+ATTINY13A_POWER_ALARM/     firmware ATtiny13A
+cloudflare/                Worker + D1 migrations
+.github/workflows/         CI/build/release/deploy
+app.js/config.js/...       Web PWA
+release-manifest.json      manifest đồng bộ release
+tools/                     regression/sync checker
+doc/                       kiến trúc, deploy, commissioning, safety
+audit/                     audit lịch sử + delta audit
 ```
 
-## Tính năng chính
+Tên thư mục firmware `MAYAP_INDUSTRIAL_v3_4_0` là tên sketch lịch sử; **không đại diện phiên bản firmware hiện tại**. Phiên bản thật nằm ở `MAYAP_FIRMWARE_VERSION` và `release-manifest.json`.
 
-**Điều khiển & giám sát**
-- Điều khiển nhiệt độ bằng PID (có Auto-Tune tự động tìm Kp/Ki/Kd), quản lý chu kỳ đảo trứng theo công tắc hành trình, quạt tuần hoàn/thông gió, đèn, còi báo.
-- Màn hình HMI tại máy (LCD + encoder xoay) với màn hình khởi động, xem/chỉnh toàn bộ thông số không cần dashboard.
-- Dashboard web theo dõi thời gian thực (nhiệt độ, độ ẩm, trạng thái từng đầu ra), chỉnh nhanh thông số vận hành, xem nhật ký mẻ ấp.
-- Quản lý nhiều máy ấp trên cùng một dashboard, mỗi máy có Device ID + PIN riêng.
+## Build ESP32
 
-**Cảnh báo & thông báo**
-- Hơn 20 loại cảnh báo: mất cảm biến, nhiệt độ cao/thấp/khẩn cấp, độ ẩm bất thường, bỏ lỡ chu kỳ đảo, mất điện/mất mạng kèm thông báo khi có điện trở lại, tín hiệu WiFi yếu kéo dài, xung đột output, lỗi EEPROM/RTC/I2C...
-- Web Push tới điện thoại kể cả khi không mở trình duyệt (qua Cloudflare Worker + Service Worker), áp dụng cho mọi thiết bị trên dashboard.
-- Cảnh báo nhiệt độ "thông minh": tạm im còi khi đã xác nhận và nhiệt độ đang giảm thật, tự kêu lại ngay nếu nhiệt độ ngừng giảm hoặc tăng trở lại.
+Board: **ESP32-S3-WROOM-1U-N8**, flash thật 8 MB, không PSRAM.
 
-**An toàn**
-- Kiến trúc điều khiển nhiệt hai lớp độc lập: relay tổng theo công tắc vật lý + SSR điều khiển PID, cộng với watchdog/giám sát stack, phát hiện reset bất thường, khoá an toàn khi lưu trữ cấu hình không khả dụng.
-- EEPROM lưu cấu hình có schema versioning, tự nâng cấp an toàn giữa các phiên bản firmware mà không mất cấu hình đã lưu.
+Thiết lập bắt buộc:
 
-## An toàn & thiết kế điều khiển
+- Flash Size: 8 MB
+- Partition Scheme: `default_8MB` / “8M with spiffs”
+- PSRAM: disabled
+- Không dùng `huge_app` vì cấu hình đó không có dual OTA phù hợp dự án.
 
-Một vài nguyên tắc thiết kế cố ý (đọc kỹ trước khi sửa `machine_control.h`):
+CI dùng FQBN:
 
-- **Relay nhiệt tổng (`PIN_OUT_HEAT_MASTER`) theo công tắc vật lý là chính** - phần mềm chỉ được cảnh báo, ngoại trừ **một** trường hợp ngoại lệ được giữ lại có chủ đích: tự động ngắt khẩn cấp khi quá nhiệt, làm lớp bảo vệ dự phòng cho trường hợp SSR bị kẹt/chập (một lỗi phần cứng thực tế đã ghi nhận).
-- **Hai lớp an toàn nhiệt độc lập**: dòng điện thực tế ra thanh nhiệt cần *cả* relay tổng *và* SSR (điều khiển PID) cùng cho phép - mất một lớp không làm mất an toàn.
-- Alarm nhiệt độ cao/khẩn cấp có thể cấu hình hoạt động độc lập với trạng thái mẻ ấp (mặc định bật, có thể tắt trong Cài đặt nếu chỉ muốn cảnh báo khi đang có mẻ).
+```text
+esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
+```
 
-## Cấu hình
+### Build profile
 
-| File | Vai trò |
-| --- | --- |
-| `config.js` | Cấu hình broker MQTT + Worker cho **môi trường test** (đang trỏ tới broker công cộng `broker.emqx.io` - **không dùng cho máy thương mại**). |
-| `config.production.example.js` | Mẫu cấu hình cho triển khai thật, copy thành `config.js` và điền broker/Worker riêng. |
-| `MAYAP_INDUSTRIAL_v3_4_0/config.h` | Hằng số firmware: chân GPIO, ngưỡng an toàn mặc định, kích thước task/stack. |
-| `cloudflare/wrangler.toml` | Cấu hình Worker: `ALLOWED_ORIGIN` (origin của dashboard), `database_id` (D1). |
+Workflow hiện chia 3 profile mà không cần sửa source:
 
-> Website chạy dưới dạng mã tĩnh (GitHub Pages) - bất kỳ giá trị nào đặt trong `config.js` (kể cả mật khẩu MQTT) đều có thể bị xem được từ trình duyệt. Với triển khai thương mại, ưu tiên dùng token ngắn hạn do backend cấp thay vì mật khẩu tĩnh.
+- **DEV:** diagnostic Serial ON, input simulation OFF.
+- **PILOT:** chạy `workflow_dispatch`, diagnostic Serial ON, input simulation OFF.
+- **PROD:** build từ tag `vX.Y.Z`, diagnostic Serial OFF, input simulation OFF.
 
-## Đóng góp / phát triển thêm
+Tag release phải khớp chính xác `MAYAP_FIRMWARE_VERSION`.
 
-- Firmware build bằng Arduino IDE, không có PlatformIO/CI biên dịch tự động trong repo này - kiểm tra kỹ trước khi nạp vào máy thật, đặc biệt các thay đổi liên quan an toàn nhiệt và schema EEPROM.
-- Khi thêm trường mới vào cấu hình lưu EEPROM (`PackedMachineConfigV1` trong `machine_control.h`), phải tăng `CONFIG_SCHEMA` và bổ sung đường nâng cấp tương thích ngược (xem các khối `ConfigRecordLegacyV*` hiện có làm mẫu).
-- Toàn bộ giao diện (HMI + web) dùng tiếng Việt không dấu ở tên biến/hằng số nhưng có dấu ở chuỗi hiển thị cho người dùng.
+## CI/release invariants
+
+Trước build/release, pipeline bắt buộc:
+
+1. kiểm version/tag;
+2. cấm `setInsecure()`;
+3. cấm private key trong firmware;
+4. kiểm contract ESP32 ↔ ATtiny;
+5. chạy `tools/check_release_sync.py`;
+6. chạy `tools/check_v381_reliability.py`;
+7. syntax-check toàn bộ entrypoint JS, gồm cả security/reliability wrapper;
+8. compile ATtiny với giới hạn 1 KB flash / 64 B static RAM;
+9. compile ESP32;
+10. với tag: ký ECDSA và tạo GitHub Release.
+
+CI dùng Node 24. Arduino CLI được tải từ GitHub Release chính thức ở phiên bản cố định và kiểm SHA-256 trước khi cài, không phụ thuộc `arduino/setup-arduino-cli@v2`.
+
+## Cloudflare
+
+Entrypoint hiện hành là:
+
+```text
+cloudflare/src/reliability-wrapper.js
+  -> security-wrapper.js
+     -> index.js
+```
+
+`wrangler.toml` hiện giữ compatibility date `2026-08-01` và `nodejs_compat` có chủ ý. Không tự động đẩy compatibility date theo ngày hiện tại khi chưa regression-test Worker.
+
+Deploy: `.github/workflows/deploy-cloudflare-worker.yml`.
+
+Hiện `cloudflare/` chưa commit `package-lock.json`, vì vậy workflow dùng `npm install` với dependency trực tiếp đã pin và phát warning. Khi lockfile được tạo/commit hợp lệ, workflow tự chuyển sang `npm ci`.
+
+Chi tiết: `cloudflare/README.md` và `doc/DEPLOY_V3_8_1.md`.
+
+## OTA
+
+Có hai đường OTA độc lập:
+
+- **ArduinoOTA LAN:** chỉ dùng khi đặt `MAYAP_OTA_PASSWORD`; để trống là tắt.
+- **Internet OTA:** GitHub Release → Worker → ESP32; không tự flash từ xa. Operator phải xác nhận tại máy.
+
+Private signing key chỉ được đặt trong GitHub Actions secret. Firmware chỉ chứa public key xác minh.
+
+## Tài liệu chuẩn
+
+- `doc/ARCHITECTURE_V3_8_1.md` — source-of-truth kiến trúc.
+- `doc/DEPLOY_V3_8_1.md` — triển khai hiện hành.
+- `doc/COMMISSIONING_V3_8_1.md` — checklist máy pilot và soak.
+- `doc/SAFETY_HARDWARE_REQUIREMENTS.md` — yêu cầu an toàn phần cứng.
+- `doc/DEPLOY_V3_8_0.md` — **archive, không dùng để triển khai**.
+- `audit/06_V381_DELTA_AUDIT.md` — trạng thái delta audit v3.8.1.
+
+## Nguyên tắc source-of-truth
+
+Khi comment/tài liệu cũ mâu thuẫn với code thực thi, phải xác minh lại và sửa tài liệu; không dùng comment cũ để thay đổi hành vi an toàn đang chạy. Với heater safety, provisioning, MQTT auth, ATtiny và OTA, mọi thay đổi phải đi qua regression gate và commissioning trước khi phát hành hàng loạt.
