@@ -343,7 +343,7 @@ inline void handlePortalRoot() {
     "</select><label>Mat khau</label>"
     "<input id=wifiPassword name=password type=password maxlength=64 autocomplete=off>"
     "<label class=showPass><input id=showPassword type=checkbox "
-    "onchange=\"document.getElementById(\'wifiPassword\').type=this.checked?\'text\':\'password\'\">"
+    "onchange=\"document.getElementById('wifiPassword').type=this.checked?'text':'password'\">"
     "<span>Hien mat khau</span></label>"
     "<button type=submit>Luu &amp; ket noi</button></form>"
     "<a class=reload href=/rescan>&#8635; Tim lai Wi-Fi</a>"
