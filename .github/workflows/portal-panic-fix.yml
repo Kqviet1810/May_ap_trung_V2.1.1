@@ -19,119 +19,41 @@ jobs:
           ref: hardening/v3.8.1-reliability
           fetch-depth: 0
 
-      - name: Apply portal panic hardening
+      - name: Close quiesce cancel race
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          root = Path('.')
-          netp = root / 'MAYAP_INDUSTRIAL_v3_4_0/network_service.h'
-          otap = root / 'MAYAP_INDUSTRIAL_v3_4_0/ota_update.h'
-          inop = root / 'MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino'
-          checkp = root / 'tools/check_v381_reliability.py'
-
-          def rep(text, old, new, label):
-              if old not in text:
-                  raise SystemExit(f'patch anchor missing: {label}')
-              return text.replace(old, new, 1)
-
+          netp = Path('MAYAP_INDUSTRIAL_v3_4_0/network_service.h')
+          checkp = Path('tools/check_v381_reliability.py')
           net = netp.read_text(encoding='utf-8')
-          net = rep(net,
-              '#include <time.h>\n',
-              '#include <time.h>\n#include <esp_attr.h>\n#include <esp_system.h>\n',
-              'network includes')
-
-          net = rep(net,
-              'enum class PortalPhase : uint8_t { Idle, Starting, ApActive, Testing, Success, Failed };\n',
-              'enum class PortalPhase : uint8_t { Idle, Quiescing, Starting, ApActive, Testing, Success, Failed };\n',
-              'portal phase enum')
-
-          anchor = 'static bool pendingCredentialsReady = false;\n'
-          insert = '''static bool pendingCredentialsReady = false;\n\n// Doi Wi-Fi dung chung radio voi MQTT/Cloud/OTA. Trước khi ha STA phai doi\n// otaTask dong socket/ArduinoOTA xong; neu khong se co race teardown interface\n// trong luc task khac van dang dung lwIP/TLS.\nstatic volatile uint8_t portalOtaQuiescedFlag = 0U;\nstatic uint32_t portalQuiesceStartedAt_ = 0U;\nconstexpr uint32_t WIFI_PORTAL_QUIESCE_TIMEOUT_MS = 10000UL;\n\n// Breadcrumb nam trong RTC RAM de giu qua panic reset. reset_reason=4 chi cho\n// biet ESP_RST_PANIC; marker nay cho biet panic xay ra o buoc radio nao.\nconstexpr uint32_t PORTAL_CRASH_MAGIC = 0x4D505750UL;  // \"MPWP\"\nRTC_NOINIT_ATTR static uint32_t portalCrashMagic_;\nRTC_NOINIT_ATTR static uint32_t portalCrashStage_;\n\ninline void portalCrashMark(uint32_t stage) {\n  portalCrashMagic_ = PORTAL_CRASH_MAGIC;\n  portalCrashStage_ = stage;\n}\ninline void portalCrashClear() {\n  portalCrashMagic_ = 0U;\n  portalCrashStage_ = 0U;\n}\ninline const char *portalCrashStageText(uint32_t stage) {\n  switch (stage) {\n    case 10: return \"QUIESCING\";\n    case 20: return \"DISCONNECT_STA\";\n    case 30: return \"MODE_AP_STA\";\n    case 40: return \"SOFTAP_START\";\n    case 50: return \"SERVER_START\";\n    case 60: return \"AP_ACTIVE\";\n    case 70: return \"TEST_NEW_STA\";\n    case 80: return \"PORTAL_STOP\";\n    default: return \"UNKNOWN\";\n  }\n}\n'''
-          net = rep(net, anchor, insert, 'portal quiesce globals')
-
-          old = '''inline void portalStop() {\n  portalServer.stop();\n  portalDns.stop();\n  if (portalPhase != PortalPhase::Idle) {\n    // Neu dang o STA co ket noi that thi giu nguyen; chi tat AP.\n    WiFi.softAPdisconnect(true);\n    WiFi.mode(WIFI_STA);\n  }\n  portalPhase = PortalPhase::Idle;\n  pendingCredentialsReady = false;\n  publishPortalState(WifiPortalState::Idle, \"\");\n}\n'''
-          new = '''inline void portalStop() {\n  portalCrashMark(80U);\n  portalServer.stop();\n  portalDns.stop();\n  if (portalPhase != PortalPhase::Idle) {\n    // Neu dang o STA co ket noi that thi giu nguyen; chi tat AP.\n    WiFi.softAPdisconnect(true);\n    WiFi.mode(WIFI_STA);\n  }\n  portalPhase = PortalPhase::Idle;\n  pendingCredentialsReady = false;\n  __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);\n  publishPortalState(WifiPortalState::Idle, \"\");\n  portalCrashClear();\n}\n'''
-          net = rep(net, old, new, 'portalStop')
-
-          old = '''  // RAT QUAN TRONG de AP phat song on dinh: tat auto-reconnect va ngat STA\n  // dang co TRUOC khi doi mode. Neu khong, STA (dang tu dong thu ket noi lai\n  // mang cu o nen) va AP moi bat se tranh gianh cung mot radio/lich trinh -\n  // day chinh la nguyen nhan pho bien khien AP \"chap chon\", luc phat luc\n  // khong, thay vi bao gio cung phat on dinh nhu mong doi.\n  WiFi.setAutoReconnect(false);\n  WiFi.disconnect(true, false);\n  WiFi.mode(WIFI_AP_STA);\n\n  portalApStartingSince_ = now;\n'''
-          new = '''  // Tat auto reconnect va NGAT STA, nhung KHONG tat radio. Ban cu dung\n  // disconnect(true, false): tham so true goi STA.end()/ha interface, roi ngay\n  // sau lai bat AP+STA. Ket hop voi otaTask chay song song tao race lwIP/TLS.\n  WiFi.setAutoReconnect(false);\n  portalCrashMark(20U);\n  (void)WiFi.disconnect(false, false);\n  portalCrashMark(30U);\n  if (!WiFi.mode(WIFI_AP_STA)) {\n    mayapSerialPrintf(true, \"[PORTAL] WIFI_AP_STA that bai, giu STA cu\\n\");\n    portalPhase = PortalPhase::Idle;\n    __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);\n    __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);\n    publishPortalState(WifiPortalState::Failed, \"\");\n    portalCrashClear();\n    return;\n  }\n\n  portalApStartingSince_ = now;\n'''
-          net = rep(net, old, new, 'radio teardown')
-
-          net = rep(net,
-              'inline bool bringUpSoftAp() {\n  WiFi.softAPConfig(',
-              'inline bool bringUpSoftAp() {\n  portalCrashMark(40U);\n  WiFi.softAPConfig(',
-              'softAP breadcrumb')
-
-          net = rep(net,
-              '  if (!portalServersStarted_) {\n    portalDns.start(',
-              '  if (!portalServersStarted_) {\n    portalCrashMark(50U);\n    portalDns.start(',
-              'server breadcrumb')
-
-          net = rep(net,
-              '  portalPhase = PortalPhase::ApActive;\n  publishPortalState(WifiPortalState::ApActive, portalApName);\n}',
-              '  portalPhase = PortalPhase::ApActive;\n  portalCrashMark(60U);\n  publishPortalState(WifiPortalState::ApActive, portalApName);\n}',
-              'AP active breadcrumb')
-
-          old = '''  if (portalPhase == PortalPhase::Idle) {\n    if (!requested) return;\n    portalBeginStarting(now);\n    return;\n  }\n'''
-          new = '''  if (portalPhase == PortalPhase::Idle) {\n    if (!requested) return;\n    // Pha 1: cong bo STA offline cho cac client cua networkTask tu dong dong\n    // MQTT/socket; otaTask thay portalRequestFlag va dong ArduinoOTA/HTTPS.\n    portalPhase = PortalPhase::Quiescing;\n    portalQuiesceStartedAt_ = now;\n    portalCrashMark(10U);\n    publish(NetworkStateCode::Connecting, false);\n    publishPortalState(WifiPortalState::Starting, \"\");\n    return;\n  }\n\n  if (portalPhase == PortalPhase::Quiescing) {\n    publish(NetworkStateCode::Connecting, false);\n    const bool otaQuiesced = __atomic_load_n(&portalOtaQuiescedFlag, __ATOMIC_ACQUIRE) != 0U;\n    // Cho it nhat 1 network tick de mayapWebLinkUpdate() dong MQTT sau khi\n    // publishedConnected=false, ke ca khi otaTask da ack rat nhanh.\n    if (otaQuiesced && elapsedMs(now, portalQuiesceStartedAt_) >= NETWORK_TASK_PERIOD_MS) {\n      portalBeginStarting(now);\n      return;\n    }\n    if (elapsedMs(now, portalQuiesceStartedAt_) >= WIFI_PORTAL_QUIESCE_TIMEOUT_MS) {\n      mayapSerialPrintf(true, \"[PORTAL] huy doi Wi-Fi: I/O mang chua quiesce sau %lums\\n\",\n          static_cast<unsigned long>(WIFI_PORTAL_QUIESCE_TIMEOUT_MS));\n      __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);\n      __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);\n      portalPhase = PortalPhase::Idle;\n      publishPortalState(WifiPortalState::Failed, \"\");\n      portalCrashClear();\n    }\n    return;\n  }\n'''
-          net = rep(net, old, new, 'quiescing state')
-
-          net = rep(net,
-              '      (void)saveCredentials(pendingSsid, pendingPassword);\n      WiFi.begin(activeSsid, activePassword[0] ? activePassword : nullptr);',
-              '      (void)saveCredentials(pendingSsid, pendingPassword);\n      portalCrashMark(70U);\n      WiFi.begin(activeSsid, activePassword[0] ? activePassword : nullptr);',
-              'testing breadcrumb')
-
-          old = '''  if (portalOwnsRadio) {\n    if (WiFi.isConnected()) {\n      int32_t rssi = WiFi.RSSI();\n      if (rssi < -127) rssi = -127;\n      if (rssi > 0) rssi = 0;\n      publish(NetworkStateCode::Connected, true, static_cast<int8_t>(rssi));\n    } else {\n      publish(NetworkStateCode::Connecting, false);\n    }\n'''
-          new = '''  if (portalOwnsRadio) {\n    if (portalPhase == PortalPhase::Quiescing) {\n      // Co y bao offline cho MQTT/Cloud trong khi radio that van con song de\n      // cac socket co thoi gian dong sach TRUOC khi doi mode Wi-Fi.\n      publish(NetworkStateCode::Connecting, false);\n    } else if (WiFi.isConnected()) {\n      int32_t rssi = WiFi.RSSI();\n      if (rssi < -127) rssi = -127;\n      if (rssi > 0) rssi = 0;\n      publish(NetworkStateCode::Connected, true, static_cast<int8_t>(rssi));\n    } else {\n      publish(NetworkStateCode::Connecting, false);\n    }\n'''
-          net = rep(net, old, new, 'network publish during quiesce')
-
-          old = '''inline bool mayapRequestWifiPortal() {\n  using namespace MayapNetworkInternal;\n  const uint8_t mode = __atomic_load_n(&requestedMode, __ATOMIC_ACQUIRE);\n  if (mode != static_cast<uint8_t>(ConnectivityMode::Online)) return false;\n  __atomic_store_n(&portalCancelFlag, 0U, __ATOMIC_RELEASE);\n  __atomic_store_n(&portalRequestFlag, 1U, __ATOMIC_RELEASE);\n  return true;\n}\n'''
-          new = '''inline bool mayapWifiPortalExclusiveRequested() {\n  using namespace MayapNetworkInternal;\n  return __atomic_load_n(&portalRequestFlag, __ATOMIC_ACQUIRE) != 0U ||\n      __atomic_load_n(&publishedPortalState, __ATOMIC_ACQUIRE) !=\n          static_cast<uint8_t>(WifiPortalState::Idle);\n}\n\ninline void mayapSetWifiPortalOtaQuiesced(bool quiesced) {\n  __atomic_store_n(&MayapNetworkInternal::portalOtaQuiescedFlag,\n                   quiesced ? 1U : 0U, __ATOMIC_RELEASE);\n}\n\ninline bool mayapRequestWifiPortal() {\n  using namespace MayapNetworkInternal;\n  const uint8_t mode = __atomic_load_n(&requestedMode, __ATOMIC_ACQUIRE);\n  if (mode != static_cast<uint8_t>(ConnectivityMode::Online)) return false;\n  __atomic_store_n(&portalCancelFlag, 0U, __ATOMIC_RELEASE);\n  __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);\n  __atomic_store_n(&portalRequestFlag, 1U, __ATOMIC_RELEASE);\n  return true;\n}\n'''
-          net = rep(net, old, new, 'public quiesce API')
-
-          net = rep(net,
-              'inline void mayapNetworkBegin() {\n  using namespace MayapNetworkInternal;\n  loadCredentialsOnce();',
-              'inline void mayapNetworkBegin() {\n  using namespace MayapNetworkInternal;\n  if (esp_reset_reason() == ESP_RST_PANIC && portalCrashMagic_ == PORTAL_CRASH_MAGIC &&\n      portalCrashStage_ != 0U) {\n    mayapSerialPrintf(true, \"[PORTAL-PANIC] stage=%lu (%s)\\n\",\n        static_cast<unsigned long>(portalCrashStage_),\n        portalCrashStageText(portalCrashStage_));\n  }\n  portalCrashClear();\n  loadCredentialsOnce();',
-              'panic breadcrumb report')
-
-          # Timeout must not immediately reopen forever.
-          net = rep(net,
-              '  if (elapsedMs(now, portalOpenedAt) >= WIFI_PORTAL_MAX_OPEN_MS &&\n      portalPhase != PortalPhase::Testing) {\n    portalStop();\n    return;\n  }',
-              '  if (elapsedMs(now, portalOpenedAt) >= WIFI_PORTAL_MAX_OPEN_MS &&\n      portalPhase != PortalPhase::Testing) {\n    portalStop();\n    __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);\n    return;\n  }',
-              'portal timeout request clear')
-
+          old = '''  if (portalPhase != PortalPhase::Idle) {
+    // Neu dang o STA co ket noi that thi giu nguyen; chi tat AP.
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
+  }
+'''
+          new = '''  // Quiescing nghia la AP CHUA duoc bat va otaTask co the chua ACK.
+  // Huy dung o pha nay tuyet doi khong duoc cham radio; chi khi da qua
+  // quiesce moi co quyen tat AP/doi mode.
+  if (portalPhase != PortalPhase::Idle &&
+      portalPhase != PortalPhase::Quiescing) {
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
+  }
+'''
+          if old not in net:
+              raise SystemExit('portalStop anchor missing')
+          net = net.replace(old, new, 1)
           netp.write_text(net, encoding='utf-8')
 
-          ota = otap.read_text(encoding='utf-8')
-          ota = rep(ota,
-              '''inline bool mayapOtaInProgress() {\n  return MayapOtaInternal::inProgress;\n}\n''',
-              '''inline bool mayapOtaInProgress() {\n  return MayapOtaInternal::inProgress;\n}\n\n// Goi boi otaTask truoc khi networkTask doi radio sang captive portal.\n// Khong bao gio end ArduinoOTA giua mot upload dang chay; portal se cho/timeout.\ninline bool mayapOtaQuiesceForWifiPortal() {\n  using namespace MayapOtaInternal;\n  if (!mayapOtaEnabled()) return true;\n  if (inProgress) return false;\n  if (started) {\n    ArduinoOTA.end();\n    started = false;\n  }\n  return true;\n}\n''',
-              'OTA quiesce helper')
-
-          ota = rep(ota,
-              '''  const NetworkStatus status = mayapGetNetworkStatus();\n  const bool shouldRun =\n      status.requestedMode == ConnectivityMode::Online && status.connected;\n''',
-              '''  // Neu upload ArduinoOTA da bat dau, tiep tuc pump cho den khi onEnd/onError.\n  // Khong de portal quiescing (publishedConnected=false) cat ngang flash dang ghi.\n  if (MayapOtaInternal::inProgress) {\n    ArduinoOTA.handle();\n    return;\n  }\n\n  const NetworkStatus status = mayapGetNetworkStatus();\n  const bool shouldRun =\n      status.requestedMode == ConnectivityMode::Online && status.connected;\n''',
-              'OTA in-progress guard')
-          otap.write_text(ota, encoding='utf-8')
-
-          ino = inop.read_text(encoding='utf-8')
-          old = '''  for (;;) {\n    const uint32_t now = millis();\n    mayapOtaUpdate(now);\n    // Cap nhat firmware TU XA qua Cloudflare (ota_web_update.h) - cung task\n    // vi ca hai deu la \"dang ghi flash\", tu nhien loai tru lan nhau.\n    mayapFirmwareWebUpdate(now);\n    // Quay lai firmware truoc do (ota_rollback.h) - cung task voi 2 thao tac\n    // tren vi day cung la thao tac lien quan flash/khoi dong, tu nhien loai\n    // tru lan nhau giong het 2 dong tren.\n    mayapFirmwareRollbackUpdate(now);\n    vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));\n  }\n'''
-          new = '''  for (;;) {\n    const uint32_t now = millis();\n    if (mayapWifiPortalExclusiveRequested()) {\n      const bool quiesced = mayapOtaQuiesceForWifiPortal();\n      mayapSetWifiPortalOtaQuiesced(quiesced);\n      if (!quiesced) {\n        // ArduinoOTA dang ghi: tiep tuc handle cho den onEnd/onError; portal\n        // KHONG duoc ha radio trong thoi gian nay.\n        mayapOtaUpdate(now);\n      }\n      vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));\n      continue;\n    }\n    mayapSetWifiPortalOtaQuiesced(false);\n    mayapOtaUpdate(now);\n    // Cap nhat firmware TU XA qua Cloudflare (ota_web_update.h) - cung task\n    // vi ca hai deu la \"dang ghi flash\", tu nhien loai tru lan nhau.\n    mayapFirmwareWebUpdate(now);\n    // Quay lai firmware truoc do (ota_rollback.h) - cung task voi 2 thao tac\n    // tren vi day cung la thao tac lien quan flash/khoi dong, tu nhien loai\n    // tru lan nhau giong het 2 dong tren.\n    mayapFirmwareRollbackUpdate(now);\n    vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));\n  }\n'''
-          ino = rep(ino, old, new, 'otaTask portal handshake')
-          inop.write_text(ino, encoding='utf-8')
-
           check = checkp.read_text(encoding='utf-8')
-          check = rep(check,
-              'machine = read("MAYAP_INDUSTRIAL_v3_4_0/machine_control.h")\n',
-              'machine = read("MAYAP_INDUSTRIAL_v3_4_0/machine_control.h")\nnetwork = read("MAYAP_INDUSTRIAL_v3_4_0/network_service.h")\nota = read("MAYAP_INDUSTRIAL_v3_4_0/ota_update.h")\nino = read("MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino")\n',
-              'checker file reads')
-          guard = '''\n# Wi-Fi portal must quiesce cross-task network I/O before changing radio mode.\nrequire(network, "PortalPhase::Quiescing", "Wi-Fi portal quiescing phase")\nrequire(network, "WiFi.disconnect(false, false)", "portal disconnect keeps radio alive")\nrequire(network, "portalOtaQuiescedFlag", "portal/OTA quiesce handshake")\nrequire(network, "[PORTAL-PANIC] stage=", "portal panic RTC breadcrumb")\nrequire(ota, "mayapOtaQuiesceForWifiPortal", "ArduinoOTA portal quiesce helper")\nrequire(ota, "if (MayapOtaInternal::inProgress)", "do not abort active ArduinoOTA")\nrequire(ino, "mayapWifiPortalExclusiveRequested()", "otaTask portal exclusion")\nrequire(ino, "mayapSetWifiPortalOtaQuiesced(quiesced)", "otaTask quiesce acknowledgement")\n'''
-          check = rep(check,
-              '# Provisioning diagnostics must remain visible on the local HMI path.\n',
-              guard + '\n# Provisioning diagnostics must remain visible on the local HMI path.\n',
-              'checker portal guards')
+          anchor = 'require(network, "portalOtaQuiescedFlag", "portal/OTA quiesce handshake")\n'
+          add = anchor + 'require(network, "portalPhase != PortalPhase::Quiescing", "cancel during quiesce must not touch radio")\n'
+          if anchor not in check:
+              raise SystemExit('checker anchor missing')
+          check = check.replace(anchor, add, 1)
           checkp.write_text(check, encoding='utf-8')
           PY
 
@@ -141,14 +63,10 @@ jobs:
           python3 tools/check_v381_reliability.py
           git diff --check
 
-      - name: Commit source fix
-        shell: bash
+      - name: Commit race closure
         run: |
           git config user.name "Kiều Việt"
           git config user.email "120502812+Kqviet1810@users.noreply.github.com"
-          git add MAYAP_INDUSTRIAL_v3_4_0/network_service.h \
-                  MAYAP_INDUSTRIAL_v3_4_0/ota_update.h \
-                  MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino \
-                  tools/check_v381_reliability.py
-          git commit -m "fix(v3.8.1): prevent Wi-Fi portal panic race"
+          git add MAYAP_INDUSTRIAL_v3_4_0/network_service.h tools/check_v381_reliability.py
+          git commit -m "fix(v3.8.1): make portal cancel quiesce-safe"
           git push origin HEAD:hardening/v3.8.1-reliability
