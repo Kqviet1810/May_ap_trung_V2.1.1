@@ -28,10 +28,9 @@ jobs:
           python3 tools/check_release_sync.py
           python3 tools/check_v381_reliability.py
 
-      - name: Remove one-shot tooling
+      - name: Remove temporary non-workflow tooling
         run: |
           rm -f tools/apply_mqtt_build_guard.py
-          rm -f .github/workflows/apply-mqtt-build-guard.yml
           rm -f .mqtt-build-guard-trigger
 
       - name: Commit hardened source
