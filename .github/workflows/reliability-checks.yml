@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Validate JavaScript entrypoints
         run: |
@@ -47,4 +49,4 @@ jobs:
           fi
 
       - name: Verify formatting
-        run: git diff --check HEAD^
+        run: git diff --check HEAD^ HEAD --
