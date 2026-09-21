@@ -80,6 +80,19 @@ inline bool mayapOtaInProgress() {
   return MayapOtaInternal::inProgress;
 }
 
+// Goi boi otaTask truoc khi networkTask doi radio sang captive portal.
+// Khong bao gio end ArduinoOTA giua mot upload dang chay; portal se cho/timeout.
+inline bool mayapOtaQuiesceForWifiPortal() {
+  using namespace MayapOtaInternal;
+  if (!mayapOtaEnabled()) return true;
+  if (inProgress) return false;
+  if (started) {
+    ArduinoOTA.end();
+    started = false;
+  }
+  return true;
+}
+
 // Goi 1 lan trong setup(): chi dang ky cau hinh/callback, CHUA mo cong mang
 // nao (an toan goi truoc khi Wi-Fi ket noi, thu tu giong cac module khac).
 inline void mayapOtaBegin() {
@@ -98,6 +111,13 @@ inline void mayapOtaBegin() {
 inline void mayapOtaUpdate(uint32_t now) {
   (void)now;
   if (!mayapOtaEnabled()) return;
+
+  // Neu upload ArduinoOTA da bat dau, tiep tuc pump cho den khi onEnd/onError.
+  // Khong de portal quiescing (publishedConnected=false) cat ngang flash dang ghi.
+  if (MayapOtaInternal::inProgress) {
+    ArduinoOTA.handle();
+    return;
+  }
 
   const NetworkStatus status = mayapGetNetworkStatus();
   const bool shouldRun =

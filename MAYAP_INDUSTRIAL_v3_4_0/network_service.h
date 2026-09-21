@@ -9,6 +9,8 @@
 #include <stdint.h>
 #include <ctype.h>
 #include <time.h>
+#include <esp_attr.h>
+#include <esp_system.h>
 
 // Wi-Fi duoc cach ly khoi task dieu khien. File nay chi duoc goi boi
 // networkTask (tru mayapSetConnectivityMode/mayapGetNetworkStatus/
@@ -144,7 +146,7 @@ static char publishedPortalApName[20] = "";
 static char publishedPortalPassword[16] = "";
 static portMUX_TYPE portalNameMux = portMUX_INITIALIZER_UNLOCKED;
 
-enum class PortalPhase : uint8_t { Idle, Starting, ApActive, Testing, Success, Failed };
+enum class PortalPhase : uint8_t { Idle, Quiescing, Starting, ApActive, Testing, Success, Failed };
 static PortalPhase portalPhase = PortalPhase::Idle;
 static uint32_t portalOpenedAt = 0U;
 static uint32_t portalTestStartedAt = 0U;
@@ -154,6 +156,41 @@ static char portalApPassword[16] = "";
 static char pendingSsid[WIFI_PORTAL_SSID_MAX + 1U] = "";
 static char pendingPassword[WIFI_PORTAL_PASSWORD_MAX + 1U] = "";
 static bool pendingCredentialsReady = false;
+
+// Doi Wi-Fi dung chung radio voi MQTT/Cloud/OTA. Trước khi ha STA phai doi
+// otaTask dong socket/ArduinoOTA xong; neu khong se co race teardown interface
+// trong luc task khac van dang dung lwIP/TLS.
+static volatile uint8_t portalOtaQuiescedFlag = 0U;
+static uint32_t portalQuiesceStartedAt_ = 0U;
+constexpr uint32_t WIFI_PORTAL_QUIESCE_TIMEOUT_MS = 10000UL;
+
+// Breadcrumb nam trong RTC RAM de giu qua panic reset. reset_reason=4 chi cho
+// biet ESP_RST_PANIC; marker nay cho biet panic xay ra o buoc radio nao.
+constexpr uint32_t PORTAL_CRASH_MAGIC = 0x4D505750UL;  // "MPWP"
+RTC_NOINIT_ATTR static uint32_t portalCrashMagic_;
+RTC_NOINIT_ATTR static uint32_t portalCrashStage_;
+
+inline void portalCrashMark(uint32_t stage) {
+  portalCrashMagic_ = PORTAL_CRASH_MAGIC;
+  portalCrashStage_ = stage;
+}
+inline void portalCrashClear() {
+  portalCrashMagic_ = 0U;
+  portalCrashStage_ = 0U;
+}
+inline const char *portalCrashStageText(uint32_t stage) {
+  switch (stage) {
+    case 10: return "QUIESCING";
+    case 20: return "DISCONNECT_STA";
+    case 30: return "MODE_AP_STA";
+    case 40: return "SOFTAP_START";
+    case 50: return "SERVER_START";
+    case 60: return "AP_ACTIVE";
+    case 70: return "TEST_NEW_STA";
+    case 80: return "PORTAL_STOP";
+    default: return "UNKNOWN";
+  }
+}
 
 // Trang thai rieng cho pha "Starting": AP tren ESP32+STA da bat ke ca khi
 // STA dang ket noi that (WiFi.softAP() vua bi tu choi vua bi cham) la
@@ -368,6 +405,7 @@ inline void handlePortalNotFound() {
 }
 
 inline void portalStop() {
+  portalCrashMark(80U);
   portalServer.stop();
   portalDns.stop();
   if (portalPhase != PortalPhase::Idle) {
@@ -377,12 +415,15 @@ inline void portalStop() {
   }
   portalPhase = PortalPhase::Idle;
   pendingCredentialsReady = false;
+  __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);
   publishPortalState(WifiPortalState::Idle, "");
+  portalCrashClear();
 }
 
 // Bat AP that su. Tach rieng khoi portalBeginStarting() de goi lai duoc
 // nhieu lan (retry) ma khong lam lai buoc doi mode/dat ten AP.
 inline bool bringUpSoftAp() {
+  portalCrashMark(40U);
   WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1),
                     IPAddress(255, 255, 255, 0));
   const bool ok = WiFi.softAP(portalApName, portalApPassword);
@@ -399,14 +440,22 @@ inline void portalBeginStarting(uint32_t now) {
   snprintf(portalApPassword, sizeof(portalApPassword), "MP%06lX",
            static_cast<unsigned long>(esp_random() & 0xFFFFFFUL));
 
-  // RAT QUAN TRONG de AP phat song on dinh: tat auto-reconnect va ngat STA
-  // dang co TRUOC khi doi mode. Neu khong, STA (dang tu dong thu ket noi lai
-  // mang cu o nen) va AP moi bat se tranh gianh cung mot radio/lich trinh -
-  // day chinh la nguyen nhan pho bien khien AP "chap chon", luc phat luc
-  // khong, thay vi bao gio cung phat on dinh nhu mong doi.
+  // Tat auto reconnect va NGAT STA, nhung KHONG tat radio. Ban cu dung
+  // disconnect(true, false): tham so true goi STA.end()/ha interface, roi ngay
+  // sau lai bat AP+STA. Ket hop voi otaTask chay song song tao race lwIP/TLS.
   WiFi.setAutoReconnect(false);
-  WiFi.disconnect(true, false);
-  WiFi.mode(WIFI_AP_STA);
+  portalCrashMark(20U);
+  (void)WiFi.disconnect(false, false);
+  portalCrashMark(30U);
+  if (!WiFi.mode(WIFI_AP_STA)) {
+    mayapSerialPrintf(true, "[PORTAL] WIFI_AP_STA that bai, giu STA cu\n");
+    portalPhase = PortalPhase::Idle;
+    __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);
+    __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);
+    publishPortalState(WifiPortalState::Failed, "");
+    portalCrashClear();
+    return;
+  }
 
   portalApStartingSince_ = now;
   portalApNextAttemptAt_ = now;
@@ -435,6 +484,7 @@ inline void serviceStarting(uint32_t now) {
   }
 
   if (!portalServersStarted_) {
+    portalCrashMark(50U);
     portalDns.start(DNS_PORT, "*", IPAddress(192, 168, 4, 1));
     portalServer.on("/", HTTP_GET, handlePortalRoot);
     portalServer.on("/save", HTTP_POST, handlePortalSave);
@@ -444,6 +494,7 @@ inline void serviceStarting(uint32_t now) {
     portalServersStarted_ = true;
   }
   portalPhase = PortalPhase::ApActive;
+  portalCrashMark(60U);
   publishPortalState(WifiPortalState::ApActive, portalApName);
 }
 
@@ -459,7 +510,34 @@ inline void servicePortal(uint32_t now) {
 
   if (portalPhase == PortalPhase::Idle) {
     if (!requested) return;
-    portalBeginStarting(now);
+    // Pha 1: cong bo STA offline cho cac client cua networkTask tu dong dong
+    // MQTT/socket; otaTask thay portalRequestFlag va dong ArduinoOTA/HTTPS.
+    portalPhase = PortalPhase::Quiescing;
+    portalQuiesceStartedAt_ = now;
+    portalCrashMark(10U);
+    publish(NetworkStateCode::Connecting, false);
+    publishPortalState(WifiPortalState::Starting, "");
+    return;
+  }
+
+  if (portalPhase == PortalPhase::Quiescing) {
+    publish(NetworkStateCode::Connecting, false);
+    const bool otaQuiesced = __atomic_load_n(&portalOtaQuiescedFlag, __ATOMIC_ACQUIRE) != 0U;
+    // Cho it nhat 1 network tick de mayapWebLinkUpdate() dong MQTT sau khi
+    // publishedConnected=false, ke ca khi otaTask da ack rat nhanh.
+    if (otaQuiesced && elapsedMs(now, portalQuiesceStartedAt_) >= NETWORK_TASK_PERIOD_MS) {
+      portalBeginStarting(now);
+      return;
+    }
+    if (elapsedMs(now, portalQuiesceStartedAt_) >= WIFI_PORTAL_QUIESCE_TIMEOUT_MS) {
+      mayapSerialPrintf(true, "[PORTAL] huy doi Wi-Fi: I/O mang chua quiesce sau %lums\n",
+          static_cast<unsigned long>(WIFI_PORTAL_QUIESCE_TIMEOUT_MS));
+      __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);
+      __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);
+      portalPhase = PortalPhase::Idle;
+      publishPortalState(WifiPortalState::Failed, "");
+      portalCrashClear();
+    }
     return;
   }
 
@@ -467,6 +545,7 @@ inline void servicePortal(uint32_t now) {
   if (elapsedMs(now, portalOpenedAt) >= WIFI_PORTAL_MAX_OPEN_MS &&
       portalPhase != PortalPhase::Testing) {
     portalStop();
+    __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);
     return;
   }
 
@@ -482,6 +561,7 @@ inline void servicePortal(uint32_t now) {
     if (pendingCredentialsReady) {
       pendingCredentialsReady = false;
       (void)saveCredentials(pendingSsid, pendingPassword);
+      portalCrashMark(70U);
       WiFi.begin(activeSsid, activePassword[0] ? activePassword : nullptr);
       portalTestStartedAt = now;
       portalPhase = PortalPhase::Testing;
@@ -614,6 +694,13 @@ inline String mayapDeviceIdText() {
 
 inline void mayapNetworkBegin() {
   using namespace MayapNetworkInternal;
+  if (esp_reset_reason() == ESP_RST_PANIC && portalCrashMagic_ == PORTAL_CRASH_MAGIC &&
+      portalCrashStage_ != 0U) {
+    mayapSerialPrintf(true, "[PORTAL-PANIC] stage=%lu (%s)\n",
+        static_cast<unsigned long>(portalCrashStage_),
+        portalCrashStageText(portalCrashStage_));
+  }
+  portalCrashClear();
   loadCredentialsOnce();
   __atomic_store_n(&requestedMode,
                    static_cast<uint8_t>(ConnectivityMode::Offline),
@@ -678,11 +765,24 @@ inline NetworkStatus mayapGetNetworkStatus() {
   return status;
 }
 
+inline bool mayapWifiPortalExclusiveRequested() {
+  using namespace MayapNetworkInternal;
+  return __atomic_load_n(&portalRequestFlag, __ATOMIC_ACQUIRE) != 0U ||
+      __atomic_load_n(&publishedPortalState, __ATOMIC_ACQUIRE) !=
+          static_cast<uint8_t>(WifiPortalState::Idle);
+}
+
+inline void mayapSetWifiPortalOtaQuiesced(bool quiesced) {
+  __atomic_store_n(&MayapNetworkInternal::portalOtaQuiescedFlag,
+                   quiesced ? 1U : 0U, __ATOMIC_RELEASE);
+}
+
 inline bool mayapRequestWifiPortal() {
   using namespace MayapNetworkInternal;
   const uint8_t mode = __atomic_load_n(&requestedMode, __ATOMIC_ACQUIRE);
   if (mode != static_cast<uint8_t>(ConnectivityMode::Online)) return false;
   __atomic_store_n(&portalCancelFlag, 0U, __ATOMIC_RELEASE);
+  __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);
   __atomic_store_n(&portalRequestFlag, 1U, __ATOMIC_RELEASE);
   return true;
 }
@@ -736,7 +836,11 @@ inline void mayapNetworkUpdate(uint32_t now) {
   // dieu khien (WiFi.begin khi test SSID moi); khong de vong lap STA binh
   // thuong danh nhau voi no.
   if (portalOwnsRadio) {
-    if (WiFi.isConnected()) {
+    if (portalPhase == PortalPhase::Quiescing) {
+      // Co y bao offline cho MQTT/Cloud trong khi radio that van con song de
+      // cac socket co thoi gian dong sach TRUOC khi doi mode Wi-Fi.
+      publish(NetworkStateCode::Connecting, false);
+    } else if (WiFi.isConnected()) {
       int32_t rssi = WiFi.RSSI();
       if (rssi < -127) rssi = -127;
       if (rssi > 0) rssi = 0;

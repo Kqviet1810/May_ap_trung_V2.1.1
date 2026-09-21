@@ -23,6 +23,9 @@ app = read("app.js")
 identity = read("MAYAP_INDUSTRIAL_v3_4_0/device_identity.h")
 cloud = read("MAYAP_INDUSTRIAL_v3_4_0/cloud_alert_link.h")
 machine = read("MAYAP_INDUSTRIAL_v3_4_0/machine_control.h")
+network = read("MAYAP_INDUSTRIAL_v3_4_0/network_service.h")
+ota = read("MAYAP_INDUSTRIAL_v3_4_0/ota_update.h")
+ino = read("MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino")
 wrangler = read("cloudflare/wrangler.toml")
 wrapper = read("cloudflare/src/reliability-wrapper.js")
 security = read("cloudflare/src/security-wrapper.js")
@@ -46,6 +49,17 @@ require(app, "WEB = Object.freeze({ ...WEB, ...runtimeMqtt });", "web MQTT runti
 require(app, "state.mqttSessionState = 'ready';", "web MQTT session ready state")
 require(app, "if (mqttReady) connectMqtt();", "web MQTT init readiness gate")
 require(app, "state.mqttSessionState === 'error' || state.mqttSessionState === 'auth-required'", "web MQTT no infinite connecting state")
+
+
+# Wi-Fi portal must quiesce cross-task network I/O before changing radio mode.
+require(network, "PortalPhase::Quiescing", "Wi-Fi portal quiescing phase")
+require(network, "WiFi.disconnect(false, false)", "portal disconnect keeps radio alive")
+require(network, "portalOtaQuiescedFlag", "portal/OTA quiesce handshake")
+require(network, "[PORTAL-PANIC] stage=", "portal panic RTC breadcrumb")
+require(ota, "mayapOtaQuiesceForWifiPortal", "ArduinoOTA portal quiesce helper")
+require(ota, "if (MayapOtaInternal::inProgress)", "do not abort active ArduinoOTA")
+require(ino, "mayapWifiPortalExclusiveRequested()", "otaTask portal exclusion")
+require(ino, "mayapSetWifiPortalOtaQuiesced(quiesced)", "otaTask quiesce acknowledgement")
 
 # Provisioning diagnostics must remain visible on the local HMI path.
 for state in ["CloudOffline", "TlsError", "ServerDenied", "KeyMismatch", "CloudError"]:

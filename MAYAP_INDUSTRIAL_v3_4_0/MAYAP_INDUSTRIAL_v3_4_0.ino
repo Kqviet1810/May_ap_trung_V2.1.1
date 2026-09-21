@@ -258,6 +258,18 @@ void otaTask(void *parameter) {
   TickType_t lastWake = xTaskGetTickCount();
   for (;;) {
     const uint32_t now = millis();
+    if (mayapWifiPortalExclusiveRequested()) {
+      const bool quiesced = mayapOtaQuiesceForWifiPortal();
+      mayapSetWifiPortalOtaQuiesced(quiesced);
+      if (!quiesced) {
+        // ArduinoOTA dang ghi: tiep tuc handle cho den onEnd/onError; portal
+        // KHONG duoc ha radio trong thoi gian nay.
+        mayapOtaUpdate(now);
+      }
+      vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
+      continue;
+    }
+    mayapSetWifiPortalOtaQuiesced(false);
     mayapOtaUpdate(now);
     // Cap nhat firmware TU XA qua Cloudflare (ota_web_update.h) - cung task
     // vi ca hai deu la "dang ghi flash", tu nhien loai tru lan nhau.
