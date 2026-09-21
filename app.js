@@ -19,7 +19,12 @@
     const mqttPassword = String(mqtt?.password || '');
     let parsed; try { parsed = new URL(mqttUrl); } catch (_) {}
     if (!parsed || parsed.protocol !== 'wss:' || !mqttUsername || !mqttPassword) return false;
-    localStorage.setItem(MQTT_OVERRIDE_STORAGE, JSON.stringify({ mqttUrl, mqttUsername, mqttPassword }));
+    const runtimeMqtt = { mqttUrl, mqttUsername, mqttPassword };
+    localStorage.setItem(MQTT_OVERRIDE_STORAGE, JSON.stringify(runtimeMqtt));
+    // Credential duoc cap sau khi WEB da khoi tao. Cap nhat ngay cau hinh
+    // runtime trong tab hien tai; neu chi ghi vao RAM-storage thi WEB van
+    // giu mqttUrl/user/pass rong va connectMqtt() se khong bao gio chay.
+    WEB = Object.freeze({ ...WEB, ...runtimeMqtt });
     return true;
   }
   let WEB = Object.freeze({
@@ -103,6 +108,7 @@
     mqtt: null,
     mqttConnected: false,
     mqttMessage: 'Chưa kết nối MQTT',
+    mqttSessionState: 'idle',
     subscriptions: new Set(),
     sessionTimer: 0,
     staleTimer: 0,
@@ -634,7 +640,10 @@
 
   function connectionStatus(device) {
     if (!device) return 'none';
-    if (!state.mqttConnected) return 'connecting';
+    if (!state.mqttConnected) {
+      if (state.mqttSessionState === 'error' || state.mqttSessionState === 'auth-required') return 'offline';
+      return 'connecting';
+    }
     if (!device.presence) return 'connecting';
     if (!device.presence.online) return 'offline';
     const lastAt = Math.max(device.presenceAt || 0, device.snapshotAt || 0, device.configAt || 0);
@@ -2036,11 +2045,13 @@
 
   function connectMqtt() {
     if (!WEB.mqttUrl || !/^wss?:\/\//i.test(WEB.mqttUrl)) {
+      state.mqttSessionState = 'error';
       state.mqttMessage = 'Chưa cấu hình MQTT WebSocket';
       renderDevice();
       return;
     }
     if (!window.mqtt?.connect) {
+      state.mqttSessionState = 'error';
       state.mqttMessage = 'Không tải được thư viện MQTT.js';
       renderDevice();
       return;
@@ -2063,6 +2074,7 @@
 
     state.mqtt.on('connect', () => {
       state.mqttConnected = true;
+      state.mqttSessionState = 'ready';
       state.mqttMessage = 'MQTT đã kết nối';
       state.subscriptions.clear();
       state.devices.forEach((device) => {
@@ -2755,12 +2767,23 @@
 
   async function refreshMqttSession() {
     const device = currentDevice() || state.devices[0];
-    if (!device?.id || !device.pairingToken) return false;
+    if (!device?.id || !device.pairingToken) {
+      state.mqttSessionState = 'auth-required';
+      state.mqttMessage = 'Cần xác thực lại PIN thiết bị';
+      return false;
+    }
+    state.mqttSessionState = 'loading';
     const result = await postCloudJson('/api/device/mqtt-session', {
       device_id: device.id,
       pairing_token: device.pairingToken
     });
-    return Boolean(result.success && saveProvisionedMqtt(result));
+    if (result.success && saveProvisionedMqtt(result)) {
+      state.mqttSessionState = 'ready';
+      return true;
+    }
+    state.mqttSessionState = 'error';
+    state.mqttMessage = result.error || 'Không lấy được phiên MQTT WebSocket';
+    return false;
   }
 
   async function init() {
@@ -2776,8 +2799,9 @@
     updateSettingSummaries();
     renderBatchLogs();
     setCurrentActivity('Đang kết nối', 'Đang chờ dữ liệu từ ESP32', 'idle');
-    await refreshMqttSession();
-    connectMqtt();
+    const mqttReady = await refreshMqttSession();
+    if (mqttReady) connectMqtt();
+    else renderDevice();
     startTimers();
     registerServiceWorker();
     renderPushStatus();

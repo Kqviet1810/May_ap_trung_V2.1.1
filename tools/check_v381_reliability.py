@@ -19,6 +19,7 @@ def require_re(text: str, pattern: str, label: str) -> None:
 
 
 config = read("MAYAP_INDUSTRIAL_v3_4_0/config.h")
+app = read("app.js")
 identity = read("MAYAP_INDUSTRIAL_v3_4_0/device_identity.h")
 cloud = read("MAYAP_INDUSTRIAL_v3_4_0/cloud_alert_link.h")
 machine = read("MAYAP_INDUSTRIAL_v3_4_0/machine_control.h")
@@ -39,6 +40,12 @@ require(build_workflow, 'password = "__ci_pr_mqtt_password__"', "PR MQTT passwor
 require(build_workflow, 'Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD', "deploy MQTT secrets gate")
 require(build_workflow, "startsWith(github.ref, 'refs/heads/hardening/')", "hardening test artifact")
 require(build_workflow, "firmware-test-${{ github.sha }}", "test artifact tied to commit SHA")
+
+# Web MQTT session returned after page boot must update the live WEB object.
+require(app, "WEB = Object.freeze({ ...WEB, ...runtimeMqtt });", "web MQTT runtime credential refresh")
+require(app, "state.mqttSessionState = 'ready';", "web MQTT session ready state")
+require(app, "if (mqttReady) connectMqtt();", "web MQTT init readiness gate")
+require(app, "state.mqttSessionState === 'error' || state.mqttSessionState === 'auth-required'", "web MQTT no infinite connecting state")
 
 # Provisioning diagnostics must remain visible on the local HMI path.
 for state in ["CloudOffline", "TlsError", "ServerDenied", "KeyMismatch", "CloudError"]:
