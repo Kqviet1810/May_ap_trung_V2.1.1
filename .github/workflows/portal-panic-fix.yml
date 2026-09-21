@@ -24,37 +24,20 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           netp = Path('MAYAP_INDUSTRIAL_v3_4_0/network_service.h')
           checkp = Path('tools/check_v381_reliability.py')
           net = netp.read_text(encoding='utf-8')
-          old = '''  if (portalPhase != PortalPhase::Idle) {
-    // Neu dang o STA co ket noi that thi giu nguyen; chi tat AP.
-    WiFi.softAPdisconnect(true);
-    WiFi.mode(WIFI_STA);
-  }
-'''
-          new = '''  // Quiescing nghia la AP CHUA duoc bat va otaTask co the chua ACK.
-  // Huy dung o pha nay tuyet doi khong duoc cham radio; chi khi da qua
-  // quiesce moi co quyen tat AP/doi mode.
-  if (portalPhase != PortalPhase::Idle &&
-      portalPhase != PortalPhase::Quiescing) {
-    WiFi.softAPdisconnect(true);
-    WiFi.mode(WIFI_STA);
-  }
-'''
+          old = "  if (portalPhase != PortalPhase::Idle) {\n    // Neu dang o STA co ket noi that thi giu nguyen; chi tat AP.\n    WiFi.softAPdisconnect(true);\n    WiFi.mode(WIFI_STA);\n  }\n"
+          new = "  // Quiescing nghia la AP CHUA duoc bat va otaTask co the chua ACK.\n  // Huy dung o pha nay tuyet doi khong duoc cham radio; chi khi da qua\n  // quiesce moi co quyen tat AP/doi mode.\n  if (portalPhase != PortalPhase::Idle &&\n      portalPhase != PortalPhase::Quiescing) {\n    WiFi.softAPdisconnect(true);\n    WiFi.mode(WIFI_STA);\n  }\n"
           if old not in net:
               raise SystemExit('portalStop anchor missing')
-          net = net.replace(old, new, 1)
-          netp.write_text(net, encoding='utf-8')
-
+          netp.write_text(net.replace(old, new, 1), encoding='utf-8')
           check = checkp.read_text(encoding='utf-8')
           anchor = 'require(network, "portalOtaQuiescedFlag", "portal/OTA quiesce handshake")\n'
           add = anchor + 'require(network, "portalPhase != PortalPhase::Quiescing", "cancel during quiesce must not touch radio")\n'
           if anchor not in check:
               raise SystemExit('checker anchor missing')
-          check = check.replace(anchor, add, 1)
-          checkp.write_text(check, encoding='utf-8')
+          checkp.write_text(check.replace(anchor, add, 1), encoding='utf-8')
           PY
 
       - name: Static checks
