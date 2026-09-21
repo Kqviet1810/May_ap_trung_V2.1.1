@@ -14,11 +14,22 @@
 // lai o cac lan boot/Upload firmware sau. Upload .ino binh thuong KHONG xoa NVS.
 // ============================================================================
 
+enum class MayapProvisioningState : uint8_t {
+  Syncing = 0,
+  CloudOffline,
+  TlsError,
+  ServerDenied,
+  KeyMismatch,
+  CloudError,
+};
+
 namespace MayapDeviceIdentityInternal {
 static char activeKey[65] = "";
 static char commandKey[65] = "";
 static char webPin[9] = "";
 static bool webPinConfigured = false;
+static volatile uint8_t provisioningState =
+    static_cast<uint8_t>(MayapProvisioningState::Syncing);
 
 inline void randomHex(char *out, size_t bytes) {
   static const char HEX_DIGITS[] = "0123456789abcdef";
@@ -34,12 +45,34 @@ inline void randomHex(char *out, size_t bytes) {
 }
 }
 
+inline void mayapSetProvisioningState(MayapProvisioningState state) {
+  __atomic_store_n(&MayapDeviceIdentityInternal::provisioningState,
+                   static_cast<uint8_t>(state), __ATOMIC_RELEASE);
+}
+
+inline MayapProvisioningState mayapProvisioningState() {
+  return static_cast<MayapProvisioningState>(__atomic_load_n(
+      &MayapDeviceIdentityInternal::provisioningState, __ATOMIC_ACQUIRE));
+}
+
+inline const char *mayapProvisioningStateText() {
+  switch (mayapProvisioningState()) {
+    case MayapProvisioningState::CloudOffline: return "CLOUD OFF";
+    case MayapProvisioningState::TlsError: return "TLS ERROR";
+    case MayapProvisioningState::ServerDenied: return "SERVER 403";
+    case MayapProvisioningState::KeyMismatch: return "KEY ERROR";
+    case MayapProvisioningState::CloudError: return "CLOUD ERROR";
+    default: return "DANG DONG BO";
+  }
+}
+
 inline void mayapDeviceIdentityBegin() {
   using namespace MayapDeviceIdentityInternal;
   activeKey[0] = '\0';
   commandKey[0] = '\0';
   webPin[0] = '\0';
   webPinConfigured = false;
+  mayapSetProvisioningState(MayapProvisioningState::Syncing);
 
   Preferences prefs;
   if (!prefs.begin("mayap-id", false)) return;
@@ -147,5 +180,5 @@ inline void mayapStoreWebPin(const char *pin) {
 inline const char *mayapWebPinText() {
   using namespace MayapDeviceIdentityInternal;
   if (webPin[0]) return webPin;
-  return webPinConfigured ? "DUNG PIN CU" : "DANG DONG BO";
+  return webPinConfigured ? "DUNG PIN CU" : mayapProvisioningStateText();
 }
