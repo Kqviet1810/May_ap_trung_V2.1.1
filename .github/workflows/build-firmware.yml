@@ -135,8 +135,7 @@ jobs:
       - name: Kiem tra reliability truoc build/release
         run: python3 tools/check_v381_reliability.py
 
-      - name: Tao MQTT secret cho build deploy
-        if: github.event_name != 'pull_request'
+      - name: Tao MQTT credential cho compile
         env:
           MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
           MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
@@ -145,10 +144,16 @@ jobs:
           import json, os
           from pathlib import Path
 
-          username = os.getenv("MAYAP_MQTT_USERNAME", "")
-          password = os.getenv("MAYAP_MQTT_PASSWORD", "")
-          if not username or not password:
-              raise SystemExit("Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD")
+          if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
+              # PR khong duoc doc repository secrets. Placeholder chi de compile;
+              # PR workflow khong phat hanh binary deploy.
+              username = "__ci_pr_mqtt_user__"
+              password = "__ci_pr_mqtt_password__"
+          else:
+              username = os.getenv("MAYAP_MQTT_USERNAME", "").strip()
+              password = os.getenv("MAYAP_MQTT_PASSWORD", "")
+              if not username or not password:
+                  raise SystemExit("Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD")
 
           Path("MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h").write_text(
               "#pragma once\n"
@@ -226,11 +231,11 @@ jobs:
           ls -la ./build/*.bin
           ls -la ./build-attiny/*.hex
 
-      - name: Luu firmware pilot
-        if: github.event_name == 'workflow_dispatch'
+      - name: Luu firmware test
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/hardening/')
         uses: actions/upload-artifact@v6
         with:
-          name: firmware-pilot
+          name: firmware-test-${{ github.sha }}
           path: |
             ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
             ./build-attiny/ATTINY13A_POWER_ALARM.hex
