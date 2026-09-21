@@ -12,9 +12,11 @@ ALLOWED_ORIGIN = "https://kqviet1810.github.io"
 # Quy mo hien tai: cho may moi tu provisioning. Dat = "1" neu sau nay muon
 # quay lai che do factory allowlist bat buoc trong device_inventory.
 REQUIRE_DEVICE_INVENTORY = "0"
-# Gioi han admission may moi theo IP trong 1 gio. Chi ap dung khi inventory
-# chua co device_id va REQUIRE_DEVICE_INVENTORY=0; may da dang ky khong bi tinh.
+# Gioi han admission may moi theo IP. Chi ap dung khi inventory chua co
+# device_id va REQUIRE_DEVICE_INVENTORY=0; may da dang ky khong bi tinh.
 MAX_NEW_DEVICE_REGISTRATIONS_PER_HOUR = "20"
+# Cua so dem admission. Dat rieng de co the doi policy sau nay ma khong sua code.
+NEW_DEVICE_REGISTRATION_WINDOW_MINUTES = "60"
 # Gioi han mac dinh cho moi may. Doi 3 -> 5 sau nay chi can sua bien nay
 # va deploy lai Worker; khong can nap lai ESP32 hay doi schema.
 MAX_PAIRED_BROWSERS = "3"
