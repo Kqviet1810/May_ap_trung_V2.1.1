@@ -15,13 +15,28 @@ constexpr uint8_t PIN_SIREN = PB1;
 constexpr uint8_t PIN_3V3 = PB2;
 constexpr uint8_t PIN_9V = PB3;
 
-// FIELD CALIBRATION NOTES - CHUA DUNG DE QUYET DINH LOGIC:
-// PB2/PB3 hien la DIGITAL + PCINT, nen nguong dien ap that do mach chia ap +
-// VIH/VIL cua ATtiny quyet dinh, KHONG phai hai hang so ben duoi. Sau khi do
-// tren ban mach that, dien gia tri mat nguon 3V3 va 9V-low vao day de luu vet;
-// bao lai cac gia tri do de chuyen sang nguong ADC/chinh divider neu can.
-constexpr uint16_t FIELD_MEASURED_3V3_LOSS_MV = 0U;  // TODO: nguoi dung hieu chinh
-constexpr uint16_t FIELD_MEASURED_9V_LOW_MV = 0U;    // TODO: nguoi dung hieu chinh
+// ============================================================================
+// FIELD CALIBRATION - NGUONG PHAT HIEN NGUON (GHI CHU, CHUA DIEU KHIEN LOGIC)
+// ============================================================================
+// PB2/PB3 hien dang doc DIGITAL + PCINT. Vi vay nguong chuyen HIGH/LOW thuc te
+// phu thuoc vao:
+//   1) ty le cau chia dien ap tren PCB,
+//   2) VIH/VIL + hysteresis cua input ATtiny13A,
+//   3) VCC ATtiny tai thoi diem do.
+// Bon hang so ben duoi CHI DE GHI LAI KET QUA HIEU CHINH TREN MAY THAT; gia
+// tri 0 = CHUA DO. Chung CHUA duoc dung trong espPowerOk()/nineVoltOk(), nen
+// thay doi cac so nay KHONG tu lam thay doi nguong bao. Sau khi bench-test,
+// bao lai 4 moc nay de quyet dinh giu digital + chot divider hay chuyen ADC.
+//
+// QUY UOC DO: ghi dien ap NGUON THUC TE TRUOC CAU CHIA, don vi mV.
+// 3V3_LOSS    : ha tu tu 3.3V xuong -> PB2 vua doi sang LOW.
+// 3V3_RESTORE : tang tu tu tu 0V len -> PB2 vua doi sang HIGH.
+// 9V_LOW      : ha tu tu nguon coi xuong -> PB3 vua doi sang LOW / E502 bat.
+// 9V_OK       : tang tu tu nguon coi len -> PB3 vua doi sang HIGH / E502 xoa.
+constexpr uint16_t FIELD_MEASURED_3V3_LOSS_MV    = 0U;  // TODO bench calibration
+constexpr uint16_t FIELD_MEASURED_3V3_RESTORE_MV = 0U;  // TODO bench calibration
+constexpr uint16_t FIELD_MEASURED_9V_LOW_MV      = 0U;  // TODO bench calibration
+constexpr uint16_t FIELD_MEASURED_9V_OK_MV       = 0U;  // TODO bench calibration
 
 constexpr uint16_t PULSE_MS = 30U;
 constexpr uint16_t MIN_PULSE_MS = 15U;
