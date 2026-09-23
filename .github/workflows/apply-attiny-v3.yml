@@ -20,7 +20,15 @@ jobs:
           ref: hardening/v3.8.1-attiny-activity-alarm
 
       - name: Apply patch
-        run: python3 tools/apply_attiny_activity_alarm.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('tools/apply_attiny_activity_alarm.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('flags=re.S)', 'flags=re.S | re.M)')
+          p.write_text(s, encoding='utf-8')
+          PY
+          python3 tools/apply_attiny_activity_alarm.py
 
       - name: Static regression checks
         run: python3 tools/check_v381_reliability.py
