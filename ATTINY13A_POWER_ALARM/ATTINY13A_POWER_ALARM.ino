@@ -1,4 +1,4 @@
-// ATtiny13A backup power-alarm controller - protocol v2.
+// ATtiny13A backup power-alarm controller - protocol v3.
 // PB0 BUS open-drain to ESP32, PB1 siren drive, PB2 3V3_ESP sense,
 // PB3 9V siren-supply sense. AVR-libc only; target ATtiny13A @ 1.2 MHz.
 #define F_CPU 1200000UL
@@ -9,11 +9,20 @@
 #include <avr/wdt.h>
 #include <util/delay.h>
 
-constexpr uint8_t PROTOCOL_VERSION = 2U;
+constexpr uint8_t PROTOCOL_VERSION = 3U;
 constexpr uint8_t PIN_BUS = PB0;
 constexpr uint8_t PIN_SIREN = PB1;
 constexpr uint8_t PIN_3V3 = PB2;
 constexpr uint8_t PIN_9V = PB3;
+
+// FIELD CALIBRATION NOTES - CHUA DUNG DE QUYET DINH LOGIC:
+// PB2/PB3 hien la DIGITAL + PCINT, nen nguong dien ap that do mach chia ap +
+// VIH/VIL cua ATtiny quyet dinh, KHONG phai hai hang so ben duoi. Sau khi do
+// tren ban mach that, dien gia tri mat nguon 3V3 va 9V-low vao day de luu vet;
+// bao lai cac gia tri do de chuyen sang nguong ADC/chinh divider neu can.
+constexpr uint16_t FIELD_MEASURED_3V3_LOSS_MV = 0U;  // TODO: nguoi dung hieu chinh
+constexpr uint16_t FIELD_MEASURED_9V_LOW_MV = 0U;    // TODO: nguoi dung hieu chinh
+
 constexpr uint16_t PULSE_MS = 30U;
 constexpr uint16_t MIN_PULSE_MS = 15U;
 constexpr uint16_t END_GAP_MS = 150U;
@@ -23,8 +32,10 @@ constexpr uint8_t MSG_BATCH_END = 2U;
 constexpr uint8_t MSG_SIREN_ON = 3U;
 constexpr uint8_t MSG_SIREN_OFF = 4U;
 constexpr uint8_t MSG_STATUS_QUERY = 5U;
-constexpr uint8_t MSG_STATUS_BASE = 6U;
-constexpr uint8_t MSG_STATUS_MAX = 13U;
+constexpr uint8_t MSG_ACTIVITY_ON = 6U;
+constexpr uint8_t MSG_ACTIVITY_OFF = 7U;
+constexpr uint8_t MSG_STATUS_BASE = 8U;
+constexpr uint8_t MSG_STATUS_MAX = 15U;
 constexpr uint8_t FLAG_BATCH = 1U;
 constexpr uint8_t FLAG_9V_LOW = 2U;
 constexpr uint8_t FLAG_SIREN = 4U;
@@ -32,6 +43,7 @@ constexpr uint8_t FLAG_SIREN = 4U;
 uint8_t EEMEM eeBatchState;
 uint8_t EEMEM eeBatchStateInv;
 static bool batchActive;
+static bool criticalActivity;
 static bool emergencySiren;
 
 static inline void delayMs(uint16_t ms) { while (ms--) { _delay_ms(1); wdt_reset(); } }
@@ -57,9 +69,7 @@ static bool saveBatch(bool on) {
          eeprom_read_byte(&eeBatchStateInv) == static_cast<uint8_t>(~v);
 }
 
-static void sendAck() {
-  busLow(); delayMs(PULSE_MS); busRelease();
-}
+static void sendAck() { busLow(); delayMs(PULSE_MS); busRelease(); }
 
 static uint8_t receiveCommand() {
   uint8_t pulses = 0U;
@@ -68,7 +78,7 @@ static uint8_t receiveCommand() {
       uint16_t low = 0U;
       while (isBusLow() && low < PULSE_MS * 3U) { _delay_ms(1); ++low; wdt_reset(); }
       if (isBusLow()) return 0U;
-      if (low >= MIN_PULSE_MS && ++pulses > MSG_STATUS_QUERY) return 0U;
+      if (low >= MIN_PULSE_MS && ++pulses > MSG_ACTIVITY_OFF) return 0U;
     }
     uint16_t high = 0U;
     while (!isBusLow() && high < END_GAP_MS) { _delay_ms(1); ++high; wdt_reset(); }
@@ -77,12 +87,10 @@ static uint8_t receiveCommand() {
 }
 
 static void sendStatus(uint8_t code) {
-  // Tach ro ACK cua query va frame status de ESP32 kip chuyen sang RX hold.
   delayMs(END_GAP_MS + 20U);
   for (uint8_t i = 0U; i < code; ++i) {
     busLow(); delayMs(PULSE_MS); busRelease(); delayMs(PULSE_MS);
   }
-  // Tieu thu ACK cua ESP32, tranh nham ACK 1 xung thanh BATCH_START.
   uint16_t wait = 0U;
   while (!isBusLow() && wait < ACK_TIMEOUT_MS) { _delay_ms(1); ++wait; wdt_reset(); }
   if (isBusLow()) {
@@ -99,12 +107,11 @@ static inline uint8_t statusCode() {
 }
 
 static inline void updateSiren() {
-  setSiren(emergencySiren || (batchActive && !espPowerOk()));
+  const bool armedForPowerLoss = batchActive || criticalActivity;
+  setSiren(emergencySiren || (armedForPowerLoss && !espPowerOk()));
 }
 
 static inline void configureWakeMask(bool espOn) {
-  // Khi ESP32 mat nguon, PB0 khong con pull-up 3V3_ESP. Mask PB0 va chu dong
-  // kep BUS LOW de no khong floating/khong danh thuc gia/khong back-power ESP.
   if (espOn) {
     busRelease();
     PCMSK = _BV(PIN_BUS) | _BV(PIN_3V3) | _BV(PIN_9V);
@@ -122,6 +129,7 @@ int main(void) {
   DDRB = _BV(PIN_SIREN);
   PORTB = 0U;
   batchActive = loadBatch();
+  criticalActivity = false;  // RAM-only; ESP resync khi link song.
   emergencySiren = false;
   updateSiren();
   configureWakeMask(espPowerOk());
@@ -148,6 +156,10 @@ int main(void) {
         emergencySiren = false; ok = true;
       } else if (code == MSG_STATUS_QUERY) {
         ok = true; sendState = true;
+      } else if (code == MSG_ACTIVITY_ON) {
+        criticalActivity = true; ok = true;
+      } else if (code == MSG_ACTIVITY_OFF) {
+        criticalActivity = false; ok = true;
       }
       updateSiren();
       if (ok) {

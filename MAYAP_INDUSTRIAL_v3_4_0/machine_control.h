@@ -3770,12 +3770,13 @@ class MachineController {
     updateAlarms(now);
     updateBatchOverdue(now);
     updateSirenSelfTest(now);
-    updateAttinyLink(now);
     updateAutoTune(now);
     updateTurning(now);
     updateHeatingAndOutputs(now);
     processOutputEvents(now);
     syncOutputFaults(now);
+    // ATtiny activity phai doc OUTPUT THUC TE cua chinh chu ky nay.
+    updateAttinyLink(now);
     updateBatchTime(now);
     serviceBatchLog(now);
     serviceHealthMonitor(now);
@@ -4731,8 +4732,13 @@ class MachineController {
     batchLogSampleSequence_ = 0U;
     mayapSerialPrintf(false, "[BATCH] STOP clear=%s\n",
                       cleared ? "OK" : "PENDING");
-    // Bao mat dien qua ATtiny13A: me da ket thuc - ATtiny se khong con tu
-    // bat coi neu sau nay mat dien (dung yeu cau "chi bao khi dang co me").
+    // Chuyen giao khong tao "khoang mu": neu luc dung me van con mot tai
+    // quan trong THUC TE dang ON (vd quat post-cool/dao/SSR), arm activity
+    // TRUOC roi moi xoa batch tren Tiny. Den khong tham gia dieu kien nay.
+    const OutputState &stopOut = outputs_.state();
+    const bool keepPowerLossArmed = stopOut.turnLeft || stopOut.turnRight ||
+        stopOut.circulationFan || stopOut.ventFan || stopOut.heaterSsr;
+    if (keepPowerLossArmed) (void)mayapAttinyBusRequest(ATTINY_MSG_ACTIVITY_ON);
     (void)mayapAttinyBusRequest(ATTINY_MSG_BATCH_END);
     return true;
   }
@@ -6224,21 +6230,18 @@ class MachineController {
                    static_cast<uint16_t>(EventCode::SirenSelfTest));
   }
 
-  // Bao mat dien qua ATtiny13A (bus dem xung 2 chieu, xem
-  // doc/attiny_power_alarm.md) - goi moi chu ky dieu khien:
-  //  1) Mirror coi khan cap: gui ma 3 (bat)/4 (tat) cho ATtiny dung luc bieu
-  //     thuc "emergencyActive_ && da het tam tat" DOI trang thai (giong het
-  //     dieu kien dang lai coi that GPIO47 that su - xem updateHeatingAndOutputs()),
-  //     KE CA chu ky tam tat/keu lai dinh ky khi nguoi dung ACK. Coi ben
-  //     ATtiny vi vay hoat dong dong bo hoan toan voi coi khan cap hien co.
-  //  2) Gui PING ngay sau khi ESP32 khoi dong, va dinh ky moi
-  //     ATTINY_PING_INTERVAL_MS trong luc co me. ACK la tin hieu ATtiny san
-  //     sang. Khong ACK -> FaultCode::AttinyBusUnresponsive (chi canh bao,
-  //     khong khoa van hanh). Khong co do pin ATtiny trong phien ban nay.
+  // Bao mat dien qua ATtiny13A - protocol v3.
+  // Trong me: EEPROM batch state cua Tiny arm bao mat dien nhu cu.
+  // Ngoai me: activity RAM arm neu OUTPUT THUC TE cua it nhat mot tai sau ON:
+  // DAO trai/phai, QUAT TUAN HOAN, QUAT HUT, SSR THANH NHIET.
+  // DEN, contactor tong nhiet, coi va relay spare KHONG duoc tinh.
   void updateAttinyLink(uint32_t now) {
-    // ATTINY_LINK_V2_BEGIN: non-blocking master, status verification, self-heal.
     mayapAttinyBusUpdate(now);
     const bool expectedBatch = batchRunning_ || resumePending_;
+    const OutputState &physicalOut = outputs_.state();
+    const bool expectedActivity = !expectedBatch &&
+        (physicalOut.turnLeft || physicalOut.turnRight ||
+         physicalOut.circulationFan || physicalOut.ventFan || physicalOut.heaterSsr);
     const bool desiredSiren = emergencyActive_ && timeReached(now, sirenMutedUntil_);
 
     uint8_t completedCode = 0U;
@@ -6251,6 +6254,9 @@ class MachineController {
           attinyBatchSynced_ = (completedCode == ATTINY_MSG_BATCH_START) == expectedBatch;
           attinyLastResyncAt_ = now;
           if (mayapAttinyBusRequest(ATTINY_MSG_STATUS_QUERY)) attinyLastStatusQueryAt_ = now;
+        } else if (completedCode == ATTINY_MSG_ACTIVITY_ON || completedCode == ATTINY_MSG_ACTIVITY_OFF) {
+          attinyActivityMirrorOn_ = completedCode == ATTINY_MSG_ACTIVITY_ON;
+          attinyLastActivityAssertAt_ = now;
         } else if (completedCode == ATTINY_MSG_SIREN_ON) {
           attinySirenMirrorOn_ = true;
           attinyLastSirenAssertAt_ = now;
@@ -6265,6 +6271,10 @@ class MachineController {
         attinyLinkHealthy_ = false;
         if (completedCode == ATTINY_MSG_BATCH_START || completedCode == ATTINY_MSG_BATCH_END) {
           attinyBatchSynced_ = false;
+        }
+        if (completedCode == ATTINY_MSG_ACTIVITY_ON || completedCode == ATTINY_MSG_ACTIVITY_OFF) {
+          // Khong duoc tin mirror neu Tiny khong ACK lenh activity.
+          attinyActivityMirrorOn_ = !expectedActivity;
         }
         if (completedCode == ATTINY_MSG_STATUS_QUERY) {
           attinyStatusAwaiting_ = false;
@@ -6299,9 +6309,11 @@ class MachineController {
 
       attinyBatchSynced_ = (attinyTinyBatch_ == expectedBatch);
       mayapSerialPrintf(false,
-          "[ATTINY] v=%u link=1 sync=%u expected=%u tinyBatch=%u siren=%u tinySiren=%u 9v=%s\n",
+          "[ATTINY] v=%u link=1 batchSync=%u expectedBatch=%u activity=%u mirror=%u tinyBatch=%u siren=%u tinySiren=%u 9v=%s
+",
           ATTINY_PROTOCOL_VERSION, attinyBatchSynced_ ? 1U : 0U,
-          expectedBatch ? 1U : 0U, attinyTinyBatch_ ? 1U : 0U,
+          expectedBatch ? 1U : 0U, expectedActivity ? 1U : 0U,
+          attinyActivityMirrorOn_ ? 1U : 0U, attinyTinyBatch_ ? 1U : 0U,
           desiredSiren ? 1U : 0U, attinyTinySirenOn_ ? 1U : 0U,
           reported9vLow ? "LOW" : "OK");
     }
@@ -6312,7 +6324,6 @@ class MachineController {
       attinyLinkHealthy_ = false;
       mayapAttinyBusHoldTxUntil(now);
     }
-
     if (attinyStatusKnown_) attinyBatchSynced_ = (attinyTinyBatch_ == expectedBatch);
 
     if (desiredSiren != attinySirenMirrorOn_ ||
@@ -6325,6 +6336,15 @@ class MachineController {
       (void)mayapAttinyBusRequest(desiredSiren ? ATTINY_MSG_SIREN_ON : ATTINY_MSG_SIREN_OFF);
     }
 
+    // Activity la RAM-only tren Tiny: ACK xac nhan moi thay doi, va khi ON
+    // tai khang dinh moi 5 s de tu phuc hoi neu Tiny vua reset rieng le.
+    if (expectedActivity != attinyActivityMirrorOn_ ||
+        (expectedActivity && elapsedMs(now, attinyLastActivityAssertAt_) >= ATTINY_ACTIVITY_REASSERT_MS)) {
+      if (mayapAttinyBusRequest(expectedActivity ? ATTINY_MSG_ACTIVITY_ON : ATTINY_MSG_ACTIVITY_OFF) && expectedActivity) {
+        attinyLastActivityAssertAt_ = now;
+      }
+    }
+
     if (attinyStartupProbePending_) {
       if (mayapAttinyBusRequest(ATTINY_MSG_STATUS_QUERY)) {
         attinyStartupProbePending_ = false;
@@ -6335,7 +6355,8 @@ class MachineController {
         attinyLastStatusQueryAt_ = now;
         attiny9vConfirmAt_ = now + ATTINY_9V_CONFIRM_MS;
       }
-    } else if (expectedBatch && elapsedMs(now, attinyLastStatusQueryAt_) >= ATTINY_STATUS_INTERVAL_MS) {
+    } else if ((expectedBatch || expectedActivity) &&
+               elapsedMs(now, attinyLastStatusQueryAt_) >= ATTINY_STATUS_INTERVAL_MS) {
       if (mayapAttinyBusRequest(ATTINY_MSG_STATUS_QUERY)) attinyLastStatusQueryAt_ = now;
     } else if (attinyLinkChecked_ && !attinyLinkHealthy_ &&
                elapsedMs(now, attinyLastStatusQueryAt_) >= ATTINY_RESYNC_RETRY_MS) {
@@ -6360,6 +6381,7 @@ class MachineController {
     runtime_.attinyBatchSynced = attinyStatusKnown_ && attinyBatchSynced_;
     runtime_.attinyStatusKnown = attinyStatusKnown_;
     runtime_.attinySirenBatteryLow = attinyStatusKnown_ && attiny9vLow_;
+    runtime_.attinyCriticalActivityArmed = expectedActivity && attinyActivityMirrorOn_;
     runtime_.attinyLastStatusAgeSec = attinyStatusKnown_
         ? elapsedMs(now, attinyLastStatusAt_) / 1000UL : UINT32_MAX;
   }
@@ -7191,12 +7213,10 @@ class MachineController {
   uint32_t sirenSelfTestNextAt_ = 0U;
   uint32_t sirenSelfTestPulseUntil_ = 0U;
   bool sirenSelfTestActive_ = false;
-  // Bao mat dien qua ATtiny13A (bus dem xung, xem doc/attiny_power_alarm.md).
-  // attinySirenMirrorOn_ ghi nho trang thai coi khan cap DA GUI cho ATtiny
-  // lan gan nhat, de chi gui lai ma 3/4 dung luc no THUC SU doi (khong gui
-  // lap lai moi chu ky). attinyLastStatusQueryAt_ dung cho ping dinh ky moi 6h
-  // trong luc dang co me ap (xem updateAttinyLink()).
+  // Bao mat dien qua ATtiny13A protocol v3. Activity ngoai me chi nam RAM
+  // cua Tiny; 9V sense/E502 van giu nguyen.
   bool attinySirenMirrorOn_ = false;
+  bool attinyActivityMirrorOn_ = false;
   bool attinyStartupProbePending_ = true;
   bool attinyLinkChecked_ = false;
   bool attinyLinkHealthy_ = false;
@@ -7212,6 +7232,7 @@ class MachineController {
   uint32_t attinyLastStatusAt_ = 0U;
   uint32_t attinyLastResyncAt_ = 0U;
   uint32_t attinyLastSirenAssertAt_ = 0U;
+  uint32_t attinyLastActivityAssertAt_ = 0U;
   uint32_t attinyStatusDeadline_ = 0U;
   uint32_t attiny9vConfirmAt_ = 0U;
   bool testLimitVerifiedLeft_ = false;

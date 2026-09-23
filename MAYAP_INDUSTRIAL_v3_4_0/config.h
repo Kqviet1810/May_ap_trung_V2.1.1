@@ -347,17 +347,22 @@ constexpr uint32_t ATTINY_BUS_END_GAP_MS = 150UL;
 constexpr uint32_t ATTINY_BUS_ACK_TIMEOUT_MS = 350UL;
 constexpr uint8_t ATTINY_BUS_MAX_RETRY = 3U;
 
-// ATtiny Link v2: ESP32 la master; status frame Tiny->ESP la 6..13.
-constexpr uint8_t ATTINY_PROTOCOL_VERSION = 2U;
+// ATtiny Link v3: ESP32 la master. Giu nguyen do nguon 9V/E502; them
+// CRITICAL_ACTIVITY cho tai quan trong dang chay NGOAI ME. Activity chi nam
+// RAM Tiny de khong mai EEPROM theo PID/relay. Status frame Tiny->ESP 8..15;
+// bitmask van gom batch / 9V-low / emergency-siren.
+constexpr uint8_t ATTINY_PROTOCOL_VERSION = 3U;
 constexpr uint8_t ATTINY_MSG_BATCH_START = 1U;
 constexpr uint8_t ATTINY_MSG_BATCH_END = 2U;
 constexpr uint8_t ATTINY_MSG_SIREN_ON = 3U;
 constexpr uint8_t ATTINY_MSG_SIREN_OFF = 4U;
 constexpr uint8_t ATTINY_MSG_STATUS_QUERY = 5U;
-constexpr uint8_t ATTINY_MSG_STATUS_BASE = 6U;
-constexpr uint8_t ATTINY_MSG_STATUS_MAX = 13U;
-constexpr uint8_t ATTINY_MSG_MAX_COMMAND = 5U;
-constexpr uint8_t ATTINY_MSG_MAX_CODE = 13U;
+constexpr uint8_t ATTINY_MSG_ACTIVITY_ON = 6U;
+constexpr uint8_t ATTINY_MSG_ACTIVITY_OFF = 7U;
+constexpr uint8_t ATTINY_MSG_STATUS_BASE = 8U;
+constexpr uint8_t ATTINY_MSG_STATUS_MAX = 15U;
+constexpr uint8_t ATTINY_MSG_MAX_COMMAND = 7U;
+constexpr uint8_t ATTINY_MSG_MAX_CODE = 15U;
 constexpr uint8_t ATTINY_STATUS_FLAG_BATCH = 1U;
 constexpr uint8_t ATTINY_STATUS_FLAG_9V_LOW = 2U;
 constexpr uint8_t ATTINY_STATUS_FLAG_SIREN = 4U;
@@ -365,6 +370,7 @@ constexpr uint32_t ATTINY_STATUS_INTERVAL_MS = 1UL * 3600UL * 1000UL;
 constexpr uint32_t ATTINY_STATUS_RESPONSE_TIMEOUT_MS = 2500UL;
 constexpr uint32_t ATTINY_RESYNC_RETRY_MS = 30000UL;
 constexpr uint32_t ATTINY_SIREN_REASSERT_MS = 15000UL;
+constexpr uint32_t ATTINY_ACTIVITY_REASSERT_MS = 5000UL;
 constexpr uint32_t ATTINY_9V_CONFIRM_MS = 3000UL;
 
 // Input opto ACTIVE-LOW: kich 12 V => ngo ra opto keo GPIO xuong GND.
@@ -1294,6 +1300,7 @@ struct MachineRuntime {
   bool attinyBatchSynced = false;
   bool attinyStatusKnown = false;
   bool attinySirenBatteryLow = false;
+  bool attinyCriticalActivityArmed = false;
   uint32_t attinyLastStatusAgeSec = UINT32_MAX;
   // Lan khoi dong nay la khoi dong lai SAU KHI MAT DIEN giua mot me dang ap
   // (khong phai bat may binh thuong). Chi nam trong RAM (MachineRuntime khong
