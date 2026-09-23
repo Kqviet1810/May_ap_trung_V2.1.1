@@ -73,7 +73,8 @@
   }
   const CONFIG_KEYS = Object.freeze([
     'targetTemp', 'tempHysteresis', 'lowTempAlarm', 'highTempAlarm',
-    'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'ventOnTemp',
+    'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'humidifierEnabled',
+    'targetHumidity', 'ventOnTemp',
     'ventOffTemp', 'tempOffset', 'humidityOffset', 'pidCycleSec',
     'humidityAlarmDelaySec', 'turnIntervalMin', 'turnMaxRunSec',
     'powerRestoreDelaySec', 'sensorTimeoutSec', 'maxHeaterPower',
@@ -968,6 +969,7 @@
       updateOutput('outputHeater', false);
       updateOutput('outputCirculation', false);
       updateOutput('outputVent', false);
+      updateOutput('outputHumidifier', false);
       updateOutput('outputTurn', false, 'ĐANG ĐẢO', 'CHỜ');
       updateOutput('outputLight', false);
       updateOutput('outputSiren', false);
@@ -994,6 +996,7 @@
     updateOutput('outputHeater', heaterActive);
     updateOutput('outputCirculation', bool(runtime.circulationFanOn));
     updateOutput('outputVent', bool(runtime.ventFanOn));
+    updateOutput('outputHumidifier', bool(runtime.humidifierOn));
     updateOutput('outputLight', bool(runtime.lightOn));
     updateOutput('outputSiren', bool(runtime.sirenOn));
     // Nut Den bam duoc bat cu luc nao thiet bi online; nut Coi CHI bam duoc
@@ -1177,10 +1180,11 @@
     assign('batchForm', 'batchTarget', config.targetTemp);
     assign('batchForm', 'totalDays', config.totalIncubationDays);
     check('batchForm', 'resumeAfterPowerLoss', config.autoResumeAfterPower);
+    check('batchForm', 'humidifierEnabled', config.humidifierEnabled);
+    assign('batchForm', 'targetHumidity', config.targetHumidity);
     if (!hasDirtyForm('batchForm') || force) {
       $('batchName').value = device.batchMeta.name;
       $('startDate').value = device.batchMeta.startDate;
-      $('targetHumidity').value = device.batchMeta.targetHumidity;
     }
 
     assign('temperatureForm', 'targetTemp', config.targetTemp);
@@ -1273,6 +1277,8 @@
       shiftTempThresholds(config, config.targetTemp, newTarget);
       config.targetTemp = newTarget;
       config.totalIncubationDays = Number($('totalDays').value);
+      config.targetHumidity = Number($('targetHumidity').value);
+      config.humidifierEnabled = $('humidifierEnabled').checked;
       config.autoResumeAfterPower = $('resumeAfterPowerLoss').checked;
     } else if (group === 'temperature') {
       config.targetTemp = Number($('targetTemp').value);
@@ -2145,7 +2151,7 @@
     const humidity = Number($('targetHumidity').value);
     if (!(days >= 1 && days <= 40)) return invalidate('batchForm', 'totalDays', 'Tổng số ngày ấp phải từ 1 đến 40 ngày.');
     if (!(temperature >= 30 && temperature <= 40)) return invalidate('batchForm', 'batchTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
-    if (!(humidity >= 20 && humidity <= 95)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm tham khảo phải từ 20 đến 95%RH.');
+    if (!(humidity >= 30 && humidity <= 90)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm đặt phải từ 30 đến 90%RH.');
     return true;
   }
 

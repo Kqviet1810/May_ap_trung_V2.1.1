@@ -22,7 +22,7 @@ ATtiny bat coi khi **PB2 mat 3V3** va mot trong hai co arm duoi day dang ON:
 
 Khong dung `heaterSsr` lam dieu kien nhiet: SSR bi PID dong/ngat lien tuc, con `heatMaster`
 la contactor cap nguon chinh cho cum SSR va phan anh dung y nghia "he thong nhiet dang duoc cap nguon".
-**Den, coi va relay spare khong arm bao mat dien.**
+**Den, coi va tao am khong arm rieng bao mat dien; tao am chi chay trong me nen batch arm da bao phu.**
 
 Activity ON duoc arm ngay. Activity OFF chi ghi sau khi tat ca tai tren OFF lien tuc 30 s.
 Cach nay tranh ghi EEPROM theo cac dao dong relay/ngan han.

@@ -242,6 +242,8 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   c["ki"] = cfg.ki;
   c["kd"] = cfg.kd;
   c["lowHumidityAlarm"] = cfg.lowHumidityAlarm;
+  c["humidifierEnabled"] = cfg.humidifierEnabled;
+  c["targetHumidity"] = cfg.targetHumidity;
   c["ventOnTemp"] = cfg.ventOnTemp;
   c["ventOffTemp"] = cfg.ventOffTemp;
   c["tempOffset"] = cfg.tempOffset;
@@ -315,6 +317,7 @@ inline void publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
   r["heaterPower"] = rt.heaterPower;
   r["circulationFanOn"] = rt.circulationFanOn;
   r["ventFanOn"] = rt.ventFanOn;
+  r["humidifierOn"] = rt.humidifierOn;
   r["lightOn"] = rt.lightOn;
   r["sirenOn"] = rt.sirenOn;
   r["turnState"] = static_cast<uint8_t>(rt.turnState);
@@ -609,6 +612,8 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   candidate.ki = configObj["ki"] | candidate.ki;
   candidate.kd = configObj["kd"] | candidate.kd;
   candidate.lowHumidityAlarm = configObj["lowHumidityAlarm"] | candidate.lowHumidityAlarm;
+  candidate.humidifierEnabled = configObj["humidifierEnabled"] | candidate.humidifierEnabled;
+  candidate.targetHumidity = configObj["targetHumidity"] | candidate.targetHumidity;
   candidate.ventOnTemp = configObj["ventOnTemp"] | candidate.ventOnTemp;
   candidate.ventOffTemp = configObj["ventOffTemp"] | candidate.ventOffTemp;
   candidate.tempOffset = configObj["tempOffset"] | candidate.tempOffset;

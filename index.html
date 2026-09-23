@@ -57,6 +57,7 @@
 <div><span>Thanh nhiệt</span><strong class="on" id="outputHeater">BẬT</strong></div>
 <div><span>Tuần hoàn</span><strong class="on" id="outputCirculation">BẬT</strong></div>
 <div><span>Thông gió</span><strong id="outputVent">TẮT</strong></div>
+<div><span>Tạo ẩm</span><strong id="outputHumidifier">TẮT</strong></div>
 <div><span>Đảo trứng</span><strong id="outputTurn">CHỜ</strong></div>
 <button aria-label="Bật/tắt đèn" id="outputLightBtn" type="button"><span>Đèn</span><strong id="outputLight">TẮT</strong></button>
 <button aria-label="Tạm tắt còi báo" id="outputSirenBtn" type="button"><span>Còi báo</span><strong id="outputSiren">TẮT</strong></button>
@@ -72,7 +73,8 @@
 <label class="compactTile"><span>Ngày bắt đầu</span><input id="startDate" type="date" value="2026-07-29"/></label>
 <label class="compactTile"><span>Tổng số ngày ấp</span><div class="unit"><input id="totalDays" max="40" min="1" type="number" value="21"/><b>Ngày</b></div></label>
 <label class="compactTile"><span>Nhiệt độ đặt</span><div class="unit"><input id="batchTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
-<label class="compactTile"><span>Độ ẩm tham khảo</span><div class="unit"><input id="targetHumidity" max="95" min="20" type="number" value="58"/><b>%RH</b></div></label>
+<label class="compactTile"><span>Độ ẩm đặt</span><div class="unit"><input id="targetHumidity" max="90" min="30" type="number" value="58"/><b>%RH</b></div></label>
+<div class="compactTile compactToggle"><div><span class="tileLabel">Tạo ẩm tự động</span><small>Dùng relay GPIO48 khi RH thấp hơn mức đặt.</small></div><label aria-label="Bật tạo ẩm tự động" class="toggle"><input id="humidifierEnabled" type="checkbox"/><i></i></label></div>
 <div class="compactTile compactToggle"><div><span class="tileLabel">Khôi phục sau mất điện</span><small>Tự tiếp tục mẻ đang chạy.</small></div><label aria-label="Tự tiếp tục mẻ sau mất điện" class="toggle"><input checked="" id="resumeAfterPowerLoss" type="checkbox"/><i></i></label></div>
 </div>
 <div class="formError" id="batchFormError" role="alert"></div>

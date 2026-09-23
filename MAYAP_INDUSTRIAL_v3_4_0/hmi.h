@@ -520,7 +520,11 @@ const SettingItem SETTINGS[] = {
   ITEM_BOOL("Dao tay dong lich", manualTurnReanchorsSchedule),              // 28
   // Backlog (khong thuoc audit v3.7.1): tu kiem tra coi dinh ky, opt-in,
   // mac dinh TAT - xem sirenSelfTestEnabled trong config.h.
-  ITEM_BOOL("Tu kiem tra coi", sirenSelfTestEnabled)                        // 29
+  ITEM_BOOL("Tu kiem tra coi", sirenSelfTestEnabled),                       // 29
+
+  // ---- CAI DAT CHUNG > TAO AM (2 muc, them CUOI de khong doi index cu) ----
+  ITEM_BOOL("Tao am", humidifierEnabled),                                      // 30
+  ITEM_FLOAT("Do am dat", targetHumidity, 30.0f, 90.0f, 1.0f, 0, "%")          // 31
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
@@ -553,7 +557,8 @@ const SettingGroup GROUPS[] = {
   // la cai dat mang - gom ca ma QR, dat lai PIN, cap nhat firmware... nen
   // "He thong" mo ta dung hon la cai dat chung cua may.
   {"HE THONG", 15, 2},
-  {"NANG CAO", 17, 13}
+  {"NANG CAO", 17, 13},
+  {"TAO AM", 30, 2}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
 static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");
@@ -1054,6 +1059,8 @@ bool settingLockedDuringBatch(uint8_t settingIndex) {
   // safety, PID/tuning, timeout co khi va recovery/system settings bi khoa.
   if (offset == offsetof(MachineConfig, targetTemp) ||
       offset == offsetof(MachineConfig, lowHumidityAlarm) ||
+      offset == offsetof(MachineConfig, humidifierEnabled) ||
+      offset == offsetof(MachineConfig, targetHumidity) ||
       offset == offsetof(MachineConfig, ventOnTemp) ||
       offset == offsetof(MachineConfig, ventOffTemp) ||
       offset == offsetof(MachineConfig, turningEnabled) ||
@@ -2846,8 +2853,12 @@ void drawHomeMain() {
   lcd.setFont(u8g2_font_6x12_tf);
   snprintf(text, sizeof(text), "SV %.1fC", currentConfig.targetTemp);
   lcd.drawStr(RIGHT_X, 20, text);
-  snprintf(text, sizeof(text), currentRuntime.sensorOnline ? "AM %.0f%%" : "AM --%%",
-           currentRuntime.humidity);
+  if (currentRuntime.sensorOnline) {
+    snprintf(text, sizeof(text), currentRuntime.humidifierOn ? "AM %.0f%%+" : "AM %.0f%%",
+             currentRuntime.humidity);
+  } else {
+    snprintf(text, sizeof(text), "AM --%%");
+  }
   lcd.drawStr(RIGHT_X, 34, text);
   if (currentRuntime.turningLockdown) {
     snprintf(text, sizeof(text), "DAO KHOA");

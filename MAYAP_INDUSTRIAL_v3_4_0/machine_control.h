@@ -1326,6 +1326,7 @@ inline void sanitizeMachineConfig(MachineConfig &cfg) {
   if (!isfinite(cfg.ki)) cfg.ki = defaults.ki;
   if (!isfinite(cfg.kd)) cfg.kd = defaults.kd;
   if (!isfinite(cfg.lowHumidityAlarm)) cfg.lowHumidityAlarm = defaults.lowHumidityAlarm;
+  if (!isfinite(cfg.targetHumidity)) cfg.targetHumidity = defaults.targetHumidity;
   if (!isfinite(cfg.ventOnTemp)) cfg.ventOnTemp = defaults.ventOnTemp;
   if (!isfinite(cfg.ventOffTemp)) cfg.ventOffTemp = defaults.ventOffTemp;
   if (!isfinite(cfg.tempOffset)) cfg.tempOffset = defaults.tempOffset;
@@ -1370,6 +1371,7 @@ inline void sanitizeMachineConfig(MachineConfig &cfg) {
   cfg.lowHumidityAlarm = clampFloat(cfg.lowHumidityAlarm, 10.0f, 90.0f);
   cfg.humidityAlarmDelaySec = static_cast<uint16_t>(constrain(
       static_cast<int>(cfg.humidityAlarmDelaySec), 0, 600));
+  cfg.targetHumidity = clampFloat(cfg.targetHumidity, 30.0f, 90.0f);
 
   // Trong AUTO, quat tuan hoan la chuc nang bat buoc. Giu truong nay trong
   // schema EEPROM de tuong thich ban cu, nhung khong cho du lieu cu tat quat.
@@ -1684,8 +1686,13 @@ inline PackedMachineConfigV1 packConfig(const MachineConfig &c) {
   p.pidCycleSec = c.pidCycleSec;
   p.maxHeaterPower = c.maxHeaterPower;
   p.lowHumidityAlarm = c.lowHumidityAlarm;
-  p.humidityAlarmDelaySec = c.humidityAlarmDelaySec;
-  p.circulationFanEnabled = c.circulationFanEnabled ? 1U : 0U;
+  // Giu nguyen CONFIG_SCHEMA=10 va kich thuoc record: bit15 cua delay (thuc te
+  // chi 0..600) luu enable, byte circulationFanEnabled cu (RAM luon ep true)
+  // luu setpoint RH nguyen 30..90. Firmware cu van doc byte nay la true.
+  p.humidityAlarmDelaySec = static_cast<uint16_t>(c.humidityAlarmDelaySec & 0x7FFFU) |
+      (c.humidifierEnabled ? 0x8000U : 0U);
+  p.circulationFanEnabled = static_cast<uint8_t>(constrain(
+      static_cast<int>(lroundf(c.targetHumidity)), 30, 90));
   p.ventOnTemp = c.ventOnTemp;
   p.ventOffTemp = c.ventOffTemp;
   p.turningEnabled = c.turningEnabled ? 1U : 0U;
@@ -1727,8 +1734,11 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.pidCycleSec = p.pidCycleSec;
   c.maxHeaterPower = p.maxHeaterPower;
   c.lowHumidityAlarm = p.lowHumidityAlarm;
-  c.humidityAlarmDelaySec = p.humidityAlarmDelaySec;
-  c.circulationFanEnabled = p.circulationFanEnabled != 0U;
+  c.humidifierEnabled = (p.humidityAlarmDelaySec & 0x8000U) != 0U;
+  c.humidityAlarmDelaySec = static_cast<uint16_t>(p.humidityAlarmDelaySec & 0x7FFFU);
+  c.targetHumidity = (p.circulationFanEnabled >= 30U && p.circulationFanEnabled <= 90U)
+      ? static_cast<float>(p.circulationFanEnabled) : MachineConfig{}.targetHumidity;
+  c.circulationFanEnabled = true;
   c.ventOnTemp = p.ventOnTemp;
   c.ventOffTemp = p.ventOffTemp;
   c.turningEnabled = p.turningEnabled != 0U;
@@ -3102,7 +3112,7 @@ struct OutputRequest {
   bool light = false;
   bool circulationFan = false;
   bool siren = false;
-  bool relaySpare = false;
+  bool humidifier = false;
   bool immediateMasterDrop = false;
   bool forceAllSafe = false;
 };
@@ -3115,12 +3125,12 @@ struct OutputState {
   bool light = false;
   bool circulationFan = false;
   bool siren = false;
-  bool relaySpare = false;
+  bool humidifier = false;
 };
 
 enum class OutputChannel : uint8_t {
   HeaterSsr = 0, HeatMaster, TurnLeft, TurnRight, VentFan, Light,
-  CirculationFan, Siren, RelaySpare, Count
+  CirculationFan, Siren, Humidifier, Count
 };
 
 struct OutputEvent {
@@ -3139,7 +3149,7 @@ inline const char *outputName(OutputChannel channel) {
     case OutputChannel::Light: return "LIGHT";
     case OutputChannel::CirculationFan: return "CIRC_FAN";
     case OutputChannel::Siren: return "SIREN";
-    case OutputChannel::RelaySpare: return "RELAY_SPARE";
+    case OutputChannel::Humidifier: return "RELAY_SPARE";
     default: return "UNKNOWN";
   }
 }
@@ -3153,7 +3163,7 @@ inline void mayapSafeOutputsEarly() {
     PIN_OUT_HEATER_SSR, PIN_OUT_TURN_RIGHT,
     PIN_OUT_TURN_LEFT, PIN_OUT_VENT_FAN, PIN_OUT_LIGHT,
     PIN_OUT_HEAT_MASTER, PIN_OUT_CIRC_FAN, PIN_OUT_SIREN,
-    PIN_OUT_RELAY_SPARE
+    PIN_OUT_HUMIDIFIER
   };
   for (uint8_t pin : pins) {
     // Nap muc OFF vao output latch truoc khi chuyen sang OUTPUT de giam xung
@@ -3211,8 +3221,8 @@ class OutputArbiter {
                    false, state_.circulationFan, now);
       setImmediate(PIN_OUT_SIREN, OutputChannel::Siren,
                    false, state_.siren, now);
-      setImmediate(PIN_OUT_RELAY_SPARE, OutputChannel::RelaySpare,
-                   false, state_.relaySpare, now);
+      setImmediate(PIN_OUT_HUMIDIFIER, OutputChannel::Humidifier,
+                   false, state_.humidifier, now);
       return;
     }
 
@@ -3263,8 +3273,8 @@ class OutputArbiter {
                    request.heaterSsr && pickupDone, state_.heaterSsr, now);
     }
 
-    setMinSwitch(PIN_OUT_RELAY_SPARE, OutputChannel::RelaySpare,
-                 request.relaySpare, state_.relaySpare, now,
+    setMinSwitch(PIN_OUT_HUMIDIFIER, OutputChannel::Humidifier,
+                 request.humidifier, state_.humidifier, now,
                  RELAY_GENERAL_MIN_SWITCH_MS);
   }
 
@@ -4106,7 +4116,7 @@ class MachineController {
       // Khong dua xung SSR vao nhat ky HMI: PID co the doi moi vai giay va
       // se day mat cac lenh/loi quan trong. Serial van co the xem khi debug.
       if (event.channel != OutputChannel::HeaterSsr &&
-          event.channel != OutputChannel::RelaySpare) {
+          event.channel != OutputChannel::Humidifier) {
         eventLog_.push(now, EventType::OutputChanged, code,
                        event.active ? 1 : 0);
       }
@@ -5891,6 +5901,20 @@ class MachineController {
     req.siren = ((emergencyActive_ || batchOverdueSirenActive_) &&
                  timeReached(now, sirenMutedUntil_)) || sirenSelfTestActive_;
 
+    // Tao am chi hoat dong trong me, khi cam bien hop le. Hysteresis 2%%RH:
+    // dang OFF thi chi bat khi <= SV-2; dang ON thi giu den khi dat SV.
+    // Moi nhanh safe/fault cua OutputArbiter van co quyen ep relay OFF ngay.
+    const bool humidifierPermit = config_.humidifierEnabled && batchRunning_ &&
+                                  sensorUsable_ && !faults_.masterDropRequired();
+    if (humidifierPermit) {
+      if (outputs_.state().humidifier) {
+        req.humidifier = humidity_ < config_.targetHumidity;
+      } else {
+        req.humidifier = humidity_ <=
+            (config_.targetHumidity - HUMIDIFIER_HYSTERESIS_RH);
+      }
+    }
+
     outputs_.update(now, req);
     runtime_.heaterPower = commandedPower;
   }
@@ -6688,6 +6712,7 @@ class MachineController {
     runtime_.heaterOn = outputs_.state().heatMaster;
     runtime_.circulationFanOn = outputs_.state().circulationFan;
     runtime_.ventFanOn = outputs_.state().ventFan;
+    runtime_.humidifierOn = outputs_.state().humidifier;
     runtime_.lightOn = outputs_.state().light;
     runtime_.sirenOn = outputs_.state().siren;
     runtime_.autoTuneState = autotune_.state();
@@ -7148,7 +7173,7 @@ class MachineController {
       outputs_.state().circulationFan, outputs_.state().ventFan,
       outputs_.state().light, outputs_.state().turnLeft,
       outputs_.state().turnRight, outputs_.state().siren,
-      outputs_.state().relaySpare,
+      outputs_.state().humidifier,
       runtime_.heaterPower, static_cast<unsigned long>(runtime_.alarmMask));
     mayapSerialPrintf(false, "[KERNEL] fault=%u count=%u events=%lu relay/h=%u inDrop=%lu outDrop=%lu\n",
       static_cast<unsigned>(faults_.primary()), faults_.activeCount(),
