@@ -1,0 +1,47 @@
+name: One-shot finalize ATtiny v3
+
+on:
+  push:
+    paths:
+      - '.github/attiny-v3-finalize-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Apply final ATtiny v3 patch
+        run: python3 tools/apply_attiny_v3_finalize.py
+      - name: Run static regression checks
+        run: python3 tools/check_v381_reliability.py
+      - name: Verify critical V3 invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'physicalOut.circulationFan || physicalOut.ventFan || physicalOut.heatMaster' MAYAP_INDUSTRIAL_v3_4_0/machine_control.h
+          ! grep -q 'ATTINY_ACTIVITY_REASSERT_MS' MAYAP_INDUSTRIAL_v3_4_0/config.h
+          grep -q 'FLAG_ACTIVITY = 8U' ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino
+          grep -q 'criticalActivity = loadState(&eeActivityState' ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino
+          grep -q 'ATTINY_MSG_STATUS_MAX = 23U' MAYAP_INDUSTRIAL_v3_4_0/config.h
+          grep -q 'EDGE_BUF_SIZE = 48U' MAYAP_INDUSTRIAL_v3_4_0/attiny_bus.h
+      - name: Commit patched source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add MAYAP_INDUSTRIAL_v3_4_0/config.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/attiny_bus.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/machine_control.h \
+                  ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino \
+                  doc/attiny_power_alarm.md \
+                  tools/check_v381_reliability.py \
+                  .github/workflows/build-firmware.yml
+          git diff --cached --quiet && { echo 'No source changes'; exit 1; }
+          git commit -m 'feat(attiny-v3): persist critical activity with low-power sync'
+          git push origin HEAD:${GITHUB_REF_NAME}
