@@ -1,23 +1,41 @@
 # ATtiny13A power alarm - protocol v3
 
-ATtiny13A la lop bao mat dien/canh bao doc lap, khong tham gia dieu khien heater/dao.
+ATtiny13A la lop **bao mat dien/canh bao doc lap**, khong tham gia PID, dieu khien heater,
+dao hay quat. Muc tieu thiet ke V3 la fail-safe va de CR2032 nuoi Tiny trong nhieu nam.
 
 ## Chan
 - PB0: BUS open-drain 1 day voi ESP32 GPIO41.
-- PB1: dieu khien transistor coi.
+- PB1: dieu khien transistor/MOSFET coi.
 - PB2: sense 3V3_ESP (HIGH = ESP co nguon).
 - PB3: sense nguon 9V coi (HIGH = 9V OK theo nguong phan ap tren PCB).
 
-## Khi nao Tiny arm bao mat dien
-1. **Dang co me/resumePending:** batch state duoc luu EEPROM nhu v2, mat 3V3 -> coi.
-2. **Ngoai me:** ESP32 gui `ACTIVITY_ON` neu output THUC TE cua it nhat mot tai sau dang ON:
-   - dao trai hoac dao phai;
+## Dieu kien arm bao mat dien
+ATtiny bat coi khi **PB2 mat 3V3** va mot trong hai co arm duoi day dang ON:
+
+1. **Batch arm**: dang co me hoac resumePending. Trang thai nay luu EEPROM Tiny.
+2. **Critical-activity arm ngoai me**: ESP32 lay **output vat ly da qua OutputArbiter** va arm neu
+   it nhat mot trong bon nhom sau dang ON:
+   - dong co dao trai/phai;
    - quat tuan hoan;
    - quat hut;
-   - SSR thanh nhiet.
-   Den, contactor tong nhiet, coi va relay spare KHONG arm bao mat dien.
-3. Activity chi luu RAM Tiny, khong ghi EEPROM, de khong mai EEPROM theo PID/relay.
-   ESP tai khang dinh `ACTIVITY_ON` dinh ky khi can, de tu phuc hoi neu Tiny reset rieng.
+   - **contactor nguon nhiet `heatMaster`**.
+
+Khong dung `heaterSsr` lam dieu kien nhiet: SSR bi PID dong/ngat lien tuc, con `heatMaster`
+la contactor cap nguon chinh cho cum SSR va phan anh dung y nghia "he thong nhiet dang duoc cap nguon".
+**Den, coi va relay spare khong arm bao mat dien.**
+
+Activity ON duoc arm ngay. Activity OFF chi ghi sau khi tat ca tai tren OFF lien tuc 30 s.
+Cach nay tranh ghi EEPROM theo cac dao dong relay/ngan han.
+
+## Luu EEPROM va chong mat trang thai
+- Batch va critical-activity deu luu bang cap `state` + `~state`.
+- Dung `eeprom_update_byte()`: neu gia tri khong doi thi AVR khong ghi lai cell.
+- Chi ghi khi trang thai tong ON/OFF thuc su doi; khong con reassert 5 giay.
+- Record loi/rach -> fail-safe coi la **ARMED**.
+- Activity OFF co debounce 30 s o ESP32 de giam them so chu ky ghi.
+
+Voi heatMaster thay cho xung SSR, so lan ghi activity trong van hanh binh thuong rat thap;
+EEPROM khong bi bam theo chu ky PID.
 
 ## Protocol v3
 ESP32 -> Tiny:
@@ -29,35 +47,56 @@ ESP32 -> Tiny:
 - `6=ACTIVITY_ON`
 - `7=ACTIVITY_OFF`
 
-Tiny ACK moi lenh hop le. STATUS_QUERY tra frame 8..15; `status-8` la bitmask:
-bit0=batch, bit1=9V low, bit2=emergency siren mirror. ESP ACK frame status.
+Tiny ACK lenh batch/activity **chi sau khi EEPROM da ghi va doc verify dung**.
 
-## Chuyen trang thai khong tao khoang mu
-- Bat dau me: BATCH_START duoc gui truoc khi activity ngoai me bi bo.
-- Ket thuc me: neu tai quan trong van dang ON, ACTIVITY_ON duoc xep truoc BATCH_END.
-- updateAttinyLink chay sau update output, nen dieu kien activity doc trang thai output vat ly moi nhat.
+STATUS_QUERY tra frame 8..23; `status-8` la bitmask 4 bit:
+- bit0 = batch
+- bit1 = 9V low
+- bit2 = emergency siren mirror
+- bit3 = critical activity
 
-## Hieu chinh nguong 3.3V va 9V
-PB2/PB3 hien dung DIGITAL + PCINT. Vi vay nguong dien ap thuc te do bo chia dien ap tren PCB
-va nguong VIH/VIL cua ATtiny13A quyet dinh; khong co mot hang so firmware nao co the thay doi
-nguong bang cach sua so don thuan. Trong `ATTINY13A_POWER_ALARM.ino` co hai placeholder:
-`FIELD_MEASURED_3V3_LOSS_MV` va `FIELD_MEASURED_9V_LOW_MV`. Sau bench-test, ghi/bao lai hai
-gia tri thuc te; luc do co the quyet dinh dieu chinh divider hay doi sang ADC threshold co the
-hieu chinh bang code.
+ESP ACK frame status. Edge buffer ESP la 48 canh, du cho frame toi da 23 xung = 46 canh.
+
+## Dong bo va tu phuc hoi
+- Bat dau me: BATCH_START duoc xep truoc khi activity ngoai me bi bo.
+- Ket thuc me: neu tai quan trong van ON, ACTIVITY_ON duoc xep **truoc** BATCH_END de khong tao khoang mu.
+- ESP hoi STATUS ngay sau boot. Khi dang arm, hoi 1 h/lan; khi idle, 6 h/lan.
+- STATUS co activity bit, nen Tiny reset rieng van duoc kiem tra hai chieu va sua mismatch.
+- Khong con ACTIVITY_ON moi 5 s.
+
+## Bao 9 V / E502
+PB3 va E502 duoc giu nguyen. Khi Tiny bao 9V LOW, ESP32 phat `SIREN BATTERY LOW` (E502).
+Ngay ca khi may idle, STATUS 6 h/lan dam bao 9V-low khong bi bo quen vo thoi han.
+
+## Hieu chinh nguong 3.3 V va 9 V
+PB2/PB3 hien dung DIGITAL + PCINT. Nguong thuc te do divider + VIH/VIL/hysteresis + VCC Tiny.
+Trong `ATTINY13A_POWER_ALARM.ino` co 4 placeholder (mV, do tai nguon truoc divider):
+- `FIELD_MEASURED_3V3_LOSS_MV`
+- `FIELD_MEASURED_3V3_RESTORE_MV`
+- `FIELD_MEASURED_9V_LOW_MV`
+- `FIELD_MEASURED_9V_OK_MV`
+
+0 = chua bench-calibrate. Cac so nay hien chi la ghi chu, chua dieu khien threshold.
+
+## Low-power policy
+- Power-down sleep la trang thai mac dinh.
+- WDT chi bat khi xu ly BUS, tat truoc khi ngu.
+- ADC va analog comparator khong dung duoc tat ro rang khi boot.
+- Khi ESP mat nguon, PB0 bi mask khoi PCINT va keo LOW de tranh floating/wake gia/back-power.
+- Khong co polling nhanh; status 1 h khi arm, 6 h khi idle.
+- Emergency siren reassert 15 s chi xay ra trong tinh huong khan cap, khong anh huong tuoi pin binh thuong.
+
+Muc tieu bench: dong toan mach Tiny khi ngu <= 1-3 uA. Voi CR2032 chinh hang, muc tieu thuc te
+5-8 nam la hop ly neu PCB/divider/MOSFET khong tao dong ro lon va BOD fuse duoc cau hinh phu hop.
 
 ## Fail-safe
-- EEPROM batch record hong/rach -> Tiny coi nhu dang co me.
-- Tiny boot khi EEPROM bao dang co me va PB2 LOW -> coi bat ngay.
-- Khi ESP mat nguon, Tiny mask PCINT PB0 va keo BUS LOW de tranh floating/wake gia.
+- EEPROM batch/activity record hong -> arm thay vi im lang.
+- Tiny boot khi arm va PB2 LOW -> coi bat ngay.
 - E501: mat giao tiep ATtiny.
-- E502: nguon 9V coi low (giu nguyen protocol v3).
-- E503: batch ESP/Tiny khong dong bo.
-
-## Tieu thu dien
-Tiny ngu phan lon thoi gian o `SLEEP_MODE_PWR_DOWN`; WDT chi bat trong luc xu ly bus va tat
-truoc khi ngu. Tieu thu thuc te cua ca mach phu thuoc rat lon vao BOD/fuse, mach chia ap PB2/PB3,
-transistor/LED va dong cua coi; can do dong tren PCB that de chot thoi luong pin.
+- E502: nguon 9V coi low.
+- E503: batch **hoac activity** ESP/Tiny khong dong bo.
+- Loi ATtiny chi la diagnostic cho ESP32; Tiny khong duoc quyen cat/ep output dieu khien chinh.
 
 ## Build gate
-GitHub Actions build rieng ATtiny13A bang avr-g++ va fail neu Flash >1024 B hoac static RAM >64 B.
-CI cung so protocol version/message constants voi ESP32 truoc khi compile firmware chinh.
+GitHub Actions build ATtiny13A bang avr-g++ va fail neu Flash >1024 B hoac static RAM >64 B.
+CI cung kiem protocol/message/status constants giua ESP32 va Tiny truoc khi compile firmware chinh.

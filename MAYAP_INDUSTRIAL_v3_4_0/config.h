@@ -360,17 +360,24 @@ constexpr uint8_t ATTINY_MSG_STATUS_QUERY = 5U;
 constexpr uint8_t ATTINY_MSG_ACTIVITY_ON = 6U;
 constexpr uint8_t ATTINY_MSG_ACTIVITY_OFF = 7U;
 constexpr uint8_t ATTINY_MSG_STATUS_BASE = 8U;
-constexpr uint8_t ATTINY_MSG_STATUS_MAX = 15U;
+constexpr uint8_t ATTINY_MSG_STATUS_MAX = 23U;
 constexpr uint8_t ATTINY_MSG_MAX_COMMAND = 7U;
-constexpr uint8_t ATTINY_MSG_MAX_CODE = 15U;
+constexpr uint8_t ATTINY_MSG_MAX_CODE = 23U;
 constexpr uint8_t ATTINY_STATUS_FLAG_BATCH = 1U;
 constexpr uint8_t ATTINY_STATUS_FLAG_9V_LOW = 2U;
 constexpr uint8_t ATTINY_STATUS_FLAG_SIREN = 4U;
-constexpr uint32_t ATTINY_STATUS_INTERVAL_MS = 1UL * 3600UL * 1000UL;
+constexpr uint8_t ATTINY_STATUS_FLAG_ACTIVITY = 8U;
+// Khi dang arm (co me hoac co tai quan trong ngoai me), kiem tra hai chieu moi 1 h.
+// Khi idle van hoi 6 h/lan de E502 (9V LOW) khong bi mat vo thoi han, nhung
+// giu duty-cycle cua Tiny rat thap de CR2032 co the song nhieu nam.
+constexpr uint32_t ATTINY_STATUS_ARMED_INTERVAL_MS = 1UL * 3600UL * 1000UL;
+constexpr uint32_t ATTINY_STATUS_IDLE_INTERVAL_MS = 6UL * 3600UL * 1000UL;
 constexpr uint32_t ATTINY_STATUS_RESPONSE_TIMEOUT_MS = 2500UL;
 constexpr uint32_t ATTINY_RESYNC_RETRY_MS = 30000UL;
 constexpr uint32_t ATTINY_SIREN_REASSERT_MS = 15000UL;
-constexpr uint32_t ATTINY_ACTIVITY_REASSERT_MS = 5000UL;
+// ON duoc arm ngay. OFF phai on dinh 30 s moi ghi lai Tiny EEPROM, de gop
+// cac dao dong ngan va giam so chu ky ghi EEPROM.
+constexpr uint32_t ATTINY_ACTIVITY_OFF_CONFIRM_MS = 30000UL;
 constexpr uint32_t ATTINY_9V_CONFIRM_MS = 3000UL;
 
 // Input opto ACTIVE-LOW: kich 12 V => ngo ra opto keo GPIO xuong GND.

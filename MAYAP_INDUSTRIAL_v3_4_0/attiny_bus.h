@@ -5,7 +5,7 @@
 namespace MayapAttinyBusInternal {
 inline uint32_t elapsedMs(uint32_t now, uint32_t then) { return static_cast<uint32_t>(now - then); }
 inline bool reached(uint32_t now, uint32_t deadline) { return static_cast<int32_t>(now - deadline) >= 0; }
-constexpr uint8_t EDGE_BUF_SIZE = 32U;
+constexpr uint8_t EDGE_BUF_SIZE = 48U;
 constexpr uint8_t TX_QUEUE_SIZE = 8U;
 static_assert(static_cast<uint16_t>(ATTINY_MSG_STATUS_MAX) * 2U <= EDGE_BUF_SIZE,
               "ATtiny status frame vuot edge buffer");

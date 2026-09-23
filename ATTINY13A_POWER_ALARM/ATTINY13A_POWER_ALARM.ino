@@ -50,13 +50,16 @@ constexpr uint8_t MSG_STATUS_QUERY = 5U;
 constexpr uint8_t MSG_ACTIVITY_ON = 6U;
 constexpr uint8_t MSG_ACTIVITY_OFF = 7U;
 constexpr uint8_t MSG_STATUS_BASE = 8U;
-constexpr uint8_t MSG_STATUS_MAX = 15U;
+constexpr uint8_t MSG_STATUS_MAX = 23U;
 constexpr uint8_t FLAG_BATCH = 1U;
 constexpr uint8_t FLAG_9V_LOW = 2U;
 constexpr uint8_t FLAG_SIREN = 4U;
+constexpr uint8_t FLAG_ACTIVITY = 8U;
 
 uint8_t EEMEM eeBatchState;
 uint8_t EEMEM eeBatchStateInv;
+uint8_t EEMEM eeActivityState;
+uint8_t EEMEM eeActivityStateInv;
 static bool batchActive;
 static bool criticalActivity;
 static bool emergencySiren;
@@ -69,19 +72,19 @@ static inline bool espPowerOk() { return (PINB & _BV(PIN_3V3)) != 0U; }
 static inline bool nineVoltOk() { return (PINB & _BV(PIN_9V)) != 0U; }
 static inline void setSiren(bool on) { if (on) PORTB |= _BV(PIN_SIREN); else PORTB &= static_cast<uint8_t>(~_BV(PIN_SIREN)); }
 
-static bool loadBatch() {
-  const uint8_t v = eeprom_read_byte(&eeBatchState);
-  const uint8_t n = eeprom_read_byte(&eeBatchStateInv);
+static bool loadState(const uint8_t *stateAddr, const uint8_t *invAddr) {
+  const uint8_t v = eeprom_read_byte(stateAddr);
+  const uint8_t n = eeprom_read_byte(invAddr);
   if ((v ^ n) == 0xFFU && v <= 1U) return v != 0U;
-  return true;  // EEPROM rach/chua hop le: fail-safe coi nhu dang co me.
+  return true;  // Record rach/chua hop le: fail-safe = ARMED.
 }
 
-static bool saveBatch(bool on) {
+static bool saveState(uint8_t *stateAddr, uint8_t *invAddr, bool on) {
   const uint8_t v = on ? 1U : 0U;
-  eeprom_update_byte(&eeBatchState, v);
-  eeprom_update_byte(&eeBatchStateInv, static_cast<uint8_t>(~v));
-  return eeprom_read_byte(&eeBatchState) == v &&
-         eeprom_read_byte(&eeBatchStateInv) == static_cast<uint8_t>(~v);
+  eeprom_update_byte(stateAddr, v);
+  eeprom_update_byte(invAddr, static_cast<uint8_t>(~v));
+  return eeprom_read_byte(stateAddr) == v &&
+         eeprom_read_byte(invAddr) == static_cast<uint8_t>(~v);
 }
 
 static void sendAck() { busLow(); delayMs(PULSE_MS); busRelease(); }
@@ -118,6 +121,7 @@ static inline uint8_t statusCode() {
   uint8_t flags = batchActive ? FLAG_BATCH : 0U;
   if (!nineVoltOk()) flags |= FLAG_9V_LOW;
   if (emergencySiren) flags |= FLAG_SIREN;
+  if (criticalActivity) flags |= FLAG_ACTIVITY;
   return static_cast<uint8_t>(MSG_STATUS_BASE + flags);
 }
 
@@ -143,8 +147,16 @@ int main(void) {
   wdt_disable();
   DDRB = _BV(PIN_SIREN);
   PORTB = 0U;
-  batchActive = loadBatch();
-  criticalActivity = false;  // RAM-only; ESP resync khi link song.
+  // Khong dung ADC/comparator: tat ro rang de giam dong nen. PB2/PB3 van la
+  // digital input + PCINT, khong bi anh huong. BOD la fuse va phai bench-test.
+#ifdef ACD
+  ACSR |= _BV(ACD);
+#endif
+#ifdef PRADC
+  PRR |= _BV(PRADC);
+#endif
+  batchActive = loadState(&eeBatchState, &eeBatchStateInv);
+  criticalActivity = loadState(&eeActivityState, &eeActivityStateInv);
   emergencySiren = false;
   updateSiren();
   configureWakeMask(espPowerOk());
@@ -162,9 +174,9 @@ int main(void) {
       bool ok = false;
       bool sendState = false;
       if (code == MSG_BATCH_START) {
-        ok = saveBatch(true); if (ok) batchActive = true;
+        ok = saveState(&eeBatchState, &eeBatchStateInv, true); if (ok) batchActive = true;
       } else if (code == MSG_BATCH_END) {
-        ok = saveBatch(false); if (ok) batchActive = false;
+        ok = saveState(&eeBatchState, &eeBatchStateInv, false); if (ok) batchActive = false;
       } else if (code == MSG_SIREN_ON) {
         emergencySiren = true; ok = true;
       } else if (code == MSG_SIREN_OFF) {
@@ -172,9 +184,11 @@ int main(void) {
       } else if (code == MSG_STATUS_QUERY) {
         ok = true; sendState = true;
       } else if (code == MSG_ACTIVITY_ON) {
-        criticalActivity = true; ok = true;
+        ok = saveState(&eeActivityState, &eeActivityStateInv, true);
+        if (ok) criticalActivity = true;
       } else if (code == MSG_ACTIVITY_OFF) {
-        criticalActivity = false; ok = true;
+        ok = saveState(&eeActivityState, &eeActivityStateInv, false);
+        if (ok) criticalActivity = false;
       }
       updateSiren();
       if (ok) {
