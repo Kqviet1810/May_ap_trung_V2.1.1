@@ -1,7 +1,12 @@
 name: Deploy Cloudflare Worker
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 'Nhanh/tag chua ma Worker can deploy'
+        required: true
+        default: 'main'
 
 permissions:
   contents: read
@@ -13,8 +18,13 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - name: Checkout ma nguon can deploy
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - name: Cai Node.js
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           package-manager-cache: false
