@@ -6309,8 +6309,7 @@ class MachineController {
 
       attinyBatchSynced_ = (attinyTinyBatch_ == expectedBatch);
       mayapSerialPrintf(false,
-          "[ATTINY] v=%u link=1 batchSync=%u expectedBatch=%u activity=%u mirror=%u tinyBatch=%u siren=%u tinySiren=%u 9v=%s
-",
+          "[ATTINY] v=%u link=1 batchSync=%u expectedBatch=%u activity=%u mirror=%u tinyBatch=%u siren=%u tinySiren=%u 9v=%s\n",
           ATTINY_PROTOCOL_VERSION, attinyBatchSynced_ ? 1U : 0U,
           expectedBatch ? 1U : 0U, expectedActivity ? 1U : 0U,
           attinyActivityMirrorOn_ ? 1U : 0U, attinyTinyBatch_ ? 1U : 0U,
