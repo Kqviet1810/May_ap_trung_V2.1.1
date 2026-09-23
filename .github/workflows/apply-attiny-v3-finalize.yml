@@ -17,6 +17,19 @@ jobs:
           fetch-depth: 0
       - name: Apply final ATtiny v3 patch
         run: python3 tools/apply_attiny_v3_finalize.py
+      - name: Update stale ATtiny documentation invariant
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('tools/check_v381_reliability.py')
+          s = p.read_text(encoding='utf-8')
+          old = 'require(attiny_doc, "Den, contactor tong nhiet", "light excluded from activity alarm documentation")'
+          new = 'require(attiny_doc, "Den, coi va relay spare khong arm bao mat dien", "light excluded while heatMaster remains an arm source")'
+          if old not in s:
+              raise SystemExit('stale ATtiny doc invariant not found')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
       - name: Run static regression checks
         run: python3 tools/check_v381_reliability.py
       - name: Verify critical V3 invariants
