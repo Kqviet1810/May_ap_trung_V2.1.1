@@ -4,7 +4,7 @@
   "hmi": "3.7.0",
   "web": "11.7.3",
   "web_storage_schema": 10,
-  "attiny_protocol": 2,
+  "attiny_protocol": 3,
   "esp32_core": "3.3.11",
   "arduino_cli": "1.5.1",
   "node_ci": 24,
