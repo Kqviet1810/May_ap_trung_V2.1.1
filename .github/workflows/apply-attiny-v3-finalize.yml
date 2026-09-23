@@ -17,6 +17,8 @@ jobs:
           fetch-depth: 0
       - name: Apply final ATtiny v3 patch
         run: python3 tools/apply_attiny_v3_finalize.py
+      - name: Keep permanent workflow unchanged in bot commit
+        run: git checkout -- .github/workflows/build-firmware.yml
       - name: Update stale ATtiny documentation invariant
         shell: bash
         run: |
@@ -53,8 +55,7 @@ jobs:
                   MAYAP_INDUSTRIAL_v3_4_0/machine_control.h \
                   ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino \
                   doc/attiny_power_alarm.md \
-                  tools/check_v381_reliability.py \
-                  .github/workflows/build-firmware.yml
+                  tools/check_v381_reliability.py
           git diff --cached --quiet && { echo 'No source changes'; exit 1; }
           git commit -m 'feat(attiny-v3): persist critical activity with low-power sync'
           git push origin HEAD:${GITHUB_REF_NAME}
