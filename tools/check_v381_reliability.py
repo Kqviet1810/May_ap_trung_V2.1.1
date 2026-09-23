@@ -78,6 +78,8 @@ require(machine, "physicalOut.circulationFan || physicalOut.ventFan || physicalO
 require(machine, "const bool expectedActivity = !expectedBatch", "activity only outside batch")
 require(machine, "ATTINY_ACTIVITY_REASSERT_MS", "ATtiny RAM activity reassert")
 require(machine, "keepPowerLossArmed", "batch-stop no-gap handoff")
+require(machine, "refreshPendingResumeElapsedFromRtc();", "pending resume elapsed follows RTC")
+require(machine, "savedElapsedAtCheckpoint_) + delta", "pending resume elapsed uses checkpoint anchor")
 require(attiny, "static inline bool nineVoltOk()", "ATtiny 9V sensing retained")
 require(attiny, "FLAG_9V_LOW", "ATtiny 9V low reporting retained")
 require(attiny, "batchActive || criticalActivity", "ATtiny power-loss alarm OR policy")

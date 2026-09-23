@@ -4838,6 +4838,22 @@ class MachineController {
                       resumeBlockReasonText(reason));
   }
 
+  // Trong luc dang CHO xac nhan/cho dieu kien phuc hoi, thoi gian sinh hoc
+  // cua me van tiep tuc troi. Checkpoint + RTC la moc that, khong de dong ho
+  // dung lai chi vi nguoi dung chua bam Tiep tuc. Khong ghi flash tai day;
+  // checkpointGate van la noi duy nhat luu dinh ky.
+  void refreshPendingResumeElapsedFromRtc() {
+    if (!resumePending_ || lastCheckpointEpoch_ == 0U || !rtc_.valid()) return;
+    const uint32_t currentEpoch = rtc_.epoch();
+    if (currentEpoch < lastCheckpointEpoch_) return;
+    const uint32_t delta = currentEpoch - lastCheckpointEpoch_;
+    if (delta > MAX_RTC_RECOVERY_GAP_SEC) return;
+    const uint64_t corrected = static_cast<uint64_t>(savedElapsedAtCheckpoint_) + delta;
+    const uint32_t refreshed = corrected > UINT32_MAX
+        ? UINT32_MAX : static_cast<uint32_t>(corrected);
+    if (refreshed > elapsedBeforeStartSec_) elapsedBeforeStartSec_ = refreshed;
+  }
+
   void processResume(uint32_t now) {
     if (!resumePending_) {
       setResumeBlockReason(ResumeBlockReason::None, now);
@@ -4845,6 +4861,11 @@ class MachineController {
       faults_.set(FaultCode::ResumeRtcWaitTooLong, false, now);
       return;
     }
+
+    // Cap nhat ngay/elapsed TRUOC moi nhanh return cua recovery (ke ca dang
+    // cho xac nhan, AUTO, heater, sensor hay powerRestoreDelay).
+    refreshPendingResumeElapsedFromRtc();
+
     if (resumeConfirmationRequired_) {
       setResumeBlockReason(ResumeBlockReason::Confirmation, now);
       // Chi canh bao "cho qua lau", KHONG tu lam gi thay nguoi dung - van
