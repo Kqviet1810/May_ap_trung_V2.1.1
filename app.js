@@ -73,9 +73,11 @@
   }
   const CONFIG_KEYS = Object.freeze([
     'targetTemp', 'tempHysteresis', 'lowTempAlarm', 'highTempAlarm',
-    'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'humidifierEnabled',
-    'targetHumidity', 'ventOnTemp',
-    'ventOffTemp', 'tempOffset', 'humidityOffset', 'pidCycleSec',
+    'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'humidifierInstalled',
+    'humidifierEnabled', 'targetHumidity', 'ventOnTemp',
+    'ventOffTemp', 'ventScheduleEnabled', 'ventScheduleCount', 'ventScheduleDurationMin',
+    'ventScheduleHour1', 'ventScheduleHour2', 'ventScheduleHour3', 'ventScheduleHour4',
+    'ventScheduleHour5', 'ventScheduleHour6', 'tempOffset', 'humidityOffset', 'pidCycleSec',
     'humidityAlarmDelaySec', 'turnIntervalMin', 'turnMaxRunSec',
     'powerRestoreDelaySec', 'sensorTimeoutSec', 'maxHeaterPower',
     'totalIncubationDays', 'circulationFanEnabled', 'turningEnabled',
@@ -1151,9 +1153,23 @@
     return Boolean(state.formFlags.get(formId)?.dirty);
   }
 
+  function syncHumidifierFeatureUi(config) {
+    const installed = Boolean(config?.humidifierInstalled);
+    if ($('outputHumidifierTile')) $('outputHumidifierTile').hidden = !installed;
+    if ($('humidifierEnabledTile')) $('humidifierEnabledTile').hidden = !installed;
+    const input = $('targetHumidity');
+    const label = $('targetHumidityLabel');
+    if (label) label.textContent = installed ? 'Độ ẩm đặt' : 'Độ ẩm tham khảo';
+    if (input) {
+      input.min = installed ? '30' : '20';
+      input.max = installed ? '90' : '95';
+    }
+  }
+
   function applyConfigToUi(device, force = false) {
     const config = device?.config;
     if (!config) return;
+    syncHumidifierFeatureUi(config);
     const assign = (formId, id, value) => {
       if (!force && hasDirtyForm(formId)) return;
       const element = $(id);
@@ -1181,10 +1197,11 @@
     assign('batchForm', 'totalDays', config.totalIncubationDays);
     check('batchForm', 'resumeAfterPowerLoss', config.autoResumeAfterPower);
     check('batchForm', 'humidifierEnabled', config.humidifierEnabled);
-    assign('batchForm', 'targetHumidity', config.targetHumidity);
+    if (config.humidifierInstalled) assign('batchForm', 'targetHumidity', config.targetHumidity);
     if (!hasDirtyForm('batchForm') || force) {
       $('batchName').value = device.batchMeta.name;
       $('startDate').value = device.batchMeta.startDate;
+      if (!config.humidifierInstalled) $('targetHumidity').value = device.batchMeta.targetHumidity;
     }
 
     assign('temperatureForm', 'targetTemp', config.targetTemp);
@@ -1193,6 +1210,7 @@
     assign('temperatureForm', 'emergencyTemp', config.emergencyTemp);
     assign('temperatureForm', 'ventOn', config.ventOnTemp);
     assign('temperatureForm', 'ventOff', config.ventOffTemp);
+    check('temperatureForm', 'ventScheduleEnabled', config.ventScheduleEnabled);
     check('temperatureForm', 'highTempAlarmWithoutBatch', config.highTempAlarmWithoutBatch);
 
     check('turningForm', 'turningEnabled', config.turningEnabled);
@@ -1219,6 +1237,14 @@
     assign('advancedForm', 'advTempOscillationWindowSec', config.tempOscillationWindowSec);
     assign('advancedForm', 'advHeaterStuckMinRiseC', config.heaterStuckMinRiseC);
     assign('advancedForm', 'advHeaterStuckDurationSec', config.heaterStuckDurationSec);
+    assign('advancedForm', 'advVentScheduleCount', config.ventScheduleCount);
+    assign('advancedForm', 'advVentScheduleDurationMin', config.ventScheduleDurationMin);
+    assign('advancedForm', 'advVentScheduleHour1', config.ventScheduleHour1);
+    assign('advancedForm', 'advVentScheduleHour2', config.ventScheduleHour2);
+    assign('advancedForm', 'advVentScheduleHour3', config.ventScheduleHour3);
+    assign('advancedForm', 'advVentScheduleHour4', config.ventScheduleHour4);
+    assign('advancedForm', 'advVentScheduleHour5', config.ventScheduleHour5);
+    assign('advancedForm', 'advVentScheduleHour6', config.ventScheduleHour6);
     assign('advancedForm', 'advAutotuneRelayPowerPercent', config.autotuneRelayPowerPercent);
     assign('advancedForm', 'advAutotuneBandC', config.autotuneBandC);
 
@@ -1277,8 +1303,10 @@
       shiftTempThresholds(config, config.targetTemp, newTarget);
       config.targetTemp = newTarget;
       config.totalIncubationDays = Number($('totalDays').value);
-      config.targetHumidity = Number($('targetHumidity').value);
-      config.humidifierEnabled = $('humidifierEnabled').checked;
+      if (config.humidifierInstalled) {
+        config.targetHumidity = Number($('targetHumidity').value);
+        config.humidifierEnabled = $('humidifierEnabled').checked;
+      }
       config.autoResumeAfterPower = $('resumeAfterPowerLoss').checked;
     } else if (group === 'temperature') {
       config.targetTemp = Number($('targetTemp').value);
@@ -1287,6 +1315,7 @@
       config.emergencyTemp = Number($('emergencyTemp').value);
       config.ventOnTemp = Number($('ventOn').value);
       config.ventOffTemp = Number($('ventOff').value);
+      config.ventScheduleEnabled = $('ventScheduleEnabled').checked;
       config.highTempAlarmWithoutBatch = $('highTempAlarmWithoutBatch').checked;
     } else if (group === 'turning') {
       config.turningEnabled = $('turningEnabled').checked;
@@ -1313,6 +1342,14 @@
       config.tempOscillationWindowSec = Number($('advTempOscillationWindowSec').value);
       config.heaterStuckMinRiseC = Number($('advHeaterStuckMinRiseC').value);
       config.heaterStuckDurationSec = Number($('advHeaterStuckDurationSec').value);
+      config.ventScheduleCount = Number($('advVentScheduleCount').value);
+      config.ventScheduleDurationMin = Number($('advVentScheduleDurationMin').value);
+      config.ventScheduleHour1 = Number($('advVentScheduleHour1').value);
+      config.ventScheduleHour2 = Number($('advVentScheduleHour2').value);
+      config.ventScheduleHour3 = Number($('advVentScheduleHour3').value);
+      config.ventScheduleHour4 = Number($('advVentScheduleHour4').value);
+      config.ventScheduleHour5 = Number($('advVentScheduleHour5').value);
+      config.ventScheduleHour6 = Number($('advVentScheduleHour6').value);
       config.autotuneRelayPowerPercent = Number($('advAutotuneRelayPowerPercent').value);
       config.autotuneBandC = Number($('advAutotuneBandC').value);
     }
@@ -2149,9 +2186,14 @@
     const days = Number($('totalDays').value);
     const temperature = Number($('batchTarget').value);
     const humidity = Number($('targetHumidity').value);
+    const humidifierInstalled = Boolean(currentDevice()?.config?.humidifierInstalled);
     if (!(days >= 1 && days <= 40)) return invalidate('batchForm', 'totalDays', 'Tổng số ngày ấp phải từ 1 đến 40 ngày.');
     if (!(temperature >= 30 && temperature <= 40)) return invalidate('batchForm', 'batchTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
-    if (!(humidity >= 30 && humidity <= 90)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm đặt phải từ 30 đến 90%RH.');
+    if (humidifierInstalled) {
+      if (!(humidity >= 30 && humidity <= 90)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm đặt phải từ 30 đến 90%RH.');
+    } else if (!(humidity >= 20 && humidity <= 95)) {
+      return invalidate('batchForm', 'targetHumidity', 'Độ ẩm tham khảo phải từ 20 đến 95%RH.');
+    }
     return true;
   }
 
@@ -2204,6 +2246,9 @@
     const tempOscillationWindowSec = Number($('advTempOscillationWindowSec').value);
     const heaterStuckMinRiseC = Number($('advHeaterStuckMinRiseC').value);
     const heaterStuckDurationSec = Number($('advHeaterStuckDurationSec').value);
+    const ventScheduleCount = Number($('advVentScheduleCount').value);
+    const ventScheduleDurationMin = Number($('advVentScheduleDurationMin').value);
+    const ventHours = [1,2,3,4,5,6].map((n) => Number($(`advVentScheduleHour${n}`).value));
     const autotuneRelayPowerPercent = Number($('advAutotuneRelayPowerPercent').value);
     const autotuneBandC = Number($('advAutotuneBandC').value);
     if (!(kp >= 0 && kp <= 100)) return invalidate('advancedForm', 'advKp', 'Hệ số Kp phải từ 0 đến 100.');
@@ -2217,6 +2262,13 @@
     if (!(tempOscillationWindowSec >= 60 && tempOscillationWindowSec <= 3600)) return invalidate('advancedForm', 'advTempOscillationWindowSec', 'Khung thời gian phải từ 60 đến 3600 giây.');
     if (!(heaterStuckMinRiseC >= 0.05 && heaterStuckMinRiseC <= 5)) return invalidate('advancedForm', 'advHeaterStuckMinRiseC', 'Ngưỡng tăng tối thiểu phải từ 0,05 đến 5°C.');
     if (!(heaterStuckDurationSec >= 60 && heaterStuckDurationSec <= 3600)) return invalidate('advancedForm', 'advHeaterStuckDurationSec', 'Thời gian xác nhận phải từ 60 đến 3600 giây.');
+    if (!(ventScheduleCount >= 1 && ventScheduleCount <= 6)) return invalidate('advancedForm', 'advVentScheduleCount', 'Số lần thông gió phải từ 1 đến 6 lần/ngày.');
+    if (!(ventScheduleDurationMin >= 1 && ventScheduleDurationMin <= 60)) return invalidate('advancedForm', 'advVentScheduleDurationMin', 'Thời lượng thông gió phải từ 1 đến 60 phút.');
+    for (let i = 0; i < ventHours.length; i += 1) {
+      if (!(ventHours[i] >= 0 && ventHours[i] <= 23)) return invalidate('advancedForm', `advVentScheduleHour${i + 1}`, 'Giờ thông gió phải từ 0 đến 23.');
+    }
+    const activeHours = ventHours.slice(0, ventScheduleCount);
+    if (new Set(activeHours).size !== activeHours.length) return invalidate('advancedForm', 'advVentScheduleHour1', 'Các giờ thông gió đang sử dụng không được trùng nhau.');
     if (!(autotuneRelayPowerPercent >= 10 && autotuneRelayPowerPercent <= 80)) return invalidate('advancedForm', 'advAutotuneRelayPowerPercent', 'Công suất relay tự dò phải từ 10 đến 80%.');
     if (!(autotuneBandC >= 0.05 && autotuneBandC <= 1)) return invalidate('advancedForm', 'advAutotuneBandC', 'Dải xác nhận tự dò phải từ 0,05 đến 1°C.');
     return true;

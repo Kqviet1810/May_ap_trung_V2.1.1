@@ -241,6 +241,7 @@ constexpr float HUMIDITY_HIGH_HYSTERESIS_C = 2.0f;
 // Tao am 1 relay: OFF->ON khi RH <= setpoint - 2%%, giu ON den khi dat setpoint.
 // Khong dung PID de tranh relay dong/ngat lien tuc.
 constexpr float HUMIDIFIER_HYSTERESIS_RH = 2.0f;
+constexpr uint8_t VENT_SCHEDULE_MAX_RUNS = 6U;
 // [DA CHUYEN SANG MachineConfig, schema 8] Toc do tang/giam nhiet bat thuong,
 // dao dong nhiet mat on dinh, va nghi ngo SSR/relay dinh (thanh nhiet BAT lau
 // ma nhiet khong tang) tung la hang so cung o day (TEMP_RATE_WINDOW_MS/
@@ -1111,14 +1112,26 @@ struct MachineConfig {
 
   float lowHumidityAlarm = 45.0f;
   uint16_t humidityAlarmDelaySec = 60;
-  // Tao am la tuy chon theo tung may. Mac dinh TAT de may khong lap bo tao am
-  // van dung cung firmware ma GPIO48 luon o trang thai an toan OFF.
+  // Phan cung tao am la tuy chon theo tung may. Co/Khong CHI duoc cau hinh
+  // tren HMI; web chi doc co nay de an/hien giao dien, khong duoc thay doi.
+  bool humidifierInstalled = false;
   bool humidifierEnabled = false;
   float targetHumidity = 58.0f;
 
   bool circulationFanEnabled = true;
   float ventOnTemp = 38.0f;
   float ventOffTemp = 37.6f;
+  // Thong gio dinh ky theo RTC. Nut BAT/TAT nam o nhom NHIET DO; chi tiet
+  // lich nam o NANG CAO. Mac dinh TAT de khong thay doi hanh vi may cu.
+  bool ventScheduleEnabled = false;
+  uint8_t ventScheduleCount = 2;
+  uint8_t ventScheduleDurationMin = 5;
+  uint8_t ventScheduleHour1 = 8;
+  uint8_t ventScheduleHour2 = 20;
+  uint8_t ventScheduleHour3 = 12;
+  uint8_t ventScheduleHour4 = 16;
+  uint8_t ventScheduleHour5 = 0;
+  uint8_t ventScheduleHour6 = 4;
 
   bool turningEnabled = true;
   uint16_t turnIntervalMin = 120;

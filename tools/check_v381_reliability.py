@@ -153,9 +153,15 @@ if "BEGIN PRIVATE KEY" in firmware_text or "BEGIN EC PRIVATE KEY" in firmware_te
 
 require(config, "PIN_OUT_HUMIDIFIER", "single-relay humidifier GPIO")
 require(config, "humidifierEnabled = false", "humidifier optional default off")
+require(machine, "config_.humidifierInstalled &&", "humidifier hardware gate")
 require(machine, "config_.humidifierEnabled && batchRunning_", "humidifier batch permit")
 require(machine, "HUMIDIFIER_HYSTERESIS_RH", "humidifier hysteresis")
 require(app, "'humidifierEnabled',", "web humidifier config field")
-require(app, "outputHumidifier", "web humidifier runtime tile")
+require(app, "outputHumidifierTile", "web humidifier feature-gated runtime tile")
+require(app, "syncHumidifierFeatureUi", "web humidifier feature gate")
+require(config, "ventScheduleEnabled = false", "periodic ventilation default off")
+require(machine, "scheduledVentActive", "periodic ventilation RTC control")
+require(machine, "CONFIG_SCHEMA = 11", "config schema 11 for ventilation schedule")
+require(app, "advVentScheduleHour6", "web periodic ventilation schedule")
 
 print("v3.8.2 reliability regression checks: OK")
