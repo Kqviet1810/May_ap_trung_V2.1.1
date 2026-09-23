@@ -528,7 +528,7 @@ const SettingItem SETTINGS[] = {
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 30, "Bang SETTINGS phai co 30 thong so");
+static_assert(SETTING_COUNT == 32, "Bang SETTINGS phai co 32 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
@@ -536,11 +536,12 @@ const uint8_t GROUP_SETTING_INDEXES[] = {
                                        // quan truc tiep den dieu khien nhiet)
   11,12,13,28,                          // Dao trung
   14,29,                                 // He thong
-  15,16,17,18,19,20,21,22,23,24,25,26,27 // Nang cao
+  15,16,17,18,19,20,21,22,23,24,25,26,27, // Nang cao
+  30,31                                  // Tao am
 };
 
 struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
-// Chi so 0 = Cai dat me (goc tu MainMenu); 1..4 = 4 thu muc con cua
+// Chi so 0 = Cai dat me (goc tu MainMenu); 1..5 = 5 thu muc con cua
 // "CAI DAT CHUNG" (goc tu ChungMenu). Dung chung mot co che SettingList.
 // LUU Y: nhom moi (Nang cao) PHAI o CUOI mang - groupExtraSlot()/
 // groupExtraSlotVisible() ben duoi dang tham chieu chi so nhom 1/2/3 TUYET
@@ -561,7 +562,7 @@ const SettingGroup GROUPS[] = {
   {"TAO AM", 30, 2}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
-static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");
+static_assert(GROUP_COUNT == 6, "Bang GROUPS phai co 6 nhom");
 static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == SETTING_COUNT,
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
 
