@@ -1,0 +1,66 @@
+name: One-shot ATtiny v3 activity alarm
+
+on:
+  push:
+    branches:
+      - hardening/v3.8.1-attiny-activity-alarm
+    paths:
+      - '.github/attiny-v3-trigger.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: hardening/v3.8.1-attiny-activity-alarm
+
+      - name: Apply patch
+        run: python3 tools/apply_attiny_activity_alarm.py
+
+      - name: Static regression checks
+        run: python3 tools/check_v381_reliability.py
+
+      - name: Install AVR toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-avr avr-libc binutils-avr
+
+      - name: Compile ATtiny13A and enforce limits
+        run: |
+          mkdir -p build-attiny
+          avr-g++ -x c++ \
+            -mmcu=attiny13a \
+            -DF_CPU=1200000UL \
+            -Os -flto -std=gnu++11 \
+            -ffunction-sections -fdata-sections \
+            -fno-exceptions -fno-rtti \
+            -Wall -Wextra \
+            -Wl,--gc-sections \
+            ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino \
+            -o build-attiny/ATTINY13A_POWER_ALARM.elf
+          read TEXT DATA BSS <<< "$(avr-size build-attiny/ATTINY13A_POWER_ALARM.elf | tail -n 1 | awk '{print $1, $2, $3}')"
+          FLASH=$((TEXT + DATA))
+          RAM=$((DATA + BSS))
+          echo "ATtiny flash=${FLASH}/1024 bytes, static RAM=${RAM}/64 bytes"
+          test "$FLASH" -le 1024
+          test "$RAM" -le 64
+
+      - name: Commit patched source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            MAYAP_INDUSTRIAL_v3_4_0/config.h \
+            MAYAP_INDUSTRIAL_v3_4_0/attiny_bus.h \
+            MAYAP_INDUSTRIAL_v3_4_0/machine_control.h \
+            ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino \
+            doc/attiny_power_alarm.md \
+            tools/check_v381_reliability.py
+          git diff --cached --quiet && { echo 'No source changes'; exit 1; }
+          git commit -m "feat(attiny): alarm power loss for critical activity outside batch"
+          git push origin HEAD:hardening/v3.8.1-attiny-activity-alarm
