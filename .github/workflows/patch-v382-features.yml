@@ -1,0 +1,276 @@
+name: Apply v3.8.2 feature patch
+
+on:
+  push:
+    branches:
+      - hardening/v3.8.2-humidity
+    paths:
+      - .github/workflows/patch-v382-features.yml
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Apply source changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              s = p.read_text(encoding='utf-8')
+              actual = s.count(old)
+              if actual != count:
+                  raise SystemExit(f'{path}: expected {count} match(es), got {actual}: {old[:120]!r}')
+              p.write_text(s.replace(old, new, count), encoding='utf-8')
+
+          # ================================================================
+          # config.h: humidifier hardware capability + periodic ventilation
+          # ================================================================
+          replace('MAYAP_INDUSTRIAL_v3_4_0/config.h',
+          '''constexpr float HUMIDIFIER_HYSTERESIS_RH = 2.0f;''',
+          '''constexpr float HUMIDIFIER_HYSTERESIS_RH = 2.0f;\nconstexpr uint8_t VENT_SCHEDULE_MAX_RUNS = 6U;''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/config.h',
+          '''  // Tao am la tuy chon theo tung may. Mac dinh TAT de may khong lap bo tao am\n  // van dung cung firmware ma GPIO48 luon o trang thai an toan OFF.\n  bool humidifierEnabled = false;\n  float targetHumidity = 58.0f;\n\n  bool circulationFanEnabled = true;\n  float ventOnTemp = 38.0f;\n  float ventOffTemp = 37.6f;''',
+          '''  // Phan cung tao am la tuy chon theo tung may. Co/Khong CHI duoc cau hinh\n  // tren HMI; web chi doc co nay de an/hien giao dien, khong duoc thay doi.\n  bool humidifierInstalled = false;\n  bool humidifierEnabled = false;\n  float targetHumidity = 58.0f;\n\n  bool circulationFanEnabled = true;\n  float ventOnTemp = 38.0f;\n  float ventOffTemp = 37.6f;\n  // Thong gio dinh ky theo RTC. Nut BAT/TAT nam o nhom NHIET DO; chi tiet\n  // lich nam o NANG CAO. Mac dinh TAT de khong thay doi hanh vi may cu.\n  bool ventScheduleEnabled = false;\n  uint8_t ventScheduleCount = 2;\n  uint8_t ventScheduleDurationMin = 5;\n  uint8_t ventScheduleHour1 = 8;\n  uint8_t ventScheduleHour2 = 20;\n  uint8_t ventScheduleHour3 = 12;\n  uint8_t ventScheduleHour4 = 16;\n  uint8_t ventScheduleHour5 = 0;\n  uint8_t ventScheduleHour6 = 4;''')
+
+          # ================================================================
+          # machine_control.h: sanitize + persistence schema 11 + control logic
+          # ================================================================
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''  cfg.targetHumidity = clampFloat(cfg.targetHumidity, 30.0f, 90.0f);\n\n  // Trong AUTO, quat tuan hoan la chuc nang bat buoc.''',
+          '''  cfg.targetHumidity = clampFloat(cfg.targetHumidity, 30.0f, 90.0f);\n  if (!cfg.humidifierInstalled) cfg.humidifierEnabled = false;\n\n  cfg.ventScheduleCount = static_cast<uint8_t>(constrain(\n      static_cast<int>(cfg.ventScheduleCount), 1, VENT_SCHEDULE_MAX_RUNS));\n  cfg.ventScheduleDurationMin = static_cast<uint8_t>(constrain(\n      static_cast<int>(cfg.ventScheduleDurationMin), 1, 60));\n  cfg.ventScheduleHour1 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventScheduleHour1), 0, 23));\n  cfg.ventScheduleHour2 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventScheduleHour2), 0, 23));\n  cfg.ventScheduleHour3 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventScheduleHour3), 0, 23));\n  cfg.ventScheduleHour4 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventScheduleHour4), 0, 23));\n  cfg.ventScheduleHour5 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventScheduleHour5), 0, 23));\n  cfg.ventScheduleHour6 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventScheduleHour6), 0, 23));\n\n  // Trong AUTO, quat tuan hoan la chuc nang bat buoc.''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''  // schema 10+: tu kiem tra coi dinh ky (backlog, opt-in, mac dinh TAT).\n  uint8_t sirenSelfTestEnabled;\n};''',
+          '''  // schema 10+: tu kiem tra coi dinh ky (backlog, opt-in, mac dinh TAT).\n  uint8_t sirenSelfTestEnabled;\n  // schema 11+: lich thong gio dinh ky theo RTC. Them CUOI de schema 10 cu\n  // van la prefix nguyen ven va migrate bang memcpy an toan.\n  uint8_t ventScheduleEnabled;\n  uint8_t ventScheduleCount;\n  uint8_t ventScheduleDurationMin;\n  uint8_t ventScheduleHour1;\n  uint8_t ventScheduleHour2;\n  uint8_t ventScheduleHour3;\n  uint8_t ventScheduleHour4;\n  uint8_t ventScheduleHour5;\n  uint8_t ventScheduleHour6;\n};''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''static_assert(CONFIG_V9_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==\n                  sizeof(PackedMachineConfigV1),\n              "sirenSelfTestEnabled phai la truong cuoi cung cua "\n              "PackedMachineConfigV1");\nstruct ConfigRecordLegacyV9 {\n  uint32_t magic;\n  uint16_t schema;\n  uint16_t size;\n  uint32_t sequence;\n  uint8_t payload[CONFIG_V9_PAYLOAD_BYTES];\n  uint32_t crc;\n};''',
+          '''static_assert(CONFIG_V9_PAYLOAD_BYTES + 1U * sizeof(uint8_t) ==\n                  offsetof(PackedMachineConfigV1, ventScheduleEnabled),\n              "sirenSelfTestEnabled phai la truong cuoi schema 10");\nstruct ConfigRecordLegacyV9 {\n  uint32_t magic;\n  uint16_t schema;\n  uint16_t size;\n  uint32_t sequence;\n  uint8_t payload[CONFIG_V9_PAYLOAD_BYTES];\n  uint32_t crc;\n};\n// Schema 10 la ban ngay truoc lich thong gio dinh ky.\nconstexpr size_t CONFIG_V10_PAYLOAD_BYTES =\n    offsetof(PackedMachineConfigV1, ventScheduleEnabled);\nstatic_assert(CONFIG_V10_PAYLOAD_BYTES + 9U * sizeof(uint8_t) ==\n                  sizeof(PackedMachineConfigV1),\n              "9 truong lich thong gio phai nam cuoi schema 11");\nstruct ConfigRecordLegacyV10 {\n  uint32_t magic;\n  uint16_t schema;\n  uint16_t size;\n  uint32_t sequence;\n  uint8_t payload[CONFIG_V10_PAYLOAD_BYTES];\n  uint32_t crc;\n};''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''constexpr uint16_t CONFIG_SCHEMA = 10;\nconstexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;''',
+          '''constexpr uint16_t CONFIG_SCHEMA = 11;\nconstexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;''')
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''constexpr uint16_t CONFIG_SCHEMA_LEGACY_V9 = 9;\nconstexpr uint16_t BATCH_SCHEMA = 3;''',
+          '''constexpr uint16_t CONFIG_SCHEMA_LEGACY_V9 = 9;\nconstexpr uint16_t CONFIG_SCHEMA_LEGACY_V10 = 10;\nconstexpr uint16_t BATCH_SCHEMA = 3;''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''  // Giu nguyen CONFIG_SCHEMA=10 va kich thuoc record: bit15 cua delay (thuc te\n  // chi 0..600) luu enable, byte circulationFanEnabled cu (RAM luon ep true)\n  // luu setpoint RH nguyen 30..90. Firmware cu van doc byte nay la true.\n  p.humidityAlarmDelaySec = static_cast<uint16_t>(c.humidityAlarmDelaySec & 0x7FFFU) |\n      (c.humidifierEnabled ? 0x8000U : 0U);''',
+          '''  // Bit14 luu CO/KHONG phan cung tao am, bit15 luu enable; delay thuc te\n  // chi 0..600. Cach nay giu nguyen prefix schema 10 de nang cap tai cho.\n  p.humidityAlarmDelaySec = static_cast<uint16_t>(c.humidityAlarmDelaySec & 0x3FFFU) |\n      (c.humidifierInstalled ? 0x4000U : 0U) |\n      (c.humidifierEnabled ? 0x8000U : 0U);''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''  p.sirenSelfTestEnabled = c.sirenSelfTestEnabled ? 1U : 0U;\n  return p;''',
+          '''  p.sirenSelfTestEnabled = c.sirenSelfTestEnabled ? 1U : 0U;\n  p.ventScheduleEnabled = c.ventScheduleEnabled ? 1U : 0U;\n  p.ventScheduleCount = c.ventScheduleCount;\n  p.ventScheduleDurationMin = c.ventScheduleDurationMin;\n  p.ventScheduleHour1 = c.ventScheduleHour1;\n  p.ventScheduleHour2 = c.ventScheduleHour2;\n  p.ventScheduleHour3 = c.ventScheduleHour3;\n  p.ventScheduleHour4 = c.ventScheduleHour4;\n  p.ventScheduleHour5 = c.ventScheduleHour5;\n  p.ventScheduleHour6 = c.ventScheduleHour6;\n  return p;''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''  c.humidifierEnabled = (p.humidityAlarmDelaySec & 0x8000U) != 0U;\n  c.humidityAlarmDelaySec = static_cast<uint16_t>(p.humidityAlarmDelaySec & 0x7FFFU);''',
+          '''  c.humidifierInstalled = (p.humidityAlarmDelaySec & 0x4000U) != 0U;\n  c.humidifierEnabled = (p.humidityAlarmDelaySec & 0x8000U) != 0U;\n  c.humidityAlarmDelaySec = static_cast<uint16_t>(p.humidityAlarmDelaySec & 0x3FFFU);''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''  c.sirenSelfTestEnabled = p.sirenSelfTestEnabled != 0U;\n  return c;''',
+          '''  c.sirenSelfTestEnabled = p.sirenSelfTestEnabled != 0U;\n  c.ventScheduleEnabled = p.ventScheduleEnabled != 0U;\n  c.ventScheduleCount = p.ventScheduleCount;\n  c.ventScheduleDurationMin = p.ventScheduleDurationMin;\n  c.ventScheduleHour1 = p.ventScheduleHour1;\n  c.ventScheduleHour2 = p.ventScheduleHour2;\n  c.ventScheduleHour3 = p.ventScheduleHour3;\n  c.ventScheduleHour4 = p.ventScheduleHour4;\n  c.ventScheduleHour5 = p.ventScheduleHour5;\n  c.ventScheduleHour6 = p.ventScheduleHour6;\n  return c;''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''static_assert(sizeof(ConfigRecordLegacyV7) <= EEPROM_CONFIG_SLOT_BYTES,\n              "Legacy config record V7 khong vua slot AT24C32");''',
+          '''static_assert(sizeof(ConfigRecordLegacyV7) <= EEPROM_CONFIG_SLOT_BYTES,\n              "Legacy config record V7 khong vua slot AT24C32");\nstatic_assert(sizeof(ConfigRecordLegacyV8) <= EEPROM_CONFIG_SLOT_BYTES,\n              "Legacy config record V8 khong vua slot AT24C32");\nstatic_assert(sizeof(ConfigRecordLegacyV9) <= EEPROM_CONFIG_SLOT_BYTES,\n              "Legacy config record V9 khong vua slot AT24C32");\nstatic_assert(sizeof(ConfigRecordLegacyV10) <= EEPROM_CONFIG_SLOT_BYTES,\n              "Legacy config record V10 khong vua slot AT24C32");''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''  static bool validConfigLegacyV9(const ConfigRecordLegacyV9 &r) {\n    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V9 &&\n           r.size == sizeof(r) &&\n           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),\n                            offsetof(ConfigRecordLegacyV9, crc));\n  }''',
+          '''  static bool validConfigLegacyV9(const ConfigRecordLegacyV9 &r) {\n    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V9 &&\n           r.size == sizeof(r) &&\n           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),\n                            offsetof(ConfigRecordLegacyV9, crc));\n  }\n  static bool validConfigLegacyV10(const ConfigRecordLegacyV10 &r) {\n    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V10 &&\n           r.size == sizeof(r) &&\n           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),\n                            offsetof(ConfigRecordLegacyV10, crc));\n  }''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''    // Fallback config schema 9 (ban truoc tinh nang tu kiem tra coi dinh''',
+          '''    // Fallback config schema 10 (ban truoc lich thong gio dinh ky).\n    // Toan bo lich moi mac dinh TAT; cac gia tri gio/thoi luong duoc nap\n    // default de lan dau BAT co cau hinh de hieu.\n    ConfigRecordLegacyV10 la10{}, lb10{};\n    const bool vla10 = readRecord(EEPROM_ADDR_CONFIG_A, la10) &&\n                       validConfigLegacyV10(la10);\n    const bool vlb10 = readRecord(EEPROM_ADDR_CONFIG_B, lb10) &&\n                       validConfigLegacyV10(lb10);\n    if (vla10 || vlb10) {\n      const bool useA10 = !vlb10 || (vla10 && newer(la10.sequence, lb10.sequence));\n      const ConfigRecordLegacyV10 &best10 = useA10 ? la10 : lb10;\n      configPayload_ = PackedMachineConfigV1{};\n      memcpy(&configPayload_, best10.payload, sizeof(best10.payload));\n      configPayload_.ventScheduleEnabled = 0U;\n      configPayload_.ventScheduleCount = 2U;\n      configPayload_.ventScheduleDurationMin = 5U;\n      configPayload_.ventScheduleHour1 = 8U;\n      configPayload_.ventScheduleHour2 = 20U;\n      configPayload_.ventScheduleHour3 = 12U;\n      configPayload_.ventScheduleHour4 = 16U;\n      configPayload_.ventScheduleHour5 = 0U;\n      configPayload_.ventScheduleHour6 = 4U;\n      configCacheValid_ = true;\n      configCurrentIsA_ = useA10;\n      configSequence_ = best10.sequence;\n      return true;\n    }\n\n    // Fallback config schema 9 (ban truoc tinh nang tu kiem tra coi dinh''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''    const bool safetyForcesCirculation = faults_.circulationForced() ||\n        ventTemperatureActive_ || sensorFaultNeedsFan || postCooling;\n    const bool circulation = baseCirculation || safetyForcesCirculation;''',
+          '''    bool scheduledVentActive = false;\n    if (config_.ventScheduleEnabled && batchRunning_ && rtc_.valid()) {\n      const uint8_t hours[VENT_SCHEDULE_MAX_RUNS] = {\n        config_.ventScheduleHour1, config_.ventScheduleHour2,\n        config_.ventScheduleHour3, config_.ventScheduleHour4,\n        config_.ventScheduleHour5, config_.ventScheduleHour6\n      };\n      const uint8_t count = std::min<uint8_t>(config_.ventScheduleCount,\n                                               VENT_SCHEDULE_MAX_RUNS);\n      const uint32_t secondOfDay = rtc_.epoch() % 86400UL;\n      const uint32_t durationSec =\n          static_cast<uint32_t>(config_.ventScheduleDurationMin) * 60UL;\n      for (uint8_t i = 0U; i < count; ++i) {\n        const uint32_t start = static_cast<uint32_t>(hours[i]) * 3600UL;\n        const uint32_t end = start + durationSec;\n        const bool inWindow = end <= 86400UL\n            ? (secondOfDay >= start && secondOfDay < end)\n            : (secondOfDay >= start || secondOfDay < (end - 86400UL));\n        if (inWindow) { scheduledVentActive = true; break; }\n      }\n    }\n\n    const bool safetyForcesCirculation = faults_.circulationForced() ||\n        ventTemperatureActive_ || scheduledVentActive || sensorFaultNeedsFan || postCooling;\n    const bool circulation = baseCirculation || safetyForcesCirculation;''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''    req.ventFan = faults_.ventForced() || ventTemperatureActive_ ||\n                  sensorFaultNeedsFan;''',
+          '''    req.ventFan = faults_.ventForced() || ventTemperatureActive_ ||\n                  scheduledVentActive || sensorFaultNeedsFan;''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/machine_control.h',
+          '''    const bool humidifierPermit = config_.humidifierEnabled && batchRunning_ &&\n                                  sensorUsable_ && !faults_.masterDropRequired();''',
+          '''    const bool humidifierPermit = config_.humidifierInstalled &&\n                                  config_.humidifierEnabled && batchRunning_ &&\n                                  sensorUsable_ && !faults_.masterDropRequired();''')
+
+          # ================================================================
+          # HMI: capability only on HMI; humidity group hidden when absent.
+          # Periodic vent toggle in Temperature, schedule details in Advanced.
+          # ================================================================
+          replace('MAYAP_INDUSTRIAL_v3_4_0/hmi.h',
+          '''const char *const OPT_OFF_ON[] = {"TAT", "BAT"};''',
+          '''const char *const OPT_OFF_ON[] = {"TAT", "BAT"};\nconst char *const OPT_NO_YES[] = {"KHONG", "CO"};''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/hmi.h',
+          '''  // ---- CAI DAT CHUNG > TAO AM (2 muc, them CUOI de khong doi index cu) ----\n  ITEM_BOOL("Tao am", humidifierEnabled),                                      // 30\n  ITEM_FLOAT("Do am dat", targetHumidity, 30.0f, 90.0f, 1.0f, 0, "%")          // 31\n};\n\nconstexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);\nstatic_assert(SETTING_COUNT == 32, "Bang SETTINGS phai co 32 thong so");''',
+          '''  // ---- TAO AM (chi hien khi HE THONG khai bao co phan cung) ----\n  ITEM_BOOL("Tao am", humidifierEnabled),                                      // 30\n  ITEM_FLOAT("Do am dat", targetHumidity, 30.0f, 90.0f, 1.0f, 0, "%"),         // 31\n  // ---- PHAN CUNG / THONG GIO DINH KY: them CUOI de giu index cu ----\n  ITEM_BOOL_OPTIONS("Co bo tao am", humidifierInstalled, OPT_NO_YES),           // 32\n  ITEM_BOOL("Thong gio dinh ky", ventScheduleEnabled),                         // 33\n  ITEM_U8("So lan thong gio", ventScheduleCount, 1, VENT_SCHEDULE_MAX_RUNS, 1, "l"), // 34\n  ITEM_U8("TG moi lan", ventScheduleDurationMin, 1, 60, 1, "ph"),             // 35\n  ITEM_U8("Gio lan 1", ventScheduleHour1, 0, 23, 1, "h"),                     // 36\n  ITEM_U8("Gio lan 2", ventScheduleHour2, 0, 23, 1, "h"),                     // 37\n  ITEM_U8("Gio lan 3", ventScheduleHour3, 0, 23, 1, "h"),                     // 38\n  ITEM_U8("Gio lan 4", ventScheduleHour4, 0, 23, 1, "h"),                     // 39\n  ITEM_U8("Gio lan 5", ventScheduleHour5, 0, 23, 1, "h"),                     // 40\n  ITEM_U8("Gio lan 6", ventScheduleHour6, 0, 23, 1, "h")                      // 41\n};\n\nconstexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);\nstatic_assert(SETTING_COUNT == 42, "Bang SETTINGS phai co 42 thong so");''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/hmi.h',
+          '''  0,1,2,3,                             // Cai dat me\n  4,5,6,7,8,9,10,                      // Nhiet do (gop them Quat hut - lien\n                                       // quan truc tiep den dieu khien nhiet)\n  11,12,13,28,                          // Dao trung\n  14,29,                                 // He thong\n  15,16,17,18,19,20,21,22,23,24,25,26,27, // Nang cao\n  30,31                                  // Tao am''',
+          '''  0,1,2,3,                             // Cai dat me\n  4,5,6,7,8,9,10,33,                   // Nhiet do + BAT/TAT thong gio dinh ky\n  11,12,13,28,                          // Dao trung\n  14,29,32,                             // He thong + Co bo tao am\n  15,16,17,18,19,20,21,22,23,24,25,26,27,34,35,36,37,38,39,40,41, // Nang cao\n  30,31                                  // Tao am''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/hmi.h',
+          '''  {"NHIET DO", 4, 7},\n  {"DAO TRUNG", 11, 4},''',
+          '''  {"NHIET DO", 4, 8},\n  {"DAO TRUNG", 12, 4},''')
+          replace('MAYAP_INDUSTRIAL_v3_4_0/hmi.h',
+          '''  {"HE THONG", 15, 2},\n  {"NANG CAO", 17, 13},\n  {"TAO AM", 30, 2}''',
+          '''  {"HE THONG", 16, 3},\n  {"NANG CAO", 19, 21},\n  {"TAO AM", 40, 2}''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/hmi.h',
+          '''    writeSetting(cfg, SETTINGS[i], value);\n  }\n\n  if (!isfinite(cfg.tempHysteresis))''',
+          '''    writeSetting(cfg, SETTINGS[i], value);\n  }\n  if (!cfg.humidifierInstalled) cfg.humidifierEnabled = false;\n\n  if (!isfinite(cfg.tempHysteresis))''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/hmi.h',
+          '''      offset == offsetof(MachineConfig, ventOnTemp) ||''',
+          '''      offset == offsetof(MachineConfig, ventOnTemp) ||\n      offset == offsetof(MachineConfig, ventScheduleEnabled) ||''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/hmi.h',
+          '''// Menu con "CAI DAT CHUNG": 3 thu muc setting (chi so nhom 1..3 trong\n// GROUPS[]) + CHE DO TEST (View::TestMode) + THOAT. "TU CHINH PID" la dong\n// phu cua nhom NHIET DO (xem groupExtraSlot()); "NHAT KY ME" da chuyen ra\n// Menu chinh (xem MAIN_COUNT o tren).\nconstexpr uint8_t CHUNG_COUNT = (GROUP_COUNT - 1U) + 2U;\nconst char *chungItemLabel(uint8_t index) {\n  if (index < GROUP_COUNT - 1U) return GROUPS[index + 1U].label;\n  if (index == GROUP_COUNT - 1U) return "CHE DO TEST";\n  return "THOAT";\n}''',
+          '''// Nhom TAO AM la nhom cuoi va chi hien khi HMI da khai bao CO bo tao am.\n// May khong lap phan cung se nhin y nhu truoc khi co tinh nang nay.\nuint8_t visibleChungGroupCount() {\n  return currentConfig.humidifierInstalled ?\n      static_cast<uint8_t>(GROUP_COUNT - 1U) :\n      static_cast<uint8_t>(GROUP_COUNT - 2U);\n}\nuint8_t chungItemCount() { return static_cast<uint8_t>(visibleChungGroupCount() + 2U); }\nuint8_t chungTestIndex() { return visibleChungGroupCount(); }\nconst char *chungItemLabel(uint8_t index) {\n  const uint8_t groupCount = visibleChungGroupCount();\n  if (index < groupCount) return GROUPS[index + 1U].label;\n  if (index == groupCount) return "CHE DO TEST";\n  return "THOAT";\n}''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/hmi.h',
+          '''void selectChungItem() {\n  if (chungIndex < GROUP_COUNT - 1U) {\n    openGroup(static_cast<uint8_t>(chungIndex + 1U));\n  } else if (chungIndex == GROUP_COUNT - 1U) {''',
+          '''void selectChungItem() {\n  const uint8_t groupCount = visibleChungGroupCount();\n  if (chungIndex < groupCount) {\n    openGroup(static_cast<uint8_t>(chungIndex + 1U));\n  } else if (chungIndex == groupCount) {''')
+
+          p = Path('MAYAP_INDUSTRIAL_v3_4_0/hmi.h')
+          s = p.read_text(encoding='utf-8')
+          if s.count('CHUNG_COUNT - 1') != 1:
+              raise SystemExit(f'hmi.h remaining CHUNG_COUNT count={s.count("CHUNG_COUNT - 1")}')
+          s = s.replace('CHUNG_COUNT - 1', 'chungItemCount() - 1U')
+          if s.count('chungTop + row < CHUNG_COUNT') != 1:
+              raise SystemExit('hmi.h draw count pattern mismatch')
+          s = s.replace('chungTop + row < CHUNG_COUNT', 'chungTop + row < chungItemCount()')
+          if s.count('chungIndex = GROUP_COUNT - 1U;  // "CHE DO TEST"') != 2:
+              raise SystemExit('hmi.h test index pattern mismatch')
+          s = s.replace('chungIndex = GROUP_COUNT - 1U;  // "CHE DO TEST"',
+                        'chungIndex = chungTestIndex();  // "CHE DO TEST"')
+          p.write_text(s, encoding='utf-8')
+
+          # ================================================================
+          # MQTT/Web protocol
+          # ================================================================
+          replace('MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h',
+          '''  c["lowHumidityAlarm"] = cfg.lowHumidityAlarm;\n  c["humidifierEnabled"] = cfg.humidifierEnabled;''',
+          '''  c["lowHumidityAlarm"] = cfg.lowHumidityAlarm;\n  c["humidifierInstalled"] = cfg.humidifierInstalled;\n  c["humidifierEnabled"] = cfg.humidifierEnabled;''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h',
+          '''  c["ventOnTemp"] = cfg.ventOnTemp;\n  c["ventOffTemp"] = cfg.ventOffTemp;''',
+          '''  c["ventOnTemp"] = cfg.ventOnTemp;\n  c["ventOffTemp"] = cfg.ventOffTemp;\n  c["ventScheduleEnabled"] = cfg.ventScheduleEnabled;\n  c["ventScheduleCount"] = cfg.ventScheduleCount;\n  c["ventScheduleDurationMin"] = cfg.ventScheduleDurationMin;\n  c["ventScheduleHour1"] = cfg.ventScheduleHour1;\n  c["ventScheduleHour2"] = cfg.ventScheduleHour2;\n  c["ventScheduleHour3"] = cfg.ventScheduleHour3;\n  c["ventScheduleHour4"] = cfg.ventScheduleHour4;\n  c["ventScheduleHour5"] = cfg.ventScheduleHour5;\n  c["ventScheduleHour6"] = cfg.ventScheduleHour6;''')
+
+          replace('MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h',
+          '''  candidate.ventOnTemp = configObj["ventOnTemp"] | candidate.ventOnTemp;\n  candidate.ventOffTemp = configObj["ventOffTemp"] | candidate.ventOffTemp;''',
+          '''  candidate.ventOnTemp = configObj["ventOnTemp"] | candidate.ventOnTemp;\n  candidate.ventOffTemp = configObj["ventOffTemp"] | candidate.ventOffTemp;\n  candidate.ventScheduleEnabled = configObj["ventScheduleEnabled"] | candidate.ventScheduleEnabled;\n  candidate.ventScheduleCount = configObj["ventScheduleCount"] | candidate.ventScheduleCount;\n  candidate.ventScheduleDurationMin = configObj["ventScheduleDurationMin"] | candidate.ventScheduleDurationMin;\n  candidate.ventScheduleHour1 = configObj["ventScheduleHour1"] | candidate.ventScheduleHour1;\n  candidate.ventScheduleHour2 = configObj["ventScheduleHour2"] | candidate.ventScheduleHour2;\n  candidate.ventScheduleHour3 = configObj["ventScheduleHour3"] | candidate.ventScheduleHour3;\n  candidate.ventScheduleHour4 = configObj["ventScheduleHour4"] | candidate.ventScheduleHour4;\n  candidate.ventScheduleHour5 = configObj["ventScheduleHour5"] | candidate.ventScheduleHour5;\n  candidate.ventScheduleHour6 = configObj["ventScheduleHour6"] | candidate.ventScheduleHour6;''')
+
+          # ================================================================
+          # Web markup: humidifier defaults hidden; vent schedule UI placement.
+          # ================================================================
+          replace('index.html',
+          '''<div><span>Tạo ẩm</span><strong id="outputHumidifier">TẮT</strong></div>''',
+          '''<div hidden id="outputHumidifierTile"><span>Tạo ẩm</span><strong id="outputHumidifier">TẮT</strong></div>''')
+
+          replace('index.html',
+          '''<label class="compactTile"><span>Độ ẩm đặt</span><div class="unit"><input id="targetHumidity" max="90" min="30" type="number" value="58"/><b>%RH</b></div></label>\n<div class="compactTile compactToggle"><div><span class="tileLabel">Tạo ẩm tự động</span><small>Dùng relay GPIO48 khi RH thấp hơn mức đặt.</small></div><label aria-label="Bật tạo ẩm tự động" class="toggle"><input id="humidifierEnabled" type="checkbox"/><i></i></label></div>''',
+          '''<label class="compactTile"><span id="targetHumidityLabel">Độ ẩm tham khảo</span><div class="unit"><input id="targetHumidity" max="95" min="20" type="number" value="58"/><b>%RH</b></div></label>\n<div class="compactTile compactToggle" hidden id="humidifierEnabledTile"><div><span class="tileLabel">Tạo ẩm tự động</span><small>Dùng relay GPIO48 khi RH thấp hơn mức đặt.</small></div><label aria-label="Bật tạo ẩm tự động" class="toggle"><input id="humidifierEnabled" type="checkbox"/><i></i></label></div>''')
+
+          replace('index.html',
+          '''<div class="notificationLine"><div><strong>Báo nhiệt cao/khẩn cấp ngoài mẻ</strong><small>Bật: cảnh báo nhiệt độ cao/khẩn cấp hoạt động mọi lúc, kể cả khi không có mẻ ấp. Tắt: chỉ kiểm tra khi đang có mẻ ấp.</small></div><label class="toggle"><input checked="" id="highTempAlarmWithoutBatch" type="checkbox"/><i></i></label></div>''',
+          '''<div class="notificationLine"><div><strong>Thông gió định kỳ</strong><small>Bật quạt hút theo các giờ đã đặt trong Cài đặt nâng cao; chỉ chạy khi đang có mẻ và RTC hợp lệ.</small></div><label class="toggle"><input id="ventScheduleEnabled" type="checkbox"/><i></i></label></div>\n<div class="notificationLine"><div><strong>Báo nhiệt cao/khẩn cấp ngoài mẻ</strong><small>Bật: cảnh báo nhiệt độ cao/khẩn cấp hoạt động mọi lúc, kể cả khi không có mẻ ấp. Tắt: chỉ kiểm tra khi đang có mẻ ấp.</small></div><label class="toggle"><input checked="" id="highTempAlarmWithoutBatch" type="checkbox"/><i></i></label></div>''')
+
+          replace('index.html',
+          '''<p class="settingFootnote"><strong>Tự dò PID nâng cao</strong></p>''',
+          '''<p class="settingFootnote"><strong>Thông gió định kỳ</strong></p>\n<div class="tempGrid">\n<label class="compactTile"><span>Số lần mỗi ngày</span><input id="advVentScheduleCount" max="6" min="1" step="1" type="number"/></label>\n<label class="compactTile"><span>Thời lượng mỗi lần</span><div class="unit"><input id="advVentScheduleDurationMin" max="60" min="1" step="1" type="number"/><b>Phút</b></div></label>\n<label class="compactTile"><span>Giờ lần 1</span><div class="unit"><input id="advVentScheduleHour1" max="23" min="0" step="1" type="number"/><b>h</b></div></label>\n<label class="compactTile"><span>Giờ lần 2</span><div class="unit"><input id="advVentScheduleHour2" max="23" min="0" step="1" type="number"/><b>h</b></div></label>\n<label class="compactTile"><span>Giờ lần 3</span><div class="unit"><input id="advVentScheduleHour3" max="23" min="0" step="1" type="number"/><b>h</b></div></label>\n<label class="compactTile"><span>Giờ lần 4</span><div class="unit"><input id="advVentScheduleHour4" max="23" min="0" step="1" type="number"/><b>h</b></div></label>\n<label class="compactTile"><span>Giờ lần 5</span><div class="unit"><input id="advVentScheduleHour5" max="23" min="0" step="1" type="number"/><b>h</b></div></label>\n<label class="compactTile"><span>Giờ lần 6</span><div class="unit"><input id="advVentScheduleHour6" max="23" min="0" step="1" type="number"/><b>h</b></div></label>\n</div>\n<hr class="settingDivider"/>\n<p class="settingFootnote"><strong>Tự dò PID nâng cao</strong></p>''')
+
+          # ================================================================
+          # app.js feature gating + vent schedule config sync
+          # ================================================================
+          replace('app.js',
+          '''    'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'humidifierEnabled',\n    'targetHumidity', 'ventOnTemp',\n    'ventOffTemp', 'tempOffset',''',
+          '''    'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'humidifierInstalled',\n    'humidifierEnabled', 'targetHumidity', 'ventOnTemp',\n    'ventOffTemp', 'ventScheduleEnabled', 'ventScheduleCount', 'ventScheduleDurationMin',\n    'ventScheduleHour1', 'ventScheduleHour2', 'ventScheduleHour3', 'ventScheduleHour4',\n    'ventScheduleHour5', 'ventScheduleHour6', 'tempOffset',''')
+
+          replace('app.js',
+          '''  function applyConfigToUi(device, force = false) {\n    const config = device?.config;\n    if (!config) return;''',
+          '''  function syncHumidifierFeatureUi(config) {\n    const installed = Boolean(config?.humidifierInstalled);\n    if ($('outputHumidifierTile')) $('outputHumidifierTile').hidden = !installed;\n    if ($('humidifierEnabledTile')) $('humidifierEnabledTile').hidden = !installed;\n    const input = $('targetHumidity');\n    const label = $('targetHumidityLabel');\n    if (label) label.textContent = installed ? 'Độ ẩm đặt' : 'Độ ẩm tham khảo';\n    if (input) {\n      input.min = installed ? '30' : '20';\n      input.max = installed ? '90' : '95';\n    }\n  }\n\n  function applyConfigToUi(device, force = false) {\n    const config = device?.config;\n    if (!config) return;\n    syncHumidifierFeatureUi(config);''')
+
+          replace('app.js',
+          '''    check('batchForm', 'resumeAfterPowerLoss', config.autoResumeAfterPower);\n    check('batchForm', 'humidifierEnabled', config.humidifierEnabled);\n    assign('batchForm', 'targetHumidity', config.targetHumidity);\n    if (!hasDirtyForm('batchForm') || force) {\n      $('batchName').value = device.batchMeta.name;\n      $('startDate').value = device.batchMeta.startDate;\n    }''',
+          '''    check('batchForm', 'resumeAfterPowerLoss', config.autoResumeAfterPower);\n    check('batchForm', 'humidifierEnabled', config.humidifierEnabled);\n    if (config.humidifierInstalled) assign('batchForm', 'targetHumidity', config.targetHumidity);\n    if (!hasDirtyForm('batchForm') || force) {\n      $('batchName').value = device.batchMeta.name;\n      $('startDate').value = device.batchMeta.startDate;\n      if (!config.humidifierInstalled) $('targetHumidity').value = device.batchMeta.targetHumidity;\n    }''')
+
+          replace('app.js',
+          '''    assign('temperatureForm', 'ventOff', config.ventOffTemp);\n    check('temperatureForm', 'highTempAlarmWithoutBatch', config.highTempAlarmWithoutBatch);''',
+          '''    assign('temperatureForm', 'ventOff', config.ventOffTemp);\n    check('temperatureForm', 'ventScheduleEnabled', config.ventScheduleEnabled);\n    check('temperatureForm', 'highTempAlarmWithoutBatch', config.highTempAlarmWithoutBatch);''')
+
+          replace('app.js',
+          '''    assign('advancedForm', 'advAutotuneRelayPowerPercent', config.autotuneRelayPowerPercent);\n    assign('advancedForm', 'advAutotuneBandC', config.autotuneBandC);''',
+          '''    assign('advancedForm', 'advVentScheduleCount', config.ventScheduleCount);\n    assign('advancedForm', 'advVentScheduleDurationMin', config.ventScheduleDurationMin);\n    assign('advancedForm', 'advVentScheduleHour1', config.ventScheduleHour1);\n    assign('advancedForm', 'advVentScheduleHour2', config.ventScheduleHour2);\n    assign('advancedForm', 'advVentScheduleHour3', config.ventScheduleHour3);\n    assign('advancedForm', 'advVentScheduleHour4', config.ventScheduleHour4);\n    assign('advancedForm', 'advVentScheduleHour5', config.ventScheduleHour5);\n    assign('advancedForm', 'advVentScheduleHour6', config.ventScheduleHour6);\n    assign('advancedForm', 'advAutotuneRelayPowerPercent', config.autotuneRelayPowerPercent);\n    assign('advancedForm', 'advAutotuneBandC', config.autotuneBandC);''')
+
+          replace('app.js',
+          '''      config.totalIncubationDays = Number($('totalDays').value);\n      config.targetHumidity = Number($('targetHumidity').value);\n      config.humidifierEnabled = $('humidifierEnabled').checked;\n      config.autoResumeAfterPower = $('resumeAfterPowerLoss').checked;''',
+          '''      config.totalIncubationDays = Number($('totalDays').value);\n      if (config.humidifierInstalled) {\n        config.targetHumidity = Number($('targetHumidity').value);\n        config.humidifierEnabled = $('humidifierEnabled').checked;\n      }\n      config.autoResumeAfterPower = $('resumeAfterPowerLoss').checked;''')
+
+          replace('app.js',
+          '''      config.ventOffTemp = Number($('ventOff').value);\n      config.highTempAlarmWithoutBatch = $('highTempAlarmWithoutBatch').checked;''',
+          '''      config.ventOffTemp = Number($('ventOff').value);\n      config.ventScheduleEnabled = $('ventScheduleEnabled').checked;\n      config.highTempAlarmWithoutBatch = $('highTempAlarmWithoutBatch').checked;''')
+
+          replace('app.js',
+          '''      config.autotuneRelayPowerPercent = Number($('advAutotuneRelayPowerPercent').value);\n      config.autotuneBandC = Number($('advAutotuneBandC').value);''',
+          '''      config.ventScheduleCount = Number($('advVentScheduleCount').value);\n      config.ventScheduleDurationMin = Number($('advVentScheduleDurationMin').value);\n      config.ventScheduleHour1 = Number($('advVentScheduleHour1').value);\n      config.ventScheduleHour2 = Number($('advVentScheduleHour2').value);\n      config.ventScheduleHour3 = Number($('advVentScheduleHour3').value);\n      config.ventScheduleHour4 = Number($('advVentScheduleHour4').value);\n      config.ventScheduleHour5 = Number($('advVentScheduleHour5').value);\n      config.ventScheduleHour6 = Number($('advVentScheduleHour6').value);\n      config.autotuneRelayPowerPercent = Number($('advAutotuneRelayPowerPercent').value);\n      config.autotuneBandC = Number($('advAutotuneBandC').value);''')
+
+          replace('app.js',
+          '''    const humidity = Number($('targetHumidity').value);\n    if (!(days >= 1 && days <= 40)) return invalidate('batchForm', 'totalDays', 'Tổng số ngày ấp phải từ 1 đến 40 ngày.');\n    if (!(temperature >= 30 && temperature <= 40)) return invalidate('batchForm', 'batchTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');\n    if (!(humidity >= 30 && humidity <= 90)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm đặt phải từ 30 đến 90%RH.');''',
+          '''    const humidity = Number($('targetHumidity').value);\n    const humidifierInstalled = Boolean(currentDevice()?.config?.humidifierInstalled);\n    if (!(days >= 1 && days <= 40)) return invalidate('batchForm', 'totalDays', 'Tổng số ngày ấp phải từ 1 đến 40 ngày.');\n    if (!(temperature >= 30 && temperature <= 40)) return invalidate('batchForm', 'batchTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');\n    if (humidifierInstalled) {\n      if (!(humidity >= 30 && humidity <= 90)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm đặt phải từ 30 đến 90%RH.');\n    } else if (!(humidity >= 20 && humidity <= 95)) {\n      return invalidate('batchForm', 'targetHumidity', 'Độ ẩm tham khảo phải từ 20 đến 95%RH.');\n    }''')
+
+          replace('app.js',
+          '''    const autotuneRelayPowerPercent = Number($('advAutotuneRelayPowerPercent').value);\n    const autotuneBandC = Number($('advAutotuneBandC').value);''',
+          '''    const ventScheduleCount = Number($('advVentScheduleCount').value);\n    const ventScheduleDurationMin = Number($('advVentScheduleDurationMin').value);\n    const ventHours = [1,2,3,4,5,6].map((n) => Number($(`advVentScheduleHour${n}`).value));\n    const autotuneRelayPowerPercent = Number($('advAutotuneRelayPowerPercent').value);\n    const autotuneBandC = Number($('advAutotuneBandC').value);''')
+
+          replace('app.js',
+          '''    if (!(heaterStuckDurationSec >= 60 && heaterStuckDurationSec <= 3600)) return invalidate('advancedForm', 'advHeaterStuckDurationSec', 'Thời gian xác nhận phải từ 60 đến 3600 giây.');\n    if (!(autotuneRelayPowerPercent >= 10 && autotuneRelayPowerPercent <= 80))''',
+          '''    if (!(heaterStuckDurationSec >= 60 && heaterStuckDurationSec <= 3600)) return invalidate('advancedForm', 'advHeaterStuckDurationSec', 'Thời gian xác nhận phải từ 60 đến 3600 giây.');\n    if (!(ventScheduleCount >= 1 && ventScheduleCount <= 6)) return invalidate('advancedForm', 'advVentScheduleCount', 'Số lần thông gió phải từ 1 đến 6 lần/ngày.');\n    if (!(ventScheduleDurationMin >= 1 && ventScheduleDurationMin <= 60)) return invalidate('advancedForm', 'advVentScheduleDurationMin', 'Thời lượng thông gió phải từ 1 đến 60 phút.');\n    for (let i = 0; i < ventHours.length; i += 1) {\n      if (!(ventHours[i] >= 0 && ventHours[i] <= 23)) return invalidate('advancedForm', `advVentScheduleHour${i + 1}`, 'Giờ thông gió phải từ 0 đến 23.');\n    }\n    const activeHours = ventHours.slice(0, ventScheduleCount);\n    if (new Set(activeHours).size !== activeHours.length) return invalidate('advancedForm', 'advVentScheduleHour1', 'Các giờ thông gió đang sử dụng không được trùng nhau.');\n    if (!(autotuneRelayPowerPercent >= 10 && autotuneRelayPowerPercent <= 80))''')
+
+          # ================================================================
+          # Release/cache + static regression guards
+          # ================================================================
+          replace('sw.js', "const CACHE = 'mayap-web-v11.7.4';", "const CACHE = 'mayap-web-v11.7.5';")
+          replace('release-manifest.json', '"web": "11.7.4"', '"web": "11.7.5"')
+
+          replace('tools/check_v381_reliability.py',
+          '''require(machine, "config_.humidifierEnabled && batchRunning_", "humidifier batch permit")''',
+          '''require(machine, "config_.humidifierInstalled &&", "humidifier hardware gate")\nrequire(machine, "config_.humidifierEnabled && batchRunning_", "humidifier batch permit")''')
+          replace('tools/check_v381_reliability.py',
+          '''require(app, "outputHumidifier", "web humidifier runtime tile")\n\nprint("v3.8.2 reliability regression checks: OK")''',
+          '''require(app, "outputHumidifierTile", "web humidifier feature-gated runtime tile")\nrequire(app, "syncHumidifierFeatureUi", "web humidifier feature gate")\nrequire(config, "ventScheduleEnabled = false", "periodic ventilation default off")\nrequire(machine, "scheduledVentActive", "periodic ventilation RTC control")\nrequire(machine, "CONFIG_SCHEMA = 11", "config schema 11 for ventilation schedule")\nrequire(app, "advVentScheduleHour6", "web periodic ventilation schedule")\n\nprint("v3.8.2 reliability regression checks: OK")''')
+
+          PY
+
+          git diff --check
+          node --check app.js
+          python3 tools/check_release_sync.py
+
+      - name: Commit feature patch
+        shell: bash
+        run: |
+          git config user.name 'Kiều Việt'
+          git config user.email '120502812+Kqviet1810@users.noreply.github.com'
+          git add MAYAP_INDUSTRIAL_v3_4_0/config.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/machine_control.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/hmi.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h \
+                  index.html app.js sw.js release-manifest.json \
+                  tools/check_v381_reliability.py
+          git commit -m 'feat: gate humidifier hardware and add scheduled ventilation'
+          git push origin HEAD:hardening/v3.8.2-humidity
