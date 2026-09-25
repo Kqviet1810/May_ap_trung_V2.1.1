@@ -474,7 +474,7 @@ void setup() {
   // dinh cua NetworkClientSecure.
   MayapRealtimeInternal::mqtt.setKeepAlive(30);
   MayapRealtimeInternal::mqtt.setSocketTimeout(5);
-#if MQTT_USE_TLS
+#if MAYAP_MQTT_USE_TLS
   MayapRealtimeInternal::netClient.setConnectionTimeout(5000);
   MayapRealtimeInternal::netClient.setHandshakeTimeout(8);
 #endif
