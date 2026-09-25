@@ -185,42 +185,6 @@ export async function insertAlarmLog(db, entry) {
     .run();
 }
 
-
-// -------------------------- Telemetry 30 phut tren web --------------------------
-// Ghi theo heartbeat 15s. Loi ghi telemetry KHONG duoc phep lam heartbeat that
-// bai; index.js chay insert qua ctx.waitUntil() va nuot loi rieng cho nhanh nay.
-export async function insertTelemetrySample(db, entry) {
-  await db.prepare(
-    `INSERT INTO telemetry_history
-      (device_id, recorded_at, temperature, humidity, batch_running)
-     VALUES (?1, ?2, ?3, ?4, ?5)`
-  ).bind(
-    entry.deviceId,
-    entry.now,
-    entry.temperature,
-    entry.humidity ?? null,
-    entry.batchRunning ? 1 : 0
-  ).run();
-}
-
-export async function getTelemetryHistory(db, deviceId, since, limit = 600) {
-  const safeLimit = Math.max(1, Math.min(600, Number(limit) || 600));
-  const { results } = await db.prepare(
-    `SELECT recorded_at AS ts, temperature, humidity, batch_running
-       FROM telemetry_history
-      WHERE device_id = ?1 AND recorded_at >= ?2
-      ORDER BY recorded_at ASC
-      LIMIT ?3`
-  ).bind(deviceId, since, safeLimit).all();
-  return results || [];
-}
-
-export async function pruneTelemetryHistory(db, olderThan) {
-  return db.prepare('DELETE FROM telemetry_history WHERE recorded_at < ?1')
-    .bind(olderThan)
-    .run();
-}
-
 // -------------------------- Cap nhat firmware tu xa (xem index.js) --------------------------
 // Cache 1 DONG DUY NHAT (id=1) cua ban GitHub Release moi nhat da xac minh
 // (tai that su + tu bam SHA-256) - xem getFirmwareCache() trong index.js.

@@ -707,15 +707,6 @@ inline bool sendHeartbeat() {
   // trong cloudflare/src/index.js). processingRuntime duoc lam moi moi chu ky
   // kiem tra (CLOUD_CHECK_INTERVAL_MS), du moi cho heartbeat moi 30s.
   doc["batch_running"] = processingRuntime.batchRunning;
-  // Telemetry chi piggyback tren heartbeat HTTPS da co san: KHONG tao them
-  // socket/TLS request, KHONG cham vao MQTT realtime hay controlTask. Worker
-  // se kiem tra mien gia tri lan nua truoc khi luu D1.
-  if (knownRuntimeValid && isfinite(processingRuntime.temperature)) {
-    doc["temperature"] = processingRuntime.temperature;
-  }
-  if (knownRuntimeValid && isfinite(processingRuntime.humidity)) {
-    doc["humidity"] = processingRuntime.humidity;
-  }
   return postJson("/api/device/heartbeat", doc, "heartbeat");
 }
 

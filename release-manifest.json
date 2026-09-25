@@ -2,7 +2,7 @@
   "release": "3.8.2",
   "firmware": "3.8.2",
   "hmi": "3.7.0",
-  "web": "11.8.0",
+  "web": "11.7.5",
   "web_storage_schema": 10,
   "attiny_protocol": 3,
   "esp32_core": "3.3.11",
