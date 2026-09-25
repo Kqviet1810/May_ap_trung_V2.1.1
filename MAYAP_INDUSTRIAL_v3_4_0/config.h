@@ -35,7 +35,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.1";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.2";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
 constexpr char HMI_FIRMWARE_VERSION[] = "3.7.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
@@ -238,6 +238,10 @@ constexpr uint32_t CLOUD_LIGHT_AFTER_BATCH_REPEAT_MS = 1800000UL; // 30 phut
 // ---------------------------------------------------------------------------
 constexpr float HUMIDITY_HIGH_ALARM_C = 85.0f;
 constexpr float HUMIDITY_HIGH_HYSTERESIS_C = 2.0f;
+// Tao am 1 relay: OFF->ON khi RH <= setpoint - 2%%, giu ON den khi dat setpoint.
+// Khong dung PID de tranh relay dong/ngat lien tuc.
+constexpr float HUMIDIFIER_HYSTERESIS_RH = 2.0f;
+constexpr uint8_t VENT_SCHEDULE_MAX_RUNS = 6U;
 // [DA CHUYEN SANG MachineConfig, schema 8] Toc do tang/giam nhiet bat thuong,
 // dao dong nhiet mat on dinh, va nghi ngo SSR/relay dinh (thanh nhiet BAT lau
 // ma nhiet khong tang) tung la hang so cung o day (TEMP_RATE_WINDOW_MS/
@@ -325,7 +329,7 @@ constexpr uint8_t PIN_OUT_VENT_FAN     = 13;
 constexpr uint8_t PIN_OUT_TURN_RIGHT   = 11;
 constexpr uint8_t PIN_OUT_TURN_LEFT    = 10;
 constexpr uint8_t PIN_OUT_SIREN        = 47;
-constexpr uint8_t PIN_OUT_RELAY_SPARE  = 48;  // rele du, chua gan chuc nang
+constexpr uint8_t PIN_OUT_HUMIDIFIER  = 48;  // relay tao am tuy chon, mac dinh TAT
 constexpr uint8_t PIN_STATUS_RGB       = 42;  // SK6812MINI-C
 // Bus giao tiep 2 chieu voi ATtiny13A (mach bao mat dien doc lap dung pin
 // CR2032, xem doc/attiny_power_alarm.md). La bus "ho tro" (open-drain) dung
@@ -417,7 +421,7 @@ constexpr uint8_t MAYAP_USED_PINS[] = {
   PIN_OUT_HEATER_SSR, PIN_OUT_TURN_RIGHT,
   PIN_OUT_TURN_LEFT, PIN_OUT_VENT_FAN, PIN_OUT_LIGHT,
   PIN_OUT_HEAT_MASTER, PIN_OUT_CIRC_FAN, PIN_OUT_SIREN,
-  PIN_OUT_RELAY_SPARE, PIN_STATUS_RGB, PIN_ATTINY_BUS,
+  PIN_OUT_HUMIDIFIER, PIN_STATUS_RGB, PIN_ATTINY_BUS,
   PIN_IN_LIMIT_LEFT, PIN_IN_LIMIT_RIGHT, PIN_IN_AUTO,
   PIN_IN_HEATER_ENABLE, PIN_IN_CIRC_FAN, PIN_IN_LIGHT,
   PIN_IN_TURN_LEFT, PIN_IN_TURN_RIGHT,
@@ -1108,10 +1112,26 @@ struct MachineConfig {
 
   float lowHumidityAlarm = 45.0f;
   uint16_t humidityAlarmDelaySec = 60;
+  // Phan cung tao am la tuy chon theo tung may. Co/Khong CHI duoc cau hinh
+  // tren HMI; web chi doc co nay de an/hien giao dien, khong duoc thay doi.
+  bool humidifierInstalled = false;
+  bool humidifierEnabled = false;
+  float targetHumidity = 58.0f;
 
   bool circulationFanEnabled = true;
   float ventOnTemp = 38.0f;
   float ventOffTemp = 37.6f;
+  // Thong gio dinh ky theo RTC. Nut BAT/TAT nam o nhom NHIET DO; chi tiet
+  // lich nam o NANG CAO. Mac dinh TAT de khong thay doi hanh vi may cu.
+  bool ventScheduleEnabled = false;
+  uint8_t ventScheduleCount = 2;
+  uint8_t ventScheduleDurationMin = 5;
+  uint8_t ventScheduleHour1 = 8;
+  uint8_t ventScheduleHour2 = 20;
+  uint8_t ventScheduleHour3 = 12;
+  uint8_t ventScheduleHour4 = 16;
+  uint8_t ventScheduleHour5 = 0;
+  uint8_t ventScheduleHour6 = 4;
 
   bool turningEnabled = true;
   uint16_t turnIntervalMin = 120;
@@ -1267,6 +1287,7 @@ struct MachineRuntime {
   bool heaterOn = false;
   bool circulationFanOn = false;
   bool ventFanOn = false;
+  bool humidifierOn = false;
   bool lightOn = false;
   bool sirenOn = false;
   TurnState turnState = TurnState::Stopped;

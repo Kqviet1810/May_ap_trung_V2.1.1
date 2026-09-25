@@ -73,8 +73,11 @@
   }
   const CONFIG_KEYS = Object.freeze([
     'targetTemp', 'tempHysteresis', 'lowTempAlarm', 'highTempAlarm',
-    'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'ventOnTemp',
-    'ventOffTemp', 'tempOffset', 'humidityOffset', 'pidCycleSec',
+    'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'humidifierInstalled',
+    'humidifierEnabled', 'targetHumidity', 'ventOnTemp',
+    'ventOffTemp', 'ventScheduleEnabled', 'ventScheduleCount', 'ventScheduleDurationMin',
+    'ventScheduleHour1', 'ventScheduleHour2', 'ventScheduleHour3', 'ventScheduleHour4',
+    'ventScheduleHour5', 'ventScheduleHour6', 'tempOffset', 'humidityOffset', 'pidCycleSec',
     'humidityAlarmDelaySec', 'turnIntervalMin', 'turnMaxRunSec',
     'powerRestoreDelaySec', 'sensorTimeoutSec', 'maxHeaterPower',
     'totalIncubationDays', 'circulationFanEnabled', 'turningEnabled',
@@ -100,6 +103,20 @@
     device: ['Thiết bị', 'Theo dõi và điều khiển máy.'],
     batch: ['Mẻ ấp', 'Thiết lập và quản lý mẻ ấp.'],
     settings: ['Cài đặt', 'Thông số vận hành và kết nối.']
+  };
+
+  const TELEMETRY_WINDOW_MS = 30 * 60 * 1000;
+  const TELEMETRY_LIVE_SAMPLE_MS = 5000;
+  const TELEMETRY_MAX_POINTS = 500;
+  const telemetryChart = {
+    deviceId: '',
+    points: [],
+    historyLoaded: false,
+    historyLoading: false,
+    historyRetryAt: 0,
+    historyRequestId: 0,
+    lastSampleAt: 0,
+    renderRaf: 0,
   };
 
   const state = {
@@ -634,7 +651,8 @@
     });
     $('pageTitle').textContent = pageMeta[name][0];
     $('pageSubtitle').textContent = pageMeta[name][1];
-    if (name === 'batch') renderBatchLogs();
+    if (name === 'batch') { loadTelemetryHistory(); requestTemperatureChartRender(); }
+    if (name === 'settings') renderBatchLogs();
     window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   }
 
@@ -968,6 +986,7 @@
       updateOutput('outputHeater', false);
       updateOutput('outputCirculation', false);
       updateOutput('outputVent', false);
+      updateOutput('outputHumidifier', false);
       updateOutput('outputTurn', false, 'ĐANG ĐẢO', 'CHỜ');
       updateOutput('outputLight', false);
       updateOutput('outputSiren', false);
@@ -994,6 +1013,7 @@
     updateOutput('outputHeater', heaterActive);
     updateOutput('outputCirculation', bool(runtime.circulationFanOn));
     updateOutput('outputVent', bool(runtime.ventFanOn));
+    updateOutput('outputHumidifier', bool(runtime.humidifierOn));
     updateOutput('outputLight', bool(runtime.lightOn));
     updateOutput('outputSiren', bool(runtime.sirenOn));
     // Nut Den bam duoc bat cu luc nao thiet bi online; nut Coi CHI bam duoc
@@ -1148,9 +1168,23 @@
     return Boolean(state.formFlags.get(formId)?.dirty);
   }
 
+  function syncHumidifierFeatureUi(config) {
+    const installed = Boolean(config?.humidifierInstalled);
+    if ($('outputHumidifierTile')) $('outputHumidifierTile').hidden = !installed;
+    if ($('humidifierEnabledTile')) $('humidifierEnabledTile').hidden = !installed;
+    const input = $('targetHumidity');
+    const label = $('targetHumidityLabel');
+    if (label) label.textContent = installed ? 'Độ ẩm đặt' : 'Độ ẩm tham khảo';
+    if (input) {
+      input.min = installed ? '30' : '20';
+      input.max = installed ? '90' : '95';
+    }
+  }
+
   function applyConfigToUi(device, force = false) {
     const config = device?.config;
     if (!config) return;
+    syncHumidifierFeatureUi(config);
     const assign = (formId, id, value) => {
       if (!force && hasDirtyForm(formId)) return;
       const element = $(id);
@@ -1177,10 +1211,12 @@
     assign('batchForm', 'batchTarget', config.targetTemp);
     assign('batchForm', 'totalDays', config.totalIncubationDays);
     check('batchForm', 'resumeAfterPowerLoss', config.autoResumeAfterPower);
+    check('batchForm', 'humidifierEnabled', config.humidifierEnabled);
+    if (config.humidifierInstalled) assign('batchForm', 'targetHumidity', config.targetHumidity);
     if (!hasDirtyForm('batchForm') || force) {
       $('batchName').value = device.batchMeta.name;
       $('startDate').value = device.batchMeta.startDate;
-      $('targetHumidity').value = device.batchMeta.targetHumidity;
+      if (!config.humidifierInstalled) $('targetHumidity').value = device.batchMeta.targetHumidity;
     }
 
     assign('temperatureForm', 'targetTemp', config.targetTemp);
@@ -1189,6 +1225,7 @@
     assign('temperatureForm', 'emergencyTemp', config.emergencyTemp);
     assign('temperatureForm', 'ventOn', config.ventOnTemp);
     assign('temperatureForm', 'ventOff', config.ventOffTemp);
+    check('temperatureForm', 'ventScheduleEnabled', config.ventScheduleEnabled);
     check('temperatureForm', 'highTempAlarmWithoutBatch', config.highTempAlarmWithoutBatch);
 
     check('turningForm', 'turningEnabled', config.turningEnabled);
@@ -1215,6 +1252,14 @@
     assign('advancedForm', 'advTempOscillationWindowSec', config.tempOscillationWindowSec);
     assign('advancedForm', 'advHeaterStuckMinRiseC', config.heaterStuckMinRiseC);
     assign('advancedForm', 'advHeaterStuckDurationSec', config.heaterStuckDurationSec);
+    assign('advancedForm', 'advVentScheduleCount', config.ventScheduleCount);
+    assign('advancedForm', 'advVentScheduleDurationMin', config.ventScheduleDurationMin);
+    assign('advancedForm', 'advVentScheduleHour1', config.ventScheduleHour1);
+    assign('advancedForm', 'advVentScheduleHour2', config.ventScheduleHour2);
+    assign('advancedForm', 'advVentScheduleHour3', config.ventScheduleHour3);
+    assign('advancedForm', 'advVentScheduleHour4', config.ventScheduleHour4);
+    assign('advancedForm', 'advVentScheduleHour5', config.ventScheduleHour5);
+    assign('advancedForm', 'advVentScheduleHour6', config.ventScheduleHour6);
     assign('advancedForm', 'advAutotuneRelayPowerPercent', config.autotuneRelayPowerPercent);
     assign('advancedForm', 'advAutotuneBandC', config.autotuneBandC);
 
@@ -1273,6 +1318,10 @@
       shiftTempThresholds(config, config.targetTemp, newTarget);
       config.targetTemp = newTarget;
       config.totalIncubationDays = Number($('totalDays').value);
+      if (config.humidifierInstalled) {
+        config.targetHumidity = Number($('targetHumidity').value);
+        config.humidifierEnabled = $('humidifierEnabled').checked;
+      }
       config.autoResumeAfterPower = $('resumeAfterPowerLoss').checked;
     } else if (group === 'temperature') {
       config.targetTemp = Number($('targetTemp').value);
@@ -1281,6 +1330,7 @@
       config.emergencyTemp = Number($('emergencyTemp').value);
       config.ventOnTemp = Number($('ventOn').value);
       config.ventOffTemp = Number($('ventOff').value);
+      config.ventScheduleEnabled = $('ventScheduleEnabled').checked;
       config.highTempAlarmWithoutBatch = $('highTempAlarmWithoutBatch').checked;
     } else if (group === 'turning') {
       config.turningEnabled = $('turningEnabled').checked;
@@ -1307,6 +1357,14 @@
       config.tempOscillationWindowSec = Number($('advTempOscillationWindowSec').value);
       config.heaterStuckMinRiseC = Number($('advHeaterStuckMinRiseC').value);
       config.heaterStuckDurationSec = Number($('advHeaterStuckDurationSec').value);
+      config.ventScheduleCount = Number($('advVentScheduleCount').value);
+      config.ventScheduleDurationMin = Number($('advVentScheduleDurationMin').value);
+      config.ventScheduleHour1 = Number($('advVentScheduleHour1').value);
+      config.ventScheduleHour2 = Number($('advVentScheduleHour2').value);
+      config.ventScheduleHour3 = Number($('advVentScheduleHour3').value);
+      config.ventScheduleHour4 = Number($('advVentScheduleHour4').value);
+      config.ventScheduleHour5 = Number($('advVentScheduleHour5').value);
+      config.ventScheduleHour6 = Number($('advVentScheduleHour6').value);
       config.autotuneRelayPowerPercent = Number($('advAutotuneRelayPowerPercent').value);
       config.autotuneBandC = Number($('advAutotuneBandC').value);
     }
@@ -1769,6 +1827,7 @@
   function handleSnapshot(device, snapshot) {
     device.snapshot = snapshot;
     device.snapshotAt = Date.now();
+    feedTelemetrySnapshot(device, snapshot);
     device.bootId = Number(snapshot.bootId || device.bootId || 0);
     if (Number(snapshot.revision || 0) > device.revision) device.revision = Number(snapshot.revision);
     if (device.id === state.selectedId) {
@@ -1933,6 +1992,234 @@
     device.logs = device.logs.slice(0, 100);
     saveDeviceRuntime(device);
     if (device.id === state.selectedId) renderBatchLogs();
+  }
+
+
+  // ======================== Bieu do nhiet do 30 phut ========================
+  // Lich su den tu Worker/D1 (heartbeat 15s); tu luc web dang mo, snapshot
+  // MQTT duoc lay mau 5s/diem. Hai kenh DOC LAP: chart khong bao gio tham gia
+  // quyet dinh online/offline, gui lenh, ACK hay control loop cua firmware.
+  function telemetryEnsureDevice(device = currentDevice()) {
+    const deviceId = device?.id || '';
+    if (telemetryChart.deviceId === deviceId) return;
+    telemetryChart.deviceId = deviceId;
+    telemetryChart.points = [];
+    telemetryChart.historyLoaded = false;
+    telemetryChart.historyLoading = false;
+    telemetryChart.historyRetryAt = 0;
+    telemetryChart.historyRequestId += 1;
+    telemetryChart.lastSampleAt = 0;
+    requestTemperatureChartRender();
+  }
+
+  function telemetryPoint(raw) {
+    const t = Number(raw?.t ?? raw?.ts ?? raw?.recorded_at ?? raw?.time);
+    const temperature = Number(raw?.temperature);
+    const humidityRaw = Number(raw?.humidity);
+    if (!Number.isFinite(t) || t <= 0 || !Number.isFinite(temperature) || temperature < -20 || temperature > 100) return null;
+    return {
+      t,
+      temperature,
+      humidity: Number.isFinite(humidityRaw) && humidityRaw >= 0 && humidityRaw <= 100 ? humidityRaw : null,
+    };
+  }
+
+  function telemetryMerge(points) {
+    const cutoff = Date.now() - TELEMETRY_WINDOW_MS - 60_000;
+    const map = new Map();
+    [...telemetryChart.points, ...points].forEach((raw) => {
+      const point = telemetryPoint(raw);
+      if (!point || point.t < cutoff) return;
+      // Theo giay la du de khu trung history tai lai; live sampler toi thieu 5s.
+      map.set(Math.round(point.t / 1000), point);
+    });
+    telemetryChart.points = [...map.values()]
+      .sort((a, b) => a.t - b.t)
+      .slice(-TELEMETRY_MAX_POINTS);
+  }
+
+  function telemetrySetStatus(text) {
+    const element = $('temperatureChartStatus');
+    if (element) element.textContent = text;
+  }
+
+  async function loadTelemetryHistory(force = false) {
+    const device = currentDevice();
+    telemetryEnsureDevice(device);
+    if (!device) {
+      telemetrySetStatus('Chưa chọn thiết bị');
+      requestTemperatureChartRender();
+      return;
+    }
+    if (!device.pairingToken) {
+      telemetrySetStatus('Dữ liệu trực tiếp · cần xác thực PIN để xem lịch sử');
+      requestTemperatureChartRender();
+      return;
+    }
+    if (!force && (telemetryChart.historyLoaded || telemetryChart.historyLoading || Date.now() < telemetryChart.historyRetryAt)) {
+      requestTemperatureChartRender();
+      return;
+    }
+
+    telemetryChart.historyLoading = true;
+    const requestId = ++telemetryChart.historyRequestId;
+    telemetrySetStatus('Đang tải 30 phút gần nhất…');
+    const result = await postCloudJson('/api/device/history', {
+      device_id: device.id,
+      pairing_token: device.pairingToken,
+      minutes: 30,
+    });
+    if (requestId !== telemetryChart.historyRequestId || telemetryChart.deviceId !== device.id) return;
+    telemetryChart.historyLoading = false;
+
+    if (!result.success) {
+      telemetryChart.historyRetryAt = Date.now() + 60_000;
+      telemetrySetStatus('Không tải được lịch sử · vẫn cập nhật trực tiếp');
+      requestTemperatureChartRender();
+      return;
+    }
+
+    telemetryMerge(Array.isArray(result.samples) ? result.samples : []);
+    telemetryChart.historyLoaded = true;
+    telemetryChart.historyRetryAt = 0;
+    telemetrySetStatus('Lịch sử Cloud · cập nhật trực tiếp');
+    requestTemperatureChartRender();
+  }
+
+  function feedTelemetrySnapshot(device, snapshot) {
+    if (!device || device.id !== state.selectedId) return;
+    telemetryEnsureDevice(device);
+    const runtime = snapshot?.runtime;
+    const temperature = Number(runtime?.temperature);
+    if (!Number.isFinite(temperature) || temperature < -20 || temperature > 100) return;
+
+    const value = $('temperatureChartValue');
+    if (value) value.textContent = `${numberVi(temperature)}°C`;
+    const now = Date.now();
+    if (!telemetryChart.lastSampleAt || now - telemetryChart.lastSampleAt >= TELEMETRY_LIVE_SAMPLE_MS) {
+      telemetryChart.lastSampleAt = now;
+      telemetryMerge([{ t: now, temperature, humidity: runtime?.humidity }]);
+    }
+    requestTemperatureChartRender();
+  }
+
+  function requestTemperatureChartRender() {
+    if (telemetryChart.renderRaf || typeof requestAnimationFrame !== 'function') return;
+    telemetryChart.renderRaf = requestAnimationFrame(() => {
+      telemetryChart.renderRaf = 0;
+      renderTemperatureChart();
+    });
+  }
+
+  function renderTemperatureChart() {
+    const canvas = $('temperatureChartCanvas');
+    if (!canvas) return;
+    const wrap = canvas.parentElement;
+    const widthCss = Math.max(280, Math.floor(wrap?.clientWidth || canvas.clientWidth || 280));
+    const heightCss = Math.max(190, Math.floor(wrap?.clientHeight || canvas.clientHeight || 240));
+    const dpr = Math.max(1, Math.min(2, Number(window.devicePixelRatio) || 1));
+    const width = Math.floor(widthCss * dpr);
+    const height = Math.floor(heightCss * dpr);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, widthCss, heightCss);
+
+    const now = Date.now();
+    const start = now - TELEMETRY_WINDOW_MS;
+    const points = telemetryChart.points.filter((point) => point.t >= start && point.t <= now + 5000);
+    const empty = $('temperatureChartEmpty');
+    if (empty) empty.hidden = points.length > 0;
+
+    const css = getComputedStyle(document.documentElement);
+    const color = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
+    const gridColor = color('--lineSoft', '#dce7e3');
+    const textColor = color('--muted', '#6a7d78');
+    const liveColor = color('--primary', '#0d9488');
+    const setColor = color('--warning', '#e29b1d');
+
+    const left = 42;
+    const right = 10;
+    const top = 12;
+    const bottom = 12;
+    const plotW = Math.max(1, widthCss - left - right);
+    const plotH = Math.max(1, heightCss - top - bottom);
+    const target = Number(currentDevice()?.config?.targetTemp ?? $('batchTarget')?.value);
+    const values = points.map((point) => point.temperature);
+    if (Number.isFinite(target)) values.push(target);
+    let yMin = values.length ? Math.min(...values) : 36.5;
+    let yMax = values.length ? Math.max(...values) : 38.5;
+    const spread = Math.max(0.5, yMax - yMin);
+    const pad = Math.max(0.25, spread * 0.22);
+    yMin = Math.floor((yMin - pad) * 10) / 10;
+    yMax = Math.ceil((yMax + pad) * 10) / 10;
+    if (yMax - yMin < 1) {
+      const mid = (yMax + yMin) / 2;
+      yMin = mid - 0.5;
+      yMax = mid + 0.5;
+    }
+
+    const xFor = (t) => left + ((t - start) / TELEMETRY_WINDOW_MS) * plotW;
+    const yFor = (v) => top + (1 - ((v - yMin) / (yMax - yMin))) * plotH;
+
+    ctx.font = '11px Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i += 1) {
+      const ratio = i / 3;
+      const y = top + ratio * plotH;
+      const value = yMax - ratio * (yMax - yMin);
+      ctx.strokeStyle = gridColor;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(widthCss - right, y);
+      ctx.stroke();
+      ctx.fillStyle = textColor;
+      ctx.fillText(`${numberVi(value)}°`, left - 7, y);
+    }
+
+    if (Number.isFinite(target) && target >= yMin && target <= yMax) {
+      const y = yFor(target);
+      ctx.strokeStyle = setColor;
+      ctx.lineWidth = 1.25;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(widthCss - right, y);
+      ctx.stroke();
+    }
+
+    if (points.length) {
+      ctx.strokeStyle = liveColor;
+      ctx.lineWidth = 2.25;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        const x = xFor(point.t);
+        const y = yFor(point.temperature);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      const last = points[points.length - 1];
+      ctx.fillStyle = liveColor;
+      ctx.beginPath();
+      ctx.arc(xFor(last.t), yFor(last.temperature), 3, 0, Math.PI * 2);
+      ctx.fill();
+      const value = $('temperatureChartValue');
+      if (value) value.textContent = `${numberVi(last.temperature)}°C`;
+    } else if (!$('temperatureChartValue')?.textContent || $('temperatureChartValue').textContent === '—') {
+      const value = $('temperatureChartValue');
+      if (value) value.textContent = '—';
+    }
   }
 
   function renderBatchLogs() {
@@ -2143,9 +2430,14 @@
     const days = Number($('totalDays').value);
     const temperature = Number($('batchTarget').value);
     const humidity = Number($('targetHumidity').value);
+    const humidifierInstalled = Boolean(currentDevice()?.config?.humidifierInstalled);
     if (!(days >= 1 && days <= 40)) return invalidate('batchForm', 'totalDays', 'Tổng số ngày ấp phải từ 1 đến 40 ngày.');
     if (!(temperature >= 30 && temperature <= 40)) return invalidate('batchForm', 'batchTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
-    if (!(humidity >= 20 && humidity <= 95)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm tham khảo phải từ 20 đến 95%RH.');
+    if (humidifierInstalled) {
+      if (!(humidity >= 30 && humidity <= 90)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm đặt phải từ 30 đến 90%RH.');
+    } else if (!(humidity >= 20 && humidity <= 95)) {
+      return invalidate('batchForm', 'targetHumidity', 'Độ ẩm tham khảo phải từ 20 đến 95%RH.');
+    }
     return true;
   }
 
@@ -2198,6 +2490,9 @@
     const tempOscillationWindowSec = Number($('advTempOscillationWindowSec').value);
     const heaterStuckMinRiseC = Number($('advHeaterStuckMinRiseC').value);
     const heaterStuckDurationSec = Number($('advHeaterStuckDurationSec').value);
+    const ventScheduleCount = Number($('advVentScheduleCount').value);
+    const ventScheduleDurationMin = Number($('advVentScheduleDurationMin').value);
+    const ventHours = [1,2,3,4,5,6].map((n) => Number($(`advVentScheduleHour${n}`).value));
     const autotuneRelayPowerPercent = Number($('advAutotuneRelayPowerPercent').value);
     const autotuneBandC = Number($('advAutotuneBandC').value);
     if (!(kp >= 0 && kp <= 100)) return invalidate('advancedForm', 'advKp', 'Hệ số Kp phải từ 0 đến 100.');
@@ -2211,6 +2506,13 @@
     if (!(tempOscillationWindowSec >= 60 && tempOscillationWindowSec <= 3600)) return invalidate('advancedForm', 'advTempOscillationWindowSec', 'Khung thời gian phải từ 60 đến 3600 giây.');
     if (!(heaterStuckMinRiseC >= 0.05 && heaterStuckMinRiseC <= 5)) return invalidate('advancedForm', 'advHeaterStuckMinRiseC', 'Ngưỡng tăng tối thiểu phải từ 0,05 đến 5°C.');
     if (!(heaterStuckDurationSec >= 60 && heaterStuckDurationSec <= 3600)) return invalidate('advancedForm', 'advHeaterStuckDurationSec', 'Thời gian xác nhận phải từ 60 đến 3600 giây.');
+    if (!(ventScheduleCount >= 1 && ventScheduleCount <= 6)) return invalidate('advancedForm', 'advVentScheduleCount', 'Số lần thông gió phải từ 1 đến 6 lần/ngày.');
+    if (!(ventScheduleDurationMin >= 1 && ventScheduleDurationMin <= 60)) return invalidate('advancedForm', 'advVentScheduleDurationMin', 'Thời lượng thông gió phải từ 1 đến 60 phút.');
+    for (let i = 0; i < ventHours.length; i += 1) {
+      if (!(ventHours[i] >= 0 && ventHours[i] <= 23)) return invalidate('advancedForm', `advVentScheduleHour${i + 1}`, 'Giờ thông gió phải từ 0 đến 23.');
+    }
+    const activeHours = ventHours.slice(0, ventScheduleCount);
+    if (new Set(activeHours).size !== activeHours.length) return invalidate('advancedForm', 'advVentScheduleHour1', 'Các giờ thông gió đang sử dụng không được trùng nhau.');
     if (!(autotuneRelayPowerPercent >= 10 && autotuneRelayPowerPercent <= 80)) return invalidate('advancedForm', 'advAutotuneRelayPowerPercent', 'Công suất relay tự dò phải từ 10 đến 80%.');
     if (!(autotuneBandC >= 0.05 && autotuneBandC <= 1)) return invalidate('advancedForm', 'advAutotuneBandC', 'Dải xác nhận tự dò phải từ 0,05 đến 1°C.');
     return true;
@@ -2821,6 +3123,8 @@
   // 'hidden' ngay lap tuc (khong doi den khi dong han tab), con TTL cua phien
   // (WEB.sessionTtlMs) la luoi an toan du phong khi trinh duyet bi dong dot
   // ngot ma khong kip bat 'visibilitychange' (mat dien, crash...).
+  window.addEventListener('resize', requestTemperatureChartRender, { passive: true });
+
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       deactivateSession(state.selectedId);

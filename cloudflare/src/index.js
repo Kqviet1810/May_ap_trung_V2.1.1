@@ -17,6 +17,9 @@ import {
   getAlarmState,
   upsertAlarmState,
   insertAlarmLog,
+  insertTelemetrySample,
+  getTelemetryHistory,
+  pruneTelemetryHistory,
   getCachedFirmware,
   setFirmwareCache,
   touchFirmwareCache,
@@ -30,6 +33,9 @@ const MIN_ALARM_COOLDOWN_MS = 15_000;
 const PIN_RATE_WINDOW_MS = 15 * 60 * 1000;
 const PIN_RATE_BLOCK_MS = 15 * 60 * 1000;
 const PIN_RATE_MAX_FAILURES = 5;
+const TELEMETRY_DEFAULT_MINUTES = 30;
+const TELEMETRY_MAX_MINUTES = 60;
+const TELEMETRY_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 const DEFAULT_MQTT_HOST = '2f4b95444c554498bd4a4b2da0de8013.s1.eu.hivemq.cloud';
 const DEFAULT_MQTT_USERNAME = 'Mayap_Iot';
@@ -177,6 +183,11 @@ async function readJson(request) {
   }
 }
 
+function telemetryNumber(value, min, max) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= min && number <= max ? number : null;
+}
+
 // -------------------------- Endpoint: dang ky thiet bi --------------------------
 // Trust-on-first-use: lan dau goi voi 1 device_id chua ton tai se TAO thiet bi
 // va luu hash cua device_key gui len; cac lan sau PHAI gui dung device_key cu
@@ -229,7 +240,7 @@ async function handleRegister(request, env) {
 }
 
 // -------------------------- Endpoint: heartbeat --------------------------
-async function handleHeartbeat(request, env) {
+async function handleHeartbeat(request, env, ctx) {
   const body = await readJson(request);
   const deviceId = String(body?.device_id || '').trim();
   const deviceKey = String(body?.device_key || '');
@@ -239,8 +250,51 @@ async function handleHeartbeat(request, env) {
   const valid = await verifyDeviceKey(deviceKey, env.DEVICE_KEY_PEPPER, device.device_key_hash);
   if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
 
-  await touchDeviceHeartbeat(env.DB, deviceId, Date.now(), Boolean(body?.batch_running));
+  const now = Date.now();
+  const batchRunning = Boolean(body?.batch_running);
+  // Heartbeat la duong song con cua Cloud Push/offline detection: phai cap
+  // nhat device TRUOC va doc lap voi telemetry. Telemetry co loi D1 van tra
+  // heartbeat 200; bieu do duoc phep mat 1 diem, ket noi thiet bi thi khong.
+  await touchDeviceHeartbeat(env.DB, deviceId, now, batchRunning);
+
+  const temperature = telemetryNumber(body?.temperature, -20, 100);
+  const humidity = telemetryNumber(body?.humidity, 0, 100);
+  if (temperature !== null) {
+    ctx.waitUntil(insertTelemetrySample(env.DB, {
+      deviceId,
+      now,
+      temperature,
+      humidity,
+      batchRunning,
+    }).catch((error) => {
+      console.error('[telemetry] insert failed', String(error?.message || error));
+    }));
+  }
   return json(env, { success: true });
+}
+
+
+// -------------------------- Endpoint: lich su telemetry --------------------------
+// Chi browser da ghep PIN va con pairing_token hop le moi doc duoc lich su.
+// API nay DOC LAP voi MQTT: loi/timeout chi lam bieu do thieu lich su, khong
+// duoc dung de suy ra online/offline cua may.
+async function handleTelemetryHistory(request, env) {
+  const body = await readJson(request);
+  const deviceId = String(body?.device_id || '').trim();
+  const pairingToken = String(body?.pairing_token || '');
+  if (!isValidDeviceId(deviceId)) {
+    return json(env, { success: false, error: 'device_id khong hop le' }, 400);
+  }
+  const device = await getDeviceByDeviceId(env.DB, deviceId);
+  if (!device || !pairingToken || pairingToken !== device.pairing_token) {
+    return json(env, { success: false, error: 'Phiên ghép nối không hợp lệ - hãy xác thực lại PIN' }, 401);
+  }
+
+  const requestedMinutes = Math.round(Number(body?.minutes) || TELEMETRY_DEFAULT_MINUTES);
+  const minutes = Math.max(5, Math.min(TELEMETRY_MAX_MINUTES, requestedMinutes));
+  const now = Date.now();
+  const samples = await getTelemetryHistory(env.DB, deviceId, now - minutes * 60 * 1000, 600);
+  return json(env, { success: true, device_id: deviceId, minutes, server_time: now, samples });
 }
 
 // -------------------------- Endpoint: dat lai PIN web ve mac dinh --------------------------
@@ -840,6 +894,10 @@ async function checkDeviceConnectivity(env) {
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(checkDeviceConnectivity(env));
+    // Retention tach rieng: loi don telemetry khong duoc anh huong logic
+    // DEVICE_OFFLINE/Push. Index recorded_at giu DELETE nay nhe khi du lieu lon.
+    ctx.waitUntil(pruneTelemetryHistory(env.DB, Date.now() - TELEMETRY_RETENTION_MS)
+      .catch((error) => console.error('[telemetry] prune failed', String(error?.message || error))));
   },
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -856,7 +914,10 @@ export default {
         return await handleRegister(request, env);
       }
       if (url.pathname === '/api/device/heartbeat' && request.method === 'POST') {
-        return await handleHeartbeat(request, env);
+        return await handleHeartbeat(request, env, ctx);
+      }
+      if (url.pathname === '/api/device/history' && request.method === 'POST') {
+        return await handleTelemetryHistory(request, env);
       }
       if (url.pathname === '/api/device/rotate-key' && request.method === 'POST') {
         return await handleRotateDeviceKey(request, env);

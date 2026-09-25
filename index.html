@@ -57,6 +57,7 @@
 <div><span>Thanh nhiệt</span><strong class="on" id="outputHeater">BẬT</strong></div>
 <div><span>Tuần hoàn</span><strong class="on" id="outputCirculation">BẬT</strong></div>
 <div><span>Thông gió</span><strong id="outputVent">TẮT</strong></div>
+<div hidden id="outputHumidifierTile"><span>Tạo ẩm</span><strong id="outputHumidifier">TẮT</strong></div>
 <div><span>Đảo trứng</span><strong id="outputTurn">CHỜ</strong></div>
 <button aria-label="Bật/tắt đèn" id="outputLightBtn" type="button"><span>Đèn</span><strong id="outputLight">TẮT</strong></button>
 <button aria-label="Tạm tắt còi báo" id="outputSirenBtn" type="button"><span>Còi báo</span><strong id="outputSiren">TẮT</strong></button>
@@ -72,16 +73,18 @@
 <label class="compactTile"><span>Ngày bắt đầu</span><input id="startDate" type="date" value="2026-07-29"/></label>
 <label class="compactTile"><span>Tổng số ngày ấp</span><div class="unit"><input id="totalDays" max="40" min="1" type="number" value="21"/><b>Ngày</b></div></label>
 <label class="compactTile"><span>Nhiệt độ đặt</span><div class="unit"><input id="batchTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
-<label class="compactTile"><span>Độ ẩm tham khảo</span><div class="unit"><input id="targetHumidity" max="95" min="20" type="number" value="58"/><b>%RH</b></div></label>
+<label class="compactTile"><span id="targetHumidityLabel">Độ ẩm tham khảo</span><div class="unit"><input id="targetHumidity" max="95" min="20" type="number" value="58"/><b>%RH</b></div></label>
+<div class="compactTile compactToggle" hidden id="humidifierEnabledTile"><div><span class="tileLabel">Tạo ẩm tự động</span><small>Dùng relay GPIO48 khi RH thấp hơn mức đặt.</small></div><label aria-label="Bật tạo ẩm tự động" class="toggle"><input id="humidifierEnabled" type="checkbox"/><i></i></label></div>
 <div class="compactTile compactToggle"><div><span class="tileLabel">Khôi phục sau mất điện</span><small>Tự tiếp tục mẻ đang chạy.</small></div><label aria-label="Tự tiếp tục mẻ sau mất điện" class="toggle"><input checked="" id="resumeAfterPowerLoss" type="checkbox"/><i></i></label></div>
 </div>
 <div class="formError" id="batchFormError" role="alert"></div>
 <div class="batchActions"><button class="primary" type="submit">Lưu</button><button aria-label="Bắt đầu mẻ ấp" class="primary dark" id="batchAction" type="button">Bắt đầu</button></div>
 </form>
-<section aria-labelledby="batchLogTitle" class="panel batchLogPanel">
-<div class="panelHead"><div><p class="eyebrow">NHẬT KÝ MẺ ẤP</p><h2 id="batchLogTitle">Máy vừa thực hiện</h2></div><span class="logHint">30 mục gần nhất</span></div>
-<div class="currentActivity"><span class="activityPulse idle" id="activityPulse"></span><div><strong id="currentActivityText">Sẵn sàng</strong><small id="currentActivityMeta">Không có tác vụ đang chạy</small></div></div>
-<div aria-live="polite" class="batchLogList" id="batchLogList"></div>
+<section aria-labelledby="temperatureChartTitle" class="panel telemetryPanel">
+<div class="panelHead telemetryHead"><div><p class="eyebrow">NHIỆT ĐỘ · 30 PHÚT</p><h2 id="temperatureChartTitle">Diễn biến nhiệt độ</h2></div><div class="telemetryLegend" aria-label="Chú thích biểu đồ"><span><i class="liveLine"></i>Nhiệt độ</span><span><i class="setLine"></i>Mức đặt</span></div></div>
+<div class="telemetryMeta"><strong id="temperatureChartValue">—</strong><span id="temperatureChartStatus">Đang chờ dữ liệu</span></div>
+<div class="telemetryCanvasWrap"><canvas aria-label="Biểu đồ nhiệt độ 30 phút gần nhất" id="temperatureChartCanvas" role="img"></canvas><div class="telemetryEmpty" id="temperatureChartEmpty">Đang chờ dữ liệu nhiệt độ…</div></div>
+<div class="telemetryAxis" aria-hidden="true"><span>−30 phút</span><span>−15 phút</span><span>Bây giờ</span></div>
 </section>
 </section>
 <section class="page" id="page-settings">
@@ -139,6 +142,7 @@
 <label class="compactTile"><span>Bật thông gió</span><div class="unit"><input id="ventOn" max="50" min="30" step="0.1" type="number" value="38"/><b>°C</b></div></label>
 <label class="compactTile"><span>Tắt thông gió</span><div class="unit"><input id="ventOff" max="50" min="30" step="0.1" type="number" value="37.6"/><b>°C</b></div></label>
 </div>
+<div class="notificationLine"><div><strong>Thông gió định kỳ</strong><small>Bật quạt hút theo các giờ đã đặt trong Cài đặt nâng cao; chỉ chạy khi đang có mẻ và RTC hợp lệ.</small></div><label class="toggle"><input id="ventScheduleEnabled" type="checkbox"/><i></i></label></div>
 <div class="notificationLine"><div><strong>Báo nhiệt cao/khẩn cấp ngoài mẻ</strong><small>Bật: cảnh báo nhiệt độ cao/khẩn cấp hoạt động mọi lúc, kể cả khi không có mẻ ấp. Tắt: chỉ kiểm tra khi đang có mẻ ấp.</small></div><label class="toggle"><input checked="" id="highTempAlarmWithoutBatch" type="checkbox"/><i></i></label></div>
 <button class="primary full" type="submit">Lưu nhiệt độ và bảo vệ</button>
 </form>
@@ -195,6 +199,18 @@
 <label class="compactTile"><span>Thời gian xác nhận kẹt</span><div class="unit"><input id="advHeaterStuckDurationSec" max="3600" min="60" step="1" type="number"/><b>Giây</b></div></label>
 </div>
 <hr class="settingDivider"/>
+<p class="settingFootnote"><strong>Thông gió định kỳ</strong></p>
+<div class="tempGrid">
+<label class="compactTile"><span>Số lần mỗi ngày</span><input id="advVentScheduleCount" max="6" min="1" step="1" type="number"/></label>
+<label class="compactTile"><span>Thời lượng mỗi lần</span><div class="unit"><input id="advVentScheduleDurationMin" max="60" min="1" step="1" type="number"/><b>Phút</b></div></label>
+<label class="compactTile"><span>Giờ lần 1</span><div class="unit"><input id="advVentScheduleHour1" max="23" min="0" step="1" type="number"/><b>h</b></div></label>
+<label class="compactTile"><span>Giờ lần 2</span><div class="unit"><input id="advVentScheduleHour2" max="23" min="0" step="1" type="number"/><b>h</b></div></label>
+<label class="compactTile"><span>Giờ lần 3</span><div class="unit"><input id="advVentScheduleHour3" max="23" min="0" step="1" type="number"/><b>h</b></div></label>
+<label class="compactTile"><span>Giờ lần 4</span><div class="unit"><input id="advVentScheduleHour4" max="23" min="0" step="1" type="number"/><b>h</b></div></label>
+<label class="compactTile"><span>Giờ lần 5</span><div class="unit"><input id="advVentScheduleHour5" max="23" min="0" step="1" type="number"/><b>h</b></div></label>
+<label class="compactTile"><span>Giờ lần 6</span><div class="unit"><input id="advVentScheduleHour6" max="23" min="0" step="1" type="number"/><b>h</b></div></label>
+</div>
+<hr class="settingDivider"/>
 <p class="settingFootnote"><strong>Tự dò PID nâng cao</strong></p>
 <div class="tempGrid">
 <label class="compactTile"><span>Công suất relay</span><div class="unit"><input id="advAutotuneRelayPowerPercent" max="80" min="10" step="1" type="number"/><b>%</b></div></label>
@@ -232,6 +248,13 @@
 <a download="MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf" hidden href="./docs/MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf" id="manualPdfDownload"></a>
 <button class="primary full" onclick="window.open('./docs/MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf','_blank','noopener,noreferrer')" type="button">Mở toàn màn hình</button>
 <button class="ghost full" onclick="document.getElementById('manualPdfDownload').click()" type="button">Tải file PDF</button>
+</div>
+</details>
+<details class="settingCard" id="diagnosticsLogSetting">
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="7" cy="5" r="1" fill="currentColor" stroke="none"/><circle cx="7" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="7" cy="19" r="1" fill="currentColor" stroke="none"/></svg></span><span class="settingSummary"><strong>Nhật ký &amp; chẩn đoán</strong><small>30 hoạt động gần nhất</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<div class="settingBody diagnosticsLogBody">
+<div class="currentActivity"><span class="activityPulse idle" id="activityPulse"></span><div><strong id="currentActivityText">Sẵn sàng</strong><small id="currentActivityMeta">Không có tác vụ đang chạy</small></div></div>
+<div aria-live="polite" class="batchLogList" id="batchLogList"></div>
 </div>
 </details>
 <details class="settingCard">

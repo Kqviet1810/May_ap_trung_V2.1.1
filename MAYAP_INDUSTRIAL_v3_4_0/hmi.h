@@ -431,6 +431,7 @@ void settingLimits(const MachineConfig &cfg, const SettingItem &item, float &min
 void formatSettingValue(const SettingItem &item, float value, char *out, size_t size);
 
 const char *const OPT_OFF_ON[] = {"TAT", "BAT"};
+const char *const OPT_NO_YES[] = {"KHONG", "CO"};
 const char *const OPT_OFFLINE_ONLINE[] = {"OFFLINE", "ONLINE"};
 const char *const OPT_ON_OFF_HOI[] = {"HOI XN", "TU DONG"};
 #define ITEM_FLOAT(lbl, member, mn, mx, st, dec, unitText) \
@@ -520,23 +521,38 @@ const SettingItem SETTINGS[] = {
   ITEM_BOOL("Dao tay dong lich", manualTurnReanchorsSchedule),              // 28
   // Backlog (khong thuoc audit v3.7.1): tu kiem tra coi dinh ky, opt-in,
   // mac dinh TAT - xem sirenSelfTestEnabled trong config.h.
-  ITEM_BOOL("Tu kiem tra coi", sirenSelfTestEnabled)                        // 29
+  ITEM_BOOL("Tu kiem tra coi", sirenSelfTestEnabled),                       // 29
+
+  // ---- TAO AM (chi hien khi HE THONG khai bao co phan cung) ----
+  ITEM_BOOL("Tao am", humidifierEnabled),                                      // 30
+  ITEM_FLOAT("Do am dat", targetHumidity, 30.0f, 90.0f, 1.0f, 0, "%"),         // 31
+  // ---- PHAN CUNG / THONG GIO DINH KY: them CUOI de giu index cu ----
+  ITEM_BOOL_OPTIONS("Co bo tao am", humidifierInstalled, OPT_NO_YES),           // 32
+  ITEM_BOOL("Thong gio dinh ky", ventScheduleEnabled),                         // 33
+  ITEM_U8("So lan thong gio", ventScheduleCount, 1, VENT_SCHEDULE_MAX_RUNS, 1, "l"), // 34
+  ITEM_U8("TG moi lan", ventScheduleDurationMin, 1, 60, 1, "ph"),             // 35
+  ITEM_U8("Gio lan 1", ventScheduleHour1, 0, 23, 1, "h"),                     // 36
+  ITEM_U8("Gio lan 2", ventScheduleHour2, 0, 23, 1, "h"),                     // 37
+  ITEM_U8("Gio lan 3", ventScheduleHour3, 0, 23, 1, "h"),                     // 38
+  ITEM_U8("Gio lan 4", ventScheduleHour4, 0, 23, 1, "h"),                     // 39
+  ITEM_U8("Gio lan 5", ventScheduleHour5, 0, 23, 1, "h"),                     // 40
+  ITEM_U8("Gio lan 6", ventScheduleHour6, 0, 23, 1, "h")                      // 41
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 30, "Bang SETTINGS phai co 30 thong so");
+static_assert(SETTING_COUNT == 42, "Bang SETTINGS phai co 42 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
-  4,5,6,7,8,9,10,                      // Nhiet do (gop them Quat hut - lien
-                                       // quan truc tiep den dieu khien nhiet)
+  4,5,6,7,8,9,10,33,                   // Nhiet do + BAT/TAT thong gio dinh ky
   11,12,13,28,                          // Dao trung
-  14,29,                                 // He thong
-  15,16,17,18,19,20,21,22,23,24,25,26,27 // Nang cao
+  14,29,32,                             // He thong + Co bo tao am
+  15,16,17,18,19,20,21,22,23,24,25,26,27,34,35,36,37,38,39,40,41, // Nang cao
+  30,31                                  // Tao am
 };
 
 struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
-// Chi so 0 = Cai dat me (goc tu MainMenu); 1..4 = 4 thu muc con cua
+// Chi so 0 = Cai dat me (goc tu MainMenu); 1..5 = 5 thu muc con cua
 // "CAI DAT CHUNG" (goc tu ChungMenu). Dung chung mot co che SettingList.
 // LUU Y: nhom moi (Nang cao) PHAI o CUOI mang - groupExtraSlot()/
 // groupExtraSlotVisible() ben duoi dang tham chieu chi so nhom 1/2/3 TUYET
@@ -547,16 +563,17 @@ const SettingGroup GROUPS[] = {
   // Gop "Quat hut" vao chung nhom "Nhiet do" (7 thong so) - ca 2 deu la
   // thong so dieu khien nhiet, tach rieng truoc day khien menu vun vat
   // khong can thiet.
-  {"NHIET DO", 4, 7},
-  {"DAO TRUNG", 11, 4},
+  {"NHIET DO", 4, 8},
+  {"DAO TRUNG", 12, 4},
   // Doi ten tu "KET NOI" thanh "HE THONG": nhom nay tu lau da khong chi con
   // la cai dat mang - gom ca ma QR, dat lai PIN, cap nhat firmware... nen
   // "He thong" mo ta dung hon la cai dat chung cua may.
-  {"HE THONG", 15, 2},
-  {"NANG CAO", 17, 13}
+  {"HE THONG", 16, 3},
+  {"NANG CAO", 19, 21},
+  {"TAO AM", 40, 2}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
-static_assert(GROUP_COUNT == 5, "Bang GROUPS phai co 5 nhom");
+static_assert(GROUP_COUNT == 6, "Bang GROUPS phai co 6 nhom");
 static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == SETTING_COUNT,
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
 
@@ -675,6 +692,7 @@ void sanitizeConfig(MachineConfig &cfg) {
     if (!isfinite(value)) value = readSetting(defaults, SETTINGS[i]);
     writeSetting(cfg, SETTINGS[i], value);
   }
+  if (!cfg.humidifierInstalled) cfg.humidifierEnabled = false;
 
   if (!isfinite(cfg.tempHysteresis)) cfg.tempHysteresis = defaults.tempHysteresis;
   cfg.tempHysteresis = constrain(cfg.tempHysteresis, 0.1f, 1.0f);
@@ -1016,14 +1034,19 @@ const char *mainItemLabel(uint8_t index) {
   }
 }
 
-// Menu con "CAI DAT CHUNG": 3 thu muc setting (chi so nhom 1..3 trong
-// GROUPS[]) + CHE DO TEST (View::TestMode) + THOAT. "TU CHINH PID" la dong
-// phu cua nhom NHIET DO (xem groupExtraSlot()); "NHAT KY ME" da chuyen ra
-// Menu chinh (xem MAIN_COUNT o tren).
-constexpr uint8_t CHUNG_COUNT = (GROUP_COUNT - 1U) + 2U;
+// Nhom TAO AM la nhom cuoi va chi hien khi HMI da khai bao CO bo tao am.
+// May khong lap phan cung se nhin y nhu truoc khi co tinh nang nay.
+uint8_t visibleChungGroupCount() {
+  return currentConfig.humidifierInstalled ?
+      static_cast<uint8_t>(GROUP_COUNT - 1U) :
+      static_cast<uint8_t>(GROUP_COUNT - 2U);
+}
+uint8_t chungItemCount() { return static_cast<uint8_t>(visibleChungGroupCount() + 2U); }
+uint8_t chungTestIndex() { return visibleChungGroupCount(); }
 const char *chungItemLabel(uint8_t index) {
-  if (index < GROUP_COUNT - 1U) return GROUPS[index + 1U].label;
-  if (index == GROUP_COUNT - 1U) return "CHE DO TEST";
+  const uint8_t groupCount = visibleChungGroupCount();
+  if (index < groupCount) return GROUPS[index + 1U].label;
+  if (index == groupCount) return "CHE DO TEST";
   return "THOAT";
 }
 
@@ -1054,7 +1077,10 @@ bool settingLockedDuringBatch(uint8_t settingIndex) {
   // safety, PID/tuning, timeout co khi va recovery/system settings bi khoa.
   if (offset == offsetof(MachineConfig, targetTemp) ||
       offset == offsetof(MachineConfig, lowHumidityAlarm) ||
+      offset == offsetof(MachineConfig, humidifierEnabled) ||
+      offset == offsetof(MachineConfig, targetHumidity) ||
       offset == offsetof(MachineConfig, ventOnTemp) ||
+      offset == offsetof(MachineConfig, ventScheduleEnabled) ||
       offset == offsetof(MachineConfig, ventOffTemp) ||
       offset == offsetof(MachineConfig, turningEnabled) ||
       offset == offsetof(MachineConfig, turnIntervalMin) ||
@@ -1307,7 +1333,7 @@ void goBack() {
     case View::TestSummary:
       queueCommand(HmiCommandType::TestModeExit);
       view = View::ChungMenu;
-      chungIndex = GROUP_COUNT - 1U;  // "CHE DO TEST"
+      chungIndex = chungTestIndex();  // "CHE DO TEST"
       alignChungMenuWindow();
       break;
     case View::WifiChange:
@@ -1366,9 +1392,10 @@ void openChungMenu() {
 }
 
 void selectChungItem() {
-  if (chungIndex < GROUP_COUNT - 1U) {
+  const uint8_t groupCount = visibleChungGroupCount();
+  if (chungIndex < groupCount) {
     openGroup(static_cast<uint8_t>(chungIndex + 1U));
-  } else if (chungIndex == GROUP_COUNT - 1U) {
+  } else if (chungIndex == groupCount) {
     // CHE DO TEST - openTestMode() tu kiem tra dieu kien + dat dirty.
     openTestMode();
   } else {
@@ -2380,7 +2407,7 @@ void handleInput() {
     case View::ChungMenu:
       if (rotary.step) {
         chungIndex = static_cast<uint8_t>(constrain(
-            static_cast<int>(chungIndex) + rotary.step, 0, CHUNG_COUNT - 1));
+            static_cast<int>(chungIndex) + rotary.step, 0, chungItemCount() - 1U));
         if (chungIndex < chungTop) chungTop = chungIndex;
         if (chungIndex >= chungTop + 4) chungTop = chungIndex - 3;
         dirty = true;
@@ -2846,8 +2873,12 @@ void drawHomeMain() {
   lcd.setFont(u8g2_font_6x12_tf);
   snprintf(text, sizeof(text), "SV %.1fC", currentConfig.targetTemp);
   lcd.drawStr(RIGHT_X, 20, text);
-  snprintf(text, sizeof(text), currentRuntime.sensorOnline ? "AM %.0f%%" : "AM --%%",
-           currentRuntime.humidity);
+  if (currentRuntime.sensorOnline) {
+    snprintf(text, sizeof(text), currentRuntime.humidifierOn ? "AM %.0f%%+" : "AM %.0f%%",
+             currentRuntime.humidity);
+  } else {
+    snprintf(text, sizeof(text), "AM --%%");
+  }
   lcd.drawStr(RIGHT_X, 34, text);
   if (currentRuntime.turningLockdown) {
     snprintf(text, sizeof(text), "DAO KHOA");
@@ -2992,7 +3023,7 @@ void drawMainMenu() {
 void drawChungMenu() {
   drawHeader("CAI DAT CHUNG", false);
   lcd.setFont(u8g2_font_6x12_tf);
-  for (uint8_t row = 0; row < 4 && chungTop + row < CHUNG_COUNT; ++row) {
+  for (uint8_t row = 0; row < 4 && chungTop + row < chungItemCount(); ++row) {
     const uint8_t index = chungTop + row;
     const int16_t y = 22 + row * 12;
     if (index == chungIndex) {
@@ -4482,7 +4513,7 @@ void processCommandAcks() {
     if (!ack.ok && command.type == HmiCommandType::TestModeEnter &&
         view == View::TestMode) {
       view = View::ChungMenu;
-      chungIndex = GROUP_COUNT - 1U;  // "CHE DO TEST"
+      chungIndex = chungTestIndex();  // "CHE DO TEST"
       alignChungMenuWindow();
       dirty = true;
     }

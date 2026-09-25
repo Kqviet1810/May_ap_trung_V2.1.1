@@ -33,7 +33,7 @@ security = read("cloudflare/src/security-wrapper.js")
 safety = read("doc/SAFETY_HARDWARE_REQUIREMENTS.md")
 build_workflow = read(".github/workflows/build-firmware.yml")
 
-require_re(config, r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"3\.8\.1"', "firmware version")
+require_re(config, r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"3\.8\.2"', "firmware version")
 
 # MQTT deploy image must fail at compile time if broker credentials are absent.
 require(config, "static_assert(sizeof(MQTT_BROKER_HOST) > 1U", "MQTT host compile guard")
@@ -95,7 +95,7 @@ require(attiny, "PRR |= _BV(PRADC)", "ATtiny ADC power reduction")
 require(attiny_bus, "EDGE_BUF_SIZE = 48U", "ATtiny v3 4-bit status edge capacity")
 require(attiny, "FIELD_MEASURED_3V3_LOSS_MV", "3V3 calibration note")
 require(attiny, "FIELD_MEASURED_9V_LOW_MV", "9V calibration note")
-require(attiny_doc, "Den, coi va relay spare khong arm bao mat dien", "light excluded while heatMaster remains an arm source")
+require(attiny_doc, "Den, coi va tao am khong arm rieng bao mat dien", "humidifier covered by batch arm")
 require(attiny_bus, "status frame vuot edge buffer", "ATtiny status edge buffer guard")
 require(hmi, "(view == View::WifiChange) ? WIFI_PORTAL_UI_IDLE_TIMEOUT_MS", "Wi-Fi screen uses dedicated timeout")
 require(network, "id=wifiPassword", "Wi-Fi portal password input id")
@@ -151,4 +151,17 @@ if "setInsecure()" in firmware_text:
 if "BEGIN PRIVATE KEY" in firmware_text or "BEGIN EC PRIVATE KEY" in firmware_text:
     raise SystemExit("FAIL: private signing key found in firmware tree")
 
-print("v3.8.1 reliability regression checks: OK")
+require(config, "PIN_OUT_HUMIDIFIER", "single-relay humidifier GPIO")
+require(config, "humidifierEnabled = false", "humidifier optional default off")
+require(machine, "config_.humidifierInstalled &&", "humidifier hardware gate")
+require(machine, "config_.humidifierEnabled && batchRunning_", "humidifier batch permit")
+require(machine, "HUMIDIFIER_HYSTERESIS_RH", "humidifier hysteresis")
+require(app, "'humidifierEnabled',", "web humidifier config field")
+require(app, "outputHumidifierTile", "web humidifier feature-gated runtime tile")
+require(app, "syncHumidifierFeatureUi", "web humidifier feature gate")
+require(config, "ventScheduleEnabled = false", "periodic ventilation default off")
+require(machine, "scheduledVentActive", "periodic ventilation RTC control")
+require(machine, "CONFIG_SCHEMA = 11", "config schema 11 for ventilation schedule")
+require(app, "advVentScheduleHour6", "web periodic ventilation schedule")
+
+print("v3.8.2 reliability regression checks: OK")

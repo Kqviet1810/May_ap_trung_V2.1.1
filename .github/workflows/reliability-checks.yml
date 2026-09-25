@@ -49,6 +49,9 @@ jobs:
       - name: Static reliability regression checks
         run: python3 tools/check_v381_reliability.py
 
+      - name: Telemetry history regression checks
+        run: python3 tools/check_telemetry_history.py
+
       - name: Reject unsafe firmware shortcuts
         run: |
           if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
