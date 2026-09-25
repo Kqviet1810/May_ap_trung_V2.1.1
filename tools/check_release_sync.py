@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import runpy
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +63,12 @@ for label, workflow in (("deploy", deploy), ("reliability", reliability)):
 require("check_v381_reliability.py" in build, "release path co the bo qua reliability gate")
 require("check_release_sync.py" in build, "build path co the bo qua release sync gate")
 require("check_release_sync.py" in deploy, "deploy path co the bo qua release sync gate")
+
+# v3.8.3: release/build/deploy cannot bypass EEPROM history invariants.
+# Run the dedicated checker from this existing gate so every current CI path
+# inherits it without duplicating workflow plumbing.
+if manifest["firmware"] >= "3.8.3":
+    runpy.run_path(str(ROOT / "tools/check_eeprom_history.py"), run_name="__main__")
 
 print(
     "Release sync OK: "
