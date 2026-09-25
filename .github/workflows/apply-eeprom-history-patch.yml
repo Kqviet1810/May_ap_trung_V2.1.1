@@ -1,0 +1,64 @@
+name: Apply EEPROM temperature history feature
+
+on:
+  push:
+    branches:
+      - hardening/v3.8.3-eeprom-history
+    paths:
+      - .github/workflows/apply-eeprom-history-patch.yml
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Apply source patch
+        run: |
+          set -euo pipefail
+          python3 tools/apply_eeprom_history_patch.py
+          # GITHUB_TOKEN khong duoc sua workflow files; connector se cap nhat
+          # 2 gate CI sau khi source patch da duoc xac nhan.
+          git checkout -- .github/workflows/reliability-checks.yml .github/workflows/build-firmware.yml
+
+      - name: Static checks before commit
+        run: |
+          set -euo pipefail
+          git diff --check
+          node --check app.js
+          node --check sw.js
+          node --check cloudflare/src/index.js
+          python3 tools/check_eeprom_history.py
+          python3 tools/check_release_sync.py
+          python3 tools/check_v381_reliability.py
+          test "$(grep -o 'id=\"batchLogList\"' index.html | wc -l)" -eq 1
+          test "$(grep -o 'id=\"temperatureChartCanvas\"' index.html | wc -l)" -eq 1
+          ! grep -q '/api/device/history' app.js
+
+      - name: Commit feature sources
+        run: |
+          set -euo pipefail
+          git config user.name 'Kiều Việt'
+          git config user.email '120502812+Kqviet1810@users.noreply.github.com'
+          git add MAYAP_INDUSTRIAL_v3_4_0/config.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/history_store.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino \
+                  MAYAP_INDUSTRIAL_v3_4_0/machine_control.h \
+                  MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h \
+                  cloudflare/src/index.js index.html app.js styles.css sw.js \
+                  release-manifest.json tools/check_eeprom_history.py
+          git commit -m 'feat: store temperature history in AT24C32 EEPROM'
+          git push origin HEAD:hardening/v3.8.3-eeprom-history
