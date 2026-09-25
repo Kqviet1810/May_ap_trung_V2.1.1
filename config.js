@@ -13,12 +13,20 @@
     mqttUsername: '',
     mqttPassword: '',
     topicRoot: 'mayap/v1',
-    reconnectPeriodMs: 3000,
-    connectTimeoutMs: 8000,
-    keepaliveSeconds: 60,
-    sessionTtlMs: 15000,
-    sessionRefreshMs: 9000,
-    staleAfterMs: 90000,
+    // Reconnect nhanh hon nhung khong qua gay gat de tranh reconnect storm.
+    reconnectPeriodMs: 2000,
+    // WSS can DNS + TLS + WebSocket + MQTT CONNECT; 8s qua sat khi mang yeu.
+    connectTimeoutMs: 15000,
+    // Phat hien socket nua-song som hon, van du rong cho mang di dong/Wi-Fi yeu.
+    keepaliveSeconds: 30,
+    // TTL dai hon nhieu so voi refresh de tab bi giat ngan khong lam ESP32 roi
+    // ve che do snapshot cham. Refresh 3s dong thoi tu phuc hoi rat nhanh neu
+    // goi sync dau tien bi roi truoc khi SUBACK hoan tat.
+    sessionTtlMs: 45000,
+    sessionRefreshMs: 3000,
+    // Presence la retained nen KHONG duoc giu nhan "online" qua lau neu
+    // snapshot/config thuc te da dung. 8s > snapshot idle 6s va >> active 400ms.
+    staleAfterMs: 8000,
     commandTimeoutMs: 10000,
     configTimeoutMs: 15000,
     cloudApiBase: CLOUD_API_BASE,
