@@ -35,7 +35,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.2";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.3";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
 constexpr char HMI_FIRMWARE_VERSION[] = "3.7.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
@@ -994,6 +994,18 @@ constexpr uint16_t EEPROM_CONFIG_SLOT_BYTES = 0x0100U;
 constexpr uint16_t EEPROM_BATCH_SLOT_BYTES = 0x0080U;
 constexpr uint16_t EEPROM_REMINDERS_SLOT_BYTES = 0x0400U;
 
+// Lich su nhiet do 24 gio tren AT24C32: dung DUY NHAT vung con trong
+// 0x0B00..0x0FFF, tach khoi Config/Batch/Reminders. Moi mau 4 byte, 5 phut/mau,
+// 288 slot = 1152 byte; khong co con tro ghi co dinh de tranh tao wear hotspot.
+constexpr uint16_t EEPROM_ADDR_TEMP_HISTORY = 0x0B00U;
+constexpr uint16_t TEMP_HISTORY_SAMPLE_SEC = 300U;
+constexpr uint16_t TEMP_HISTORY_SLOT_COUNT = 288U;
+constexpr uint16_t TEMP_HISTORY_RECORD_BYTES = 4U;
+constexpr uint16_t TEMP_HISTORY_STORAGE_BYTES =
+    TEMP_HISTORY_SLOT_COUNT * TEMP_HISTORY_RECORD_BYTES;
+static_assert(TEMP_HISTORY_STORAGE_BYTES == 1152U,
+              "History 24h/5phut phai dung 1152 byte");
+
 static_assert(EEPROM_I2C_ADDRESS >= 0x50U && EEPROM_I2C_ADDRESS <= 0x57U,
               "Dia chi AT24C32 phai nam trong 0x50..0x57");
 static_assert(EEPROM_PAGE_SIZE == 32U, "AT24C32 page phai 32 byte");
@@ -1029,8 +1041,11 @@ static_assert(EEPROM_ADDR_BATCH_B + EEPROM_BATCH_SLOT_BYTES <= EEPROM_ADDR_REMIN
               "Batch B de len Reminders A");
 static_assert(EEPROM_ADDR_REMINDERS_A + EEPROM_REMINDERS_SLOT_BYTES <= EEPROM_ADDR_REMINDERS_B,
               "Reminders A de len B");
-static_assert(EEPROM_ADDR_REMINDERS_B + EEPROM_REMINDERS_SLOT_BYTES <= EEPROM_CAPACITY_BYTES,
-              "Ban do EEPROM vuot 4KB");
+static_assert(EEPROM_ADDR_REMINDERS_B + EEPROM_REMINDERS_SLOT_BYTES <= EEPROM_ADDR_TEMP_HISTORY,
+              "Reminders B de len History");
+static_assert(EEPROM_ADDR_TEMP_HISTORY + TEMP_HISTORY_STORAGE_BYTES <= EEPROM_CAPACITY_BYTES,
+              "History vuot dung luong AT24C32");
+static_assert(EEPROM_PAGE_SIZE == 32U, "History duoc tinh cho AT24C32 page 32 byte");
 
 // -------------------- RANG BUOC HMI/AN TOAN ---------------------------------
 constexpr float TARGET_TEMP_MIN_C = 30.0f;
