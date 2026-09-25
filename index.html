@@ -80,10 +80,11 @@
 <div class="formError" id="batchFormError" role="alert"></div>
 <div class="batchActions"><button class="primary" type="submit">Lưu</button><button aria-label="Bắt đầu mẻ ấp" class="primary dark" id="batchAction" type="button">Bắt đầu</button></div>
 </form>
-<section aria-labelledby="batchLogTitle" class="panel batchLogPanel">
-<div class="panelHead"><div><p class="eyebrow">NHẬT KÝ MẺ ẤP</p><h2 id="batchLogTitle">Máy vừa thực hiện</h2></div><span class="logHint">30 mục gần nhất</span></div>
-<div class="currentActivity"><span class="activityPulse idle" id="activityPulse"></span><div><strong id="currentActivityText">Sẵn sàng</strong><small id="currentActivityMeta">Không có tác vụ đang chạy</small></div></div>
-<div aria-live="polite" class="batchLogList" id="batchLogList"></div>
+<section aria-labelledby="temperatureChartTitle" class="panel telemetryPanel">
+<div class="panelHead telemetryHead"><div><p class="eyebrow">NHIỆT ĐỘ · 30 PHÚT</p><h2 id="temperatureChartTitle">Diễn biến nhiệt độ</h2></div><div class="telemetryLegend" aria-label="Chú thích biểu đồ"><span><i class="liveLine"></i>Nhiệt độ</span><span><i class="setLine"></i>Mức đặt</span></div></div>
+<div class="telemetryMeta"><strong id="temperatureChartValue">—</strong><span id="temperatureChartStatus">Đang chờ dữ liệu</span></div>
+<div class="telemetryCanvasWrap"><canvas aria-label="Biểu đồ nhiệt độ 30 phút gần nhất" id="temperatureChartCanvas" role="img"></canvas><div class="telemetryEmpty" id="temperatureChartEmpty">Đang chờ dữ liệu nhiệt độ…</div></div>
+<div class="telemetryAxis" aria-hidden="true"><span>−30 phút</span><span>−15 phút</span><span>Bây giờ</span></div>
 </section>
 </section>
 <section class="page" id="page-settings">
@@ -247,6 +248,13 @@
 <a download="MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf" hidden href="./docs/MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf" id="manualPdfDownload"></a>
 <button class="primary full" onclick="window.open('./docs/MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf','_blank','noopener,noreferrer')" type="button">Mở toàn màn hình</button>
 <button class="ghost full" onclick="document.getElementById('manualPdfDownload').click()" type="button">Tải file PDF</button>
+</div>
+</details>
+<details class="settingCard" id="diagnosticsLogSetting">
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="7" cy="5" r="1" fill="currentColor" stroke="none"/><circle cx="7" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="7" cy="19" r="1" fill="currentColor" stroke="none"/></svg></span><span class="settingSummary"><strong>Nhật ký &amp; chẩn đoán</strong><small>30 hoạt động gần nhất</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<div class="settingBody diagnosticsLogBody">
+<div class="currentActivity"><span class="activityPulse idle" id="activityPulse"></span><div><strong id="currentActivityText">Sẵn sàng</strong><small id="currentActivityMeta">Không có tác vụ đang chạy</small></div></div>
+<div aria-live="polite" class="batchLogList" id="batchLogList"></div>
 </div>
 </details>
 <details class="settingCard">

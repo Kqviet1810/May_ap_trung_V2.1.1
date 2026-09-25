@@ -3886,6 +3886,10 @@ class MachineController {
     updateBatchTime(now);
     serviceBatchLog(now);
     serviceHealthMonitor(now);
+    // Lich su nhiet tach khoi Flash ESP32/Cloud: chi ghi AT24C32 moi 5 phut.
+    // Ham tu bo qua neu RTC/cam bien khong hop le va tu tranh ghi lap sau reboot.
+    mayapTemperatureHistorySample(rtc_.valid() ? rtc_.epoch() : 0U,
+                                  temperature_, sensorUsable_);
     updateLed(now);
     if (runtimeGate_.due(now, true)) copyRuntimeToHmi();
     if (checkpointGate_.due(now, false)) checkpointBatch();

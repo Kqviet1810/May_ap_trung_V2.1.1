@@ -30,6 +30,7 @@ void mayapI2cUnlock() {
 #include "ota_web_update.h"
 #include "ota_rollback.h"
 #include "hmi.h"
+#include "history_store.h"
 // realtime_link.h dung #if de chon WiFiClientSecure. MQTT_USE_TLS trong
 // config.h la constexpr (C++), preprocessor khong nhin thay constexpr va
 // coi #if MQTT_USE_TLS la 0. Dua macro cau hinh that vao chi trong luc include

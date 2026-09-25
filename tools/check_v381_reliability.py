@@ -33,7 +33,7 @@ security = read("cloudflare/src/security-wrapper.js")
 safety = read("doc/SAFETY_HARDWARE_REQUIREMENTS.md")
 build_workflow = read(".github/workflows/build-firmware.yml")
 
-require_re(config, r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"3\.8\.2"', "firmware version")
+require_re(config, r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"3\.8\.3"', "firmware version")
 
 # MQTT deploy image must fail at compile time if broker credentials are absent.
 require(config, "static_assert(sizeof(MQTT_BROKER_HOST) > 1U", "MQTT host compile guard")
@@ -164,4 +164,4 @@ require(machine, "scheduledVentActive", "periodic ventilation RTC control")
 require(machine, "CONFIG_SCHEMA = 11", "config schema 11 for ventilation schedule")
 require(app, "advVentScheduleHour6", "web periodic ventilation schedule")
 
-print("v3.8.2 reliability regression checks: OK")
+print("v3.8.3 reliability regression checks: OK")

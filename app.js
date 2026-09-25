@@ -105,6 +105,16 @@
     settings: ['Cài đặt', 'Thông số vận hành và kết nối.']
   };
 
+  const TELEMETRY_WINDOW_MS = 30 * 60 * 1000;
+  const TELEMETRY_LIVE_SAMPLE_MS = 5000;
+  const TELEMETRY_HISTORY_REFRESH_MS = 5 * 60 * 1000;
+  const TELEMETRY_MAX_POINTS = 500;
+  const telemetryChart = {
+    deviceId: '', points: [], historyLoaded: false, historyLoadedAt: 0,
+    historyLoading: false, historyRetryAt: 0, historyRequestSeq: 0,
+    activeRequestId: '', lastSampleAt: 0, renderRaf: 0,
+  };
+
   const state = {
     devices: loadDevices(),
     selectedId: localStorage.getItem(`${STORAGE}.selected`) || '',
@@ -504,9 +514,11 @@
       remindersReport: `${base}/reminders/reported`,
       ack: `${base}/ack`,
       log: `${base}/log`,
+      historyReport: `${base}/history/reported`,
       config: `${base}/config/set`,
       reminders: `${base}/reminders/set`,
       command: `${base}/command`,
+      historyRequest: `${base}/history/request`,
       session: `${base}/session`
     };
   }
@@ -514,7 +526,7 @@
   function parseTopic(topic) {
     const root = String(WEB.topicRoot || 'mayap/v1').replace(/^\/+|\/+$/g, '');
     const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = String(topic).match(new RegExp(`^${escaped}/(MAP-[A-F0-9]{12})/(presence|snapshot|config/reported|reminders/reported|ack|log)$`));
+    const match = String(topic).match(new RegExp(`^${escaped}/(MAP-[A-F0-9]{12})/(presence|snapshot|config/reported|reminders/reported|ack|log|history/reported)$`));
     return match ? { deviceId: match[1], channel: match[2] } : null;
   }
 
@@ -637,7 +649,8 @@
     });
     $('pageTitle').textContent = pageMeta[name][0];
     $('pageSubtitle').textContent = pageMeta[name][1];
-    if (name === 'batch') renderBatchLogs();
+    if (name === 'batch') { loadTelemetryHistory(); requestTemperatureChartRender(); }
+    if (name === 'settings') renderBatchLogs();
     window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   }
 
@@ -1812,6 +1825,7 @@
   function handleSnapshot(device, snapshot) {
     device.snapshot = snapshot;
     device.snapshotAt = Date.now();
+    feedTelemetrySnapshot(device, snapshot);
     device.bootId = Number(snapshot.bootId || device.bootId || 0);
     if (Number(snapshot.revision || 0) > device.revision) device.revision = Number(snapshot.revision);
     if (device.id === state.selectedId) {
@@ -1978,6 +1992,210 @@
     if (device.id === state.selectedId) renderBatchLogs();
   }
 
+
+  // ==================== Bieu do nhiet do 30 phut / AT24C32 ====================
+  // ESP32 luu 24h vao EEPROM ngoai (5 phut/mau). Web chi yeu cau 30 phut qua
+  // MQTT khi can va tiep tuc chen mau live 5s tu snapshot; khong ghi Cloud/D1.
+  function telemetryEnsureDevice(device = currentDevice()) {
+    const deviceId = device?.id || '';
+    if (telemetryChart.deviceId === deviceId) return;
+    telemetryChart.deviceId = deviceId;
+    telemetryChart.points = [];
+    telemetryChart.historyLoaded = false;
+    telemetryChart.historyLoadedAt = 0;
+    telemetryChart.historyLoading = false;
+    telemetryChart.historyRetryAt = 0;
+    telemetryChart.historyRequestSeq += 1;
+    telemetryChart.activeRequestId = '';
+    telemetryChart.lastSampleAt = 0;
+    requestTemperatureChartRender();
+  }
+
+  function telemetryPoint(raw) {
+    const t = Number(raw?.t ?? raw?.time);
+    const temperature = Number(raw?.temperature);
+    if (!Number.isFinite(t) || t <= 0 || !Number.isFinite(temperature) || temperature < -20 || temperature > 100) return null;
+    return { t, temperature };
+  }
+
+  function telemetryMerge(points) {
+    const cutoff = Date.now() - TELEMETRY_WINDOW_MS - 10 * 60_000;
+    const map = new Map();
+    [...telemetryChart.points, ...points].forEach((raw) => {
+      const point = telemetryPoint(raw);
+      if (!point || point.t < cutoff) return;
+      map.set(Math.round(point.t / 1000), point);
+    });
+    telemetryChart.points = [...map.values()].sort((a, b) => a.t - b.t).slice(-TELEMETRY_MAX_POINTS);
+  }
+
+  function telemetrySetStatus(text) {
+    const element = $('temperatureChartStatus');
+    if (element) element.textContent = text;
+  }
+
+  async function loadTelemetryHistory(force = false) {
+    const device = currentDevice();
+    telemetryEnsureDevice(device);
+    if (!device) {
+      telemetrySetStatus('Chưa chọn thiết bị');
+      requestTemperatureChartRender();
+      return;
+    }
+    const fresh = telemetryChart.historyLoaded &&
+      Date.now() - telemetryChart.historyLoadedAt < TELEMETRY_HISTORY_REFRESH_MS;
+    if (!force && (fresh || telemetryChart.historyLoading || Date.now() < telemetryChart.historyRetryAt)) return;
+    if (!state.mqttConnected || !state.mqtt?.connected) {
+      telemetrySetStatus('Đang chờ kết nối thiết bị');
+      telemetryChart.historyRetryAt = Date.now() + 5000;
+      return;
+    }
+    if (!device.pairingToken) {
+      telemetrySetStatus('Cần xác thực PIN để đọc lịch sử');
+      telemetryChart.historyRetryAt = Date.now() + 60_000;
+      return;
+    }
+
+    telemetryChart.historyLoading = true;
+    telemetryChart.historyRetryAt = 0;
+    const seq = ++telemetryChart.historyRequestSeq;
+    const requestId = `hist-${Date.now().toString(36)}-${seq.toString(36)}`.slice(0, 39);
+    telemetryChart.activeRequestId = requestId;
+    telemetrySetStatus('Đang đọc EEPROM 30 phút gần nhất…');
+    try {
+      const body = { v: 1, requestId, minutes: 30 };
+      const envelope = await signMqttWrite(device, 'history/request', body);
+      if (telemetryChart.deviceId !== device.id || telemetryChart.activeRequestId !== requestId) return;
+      publish(topics(device.id).historyRequest, envelope, { qos: 1, retain: false });
+      window.setTimeout(() => {
+        if (telemetryChart.activeRequestId !== requestId || !telemetryChart.historyLoading) return;
+        telemetryChart.historyLoading = false;
+        telemetryChart.historyRetryAt = Date.now() + 30_000;
+        telemetrySetStatus('Không nhận được lịch sử · vẫn cập nhật trực tiếp');
+        requestTemperatureChartRender();
+      }, 8000);
+    } catch (error) {
+      if (telemetryChart.activeRequestId !== requestId) return;
+      telemetryChart.historyLoading = false;
+      telemetryChart.historyRetryAt = Date.now() + 30_000;
+      telemetrySetStatus(error?.message || 'Không đọc được lịch sử');
+    }
+  }
+
+  function handleTemperatureHistory(device, payload) {
+    if (!device || device.id !== state.selectedId) return;
+    telemetryEnsureDevice(device);
+    if (String(payload?.requestId || '') !== telemetryChart.activeRequestId) return;
+    const samples = Array.isArray(payload?.samples) ? payload.samples : [];
+    telemetryMerge(samples.map((row) => ({
+      t: Number(row?.[0]) * 1000,
+      temperature: Number(row?.[1]),
+    })));
+    if (payload?.done) {
+      telemetryChart.historyLoading = false;
+      telemetryChart.historyLoaded = true;
+      telemetryChart.historyLoadedAt = Date.now();
+      telemetryChart.historyRetryAt = 0;
+      telemetrySetStatus(telemetryChart.points.length
+        ? 'EEPROM 5 phút · cập nhật trực tiếp'
+        : 'EEPROM chưa có dữ liệu · cập nhật trực tiếp');
+    }
+    requestTemperatureChartRender();
+  }
+
+  function feedTelemetrySnapshot(device, snapshot) {
+    if (!device || device.id !== state.selectedId) return;
+    telemetryEnsureDevice(device);
+    const temperature = Number(snapshot?.runtime?.temperature);
+    if (!Number.isFinite(temperature) || temperature < -20 || temperature > 100) return;
+    const value = $('temperatureChartValue');
+    if (value) value.textContent = `${numberVi(temperature)}°C`;
+    const now = Date.now();
+    if (!telemetryChart.lastSampleAt || now - telemetryChart.lastSampleAt >= TELEMETRY_LIVE_SAMPLE_MS) {
+      telemetryChart.lastSampleAt = now;
+      telemetryMerge([{ t: now, temperature }]);
+    }
+    if (document.body.dataset.page === 'batch' &&
+        (!telemetryChart.historyLoaded || Date.now() - telemetryChart.historyLoadedAt >= TELEMETRY_HISTORY_REFRESH_MS)) {
+      loadTelemetryHistory();
+    }
+    requestTemperatureChartRender();
+  }
+
+  function requestTemperatureChartRender() {
+    if (telemetryChart.renderRaf || typeof requestAnimationFrame !== 'function') return;
+    telemetryChart.renderRaf = requestAnimationFrame(() => {
+      telemetryChart.renderRaf = 0;
+      renderTemperatureChart();
+    });
+  }
+
+  function renderTemperatureChart() {
+    const canvas = $('temperatureChartCanvas');
+    if (!canvas) return;
+    const wrap = canvas.parentElement;
+    const widthCss = Math.max(280, Math.floor(wrap?.clientWidth || canvas.clientWidth || 280));
+    const heightCss = Math.max(190, Math.floor(wrap?.clientHeight || canvas.clientHeight || 240));
+    const dpr = Math.max(1, Math.min(2, Number(window.devicePixelRatio) || 1));
+    const width = Math.floor(widthCss * dpr);
+    const height = Math.floor(heightCss * dpr);
+    if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, widthCss, heightCss);
+
+    const now = Date.now();
+    const start = now - TELEMETRY_WINDOW_MS;
+    const points = telemetryChart.points.filter((point) => point.t >= start && point.t <= now + 5000);
+    const empty = $('temperatureChartEmpty');
+    if (empty) empty.hidden = points.length > 0;
+
+    const css = getComputedStyle(document.documentElement);
+    const color = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
+    const gridColor = color('--lineSoft', '#dce7e3');
+    const textColor = color('--muted', '#6a7d78');
+    const liveColor = color('--primary', '#0d9488');
+    const setColor = color('--warning', '#e29b1d');
+    const left = 42, right = 10, top = 12, bottom = 12;
+    const plotW = Math.max(1, widthCss - left - right);
+    const plotH = Math.max(1, heightCss - top - bottom);
+    const target = Number(currentDevice()?.config?.targetTemp ?? $('batchTarget')?.value);
+    const values = points.map((point) => point.temperature);
+    if (Number.isFinite(target)) values.push(target);
+    let yMin = values.length ? Math.min(...values) : 36.5;
+    let yMax = values.length ? Math.max(...values) : 38.5;
+    const spread = Math.max(0.5, yMax - yMin);
+    const pad = Math.max(0.25, spread * 0.22);
+    yMin = Math.floor((yMin - pad) * 10) / 10;
+    yMax = Math.ceil((yMax + pad) * 10) / 10;
+    if (yMax - yMin < 1) { const mid = (yMax + yMin) / 2; yMin = mid - 0.5; yMax = mid + 0.5; }
+    const xFor = (t) => left + ((t - start) / TELEMETRY_WINDOW_MS) * plotW;
+    const yFor = (v) => top + (1 - ((v - yMin) / (yMax - yMin))) * plotH;
+
+    ctx.font = '11px Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.lineWidth = 1;
+    for (let i = 0; i < 4; i += 1) {
+      const ratio = i / 3, y = top + ratio * plotH, value = yMax - ratio * (yMax - yMin);
+      ctx.strokeStyle = gridColor; ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(widthCss - right, y); ctx.stroke();
+      ctx.fillStyle = textColor; ctx.fillText(`${numberVi(value)}°`, left - 7, y);
+    }
+    if (Number.isFinite(target) && target >= yMin && target <= yMax) {
+      const y = yFor(target); ctx.strokeStyle = setColor; ctx.lineWidth = 1.25; ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(widthCss - right, y); ctx.stroke();
+    }
+    if (points.length) {
+      ctx.strokeStyle = liveColor; ctx.lineWidth = 2.25; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.setLineDash([]); ctx.beginPath();
+      points.forEach((point, index) => { const x = xFor(point.t), y = yFor(point.temperature); if (!index) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+      ctx.stroke();
+      const last = points[points.length - 1]; ctx.fillStyle = liveColor; ctx.beginPath(); ctx.arc(xFor(last.t), yFor(last.temperature), 3, 0, Math.PI * 2); ctx.fill();
+      const value = $('temperatureChartValue'); if (value) value.textContent = `${numberVi(last.temperature)}°C`;
+    } else {
+      const value = $('temperatureChartValue'); if (value && !value.textContent) value.textContent = '—';
+    }
+  }
+
+
   function renderBatchLogs() {
     const root = $('batchLogList');
     if (!root) return;
@@ -2066,7 +2284,7 @@
   function subscribeDevice(deviceId) {
     if (!state.mqttConnected || !state.mqtt?.connected || !deviceId) return;
     const outputTopics = topics(deviceId);
-    [outputTopics.presence, outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log]
+    [outputTopics.presence, outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log, outputTopics.historyReport]
       .forEach((topic) => {
         if (state.subscriptions.has(topic)) return;
         state.mqtt.subscribe(topic, { qos: topic.endsWith('/snapshot') ? 0 : 1 }, (error) => {
@@ -2078,7 +2296,7 @@
   function unsubscribeDevice(deviceId) {
     if (!state.mqtt?.connected || !deviceId) return;
     const outputTopics = topics(deviceId);
-    [outputTopics.presence, outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log]
+    [outputTopics.presence, outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log, outputTopics.historyReport]
       .forEach((topic) => {
         if (!state.subscriptions.has(topic)) return;
         state.mqtt.unsubscribe(topic);
@@ -2167,6 +2385,7 @@
       else if (parsedTopic.channel === 'reminders/reported') handleReminderReport(device, payload);
       else if (parsedTopic.channel === 'ack') handleAck(device, payload);
       else if (parsedTopic.channel === 'log') handleLog(device, payload);
+      else if (parsedTopic.channel === 'history/reported') handleTemperatureHistory(device, payload);
     });
   }
 
@@ -2879,6 +3098,8 @@
   // 'hidden' ngay lap tuc (khong doi den khi dong han tab), con TTL cua phien
   // (WEB.sessionTtlMs) la luoi an toan du phong khi trinh duyet bi dong dot
   // ngot ma khong kip bat 'visibilitychange' (mat dien, crash...).
+  window.addEventListener('resize', requestTemperatureChartRender, { passive: true });
+
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       deactivateSession(state.selectedId);

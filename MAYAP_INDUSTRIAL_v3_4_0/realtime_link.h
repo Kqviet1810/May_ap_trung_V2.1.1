@@ -199,6 +199,16 @@ static HmiEventSnapshot pendingEventSnapshot{};
 static bool eventSnapshotDirty = false;
 static uint32_t lastPublishedEventSequence = 0U;
 
+// --------------------- Lich su nhiet do AT24C32 -> Web ----------------------
+// Chi doc EEPROM khi web yeu cau; moi vong networkTask chi phat toi da 12
+// bucket de khong chiem I2C/MQTT lau. Request duoc HMAC giong command/config.
+static bool historyResponsePending = false;
+static uint16_t historyWindowMinutes = 30U;
+static uint16_t historyCursor = 0U;
+static uint16_t historyCandidateCount = 0U;
+static uint32_t historySnapshotEpoch = 0U;
+static char historyRequestId[WEB_REQUEST_ID_CAPACITY] = "";
+
 // -------------------------------- Publish -------------------------------------
 // Tat ca ham publishXxx() ben duoi chi duoc goi tu networkTask.
 inline void publishJson(const char *suffix, const JsonDocument &doc,
@@ -214,6 +224,67 @@ inline void publishJson(const char *suffix, const JsonDocument &doc,
   if (length == 0U || length >= sizeof(buffer)) return;
   mqtt.publish(topicOf(suffix), reinterpret_cast<const uint8_t *>(buffer),
                static_cast<unsigned int>(length), retain);
+}
+
+inline void handleHistoryRequestMessage(const JsonDocument &doc) {
+  const char *requestId = doc["requestId"] | "";
+  if (!requestId[0]) return;
+  uint16_t minutes = static_cast<uint16_t>(doc["minutes"] | 30U);
+  if (minutes < 5U) minutes = 5U;
+  if (minutes > 1440U) minutes = 1440U;
+
+  const uint32_t epoch = mayapTemperatureHistoryLatestEpoch();
+  const uint32_t interval = TEMP_HISTORY_SAMPLE_SEC;
+  uint32_t candidates = (static_cast<uint32_t>(minutes) * 60UL + interval - 1UL) / interval + 1UL;
+  if (candidates > TEMP_HISTORY_SLOT_COUNT) candidates = TEMP_HISTORY_SLOT_COUNT;
+
+  historyWindowMinutes = minutes;
+  historyCursor = 0U;
+  historyCandidateCount = static_cast<uint16_t>(candidates);
+  historySnapshotEpoch = epoch;
+  snprintf(historyRequestId, sizeof(historyRequestId), "%s", requestId);
+  historyResponsePending = true;
+}
+
+inline void serviceHistoryResponse() {
+  if (!historyResponsePending || !mqtt.connected()) return;
+
+  JsonDocument doc;
+  doc["v"] = 1;
+  doc["bootId"] = bootId;
+  doc["requestId"] = historyRequestId;
+  doc["windowMin"] = historyWindowMinutes;
+  doc["intervalSec"] = TEMP_HISTORY_SAMPLE_SEC;
+  doc["cursor"] = historyCursor;
+  JsonArray samples = doc["samples"].to<JsonArray>();
+
+  if (historySnapshotEpoch == 0U || historyCandidateCount == 0U) {
+    doc["done"] = true;
+    publishJson("history/reported", doc, false);
+    historyResponsePending = false;
+    return;
+  }
+
+  const uint32_t nowBucket = historySnapshotEpoch / TEMP_HISTORY_SAMPLE_SEC;
+  const uint32_t firstBucket = nowBucket >= historyCandidateCount - 1U
+      ? nowBucket - (historyCandidateCount - 1U) : 0U;
+  const uint16_t end = static_cast<uint16_t>(
+      min<uint32_t>(historyCandidateCount, static_cast<uint32_t>(historyCursor) + 12U));
+
+  for (uint16_t i = historyCursor; i < end; ++i) {
+    const uint32_t absoluteBucket = firstBucket + i;
+    MayapTemperatureHistoryPoint point{};
+    if (!mayapTemperatureHistoryReadBucket(absoluteBucket, point)) continue;
+    JsonArray row = samples.add<JsonArray>();
+    row.add(point.epoch);
+    row.add(static_cast<float>(point.temperatureX10) / 10.0f);
+  }
+
+  historyCursor = end;
+  const bool done = historyCursor >= historyCandidateCount;
+  doc["done"] = done;
+  publishJson("history/reported", doc, false);
+  if (done) historyResponsePending = false;
 }
 
 inline void publishPresence(bool online) {
@@ -844,6 +915,10 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
     verifyAndDispatch("reminders/set", [](const JsonDocument &doc) { handleReminderSetMessage(doc); });
     return;
   }
+  if (strstr(topic, "/history/request")) {
+    verifyAndDispatch("history/request", [](const JsonDocument &doc) { handleHistoryRequestMessage(doc); });
+    return;
+  }
   const char *suffix = strrchr(topic, '/');
   if (!suffix) return;
   ++suffix;
@@ -861,6 +936,7 @@ inline void subscribeAll() {
   mqtt.subscribe(topicOf("config/set"));
   mqtt.subscribe(topicOf("reminders/set"));
   mqtt.subscribe(topicOf("command"));
+  mqtt.subscribe(topicOf("history/request"));
   mqtt.subscribe(topicOf("session"));
 }
 
@@ -1103,6 +1179,7 @@ inline void mayapWebLinkUpdate(uint32_t now) {
   serviceReminderPublish();
   serviceSnapshotPublish(now);
   serviceEventLogPublish();
+  serviceHistoryResponse();
 }
 
 // ------------------------- Hooks goi tu controlTask (machine_control.h) --------

@@ -33,7 +33,7 @@ const PIN_RATE_MAX_FAILURES = 5;
 
 const DEFAULT_MQTT_HOST = '2f4b95444c554498bd4a4b2da0de8013.s1.eu.hivemq.cloud';
 const DEFAULT_MQTT_USERNAME = 'Mayap_Iot';
-const MQTT_WRITE_CHANNELS = new Set(['command', 'config/set', 'reminders/set']);
+const MQTT_WRITE_CHANNELS = new Set(['command', 'config/set', 'reminders/set', 'history/request']);
 
 function bytesToHex(bytes) {
   return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
