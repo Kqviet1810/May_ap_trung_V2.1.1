@@ -30,6 +30,19 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/apply_eeprom_history_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('tools/check_v381_reliability.py')
+          s = p.read_text(encoding='utf-8')
+          old = r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"3\.8\.2"'
+          new = r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"3\.8\.3"'
+          if old not in s:
+              raise SystemExit('reliability version anchor missing')
+          s = s.replace(old, new, 1)
+          s = s.replace('v3.8.2 reliability regression checks: OK',
+                        'v3.8.3 reliability regression checks: OK', 1)
+          p.write_text(s, encoding='utf-8')
+          PY
           # GITHUB_TOKEN khong duoc sua workflow files; connector se cap nhat
           # 2 gate CI sau khi source patch da duoc xac nhan.
           git checkout -- .github/workflows/reliability-checks.yml .github/workflows/build-firmware.yml
@@ -59,6 +72,7 @@ jobs:
                   MAYAP_INDUSTRIAL_v3_4_0/machine_control.h \
                   MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h \
                   cloudflare/src/index.js index.html app.js styles.css sw.js \
-                  release-manifest.json tools/check_eeprom_history.py
+                  release-manifest.json tools/check_eeprom_history.py \
+                  tools/check_v381_reliability.py
           git commit -m 'feat: store temperature history in AT24C32 EEPROM'
           git push origin HEAD:hardening/v3.8.3-eeprom-history
