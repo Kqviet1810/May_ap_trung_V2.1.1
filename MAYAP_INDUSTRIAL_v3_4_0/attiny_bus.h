@@ -21,18 +21,21 @@ constexpr uint8_t TX_QUEUE_SIZE = 8U;
 // mode. Instead keep ONE frame + ONE ACK:
 //
 //   pulse count 8..15 : lower three bits (batch / 9V / siren)
-//   first LOW width   : 30 ms = activity OFF, 60 ms = activity ON
+//   first LOW width   : 30 ms = activity OFF, 120 ms = activity ON
 //   remaining LOWs    : 30 ms
 //
-// Thus every physical frame stays <=15 pulses while the public logical status
-// and all MachineController code stay unchanged.
+// 120 ms is intentional rather than 60 ms: legacy ESP firmware rejects LOW
+// >=90 ms, therefore a NEW Tiny connected to an OLD ESP fails visibly (E501)
+// instead of silently decoding activity=ON as activity=OFF. Mixed versions
+// must fail closed, never look healthy with the wrong state.
 constexpr uint8_t STATUS_WIRE_MIN = ATTINY_MSG_STATUS_BASE;  // 8
 constexpr uint8_t STATUS_WIRE_MAX = static_cast<uint8_t>(
     ATTINY_MSG_STATUS_BASE + ATTINY_STATUS_FLAG_BATCH +
     ATTINY_STATUS_FLAG_9V_LOW + ATTINY_STATUS_FLAG_SIREN);   // 15
 constexpr uint32_t STATUS_SHORT_MAX_US = 45UL * 1000UL;
-constexpr uint32_t STATUS_LONG_MIN_US  = 45UL * 1000UL;
-constexpr uint32_t STATUS_LONG_MAX_US  = 75UL * 1000UL;
+constexpr uint32_t STATUS_LONG_MIN_US  = 100UL * 1000UL;
+constexpr uint32_t STATUS_LONG_MAX_US  = 140UL * 1000UL;
+constexpr uint32_t STATUS_HARD_MAX_US  = 150UL * 1000UL;
 static_assert(STATUS_WIRE_MAX == 15U, "ATtiny physical STATUS must stay <=15 pulses");
 static_assert(ATTINY_STATUS_FLAG_ACTIVITY == 8U, "ATtiny activity must remain logical bit3");
 static_assert(ATTINY_MSG_STATUS_MAX == 23U, "ATtiny logical STATUS must remain 8..23");
@@ -48,7 +51,7 @@ static volatile bool ackFallSeen_ = false;
 static volatile bool ackPulseReady_ = false;
 
 // Incoming STATUS capture. Count physical pulses and remember whether the FIRST
-// valid LOW is the 60 ms activity marker. No edge-pair buffer is needed.
+// valid LOW is the 120 ms activity marker. No edge-pair buffer is needed.
 static volatile uint32_t rxFallAtUs_ = 0U;
 static volatile uint32_t rxLastEdgeAtUs_ = 0U;
 static volatile uint8_t rxPulseCount_ = 0U;
@@ -159,10 +162,10 @@ void IRAM_ATTR busIsr() {
   const uint32_t lowUs = static_cast<uint32_t>(atUs - rxFallAtUs_);
   rxLowActive_ = false;
 
-  if (lowUs < minUs || lowUs >= ackMaxUs) {
-    // Very short = noise; very long = stuck/invalid. A short noise pulse before
+  if (lowUs < minUs || lowUs >= STATUS_HARD_MAX_US) {
+    // Very short = noise; >=150 ms = stuck/invalid. A short noise pulse before
     // a frame is ignored only if no real frame has started yet.
-    if (rxPulseCount_ != 0U || lowUs >= ackMaxUs) rxInvalid_ = true;
+    if (rxPulseCount_ != 0U || lowUs >= STATUS_HARD_MAX_US) rxInvalid_ = true;
     return;
   }
 
@@ -173,6 +176,7 @@ void IRAM_ATTR busIsr() {
     } else if (lowUs >= STATUS_LONG_MIN_US && lowUs < STATUS_LONG_MAX_US) {
       rxActivityMarker_ = true;
     } else {
+      // 45..100 ms and 140..150 ms are deliberate dead bands.
       rxInvalid_ = true;
       return;
     }
