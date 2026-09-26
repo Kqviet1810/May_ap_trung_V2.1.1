@@ -24,8 +24,7 @@ inline bool reached(uint32_t now, uint32_t deadline) {
 //
 // STATUS_QUERY owns the bus from the first command pulse until the final STATUS
 // ACK has finished. No other command may be queued or inserted in the middle.
-// Every completed transaction is followed by ATTINY_BUS_END_GAP_MS of HIGH so
-// the peer can never merge an ACK with the next command frame.
+// Every completed transaction is followed by ATTINY_BUS_END_GAP_MS of HIGH.
 constexpr uint8_t STATUS_WIRE_MIN = ATTINY_MSG_STATUS_BASE;  // 8
 constexpr uint8_t STATUS_WIRE_MAX = static_cast<uint8_t>(
     ATTINY_MSG_STATUS_BASE + ATTINY_STATUS_FLAG_BATCH +
@@ -56,9 +55,15 @@ static volatile uint32_t ackFallAtUs_ = 0U;
 static volatile uint32_t ackLowUs_ = 0U;
 static volatile bool ackFallSeen_ = false;
 static volatile bool ackPulseReady_ = false;
+// Set before transmitting STATUS_QUERY. It lets the ISR move directly from
+// ACK capture to STATUS capture on the ACK rising edge, without waiting for
+// the 5 ms control task (which can occasionally be delayed by I2C/EEPROM).
+static volatile bool ackMustArmStatus_ = false;
+static volatile bool statusArmedByIsr_ = false;
 
 static volatile uint32_t rxFallAtUs_ = 0U;
 static volatile uint32_t rxLastEdgeAtUs_ = 0U;
+static volatile uint32_t rxFirstLowUs_ = 0U;
 static volatile uint8_t rxPulseCount_ = 0U;
 static volatile bool rxFrameActive_ = false;
 static volatile bool rxLowActive_ = false;
@@ -76,6 +81,7 @@ inline void busDriveLow() {
 inline void resetStatusCaptureUnsafe() {
   rxFallAtUs_ = 0U;
   rxLastEdgeAtUs_ = 0U;
+  rxFirstLowUs_ = 0U;
   rxPulseCount_ = 0U;
   rxFrameActive_ = false;
   rxLowActive_ = false;
@@ -90,16 +96,20 @@ inline void captureIgnore() {
   ackLowUs_ = 0U;
   ackFallSeen_ = false;
   ackPulseReady_ = false;
+  ackMustArmStatus_ = false;
+  statusArmedByIsr_ = false;
   resetStatusCaptureUnsafe();
   interrupts();
 }
 
-inline void armCommandAckCapture() {
+inline void armCommandAckCapture(bool expectStatus) {
   noInterrupts();
   ackFallAtUs_ = 0U;
   ackLowUs_ = 0U;
   ackFallSeen_ = false;
   ackPulseReady_ = false;
+  ackMustArmStatus_ = expectStatus;
+  statusArmedByIsr_ = false;
   resetStatusCaptureUnsafe();
   captureMode_ = CaptureCommandAck;
   interrupts();
@@ -111,6 +121,8 @@ inline void armStatusCapture() {
   ackLowUs_ = 0U;
   ackFallSeen_ = false;
   ackPulseReady_ = false;
+  ackMustArmStatus_ = false;
+  statusArmedByIsr_ = false;
   resetStatusCaptureUnsafe();
   captureMode_ = CaptureStatus;
   interrupts();
@@ -123,6 +135,7 @@ void IRAM_ATTR busIsr() {
   const uint32_t atUs = micros();
   const bool low = digitalRead(PIN_ATTINY_BUS) == LOW;
   const uint32_t minUs = ATTINY_BUS_MIN_PULSE_MS * 1000UL;
+  const uint32_t ackMaxUs = ATTINY_BUS_PULSE_MS * 3UL * 1000UL;
 
   if (mode == CaptureCommandAck) {
     if (ackPulseReady_) return;
@@ -139,12 +152,26 @@ void IRAM_ATTR busIsr() {
       const uint32_t lowUs = static_cast<uint32_t>(atUs - ackFallAtUs_);
       ackFallSeen_ = false;
       if (lowUs < minUs) return;
+
       ackLowUs_ = lowUs;
       ackPulseReady_ = true;
+
+      // Critical race fix: STATUS may start ~170 ms after this edge while the
+      // control task can occasionally be delayed much longer by synchronous
+      // I2C/EEPROM work. Arm STATUS HERE in the ISR, immediately, so no edge
+      // can be lost waiting for mayapAttinyBusUpdate(). Only a valid ACK may
+      // open the STATUS receiver.
+      if (ackMustArmStatus_ && lowUs < ackMaxUs) {
+        resetStatusCaptureUnsafe();
+        ackMustArmStatus_ = false;
+        statusArmedByIsr_ = true;
+        captureMode_ = CaptureStatus;
+      }
     }
     return;
   }
 
+  // CaptureStatus
   rxLastEdgeAtUs_ = atUs;
 
   if (low) {
@@ -182,6 +209,7 @@ void IRAM_ATTR busIsr() {
   }
 
   if (rxPulseCount_ == 0U) {
+    rxFirstLowUs_ = lowUs;
     if (lowUs < STATUS_SHORT_MAX_US) {
       rxActivityMarker_ = false;
     } else if (lowUs >= STATUS_LONG_MIN_US && lowUs < STATUS_LONG_MAX_US) {
@@ -234,6 +262,40 @@ static uint8_t statusValue_ = 0U;
 
 static bool sirenOffConfirmed_ = false;
 
+#if MAYAP_DIAGNOSTIC_SERIAL
+inline void diagFailure(const char *reason, uint8_t code, uint32_t extra = 0U) {
+  uint8_t pulses;
+  bool invalid;
+  bool lowActive;
+  bool frameActive;
+  uint32_t firstLow;
+  uint32_t ackLow;
+  bool ackFall;
+  uint8_t mode;
+  noInterrupts();
+  pulses = rxPulseCount_;
+  invalid = rxInvalid_;
+  lowActive = rxLowActive_;
+  frameActive = rxFrameActive_;
+  firstLow = rxFirstLowUs_;
+  ackLow = ackLowUs_;
+  ackFall = ackFallSeen_;
+  mode = captureMode_;
+  interrupts();
+  Serial.printf(
+      "[ATTINY-BUS] FAIL reason=%s code=%u attempt=%u mode=%u ackLow=%lu ackFall=%u "
+      "pulses=%u frame=%u low=%u invalid=%u firstLow=%lu extra=%lu\n",
+      reason ? reason : "?", static_cast<unsigned>(code),
+      static_cast<unsigned>(txAttempt_), static_cast<unsigned>(mode),
+      static_cast<unsigned long>(ackLow), ackFall ? 1U : 0U,
+      static_cast<unsigned>(pulses), frameActive ? 1U : 0U,
+      lowActive ? 1U : 0U, invalid ? 1U : 0U,
+      static_cast<unsigned long>(firstLow), static_cast<unsigned long>(extra));
+}
+#else
+inline void diagFailure(const char *, uint8_t, uint32_t = 0U) {}
+#endif
+
 inline void finishTransaction(bool ok) {
   const uint8_t completedCode = txCode_;
   busRelease();
@@ -252,9 +314,6 @@ inline void finishTransaction(bool ok) {
   resultCode_ = completedCode;
   resultAcked_ = ok;
   resultReady_ = true;
-
-  // Physical frame boundary. MachineControl may clear txHoldUntil_, but it
-  // cannot bypass this transport-owned quiet period.
   busQuietUntil_ = millis() + ATTINY_BUS_END_GAP_MS;
 
   txCode_ = 0U;
@@ -285,12 +344,14 @@ inline void retryOrFail(uint32_t now) {
 
 // Returns: 0=pending, 1=valid complete frame, -1=invalid complete frame.
 inline int8_t pollStatusFrame(uint8_t &logicalOut) {
-  const uint32_t nowUs = micros();
   uint8_t pulses = 0U;
   bool invalid = false;
   bool activity = false;
 
+  // Take 'now' inside the same critical section as rxLastEdgeAtUs_. This avoids
+  // unsigned-wrap false completion if an edge lands between micros() and cli.
   noInterrupts();
+  const uint32_t nowUs = micros();
   if (!rxFrameActive_ || rxLowActive_) {
     interrupts();
     return 0;
@@ -385,7 +446,7 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
         return;
       }
 
-      armCommandAckCapture();
+      armCommandAckCapture(txCode_ == ATTINY_MSG_STATUS_QUERY);
       ackWaitStartedAt_ = now;
       txPhase_ = TxPhase::WaitCommandAck;
       return;
@@ -393,9 +454,11 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
     case TxPhase::WaitCommandAck: {
       bool ready = false;
       uint32_t lowUs = 0U;
+      bool statusAlreadyArmed = false;
       noInterrupts();
       ready = ackPulseReady_;
       lowUs = ackLowUs_;
+      statusAlreadyArmed = statusArmedByIsr_;
       if (ready) ackPulseReady_ = false;
       interrupts();
 
@@ -404,16 +467,20 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
         const uint32_t maxUs = ATTINY_BUS_PULSE_MS * 3UL * 1000UL;
         if (lowUs >= minUs && lowUs < maxUs) {
           if (txCode_ == ATTINY_MSG_STATUS_QUERY) {
-            armStatusCapture();
+            // Do NOT reset capture if the ISR already armed it. STATUS may
+            // already be in progress or even complete when the task resumes.
+            if (!statusAlreadyArmed) armStatusCapture();
             statusWaitStartedAt_ = now;
             txPhase_ = TxPhase::WaitStatus;
           } else {
             finishTransaction(true);
           }
         } else {
+          diagFailure("ACK_WIDTH", txCode_, lowUs);
           retryOrFail(now);
         }
       } else if (elapsedMs(now, ackWaitStartedAt_) >= ATTINY_BUS_ACK_TIMEOUT_MS) {
+        diagFailure("ACK_TIMEOUT", txCode_, elapsedMs(now, ackWaitStartedAt_));
         retryOrFail(now);
       }
       return;
@@ -431,9 +498,11 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
         txDeadline_ = now + ATTINY_BUS_PULSE_MS;
         txPhase_ = TxPhase::StatusAckLow;
       } else if (state < 0) {
+        diagFailure("STATUS_INVALID", txCode_);
         retryOrFail(now);
       } else if (elapsedMs(now, statusWaitStartedAt_) >=
                  ATTINY_STATUS_RESPONSE_TIMEOUT_MS) {
+        diagFailure("STATUS_TIMEOUT", txCode_, elapsedMs(now, statusWaitStartedAt_));
         retryOrFail(now);
       }
       return;
