@@ -8,46 +8,54 @@ inline bool reached(uint32_t now, uint32_t deadline) { return static_cast<int32_
 
 constexpr uint8_t TX_QUEUE_SIZE = 8U;
 
-// Logical status remains 8..23 for the rest of the firmware, but the wire
-// transport is deliberately split into two SHORT frames because bench testing
-// proved single pulse-count frames above 15 pulses are not reliable enough.
-// Part A: 8..15 = batch + 9V-low + emergency-siren (3 bits).
-// Part B: 8/9   = critical-activity OFF/ON.
-constexpr uint8_t STATUS_MAIN_MIN = ATTINY_MSG_STATUS_BASE;
-constexpr uint8_t STATUS_MAIN_MAX = static_cast<uint8_t>(
+// -----------------------------------------------------------------------------
+// Wire format for Tiny -> ESP STATUS
+// -----------------------------------------------------------------------------
+// Logical STATUS seen by MachineController remains exactly 8..23:
+//   bit0 = batch, bit1 = 9V-low, bit2 = emergency-siren, bit3 = activity.
+//
+// The old implementation encoded all four bits only by pulse COUNT, therefore
+// activity=1 produced 16..23 pulses. Bench testing proved <=15 pulses reliable
+// while long 18/22-pulse frames were not. Do NOT split the transaction into
+// two frames: that adds a second ACK/timeout/state and created another failure
+// mode. Instead keep ONE frame + ONE ACK:
+//
+//   pulse count 8..15 : lower three bits (batch / 9V / siren)
+//   first LOW width   : 30 ms = activity OFF, 60 ms = activity ON
+//   remaining LOWs    : 30 ms
+//
+// Thus every physical frame stays <=15 pulses while the public logical status
+// and all MachineController code stay unchanged.
+constexpr uint8_t STATUS_WIRE_MIN = ATTINY_MSG_STATUS_BASE;  // 8
+constexpr uint8_t STATUS_WIRE_MAX = static_cast<uint8_t>(
     ATTINY_MSG_STATUS_BASE + ATTINY_STATUS_FLAG_BATCH +
-    ATTINY_STATUS_FLAG_9V_LOW + ATTINY_STATUS_FLAG_SIREN);
-constexpr uint8_t STATUS_ACTIVITY_OFF_FRAME = ATTINY_MSG_STATUS_BASE;
-constexpr uint8_t STATUS_ACTIVITY_ON_FRAME = static_cast<uint8_t>(ATTINY_MSG_STATUS_BASE + 1U);
-static_assert(STATUS_MAIN_MAX == 15U, "ATtiny main status frame must stay <=15 pulses");
-static_assert(ATTINY_MSG_STATUS_MAX == 23U, "ATtiny logical status range must remain 8..23");
-static_assert(ATTINY_STATUS_FLAG_ACTIVITY == 8U, "ATtiny activity flag must be bit3");
+    ATTINY_STATUS_FLAG_9V_LOW + ATTINY_STATUS_FLAG_SIREN);   // 15
+constexpr uint32_t STATUS_SHORT_MAX_US = 45UL * 1000UL;
+constexpr uint32_t STATUS_LONG_MIN_US  = 45UL * 1000UL;
+constexpr uint32_t STATUS_LONG_MAX_US  = 75UL * 1000UL;
+static_assert(STATUS_WIRE_MAX == 15U, "ATtiny physical STATUS must stay <=15 pulses");
+static_assert(ATTINY_STATUS_FLAG_ACTIVITY == 8U, "ATtiny activity must remain logical bit3");
+static_assert(ATTINY_MSG_STATUS_MAX == 23U, "ATtiny logical STATUS must remain 8..23");
 
-// BUS RX/TX capture modes. The ESP never drives HIGH: OUTPUT LOW or INPUT/Hi-Z only.
 enum CaptureMode : uint8_t { CaptureIgnore = 0U, CaptureAck = 1U, CaptureIncoming = 2U };
 static volatile uint8_t captureMode_ = CaptureIncoming;
 
-// ACK capture (Tiny -> ESP). Width is measured fully inside the GPIO ISR so a
-// 30 ms ACK cannot be missed even if the control task is briefly delayed.
+// ACK capture (Tiny -> ESP). Width is completed inside ISR so a 30 ms ACK
+// cannot be missed even if the 5 ms control task is briefly delayed.
 static volatile uint32_t ackFallAtUs_ = 0U;
 static volatile uint32_t ackLowUs_ = 0U;
 static volatile bool ackFallSeen_ = false;
 static volatile bool ackPulseReady_ = false;
 
-// Incoming physical frame capture. Count valid LOW pulses directly in ISR.
+// Incoming STATUS capture. Count physical pulses and remember whether the FIRST
+// valid LOW is the 60 ms activity marker. No edge-pair buffer is needed.
 static volatile uint32_t rxFallAtUs_ = 0U;
 static volatile uint32_t rxLastEdgeAtUs_ = 0U;
 static volatile uint8_t rxPulseCount_ = 0U;
 static volatile bool rxFrameActive_ = false;
 static volatile bool rxLowActive_ = false;
 static volatile bool rxInvalid_ = false;
-
-// Two-part STATUS assembly. Only touched from control task, never from ISR.
-static bool splitStatusExpected_ = false;
-static bool splitStatusMainReady_ = false;
-static uint8_t splitStatusMainCode_ = 0U;
-static uint32_t splitStatusMainAtMs_ = 0U;
-constexpr uint32_t SPLIT_STATUS_SECOND_PART_TIMEOUT_MS = 1400UL;
+static volatile bool rxActivityMarker_ = false;
 
 static volatile bool busBusy_ = false;
 static uint8_t txQueue_[TX_QUEUE_SIZE]{};
@@ -72,13 +80,7 @@ inline void resetIncomingUnsafe() {
   rxFrameActive_ = false;
   rxLowActive_ = false;
   rxInvalid_ = false;
-}
-
-inline void resetSplitStatus() {
-  splitStatusExpected_ = false;
-  splitStatusMainReady_ = false;
-  splitStatusMainCode_ = 0U;
-  splitStatusMainAtMs_ = 0U;
+  rxActivityMarker_ = false;
 }
 
 inline void setCaptureIgnore() {
@@ -117,7 +119,7 @@ void IRAM_ATTR busIsr() {
   const uint32_t atUs = micros();
   const bool low = digitalRead(PIN_ATTINY_BUS) == LOW;
   const uint32_t minUs = ATTINY_BUS_MIN_PULSE_MS * 1000UL;
-  const uint32_t maxUs = ATTINY_BUS_PULSE_MS * 3UL * 1000UL;
+  const uint32_t ackMaxUs = ATTINY_BUS_PULSE_MS * 3UL * 1000UL;
 
   if (mode == CaptureAck) {
     if (ackPulseReady_) return;
@@ -157,16 +159,34 @@ void IRAM_ATTR busIsr() {
   const uint32_t lowUs = static_cast<uint32_t>(atUs - rxFallAtUs_);
   rxLowActive_ = false;
 
-  if (lowUs >= maxUs) {
-    rxInvalid_ = true;
+  if (lowUs < minUs || lowUs >= ackMaxUs) {
+    // Very short = noise; very long = stuck/invalid. A short noise pulse before
+    // a frame is ignored only if no real frame has started yet.
+    if (rxPulseCount_ != 0U || lowUs >= ackMaxUs) rxInvalid_ = true;
     return;
   }
 
-  if (lowUs >= minUs) {
-    if (rxPulseCount_ < UINT8_MAX) ++rxPulseCount_;
-    // No valid physical STATUS part is ever longer than 15 pulses.
-    if (rxPulseCount_ > STATUS_MAIN_MAX) rxInvalid_ = true;
+  if (rxPulseCount_ == 0U) {
+    // First valid LOW carries ACTIVITY in its width.
+    if (lowUs < STATUS_SHORT_MAX_US) {
+      rxActivityMarker_ = false;
+    } else if (lowUs >= STATUS_LONG_MIN_US && lowUs < STATUS_LONG_MAX_US) {
+      rxActivityMarker_ = true;
+    } else {
+      rxInvalid_ = true;
+      return;
+    }
+  } else {
+    // Every later STATUS pulse must be the ordinary ~30 ms pulse. This makes
+    // malformed/noisy frames fail closed instead of silently changing flags.
+    if (lowUs >= STATUS_SHORT_MAX_US) {
+      rxInvalid_ = true;
+      return;
+    }
   }
+
+  if (rxPulseCount_ < UINT8_MAX) ++rxPulseCount_;
+  if (rxPulseCount_ > STATUS_WIRE_MAX) rxInvalid_ = true;
 }
 
 inline bool queuedOrActive(uint8_t code) {
@@ -179,23 +199,10 @@ inline bool queuedOrActive(uint8_t code) {
 }
 
 inline void publishResult(bool acked) {
-  const uint8_t completed = txCode_;
   busRelease();
   armIncomingCapture();
   busBusy_ = false;
-
-  if (completed == ATTINY_MSG_STATUS_QUERY) {
-    if (acked) {
-      splitStatusExpected_ = true;
-      splitStatusMainReady_ = false;
-      splitStatusMainCode_ = 0U;
-      splitStatusMainAtMs_ = 0U;
-    } else {
-      resetSplitStatus();
-    }
-  }
-
-  resultCode_ = completed;
+  resultCode_ = txCode_;
   resultAcked_ = acked;
   resultReady_ = true;
   txCode_ = 0U;
@@ -233,6 +240,7 @@ inline void startNext(uint32_t now) {
   interrupts();
   if (incomingPending) return;
 
+  // ACK always has priority over queued commands and txHoldUntil_.
   if (ackRequested_) {
     ackRequested_ = false;
     txCode_ = 1U;
@@ -254,7 +262,6 @@ inline void startNext(uint32_t now) {
 inline void mayapAttinyBusBegin() {
   using namespace MayapAttinyBusInternal;
   busRelease();
-  resetSplitStatus();
   armIncomingCapture();
   attachInterrupt(digitalPinToInterrupt(PIN_ATTINY_BUS), busIsr, CHANGE);
 }
@@ -353,15 +360,10 @@ inline uint8_t mayapAttinyBusPollIncoming() {
   using namespace MayapAttinyBusInternal;
   if (busBusy_ || captureMode_ != CaptureIncoming) return 0U;
 
-  // Do not let a lost second part poison the next status transaction.
-  if (splitStatusMainReady_ &&
-      elapsedMs(millis(), splitStatusMainAtMs_) >= SPLIT_STATUS_SECOND_PART_TIMEOUT_MS) {
-    resetSplitStatus();
-  }
-
   const uint32_t nowUs = micros();
   uint8_t pulses = 0U;
   bool invalid = false;
+  bool activity = false;
 
   noInterrupts();
   if (!rxFrameActive_ || rxLowActive_) {
@@ -377,36 +379,16 @@ inline uint8_t mayapAttinyBusPollIncoming() {
 
   pulses = rxPulseCount_;
   invalid = rxInvalid_;
+  activity = rxActivityMarker_;
   resetIncomingUnsafe();
   interrupts();
 
-  if (invalid || !splitStatusExpected_) return 0U;
-
-  if (!splitStatusMainReady_) {
-    // First physical part: legacy 3-bit status, guaranteed <=15 pulses.
-    if (pulses < STATUS_MAIN_MIN || pulses > STATUS_MAIN_MAX) {
-      resetSplitStatus();
-      return 0U;
-    }
-    splitStatusMainCode_ = pulses;
-    splitStatusMainReady_ = true;
-    splitStatusMainAtMs_ = millis();
-    ackRequested_ = true;
-    return 0U;
-  }
-
-  // Second physical part: activity only (8=OFF, 9=ON).
-  if (pulses != STATUS_ACTIVITY_OFF_FRAME && pulses != STATUS_ACTIVITY_ON_FRAME) {
-    resetSplitStatus();
-    return 0U;
-  }
+  if (invalid || pulses < STATUS_WIRE_MIN || pulses > STATUS_WIRE_MAX) return 0U;
 
   const uint8_t logical = static_cast<uint8_t>(
-      splitStatusMainCode_ +
-      (pulses == STATUS_ACTIVITY_ON_FRAME ? ATTINY_STATUS_FLAG_ACTIVITY : 0U));
-  resetSplitStatus();
-
+      pulses + (activity ? ATTINY_STATUS_FLAG_ACTIVITY : 0U));
   if (logical < ATTINY_MSG_STATUS_BASE || logical > ATTINY_MSG_STATUS_MAX) return 0U;
+
   ackRequested_ = true;
   return logical;
 }
