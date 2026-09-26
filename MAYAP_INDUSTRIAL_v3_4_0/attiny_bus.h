@@ -22,9 +22,10 @@ inline bool reached(uint32_t now, uint32_t deadline) {
 //   remaining LOWs ~30 ms
 // ESP -> Tiny STATUS ACK: one ~30 ms LOW pulse.
 //
-// IMPORTANT: STATUS_QUERY owns the bus from the first command pulse until the
-// final STATUS ACK has finished. No other command may be queued or inserted in
-// the middle. This deliberately keeps the protocol as one atomic transaction.
+// STATUS_QUERY owns the bus from the first command pulse until the final STATUS
+// ACK has finished. No other command may be queued or inserted in the middle.
+// Every completed transaction is followed by ATTINY_BUS_END_GAP_MS of HIGH so
+// the peer can never merge an ACK with the next command frame.
 constexpr uint8_t STATUS_WIRE_MIN = ATTINY_MSG_STATUS_BASE;  // 8
 constexpr uint8_t STATUS_WIRE_MAX = static_cast<uint8_t>(
     ATTINY_MSG_STATUS_BASE + ATTINY_STATUS_FLAG_BATCH +
@@ -51,13 +52,11 @@ enum CaptureMode : uint8_t {
 };
 static volatile uint8_t captureMode_ = CaptureIgnore;
 
-// Tiny -> ESP command ACK capture.
 static volatile uint32_t ackFallAtUs_ = 0U;
 static volatile uint32_t ackLowUs_ = 0U;
 static volatile bool ackFallSeen_ = false;
 static volatile bool ackPulseReady_ = false;
 
-// Tiny -> ESP STATUS capture.
 static volatile uint32_t rxFallAtUs_ = 0U;
 static volatile uint32_t rxLastEdgeAtUs_ = 0U;
 static volatile uint8_t rxPulseCount_ = 0U;
@@ -146,7 +145,6 @@ void IRAM_ATTR busIsr() {
     return;
   }
 
-  // CaptureStatus
   rxLastEdgeAtUs_ = atUs;
 
   if (low) {
@@ -169,7 +167,6 @@ void IRAM_ATTR busIsr() {
   rxLowActive_ = false;
 
   if (lowUs < minUs) {
-    // Ignore isolated short noise before the first real STATUS pulse.
     if (rxPulseCount_ == 0U) {
       rxFrameActive_ = false;
       rxInvalid_ = false;
@@ -190,12 +187,10 @@ void IRAM_ATTR busIsr() {
     } else if (lowUs >= STATUS_LONG_MIN_US && lowUs < STATUS_LONG_MAX_US) {
       rxActivityMarker_ = true;
     } else {
-      // Deliberate dead bands reject ambiguous first-pulse widths.
       rxInvalid_ = true;
       return;
     }
   } else if (lowUs >= STATUS_SHORT_MAX_US) {
-    // Every pulse after the first must be the ordinary ~30 ms pulse.
     rxInvalid_ = true;
     return;
   }
@@ -226,6 +221,7 @@ static uint32_t txDeadline_ = 0U;
 static uint32_t ackWaitStartedAt_ = 0U;
 static uint32_t statusWaitStartedAt_ = 0U;
 static uint32_t txHoldUntil_ = 0U;
+static uint32_t busQuietUntil_ = 0U;
 
 static bool resultReady_ = false;
 static bool resultAcked_ = false;
@@ -236,8 +232,6 @@ static uint8_t capturedStatus_ = 0U;
 static bool statusReady_ = false;
 static uint8_t statusValue_ = 0U;
 
-// Keep the existing idempotent OFF protection, but it no longer participates
-// in STATUS transaction sequencing.
 static bool sirenOffConfirmed_ = false;
 
 inline void finishTransaction(bool ok) {
@@ -258,6 +252,10 @@ inline void finishTransaction(bool ok) {
   resultCode_ = completedCode;
   resultAcked_ = ok;
   resultReady_ = true;
+
+  // Physical frame boundary. MachineControl may clear txHoldUntil_, but it
+  // cannot bypass this transport-owned quiet period.
+  busQuietUntil_ = millis() + ATTINY_BUS_END_GAP_MS;
 
   txCode_ = 0U;
   txPulsesRemaining_ = 0U;
@@ -310,15 +308,11 @@ inline int8_t pollStatusFrame(uint8_t &logicalOut) {
   resetStatusCaptureUnsafe();
   interrupts();
 
-  if (invalid || pulses < STATUS_WIRE_MIN || pulses > STATUS_WIRE_MAX) {
-    return -1;
-  }
+  if (invalid || pulses < STATUS_WIRE_MIN || pulses > STATUS_WIRE_MAX) return -1;
 
   const uint8_t logical = static_cast<uint8_t>(
       pulses + (activity ? ATTINY_STATUS_FLAG_ACTIVITY : 0U));
-  if (logical < ATTINY_MSG_STATUS_BASE || logical > ATTINY_MSG_STATUS_MAX) {
-    return -1;
-  }
+  if (logical < ATTINY_MSG_STATUS_BASE || logical > ATTINY_MSG_STATUS_MAX) return -1;
 
   logicalOut = logical;
   return 1;
@@ -331,6 +325,7 @@ inline void mayapAttinyBusBegin() {
   busRelease();
   captureIgnore();
   sirenOffConfirmed_ = false;
+  busQuietUntil_ = 0U;
   attachInterrupt(digitalPinToInterrupt(PIN_ATTINY_BUS), busIsr, CHANGE);
 }
 
@@ -346,7 +341,7 @@ inline bool mayapAttinyBusRequest(uint8_t code) {
   if (resultReady_ || statusReady_) return false;
 
   const uint32_t now = millis();
-  if (!reached(now, txHoldUntil_)) return false;
+  if (!reached(now, txHoldUntil_) || !reached(now, busQuietUntil_)) return false;
 
   txCode_ = code;
   txAttempt_ = 0U;
@@ -390,8 +385,6 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
         return;
       }
 
-      // Command frame is complete. From this point STATUS_QUERY remains inside
-      // the same transaction; nothing else can enter the wire state machine.
       armCommandAckCapture();
       ackWaitStartedAt_ = now;
       txPhase_ = TxPhase::WaitCommandAck;
@@ -433,7 +426,6 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
         capturedStatus_ = logical;
         capturedStatusValid_ = true;
 
-        // ACK the STATUS inside this same transaction.
         captureIgnore();
         busDriveLow();
         txDeadline_ = now + ATTINY_BUS_PULSE_MS;
@@ -478,8 +470,6 @@ inline uint8_t mayapAttinyBusPollIncoming() {
   statusValue_ = 0U;
   statusReady_ = false;
 
-  // A fresh authoritative STATUS may reveal that the Tiny really changed
-  // state, so allow one new SIREN_OFF correction if needed.
   sirenOffConfirmed_ = false;
   return value;
 }
