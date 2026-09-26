@@ -1994,7 +1994,8 @@ void openAlarmView(View returnView) {
   dirty = true;
 }
 
-bool startConfigSave(const MachineConfig &candidate) {
+bool startConfigSave(const MachineConfig &candidate, bool deferForHost = false,
+                     uint32_t *transactionId = nullptr) {
   if (configSave.active) {
     showToast("DANG CHO XAC NHAN LUU", true);
     return false;
@@ -2003,8 +2004,9 @@ bool startConfigSave(const MachineConfig &candidate) {
   if (id == 0) id = nextConfigTransactionId++;
   portENTER_CRITICAL(&hmiApiMux);
   configSave.active = true;
-  configSave.readyForHost = true;
+  configSave.readyForHost = !deferForHost;
   configSave.id = id;
+  if (transactionId) *transactionId = id;
   configSave.startedAt = millis();
   configSave.rollback = currentConfig;
   configSave.candidate = candidate;

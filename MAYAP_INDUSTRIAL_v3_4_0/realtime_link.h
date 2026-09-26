@@ -69,7 +69,7 @@ static char activeOperation[40] = "";
 static uint32_t lastDeviceCompletedAt = 0U;
 static uint8_t activeAckKey[32] = {};
 static bool activeAckKeyValid = false;
-inline void publishAck(const char *, const char *, const char *, const char * = "",
+inline bool publishAck(const char *, const char *, const char *, const char * = "",
                        uint32_t = 0U, uint32_t = 0U, const uint8_t * = nullptr);
 
 inline void ensureIdentity() {
@@ -169,6 +169,7 @@ static PendingCommand pendingCommands[COMMAND_QUEUE_SIZE];
 // chac chan la cua web, vi HMI khong the mo giao dich thu hai cung luc.
 struct PendingConfigSave {
   bool used = false;
+  uint32_t transactionId = 0U;
   uint32_t queuedAt = 0;
   uint32_t revision = 0;
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
@@ -243,9 +244,9 @@ static uint16_t historySampleCount = 0U;
 
 // -------------------------------- Publish -------------------------------------
 // Tat ca ham publishXxx() ben duoi chi duoc goi tu networkTask.
-inline void publishJson(const char *suffix, const JsonDocument &doc,
+inline bool publishJson(const char *suffix, const JsonDocument &doc,
                         bool retain) {
-  if (!mqtt.connected()) return;
+  if (!mqtt.connected()) return false;
   // Budget applies to the whole MQTT packet (topic + headers + payload).
   char buffer[MayapProtocol::MQTT_NORMAL_CAP];
   const size_t length = serializeJson(doc, buffer, sizeof(buffer));
@@ -254,12 +255,14 @@ inline void publishJson(const char *suffix, const JsonDocument &doc,
       length + strlen(topic) + MayapProtocol::MQTT_OVERHEAD > MayapProtocol::MQTT_NORMAL_CAP) {
     mayapSerialPrintf(true, "[WEBLINK] packet vuot budget: %s (%u B)\n",
                       suffix, static_cast<unsigned>(length));
-    return;
+    return false;
   }
   if (!mqtt.publish(topic, reinterpret_cast<const uint8_t *>(buffer),
                     static_cast<unsigned int>(length), retain)) {
     mayapSerialPrintf(false, "[WEBLINK] publish loi: %s\n", suffix);
+    return false;
   }
+  return true;
 }
 
 inline void handleHistoryRequestMessage(const JsonDocument &doc) {
@@ -607,11 +610,11 @@ inline const char *ackFriendlyMessage(const char *code, const char *raw) {
       !strcmp(code, "RECEIVED") ? "Máy đã nhận yêu cầu" : "Máy từ chối yêu cầu");
 }
 
-inline void publishAck(const char *requestId, const char *result,
+inline bool publishAck(const char *requestId, const char *result,
                        const char *message, const char *operation,
                        uint32_t receivedAt, uint32_t completedAt,
                        const uint8_t *ackKey) {
-  if (!requestId || !requestId[0]) return;
+  if (!requestId || !requestId[0]) return false;
   const char *op = operation && operation[0] ? operation : activeOperation;
   const bool received = !strcmp(result, "accepted");
   const bool uncertain = !strcmp(result, "expired");
@@ -657,7 +660,7 @@ inline void publishAck(const char *requestId, const char *result,
     const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
     if (!info || n < 0 || static_cast<size_t>(n) >= sizeof(signedText) ||
         mbedtls_md_hmac(info, key, 32,
-            reinterpret_cast<const uint8_t *>(signedText), n, digest) != 0) return;
+            reinterpret_cast<const uint8_t *>(signedText), n, digest) != 0) return false;
     char hex[65];
     static constexpr char alphabet[] = "0123456789abcdef";
     for (uint8_t i = 0; i < 32U; ++i) {
@@ -667,7 +670,7 @@ inline void publishAck(const char *requestId, const char *result,
     hex[64] = '\0';
     doc["sig"] = hex;
   }
-  publishJson("ack", doc, false);
+  return publishJson("ack", doc, false);
 }
 
 inline void publishLogEntry(const HmiEventItem &item) {
@@ -1136,11 +1139,7 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
     return;
   }
 
-  if (!startConfigSave(candidate)) {
-    publishAck(requestId, "busy", "");
-    return;
-  }
-
+  // Register the transaction before the control task can observe readyForHost.
   portENTER_CRITICAL(&webMux);
   pendingConfigSave.used = true;
   pendingConfigSave.queuedAt = millis();
@@ -1151,6 +1150,20 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   snprintf(pendingConfigSave.requestId, sizeof(pendingConfigSave.requestId), "%s",
            requestId);
   portEXIT_CRITICAL(&webMux);
+  uint32_t transactionId = 0U;
+  if (!startConfigSave(candidate, true, &transactionId)) {
+    portENTER_CRITICAL(&webMux);
+    pendingConfigSave.used = false;
+    portEXIT_CRITICAL(&webMux);
+    publishAck(requestId, "busy", "");
+    return;
+  }
+  portENTER_CRITICAL(&webMux);
+  pendingConfigSave.transactionId = transactionId;
+  portEXIT_CRITICAL(&webMux);
+  portENTER_CRITICAL(&hmiApiMux);
+  configSave.readyForHost = true;
+  portEXIT_CRITICAL(&hmiApiMux);
   publishAck(requestId, "accepted", "");
 }
 
@@ -1476,20 +1489,24 @@ inline void expirePendingCommands(uint32_t now) {
 }
 
 inline void drainAckOutbox() {
-  AckOutboxItem items[COMMAND_QUEUE_SIZE + 2U];
-  uint8_t count = 0U;
-  portENTER_CRITICAL(&webMux);
-  for (AckOutboxItem &slot : ackOutbox) {
-    if (!slot.used) continue;
-    items[count] = slot;
-    slot.used = false;
-    ++count;
-  }
-  portEXIT_CRITICAL(&webMux);
-  for (uint8_t i = 0; i < count; ++i) {
-    publishAck(items[i].requestId, items[i].result, items[i].message,
-               items[i].operation, items[i].receivedAt, items[i].completedAt,
-               items[i].signedAck ? items[i].ackKey : nullptr);
+  for (uint8_t i = 0U; i < COMMAND_QUEUE_SIZE + 2U; ++i) {
+    AckOutboxItem item;
+    portENTER_CRITICAL(&webMux);
+    item = ackOutbox[i];
+    portEXIT_CRITICAL(&webMux);
+    if (!item.used) continue;
+    const bool sent = publishAck(item.requestId, item.result, item.message,
+                                 item.operation, item.receivedAt, item.completedAt,
+                                 item.signedAck ? item.ackKey : nullptr);
+    if (!sent) {
+      mayapSerialPrintf(false, "[CFG-TX] ACK PUB FAIL id=%s\n", item.requestId);
+      break; // Keep the ACK and retry on the next network cycle.
+    }
+    portENTER_CRITICAL(&webMux);
+    if (ackOutbox[i].used && ackOutbox[i].completedAt == item.completedAt &&
+        !strcmp(ackOutbox[i].requestId, item.requestId))
+      ackOutbox[i].used = false;
+    portEXIT_CRITICAL(&webMux);
   }
 }
 
@@ -1705,10 +1722,9 @@ inline void mayapWebConfirmConfigSave(uint32_t transactionId, bool ok,
                                       const MachineConfig *stored,
                                       const char *failureCode = "CONFIG_SAVE_REJECTED") {
   using namespace MayapRealtimeInternal;
-  (void)transactionId;
   (void)stored;  // config moi da/se toi qua mayapWebSetConfig() tu cung noi goi
   portENTER_CRITICAL(&webMux);
-  if (pendingConfigSave.used) {
+  if (pendingConfigSave.used && pendingConfigSave.transactionId == transactionId) {
     if (ok) webConfigRevision = pendingConfigSave.revision > webConfigRevision
         ? pendingConfigSave.revision : webConfigRevision + 1U;
     enqueueAckLocked(pendingConfigSave.requestId, ok ? "applied" : "rejected",
