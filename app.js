@@ -1430,7 +1430,7 @@
     if (options.awaitAck) return new Promise((resolve, reject) => {
       try {
         state.mqtt.publish(topic, wire, { qos: 1, retain: false }, (error) => {
-          if (error) { error.code = 'TRANSPORT_ERROR'; reject(error); }
+          if (error) { error.code = 'UNCERTAIN'; reject(error); }
           else resolve(); // Broker PUBACK; controller outcome still pending.
         });
       } catch (error) { error.code = 'TRANSPORT_ERROR'; reject(error); }
@@ -1543,10 +1543,11 @@
       // HMI sau lan luu web gan nhat - loi im lang, rat kho tu phat hien.
       const envelope = await signMqttWrite(device, 'config/set', payload);
       armTransaction(id);
-      await publish(topics(device.id).config, envelope, { awaitAck: true });
       transactionPublished(id);
+      await publish(topics(device.id).config, envelope, { awaitAck: true });
       retrySameRequest(id, topics(device.id).config, envelope);
     } catch (error) {
+      if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return; }
       clearPending(id);
       setFormState(formId, 'error', error.message);
       toast(error.message, 3600);
@@ -1599,11 +1600,12 @@
     try {
       const envelope = await signMqttWrite(device, 'command', payload);
       armTransaction(id);
-      await publish(topics(device.id).command, envelope, { awaitAck: true });
       transactionPublished(id);
+      await publish(topics(device.id).command, envelope, { awaitAck: true });
       retrySameRequest(id, topics(device.id).command, envelope);
       return true;
     } catch (error) {
+      if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return true; }
       clearPending(id);
       toast(error.message);
       return false;
@@ -1955,10 +1957,11 @@
     try {
       const envelope = await signMqttWrite(device, 'reminders/set', payload);
       armTransaction(id);
-      await publish(topics(device.id).reminders, envelope, { awaitAck: true });
       transactionPublished(id);
+      await publish(topics(device.id).reminders, envelope, { awaitAck: true });
       retrySameRequest(id, topics(device.id).reminders, envelope);
     } catch (error) {
+      if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return; }
       clearPending(id);
       device.remindersPending = false;
       if (device.id === state.selectedId) renderReminderList(device);
@@ -2224,9 +2227,9 @@
           deviceId: device.id }, 15_000);
         state.pending.get(requestId).ackKey = controlSessions.get(device.id)?.key;
         armTransaction(requestId);
+        transactionPublished(requestId);
       }
       await publish(topics(device.id).historyRequest, envelope, { awaitAck: true });
-      transactionPublished(requestId);
       retrySameRequest(requestId, topics(device.id).historyRequest, envelope);
       window.setTimeout(() => {
         if (state.pending.has(requestId)) return; // V2 transaction owns its timeout.
@@ -2237,6 +2240,7 @@
         requestTemperatureChartRender();
       }, 8000);
     } catch (error) {
+      if (error.code === 'UNCERTAIN') { state.pending.get(requestId)?.onTimeout(); return; }
       clearPending(requestId);
       if (telemetryChart.activeRequestId !== requestId) return;
       telemetryChart.historyLoading = false;
