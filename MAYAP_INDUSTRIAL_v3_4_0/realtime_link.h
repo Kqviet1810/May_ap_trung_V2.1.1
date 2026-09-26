@@ -1453,6 +1453,10 @@ inline void expirePendingCommands(uint32_t now) {
   portENTER_CRITICAL(&webMux);
   for (PendingCommand &slot : pendingCommands) {
     if (!slot.used) continue;
+    // mqtt.loop() can create a slot after the caller captured `now`. Without
+    // this ordering guard, now - queuedAt underflows and a fresh request looks
+    // roughly 49 days old, so it is expired immediately.
+    if (!timeReached(now, slot.queuedAt)) continue;
     if (elapsedMs(now, slot.queuedAt) < WEB_COMMAND_ACK_TIMEOUT_MS) continue;
     snprintf(requestIdsToExpire[expireCount], WEB_REQUEST_ID_CAPACITY, "%s",
              slot.requestId);
@@ -1463,7 +1467,7 @@ inline void expirePendingCommands(uint32_t now) {
     ++expireCount;
     slot.used = false;
   }
-  if (pendingConfigSave.used &&
+  if (pendingConfigSave.used && timeReached(now, pendingConfigSave.queuedAt) &&
       elapsedMs(now, pendingConfigSave.queuedAt) >= WEB_CONFIG_SAVE_ACK_TIMEOUT_MS) {
     configExpired = true;
     snprintf(configRequestId, sizeof(configRequestId), "%s",
@@ -1476,7 +1480,7 @@ inline void expirePendingCommands(uint32_t now) {
   char reminderRequestId[WEB_REQUEST_ID_CAPACITY] = "";
   uint8_t reminderKey[32] = {};
   bool reminderSigned = false;
-  if (pendingReminderSave.used &&
+  if (pendingReminderSave.used && timeReached(now, pendingReminderSave.queuedAt) &&
       elapsedMs(now, pendingReminderSave.queuedAt) >= WEB_REMINDER_SAVE_ACK_TIMEOUT_MS) {
     remindersExpired = true;
     snprintf(reminderRequestId, sizeof(reminderRequestId), "%s",
@@ -1656,11 +1660,15 @@ inline void mayapWebLinkUpdate(uint32_t now) {
     return;
   }
   mqtt.loop();
-  expirePendingCommands(now);
+  // mqtt.loop() dispatches incoming callbacks synchronously. Those callbacks
+  // can stamp queuedAt with a value newer than the `now` supplied by mqttTask,
+  // so all post-callback deadline work must use a refreshed clock sample.
+  const uint32_t postLoopNow = millis();
+  expirePendingCommands(postLoopNow);
   drainAckOutbox();
   serviceConfigPublish();
   serviceReminderPublish();
-  serviceSnapshotPublish(now);
+  serviceSnapshotPublish(postLoopNow);
   serviceEventLogPublish();
   serviceHistoryResponse();
 }

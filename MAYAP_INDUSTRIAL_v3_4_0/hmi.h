@@ -4616,7 +4616,8 @@ void serviceCommandTimeouts(uint32_t now) {
     const HmiCommand command = commandQueue[commandHead];
     commandHead = static_cast<uint8_t>((commandHead + 1U) % COMMAND_QUEUE_SIZE);
     --commandCount;
-    if (now - command.createdAt >= command.validForMs) {
+    if (timeReached(now, command.createdAt) &&
+        now - command.createdAt >= command.validForMs) {
       if (commandOutstandingCount) --commandOutstandingCount;
       if (command.type == HmiCommandType::AlarmAck) {
         alarmMaskToUnack |= command.alarmMask;
@@ -4659,7 +4660,7 @@ void serviceConfigSaveTimeout(uint32_t now) {
   MachineConfig rollback;
   bool timedOut = false;
   portENTER_CRITICAL(&hmiApiMux);
-  if (configSave.active &&
+  if (configSave.active && timeReached(now, configSave.startedAt) &&
       now - configSave.startedAt >= SAVE_CONFIRM_TIMEOUT_MS) {
     rollback = configSave.rollback;
     configSave.active = false;
@@ -4832,7 +4833,8 @@ bool hmiTakeCommand(HmiCommand &out) {
     const HmiCommand command = commandQueue[commandHead];
     commandHead = static_cast<uint8_t>((commandHead + 1U) % COMMAND_QUEUE_SIZE);
     --commandCount;
-    if (now - command.createdAt >= command.validForMs) {
+    if (timeReached(now, command.createdAt) &&
+        now - command.createdAt >= command.validForMs) {
       if (commandOutstandingCount) --commandOutstandingCount;
       if (command.type == HmiCommandType::AlarmAck) {
         expiredAlarmAckMask |= command.alarmMask;

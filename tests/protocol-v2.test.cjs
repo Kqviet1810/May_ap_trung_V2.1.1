@@ -175,6 +175,7 @@ test('ACK HMAC binds result, reason and request identity', async () => {
 
 test('firmware guards the replay, EEPROM, safety and packet boundaries', () => {
   const realtime = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h'), 'utf8');
+  const hmi = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v3_4_0/hmi.h'), 'utf8');
   const machine = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v3_4_0/machine_control.h'), 'utf8');
   const web = readFileSync(require.resolve('../app.js'), 'utf8');
   const worker = readFileSync(require.resolve('../cloudflare/src/index.js'), 'utf8');
@@ -188,10 +189,27 @@ test('firmware guards the replay, EEPROM, safety and packet boundaries', () => {
   assert.match(realtime, /WebClientLease webClientLeases\[8\]/);
   assert.match(realtime, /forceSnapshotPublish = true/);
   assert.match(realtime, /mayap-mqtt-ack:v2/);
+  assert.match(realtime, /const uint32_t postLoopNow = millis\(\)/);
+  assert.match(realtime, /expirePendingCommands\(postLoopNow\)/);
+  assert.match(realtime, /timeReached\(now, slot\.queuedAt\)/);
+  assert.match(realtime, /timeReached\(now, pendingConfigSave\.queuedAt\)/);
+  assert.match(realtime, /timeReached\(now, pendingReminderSave\.queuedAt\)/);
+  assert.match(hmi, /timeReached\(now, configSave\.startedAt\)/);
+  assert.equal((hmi.match(/timeReached\(now, command\.createdAt\)/g) || []).length, 2);
   assert.match(machine, /store_\.saveConfig\(requested, readback\)/);
   for (const code of ['BATCH_AUTO_OFF', 'BATCH_HEATER_SWITCH_OFF', 'BATCH_SENSOR_ERROR',
     'BATCH_RTC_INVALID', 'BATCH_TURNING_FAULT', 'BATCH_OVERHEAT',
     'BATCH_EEPROM_ERROR', 'CONFIG_EEPROM_ERROR', 'HISTORY_EEPROM_ERROR']) {
     assert.ok(realtime.includes(code), code);
   }
+});
+
+test('a callback timestamp newer than the loop sample is not an elapsed timeout', () => {
+  const nowCapturedBeforeCallback = 1000;
+  const queuedInsideCallback = 1001;
+  const rawUnsignedElapsed = (nowCapturedBeforeCallback - queuedInsideCallback) >>> 0;
+  assert.equal(rawUnsignedElapsed, 0xffffffff);
+  const timeReached = (now, target) => ((now - target) | 0) >= 0;
+  assert.equal(timeReached(nowCapturedBeforeCallback, queuedInsideCallback), false);
+  assert.equal(timeReached(queuedInsideCallback + 8000, queuedInsideCallback), true);
 });
