@@ -164,7 +164,7 @@
     });
     if (!result.success || !result.control) {
       const error = new Error(result.error || 'Phiên điều khiển hết hạn');
-      error.code = 'AUTH_ERROR';
+      error.code = [401, 403].includes(result.status) ? 'AUTH_ERROR' : 'TRANSPORT_ERROR';
       throw error;
     }
     return storeControlSession(device, result.control);
@@ -347,10 +347,10 @@
         body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.success) return { success: false, error: body.error || `Máy chủ từ chối (HTTP ${res.status})` };
+      if (!res.ok || !body.success) return { success: false, status: res.status, error: body.error || `Máy chủ từ chối (HTTP ${res.status})` };
       return body;
     } catch (error) {
-      return { success: false, error: String(error?.message || error) };
+      return { success: false, status: 0, error: String(error?.message || error) };
     }
   }
 
@@ -381,7 +381,9 @@
 
   async function signMqttWrite(device, channel, body) {
     if (!device?.pairingToken) {
-      throw new Error('Cần xác thực lại PIN: bấm + và thêm lại đúng ID thiết bị để làm mới quyền điều khiển.');
+      const error = new Error('Cần xác thực lại PIN: bấm + và thêm lại đúng ID thiết bị để làm mới quyền điều khiển.');
+      error.code = 'AUTH_ERROR';
+      throw error;
     }
     if (Number(device.presence?.proto || 0) >= 2) {
       const session = await controlSession(device);
@@ -2434,7 +2436,8 @@
     state.sessionTimer = setInterval(() => {
       const device = currentDevice();
       const needsSync = device?.id !== state.selectedId ||
-          !device?.config || !validateFullConfig(device.config);
+          !device?.config || !validateFullConfig(device.config) ||
+          Number(device.snapshot?.revision || 0) > Number(device.revision || 0);
       sendSession(state.selectedId, true, needsSync);
     }, WEB.sessionRefreshMs);
   }

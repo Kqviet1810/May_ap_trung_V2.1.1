@@ -569,6 +569,14 @@ inline const char *ackCode(const char *result, const char *message) {
 }
 
 inline const char *ackFriendlyMessage(const char *code, const char *raw) {
+  if (raw && !strcmp(raw, "SESSION_EXPIRED"))
+    return "Phiên điều khiển đã hết hạn; hãy thử lại";
+  if (raw && !strcmp(raw, "INVALID_CONFIG_PATCH"))
+    return "Thông số cấu hình không hợp lệ";
+  if (raw && !strcmp(raw, "INVALID_FULL_CONFIG"))
+    return "Cấu hình tổng thể không hợp lệ";
+  if (raw && !strcmp(raw, "REPLAY SEQUENCE"))
+    return "Yêu cầu cũ đã được gửi trước đó";
   struct Text { const char *code; const char *message; };
   static constexpr Text texts[] = {
     {"BATCH_AUTO_OFF", "Hãy chuyển công tắc sang AUTO trước"},
@@ -589,6 +597,7 @@ inline const char *ackFriendlyMessage(const char *code, const char *raw) {
     {"HISTORY_DONE", "Đã đọc xong lịch sử nhiệt"},
     {"ALARM_PHYSICAL_ACK_REQUIRED", "Cần xác nhận còi khẩn cấp tại máy"},
     {"TURN_PHYSICAL_ACK_REQUIRED", "Cần xác nhận lỗi đảo tại máy"},
+    {"UNSUPPORTED_OPERATION", "Firmware chưa hỗ trợ thao tác này"},
   };
   for (const Text &text : texts) if (!strcmp(code, text.code)) return text.message;
   return raw && raw[0] ? raw : (!strcmp(code, "APPLIED") ? "Máy đã thực hiện" :
