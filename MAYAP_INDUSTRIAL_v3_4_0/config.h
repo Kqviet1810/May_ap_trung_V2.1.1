@@ -1132,6 +1132,7 @@ struct MachineConfig {
   bool humidifierInstalled = false;
   bool humidifierEnabled = false;
   float targetHumidity = 58.0f;
+  uint8_t humidifierHysteresisRh = static_cast<uint8_t>(HUMIDIFIER_HYSTERESIS_RH);
 
   bool circulationFanEnabled = true;
   float ventOnTemp = 38.0f;

@@ -34,7 +34,7 @@
 <section class="page active" id="page-device">
 <section class="panel deviceCompact">
 <div class="deviceTop">
-<div class="deviceIdentity"><p class="eyebrow">MÁY ĐANG ĐIỀU KHIỂN</p><h2 id="deviceNameView">Máy ấp trứng 01</h2><small id="deviceIdView">MAP-B85FCC2C01FC</small></div>
+<p class="eyebrow deviceHeading">MÁY ĐANG ĐIỀU KHIỂN</p>
 <div class="statusBlock"><span class="pill online" id="onlinePill">TRỰC TUYẾN</span><small id="wifiConnectionText">Wi‑Fi đã kết nối</small></div>
 </div>
 <div class="devicePickerRow">
@@ -48,7 +48,7 @@
 </div>
 </section>
 <form class="panel" id="quickForm">
-<div class="panelHead"><div><p class="eyebrow">ĐIỀU CHỈNH NHANH</p><h2>Vận hành</h2></div><span class="pill soft">Đồng bộ ESP32</span></div>
+<div class="panelHead"><h2>Vận hành</h2><span class="pill soft">Đồng bộ ESP32</span></div>
 <div class="quickGrid">
 <label class="quickField"><span>Nhiệt độ đặt</span><div><input id="quickTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
 <label class="quickField"><span>Chu kỳ đảo</span><div><input id="quickTurn" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
@@ -73,9 +73,8 @@
 <label class="compactTile"><span>Ngày bắt đầu</span><input id="startDate" type="date" value="2026-07-29"/></label>
 <label class="compactTile"><span>Tổng số ngày ấp</span><div class="unit"><input id="totalDays" max="40" min="1" type="number" value="21"/><b>Ngày</b></div></label>
 <label class="compactTile"><span>Nhiệt độ đặt</span><div class="unit"><input id="batchTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
-<label class="compactTile"><span id="targetHumidityLabel">Độ ẩm tham khảo</span><div class="unit"><input id="targetHumidity" max="95" min="20" type="number" value="58"/><b>%RH</b></div></label>
-<div class="compactTile compactToggle" hidden id="humidifierEnabledTile"><div><span class="tileLabel">Tạo ẩm tự động</span><small>Dùng relay GPIO48 khi RH thấp hơn mức đặt.</small></div><label aria-label="Bật tạo ẩm tự động" class="toggle"><input id="humidifierEnabled" type="checkbox"/><i></i></label></div>
-<div class="compactTile compactToggle"><div><span class="tileLabel">Khôi phục sau mất điện</span><small>Tự tiếp tục mẻ đang chạy.</small></div><label aria-label="Tự tiếp tục mẻ sau mất điện" class="toggle"><input checked="" id="resumeAfterPowerLoss" type="checkbox"/><i></i></label></div>
+<label class="compactTile" id="batchHumidityTile"><span>Độ ẩm tham khảo</span><div class="unit"><input id="targetHumidity" max="95" min="20" type="number" value="58"/><b>%RH</b></div></label>
+<div class="compactTile compactToggle"><span class="tileLabel">Khôi phục sau mất điện</span><label aria-label="Tự tiếp tục mẻ sau mất điện" class="toggle"><input checked="" id="resumeAfterPowerLoss" type="checkbox"/><i></i></label></div>
 </div>
 <div class="formError" id="batchFormError" role="alert"></div>
 <div class="batchActions"><button class="primary" type="submit">Lưu</button><button aria-label="Bắt đầu mẻ ấp" class="primary dark" id="batchAction" type="button">Bắt đầu</button></div>
@@ -131,6 +130,17 @@
 </div>
 </details>
 <p class="settingGroupLabel">Vận hành mẻ ấp</p>
+<details class="settingCard" hidden id="humidifierSetting">
+<summary><span class="settingIcon" aria-hidden="true">◉</span><span class="settingSummary"><strong>Tạo ẩm</strong><small id="humidifierSummary">Ngưỡng bật/tắt tạo ẩm</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<form class="settingBody" id="humidifierForm">
+<div class="notificationLine"><div><strong>Tạo ẩm tự động</strong><small>Chỉ hoạt động khi đang ấp, cảm biến hợp lệ và máy cho phép.</small></div><label aria-label="Bật tạo ẩm tự động" class="toggle"><input id="humidifierEnabled" type="checkbox"/><i></i></label></div>
+<div class="tempGrid">
+<label class="compactTile"><span>Độ ẩm thấp · bật</span><div class="unit"><input id="humidifierOnHumidity" type="number" min="20" max="89" step="1" value="56"/><b>%RH</b></div></label>
+<label class="compactTile"><span>Độ ẩm cao · tắt</span><div class="unit"><input id="humidifierOffHumidity" type="number" min="30" max="90" step="1" value="58"/><b>%RH</b></div></label>
+</div>
+<button class="primary full" type="submit">Lưu cài đặt tạo ẩm</button>
+</form>
+</details>
 <details class="settingCard">
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M14 4v10.5a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></svg></span><span class="settingSummary"><strong>Nhiệt độ và bảo vệ</strong><small id="temperatureSummary">Đặt 37,5°C · ngắt khẩn 39,0°C</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody temperatureFormCompact" id="temperatureForm">

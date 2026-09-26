@@ -113,10 +113,10 @@ test('MQTT packet worst cases stay within budgets', () => {
   assert.ok(Buffer.byteLength(JSON.stringify(response)) + Buffer.byteLength(topic('ack')) + PacketPolicy.MQTT_OVERHEAD < PacketPolicy.SMALL_TARGET);
 });
 
-test('all seven config forms use patches within the shared packet policy', () => {
+test('all eight config forms use patches within the shared packet policy', () => {
   const source = readFileSync(require.resolve('../app.js'), 'utf8');
   const build = source.split('  function buildConfig(group) {')[1].split('  function nextRevision')[0];
-  const groups = ['quick', 'batch', 'temperature', 'turning', 'sensor', 'lightAlarm', 'advanced'];
+  const groups = ['quick', 'batch', 'temperature', 'turning', 'sensor', 'lightAlarm', 'humidifier', 'advanced'];
   for (const group of groups) {
     const section = build.split(new RegExp(`(?:if|else if) \\(group === '${group}'\\) \\{`))[1]
       ?.split(/\n    \} else if|\n    \}\n    return config/)[0];
@@ -143,6 +143,21 @@ test('all seven config forms use patches within the shared packet policy', () =>
     ['CHUNK_TARGET', 'MQTT_CHUNK_TARGET'], ['MQTT_OVERHEAD', 'MQTT_OVERHEAD']]) {
     assert.match(header, new RegExp(`${name} = ${PacketPolicy[key]}U;`));
   }
+});
+
+test('humidifier thresholds preserve the config record layout and legacy default', () => {
+  const machine = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v3_4_0/machine_control.h'), 'utf8');
+  const firmware = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h'), 'utf8');
+  assert.match(machine, /humidityAlarmDelaySec & 0x03FFU/);
+  assert.match(machine, /humidifierHysteresisRh & 0x0FU/);
+  assert.match(machine, /humidityGap \? humidityGap : MachineConfig\{\}\.humidifierHysteresisRh/);
+  assert.match(machine, /config_\.targetHumidity - config_\.humidifierHysteresisRh/);
+  assert.match(firmware, /c\["humidifierHysteresisRh"\] = cfg\.humidifierHysteresisRh/);
+  assert.match(firmware, /candidate\.humidifierHysteresisRh = configObj\["humidifierHysteresisRh"\]/);
+  const packed = (60 & 0x03ff) | (6 << 10) | 0x4000 | 0x8000;
+  assert.equal(packed & 0x03ff, 60);
+  assert.equal((packed >> 10) & 0x0f, 6);
+  assert.equal(packed & 0xc000, 0xc000);
 });
 
 test('ACK HMAC binds result, reason and request identity', async () => {

@@ -10,7 +10,8 @@ function browser() {
     Object.assign(window.hooks, { state, transactions, startTransaction, handleAck,
       verifyDeviceAck, sweepUncertain, handleConfigReport, handleReminderReport,
       moveToUncertain, publish, retrySameRequest, storeControlSession,
-      signMqttWrite, controlSession, controlSessions, handleSnapshot, CONFIG_KEYS });
+      signMqttWrite, controlSession, controlSessions, handleSnapshot, CONFIG_KEYS,
+      buildConfig, validateHumidifierForm, syncHumidifierFeatureUi });
   })();`);
   const timers = new Map();
   let nextTimer = 0;
@@ -203,4 +204,31 @@ test('session HMAC binds channel/body; expired session requires refresh; firmwar
   assert.match(firmware, /if \(expired\)[\s\S]*?SESSION_EXPIRED/);
   assert.match(firmware, /if \(replayTerminal\(id\)\)/);
   assert.match(firmware, /if \(v2 && !checkReplaySequence\(bodyDoc\)\)/);
+});
+
+test('humidifier form is hardware gated and maps two thresholds to one bounded hysteresis', () => {
+  const h = browser();
+  h.device.config = Object.fromEntries(h.CONFIG_KEYS.map(key => [key, 1]));
+  h.device.config.targetTemp = 37.5;
+  h.device.config.humidifierInstalled = true;
+  h.device.config.targetHumidity = 58;
+  h.device.config.humidifierHysteresisRh = 2;
+  h.state.selectedId = h.device.id;
+  for (const [id, value] of [['humidifierOnHumidity', '54'],
+    ['humidifierOffHumidity', '60']]) h.elements.set(id, { value });
+  h.elements.set('humidifierEnabled', { checked: true });
+  h.elements.set('humidifierSetting', { hidden: true, open: true });
+  h.elements.set('batchHumidityTile', { hidden: false });
+  assert.equal(h.validateHumidifierForm(), true);
+  h.syncHumidifierFeatureUi(h.device.config);
+  assert.equal(h.elements.get('humidifierSetting').hidden, false);
+  assert.equal(h.elements.get('batchHumidityTile').hidden, true);
+  const config = h.buildConfig('humidifier');
+  assert.equal(config.targetHumidity, 60);
+  assert.equal(config.humidifierHysteresisRh, 6);
+  assert.equal(config.humidifierEnabled, true);
+  h.device.config.humidifierInstalled = false;
+  assert.equal(h.buildConfig('humidifier'), null);
+  h.syncHumidifierFeatureUi(h.device.config);
+  assert.equal(h.elements.get('humidifierSetting').hidden, true);
 });

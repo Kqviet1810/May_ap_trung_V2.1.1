@@ -378,6 +378,7 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   c["humidifierInstalled"] = cfg.humidifierInstalled;
   c["humidifierEnabled"] = cfg.humidifierEnabled;
   c["targetHumidity"] = cfg.targetHumidity;
+  c["humidifierHysteresisRh"] = cfg.humidifierHysteresisRh;
   c["ventOnTemp"] = cfg.ventOnTemp;
   c["ventOffTemp"] = cfg.ventOffTemp;
   c["ventScheduleEnabled"] = cfg.ventScheduleEnabled;
@@ -1029,7 +1030,7 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   static constexpr const char *patchKeys[] = {
     "alarmEnabled", "allowHeatWithoutBatch", "autoResumeAfterPower", "autotuneBandC", "autotuneRelayPowerPercent",
     "circulationFanEnabled", "controlMode", "emergencyTemp", "heaterStuckDurationSec", "heaterStuckMinRiseC",
-    "highTempAlarm", "highTempAlarmWithoutBatch", "humidifierEnabled", "humidityAlarmDelaySec", "humidityOffset",
+    "highTempAlarm", "highTempAlarmWithoutBatch", "humidifierEnabled", "humidifierHysteresisRh", "humidityAlarmDelaySec", "humidityOffset",
     "kd", "ki", "kp", "lightAfterBatchAlarmEnabled", "lowHumidityAlarm",
     "lowTempAlarm", "manualTurnReanchorsSchedule", "maxHeaterPower", "nextDirection", "pidCycleSec",
     "powerRestoreDelaySec", "sensorTimeoutSec", "sirenSelfTestEnabled", "targetHumidity", "targetTemp",
@@ -1062,6 +1063,7 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   candidate.lowHumidityAlarm = configObj["lowHumidityAlarm"] | candidate.lowHumidityAlarm;
   candidate.humidifierEnabled = configObj["humidifierEnabled"] | candidate.humidifierEnabled;
   candidate.targetHumidity = configObj["targetHumidity"] | candidate.targetHumidity;
+  candidate.humidifierHysteresisRh = configObj["humidifierHysteresisRh"] | candidate.humidifierHysteresisRh;
   candidate.ventOnTemp = configObj["ventOnTemp"] | candidate.ventOnTemp;
   candidate.ventOffTemp = configObj["ventOffTemp"] | candidate.ventOffTemp;
   candidate.ventScheduleEnabled = configObj["ventScheduleEnabled"] | candidate.ventScheduleEnabled;

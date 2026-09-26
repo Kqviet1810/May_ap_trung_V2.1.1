@@ -74,7 +74,7 @@
   const CONFIG_KEYS = Object.freeze([
     'targetTemp', 'tempHysteresis', 'lowTempAlarm', 'highTempAlarm',
     'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'humidifierInstalled',
-    'humidifierEnabled', 'targetHumidity', 'ventOnTemp',
+    'humidifierEnabled', 'targetHumidity', 'humidifierHysteresisRh', 'ventOnTemp',
     'ventOffTemp', 'ventScheduleEnabled', 'ventScheduleCount', 'ventScheduleDurationMin',
     'ventScheduleHour1', 'ventScheduleHour2', 'ventScheduleHour3', 'ventScheduleHour4',
     'ventScheduleHour5', 'ventScheduleHour6', 'tempOffset', 'humidityOffset', 'pidCycleSec',
@@ -797,8 +797,6 @@
     const connection = connectionStatus(device);
     const pill = $('onlinePill');
 
-    $('deviceNameView').textContent = device?.name || 'Chưa chọn thiết bị';
-    $('deviceIdView').textContent = device?.id || 'Nhấn + để thêm thiết bị';
     $('sideDevice').textContent = device?.name || 'Chưa có thiết bị';
     refreshDeviceNameIfNeeded(device);
 
@@ -889,7 +887,7 @@
     const dotEl = $('firmwareUpdateDot');
     if (!summaryEl || !bodyEl) return;
     if (!device) {
-      summaryEl.textContent = 'Chưa chọn thiết bị';
+      summaryEl.textContent = 'Chờ kết nối máy';
       bodyEl.innerHTML = '';
       if (dotEl) dotEl.hidden = true;
       return;
@@ -1210,6 +1208,7 @@
       ? `Tự động · mỗi ${$('turnInterval').value || '—'} phút`
       : 'Đang tắt đảo tự động';
     $('sensorSummary').textContent = `Bù ${numberVi($('tempOffset').value)}°C · timeout ${$('sensorTimeout').value || '—'} giây`;
+    $('humidifierSummary').textContent = `Bật ≤${$('humidifierOnHumidity').value || '—'}% · tắt ≥${$('humidifierOffHumidity').value || '—'}%RH`;
   }
 
   function hasDirtyForm(formId) {
@@ -1219,14 +1218,9 @@
   function syncHumidifierFeatureUi(config) {
     const installed = Boolean(config?.humidifierInstalled);
     if ($('outputHumidifierTile')) $('outputHumidifierTile').hidden = !installed;
-    if ($('humidifierEnabledTile')) $('humidifierEnabledTile').hidden = !installed;
-    const input = $('targetHumidity');
-    const label = $('targetHumidityLabel');
-    if (label) label.textContent = installed ? 'Độ ẩm đặt' : 'Độ ẩm tham khảo';
-    if (input) {
-      input.min = installed ? '30' : '20';
-      input.max = installed ? '90' : '95';
-    }
+    $('humidifierSetting').hidden = !installed;
+    if (!installed) $('humidifierSetting').open = false;
+    $('batchHumidityTile').hidden = installed;
   }
 
   function applyConfigToUi(device, force = false) {
@@ -1259,8 +1253,10 @@
     assign('batchForm', 'batchTarget', config.targetTemp);
     assign('batchForm', 'totalDays', config.totalIncubationDays);
     check('batchForm', 'resumeAfterPowerLoss', config.autoResumeAfterPower);
-    check('batchForm', 'humidifierEnabled', config.humidifierEnabled);
-    if (config.humidifierInstalled) assign('batchForm', 'targetHumidity', config.targetHumidity);
+    check('humidifierForm', 'humidifierEnabled', config.humidifierEnabled);
+    assign('humidifierForm', 'humidifierOffHumidity', config.targetHumidity);
+    assign('humidifierForm', 'humidifierOnHumidity',
+      Math.round(Number(config.targetHumidity) - Number(config.humidifierHysteresisRh ?? 2)));
     if (!hasDirtyForm('batchForm') || force) {
       $('batchName').value = device.batchMeta.name;
       $('startDate').value = device.batchMeta.startDate;
@@ -1311,7 +1307,7 @@
     assign('advancedForm', 'advAutotuneRelayPowerPercent', config.autotuneRelayPowerPercent);
     assign('advancedForm', 'advAutotuneBandC', config.autotuneBandC);
 
-    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm', 'advancedForm'].forEach((formId) => {
+    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm', 'humidifierForm', 'advancedForm'].forEach((formId) => {
       if (force || !hasDirtyForm(formId)) setFormState(formId, 'saved', 'Đã đồng bộ với ESP32');
     });
     updateSettingSummaries();
@@ -1366,10 +1362,6 @@
       shiftTempThresholds(config, config.targetTemp, newTarget);
       config.targetTemp = newTarget;
       config.totalIncubationDays = Number($('totalDays').value);
-      if (config.humidifierInstalled) {
-        config.targetHumidity = Number($('targetHumidity').value);
-        config.humidifierEnabled = $('humidifierEnabled').checked;
-      }
       config.autoResumeAfterPower = $('resumeAfterPowerLoss').checked;
     } else if (group === 'temperature') {
       config.targetTemp = Number($('targetTemp').value);
@@ -1393,6 +1385,13 @@
     } else if (group === 'lightAlarm') {
       config.lightAfterBatchAlarmEnabled = $('lightAfterBatchAlarmEnabled').checked;
       config.sirenSelfTestEnabled = $('sirenSelfTestEnabled').checked;
+    } else if (group === 'humidifier') {
+      if (!config.humidifierInstalled) return null;
+      const off = Number($('humidifierOffHumidity').value);
+      const on = Number($('humidifierOnHumidity').value);
+      config.targetHumidity = off;
+      config.humidifierHysteresisRh = off - on;
+      config.humidifierEnabled = $('humidifierEnabled').checked;
     } else if (group === 'advanced') {
       config.kp = Number($('advKp').value);
       config.ki = Number($('advKi').value);
@@ -2285,7 +2284,7 @@
     const device = currentDevice();
     telemetryEnsureDevice(device);
     if (!device) {
-      telemetrySetStatus('Chưa chọn thiết bị');
+      telemetrySetStatus('Đang chờ dữ liệu');
       requestTemperatureChartRender();
       return;
     }
@@ -2698,15 +2697,69 @@
     const days = Number($('totalDays').value);
     const temperature = Number($('batchTarget').value);
     const humidity = Number($('targetHumidity').value);
-    const humidifierInstalled = Boolean(currentDevice()?.config?.humidifierInstalled);
     if (!(days >= 1 && days <= 40)) return invalidate('batchForm', 'totalDays', 'Tổng số ngày ấp phải từ 1 đến 40 ngày.');
     if (!(temperature >= 30 && temperature <= 40)) return invalidate('batchForm', 'batchTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
-    if (humidifierInstalled) {
-      if (!(humidity >= 30 && humidity <= 90)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm đặt phải từ 30 đến 90%RH.');
-    } else if (!(humidity >= 20 && humidity <= 95)) {
+    if (!currentDevice()?.config?.humidifierInstalled && !(humidity >= 20 && humidity <= 95)) {
       return invalidate('batchForm', 'targetHumidity', 'Độ ẩm tham khảo phải từ 20 đến 95%RH.');
     }
     return true;
+  }
+
+  function validateHumidifierForm() {
+    clearInvalid('humidifierForm');
+    const on = Number($('humidifierOnHumidity').value);
+    const off = Number($('humidifierOffHumidity').value);
+    if (!Number.isInteger(off) || off < 30 || off > 90)
+      return invalidate('humidifierForm', 'humidifierOffHumidity', 'Ngưỡng tắt phải từ 30 đến 90%RH.');
+    if (!Number.isInteger(on) || on < 20 || on > 89 || off - on < 1 || off - on > 10)
+      return invalidate('humidifierForm', 'humidifierOnHumidity', 'Ngưỡng bật phải thấp hơn ngưỡng tắt từ 1 đến 10%RH.');
+    return true;
+  }
+
+  function initSettingHints() {
+    let index = 0;
+    const addToggle = (label, content) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'settingHintTrigger';
+      button.textContent = label.textContent;
+      content.id ||= `settingHint${++index}`;
+      content.classList.add('settingHintContent');
+      content.hidden = true;
+      button.setAttribute('aria-controls', content.id);
+      button.setAttribute('aria-expanded', 'false');
+      button.addEventListener('click', () => {
+        content.hidden = !content.hidden;
+        button.setAttribute('aria-expanded', String(!content.hidden));
+      });
+      label.replaceWith(button);
+    };
+    document.querySelectorAll('#page-settings .notificationLine > div').forEach((row) => {
+      const label = row.querySelector(':scope > strong');
+      const note = row.querySelector(':scope > small');
+      if (label && note) addToggle(label, note);
+    });
+    const guide = document.querySelector('#page-settings .wifiGuide');
+    if (guide) addToggle(guide.querySelector('strong'), guide.querySelector('small'));
+    const footnotes = {
+      'startTune': 'Điều kiện tự dò PID',
+      'advancedForm': 'Lưu ý cài đặt nâng cao',
+      'renameDeviceForm': 'Phạm vi đổi tên',
+      'changePinForm': 'Yêu cầu mã PIN'
+    };
+    for (const [parentId, label] of Object.entries(footnotes)) {
+      const parent = $(parentId);
+      const note = parentId === 'startTune'
+        ? parent?.parentElement?.querySelector(':scope > .settingFootnote')
+        : parent?.querySelector(':scope > .settingFootnote');
+      if (!note || note.querySelector('strong')) continue;
+      const details = document.createElement('details');
+      details.className = 'settingHintNote';
+      const summary = document.createElement('summary');
+      summary.textContent = label;
+      note.replaceWith(details);
+      details.append(summary, note);
+    }
   }
 
   function validateTemperatureForm() {
@@ -2817,6 +2870,7 @@
   }
 
   function bindUi() {
+    initSettingHints();
     $('confirmCancel').addEventListener('click', () => finishConfirm(false));
     $('confirmAccept').addEventListener('click', () => finishConfirm(true));
     $('confirmDialog').addEventListener('cancel', (event) => { event.preventDefault(); finishConfirm(false); });
@@ -3067,6 +3121,14 @@
           accept: 'Bắt đầu mẻ'
         });
         if (!ok) return;
+        if (!$('resumeAfterPowerLoss').checked) {
+          const confirmed = await confirmAction({
+            title: 'Bắt đầu khi đã tắt khôi phục?',
+            message: 'Nếu mất điện, mẻ sẽ không tự tiếp tục. Bạn xác nhận vẫn bắt đầu mẻ với lựa chọn này?',
+            accept: 'Vẫn bắt đầu mẻ', danger: true
+          });
+          if (!confirmed) return;
+        }
         setFormError('batchForm', '');
         beginBatchActionPending(device, 'running');
         if (!await sendCommand('batch_start')) {
@@ -3150,6 +3212,13 @@
       await sendConfig('lightAlarmForm', 'lightAlarm');
     });
 
+    $('humidifierForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!validateHumidifierForm()) return;
+      updateSettingSummaries();
+      await sendConfig('humidifierForm', 'humidifier');
+    });
+
     $('advancedForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!validateAdvancedForm()) return;
@@ -3183,7 +3252,7 @@
       if (ok) window.location.href = 'http://192.168.4.1/';
     });
 
-    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm', 'advancedForm'].forEach(registerDirty);
+    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm', 'humidifierForm', 'advancedForm'].forEach(registerDirty);
   }
 
   function startTimers() {
