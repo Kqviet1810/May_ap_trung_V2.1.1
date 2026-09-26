@@ -97,6 +97,26 @@ test('MQTT packet worst cases stay within budgets', () => {
     batchOverdueConfirmationPending: true,
     activeFaults: Array.from({ length: 12 }, () => ({ code: 65535, severity: 255 })) } };
   assert.ok(Buffer.byteLength(JSON.stringify(snapshot)) + Buffer.byteLength(topic('snapshot')) + 5 < 1024);
+  const response = { v: 2, requestId: `cmd-${'a'.repeat(20)}`,
+    operation: 'batch.overdue.continue', phase: 'completed', ok: false,
+    code: 'BATCH_HEATER_SWITCH_OFF', bootId: 4294967295,
+    result: 'rejected', message: 'Hãy bật công tắc thanh nhiệt trước',
+    revision: 4294967295, tDeviceReceived: 4294967295,
+    tDeviceCompleted: 4294967295, sig: 'a'.repeat(64) };
+  assert.ok(Buffer.byteLength(JSON.stringify(response)) + Buffer.byteLength(topic('ack')) + 5 < 512);
+});
+
+test('ACK HMAC binds result, reason and request identity', async () => {
+  const { webcrypto } = require('node:crypto');
+  const key = await webcrypto.subtle.importKey('raw', new Uint8Array(32).fill(7),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+  const input = ['mayap-mqtt-ack:v2', 'MAP-1234567890AB', 'cmd-001',
+    'batch.start', 'completed', '0', 'BATCH_HEATER_SWITCH_OFF',
+    '123', '4', 'Hãy bật công tắc thanh nhiệt trước'].join('\n');
+  const signature = await webcrypto.subtle.sign('HMAC', key, Buffer.from(input));
+  assert.ok(await webcrypto.subtle.verify('HMAC', key, signature, Buffer.from(input)));
+  assert.equal(await webcrypto.subtle.verify('HMAC', key, signature,
+    Buffer.from(input.replace('completed\n0', 'completed\n1'))), false);
 });
 
 test('firmware guards the replay, EEPROM, safety and packet boundaries', () => {
@@ -108,6 +128,7 @@ test('firmware guards the replay, EEPROM, safety and packet boundaries', () => {
   assert.match(realtime, /expiry < static_cast<unsigned long>\(now\)/);
   assert.match(realtime, /WebClientLease webClientLeases\[8\]/);
   assert.match(realtime, /forceSnapshotPublish = true/);
+  assert.match(realtime, /mayap-mqtt-ack:v2/);
   assert.match(machine, /store_\.saveConfig\(requested, readback\)/);
   for (const code of ['BATCH_AUTO_OFF', 'BATCH_HEATER_SWITCH_OFF', 'BATCH_SENSOR_ERROR',
     'BATCH_RTC_INVALID', 'BATCH_TURNING_FAULT', 'BATCH_OVERHEAT',

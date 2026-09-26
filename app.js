@@ -385,6 +385,8 @@
     }
     if (Number(device.presence?.proto || 0) >= 2) {
       const session = await controlSession(device);
+      const pending = state.pending.get(String(body.requestId || ''));
+      if (pending) pending.ackKey = session.key;
       if (channel === 'command') body.expiresAt = Math.floor(Date.now() / 1000) + 8;
       body.clientId = controlClientId;
       body.seq = Math.max(Date.now(), (controlSequences.get(device.id) || 0) + 1);
@@ -1715,6 +1717,21 @@
     toast(ok ? message : `ESP32 từ chối: ${message}`, 5000);
   }
 
+  async function verifyDeviceAck(device, ack) {
+    const pending = state.pending.get(String(ack?.requestId || ''));
+    if (!pending || pending.deviceId !== device.id) return false;
+    if (!pending.ackKey || !/^[a-f0-9]{64}$/i.test(String(ack.sig || ''))) {
+      console.warn('[TX] ACK thiếu chữ ký phiên', ack.requestId);
+      return false;
+    }
+    const fields = ['mayap-mqtt-ack:v2', device.id, ack.requestId, ack.operation,
+      ack.phase, ack.ok ? '1' : '0', ack.code, ack.bootId, ack.revision, ack.message];
+    if (fields.some((field) => field === undefined || field === null)) return false;
+    const bytes = new Uint8Array(ack.sig.match(/../g).map((hex) => parseInt(hex, 16)));
+    return crypto.subtle.verify('HMAC', pending.ackKey, bytes,
+      encoder.encode(fields.join('\n')));
+  }
+
   // Toan bo chuoi "message" ma firmware co the tra ve trong ack (xem
   // machine_control.h/realtime_link.h) - LUON viet HOA khong dau theo quy
   // uoc noi bo cho Serial/HMI. Truoc day web dung 1 regex de "doan" xem raw
@@ -2205,6 +2222,7 @@
       if (Number(device.presence?.proto || 0) >= 2) {
         startTransaction(requestId, { kind: 'history', operation: 'history.read',
           deviceId: device.id }, 15_000);
+        state.pending.get(requestId).ackKey = controlSessions.get(device.id)?.key;
         armTransaction(requestId);
       }
       await publish(topics(device.id).historyRequest, envelope, { awaitAck: true });
@@ -2547,7 +2565,14 @@
       else if (parsedTopic.channel === 'snapshot') handleSnapshot(device, payload);
       else if (parsedTopic.channel === 'config/reported') handleConfigReport(device, payload);
       else if (parsedTopic.channel === 'reminders/reported') handleReminderReport(device, payload);
-      else if (parsedTopic.channel === 'ack') handleAck(device, payload);
+      else if (parsedTopic.channel === 'ack') {
+        verifyDeviceAck(device, payload).then((valid) => {
+          if (valid) handleAck(device, payload);
+          else if (state.pending.has(String(payload.requestId || ''))) {
+            console.warn('[TX] PROTOCOL_ERROR: ACK không xác thực được');
+          }
+        }).catch((error) => console.error('[TX] ACK verify', error));
+      }
       else if (parsedTopic.channel === 'log') handleLog(device, payload);
       else if (parsedTopic.channel === 'history/reported') handleTemperatureHistory(device, payload);
     });

@@ -67,8 +67,10 @@ static char deviceId[20] = "";
 static uint32_t bootId = 0;
 static char activeOperation[40] = "";
 static uint32_t lastDeviceCompletedAt = 0U;
+static uint8_t activeAckKey[32] = {};
+static bool activeAckKeyValid = false;
 inline void publishAck(const char *, const char *, const char *, const char * = "",
-                       uint32_t = 0U, uint32_t = 0U);
+                       uint32_t = 0U, uint32_t = 0U, const uint8_t * = nullptr);
 
 inline void ensureIdentity() {
   if (deviceId[0]) return;
@@ -156,6 +158,8 @@ struct PendingCommand {
   uint32_t queuedAt = 0;
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
   char operation[40] = "";
+  uint8_t ackKey[32] = {};
+  bool signedAck = false;
 };
 static PendingCommand pendingCommands[COMMAND_QUEUE_SIZE];
 
@@ -168,6 +172,8 @@ struct PendingConfigSave {
   uint32_t queuedAt = 0;
   uint32_t revision = 0;
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
+  uint8_t ackKey[32] = {};
+  bool signedAck = false;
 };
 static PendingConfigSave pendingConfigSave;
 
@@ -188,12 +194,14 @@ struct AckOutboxItem {
   char operation[40] = "";
   uint32_t receivedAt = 0U;
   uint32_t completedAt = 0U;
+  uint8_t ackKey[32] = {};
+  bool signedAck = false;
 };
 static AckOutboxItem ackOutbox[COMMAND_QUEUE_SIZE + 2U];
 
 inline void enqueueAckLocked(const char *requestId, const char *result,
                              const char *message, const char *operation = "",
-                             uint32_t receivedAt = 0U) {
+                             uint32_t receivedAt = 0U, const uint8_t *ackKey = nullptr) {
   if (!requestId || !requestId[0]) return;
   for (AckOutboxItem &slot : ackOutbox) {
     if (slot.used) continue;
@@ -204,6 +212,8 @@ inline void enqueueAckLocked(const char *requestId, const char *result,
     snprintf(slot.operation, sizeof(slot.operation), "%s", operation ? operation : "");
     slot.receivedAt = receivedAt;
     slot.completedAt = millis();
+    slot.signedAck = ackKey != nullptr;
+    if (ackKey) memcpy(slot.ackKey, ackKey, sizeof(slot.ackKey));
     return;
   }
   // Outbox day (rat hiem, toi da 6 ack cung luc): bo qua, web se tu timeout
@@ -226,6 +236,8 @@ static uint16_t historyCursor = 0U;
 static uint16_t historyCandidateCount = 0U;
 static uint32_t historySnapshotEpoch = 0U;
 static char historyRequestId[WEB_REQUEST_ID_CAPACITY] = "";
+static uint8_t historyAckKey[32] = {};
+static bool historySignedAck = false;
 static bool historyReadError = false;
 static uint16_t historySampleCount = 0U;
 
@@ -272,6 +284,8 @@ inline void handleHistoryRequestMessage(const JsonDocument &doc) {
   historySnapshotEpoch = epoch;
   snprintf(historyRequestId, sizeof(historyRequestId), "%s", requestId);
   historyResponsePending = true;
+  historySignedAck = activeAckKeyValid;
+  if (historySignedAck) memcpy(historyAckKey, activeAckKey, sizeof(historyAckKey));
   historyReadError = false;
   historySampleCount = 0U;
   publishAck(requestId, "accepted", "HISTORY_ACCEPTED");
@@ -293,7 +307,8 @@ inline void serviceHistoryResponse() {
     doc["done"] = true;
     publishJson("history/reported", doc, false);
     historyResponsePending = false;
-    publishAck(historyRequestId, "applied", "HISTORY_EMPTY", "history.read");
+    publishAck(historyRequestId, "applied", "HISTORY_EMPTY", "history.read",
+               0U, 0U, historySignedAck ? historyAckKey : nullptr);
     return;
   }
 
@@ -323,7 +338,8 @@ inline void serviceHistoryResponse() {
     historyResponsePending = false;
     publishAck(historyRequestId, historyReadError ? "rejected" : "applied",
                historyReadError ? "HISTORY_EEPROM_ERROR" :
-               (historySampleCount ? "HISTORY_DONE" : "HISTORY_EMPTY"), "history.read");
+               (historySampleCount ? "HISTORY_DONE" : "HISTORY_EMPTY"), "history.read",
+               0U, 0U, historySignedAck ? historyAckKey : nullptr);
   }
 }
 
@@ -423,7 +439,7 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
     chunk["config"].to<JsonObject>();
   };
   beginChunk();
-  for (JsonPairConst field : c) {
+  for (JsonPair field : c) {
     const char *key = field.key().c_str();
     chunk["config"][key] = field.value();
     if (measureJson(chunk) > 850U) {
@@ -496,6 +512,8 @@ struct TerminalResult {
   char operation[40] = "";
   char result[16] = "";
   char message[64] = "";
+  uint8_t ackKey[32] = {};
+  bool signedAck = false;
 };
 static TerminalResult terminalCache[16];
 static uint8_t terminalCursor = 0;
@@ -504,7 +522,8 @@ inline bool replayTerminal(const char *id) {
   for (const auto &item : terminalCache) {
     if (!item.used || strcmp(item.requestId, id)) continue;
     // Replayed terminal result never executes the controller again.
-    publishAck(item.requestId, item.result, item.message, item.operation);
+    publishAck(item.requestId, item.result, item.message, item.operation,
+               0U, 0U, item.signedAck ? item.ackKey : nullptr);
     return true;
   }
   return false;
@@ -578,12 +597,14 @@ inline const char *ackFriendlyMessage(const char *code, const char *raw) {
 
 inline void publishAck(const char *requestId, const char *result,
                        const char *message, const char *operation,
-                       uint32_t receivedAt, uint32_t completedAt) {
+                       uint32_t receivedAt, uint32_t completedAt,
+                       const uint8_t *ackKey) {
   if (!requestId || !requestId[0]) return;
   const char *op = operation && operation[0] ? operation : activeOperation;
   const bool received = !strcmp(result, "accepted");
   const bool uncertain = !strcmp(result, "expired");
   const bool ok = !strcmp(result, "applied");
+  const uint8_t *key = ackKey ? ackKey : (activeAckKeyValid ? activeAckKey : nullptr);
   if (!received) {
     TerminalResult &slot = terminalCache[terminalCursor++ % 16U];
     slot.used = true;
@@ -591,6 +612,8 @@ inline void publishAck(const char *requestId, const char *result,
     snprintf(slot.operation, sizeof(slot.operation), "%s", op);
     snprintf(slot.result, sizeof(slot.result), "%s", result);
     snprintf(slot.message, sizeof(slot.message), "%s", message ? message : "");
+    slot.signedAck = key != nullptr;
+    if (key) memcpy(slot.ackKey, key, sizeof(slot.ackKey));
     lastSnapshotPublishAt = 0U;
     forceSnapshotPublish = true;
     lastDeviceCompletedAt = millis();
@@ -609,6 +632,29 @@ inline void publishAck(const char *requestId, const char *result,
   doc["revision"] = !strcmp(op, "reminders.save") ? webRemindersRevision : webConfigRevision;
   doc["tDeviceReceived"] = receivedAt ? receivedAt : millis();
   doc["tDeviceCompleted"] = completedAt ? completedAt : lastDeviceCompletedAt;
+  if (key) {
+    const char *friendly = doc["message"] | "";
+    const char *phase = doc["phase"] | "";
+    const uint32_t revision = doc["revision"] | 0UL;
+    char signedText[512];
+    const int n = snprintf(signedText, sizeof(signedText),
+        "mayap-mqtt-ack:v2\n%s\n%s\n%s\n%s\n%d\n%s\n%lu\n%lu\n%s",
+        deviceId, requestId, op, phase, ok ? 1 : 0, code,
+        static_cast<unsigned long>(bootId), static_cast<unsigned long>(revision), friendly);
+    uint8_t digest[32];
+    const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+    if (!info || n < 0 || static_cast<size_t>(n) >= sizeof(signedText) ||
+        mbedtls_md_hmac(info, key, 32,
+            reinterpret_cast<const uint8_t *>(signedText), n, digest) != 0) return;
+    char hex[65];
+    static constexpr char alphabet[] = "0123456789abcdef";
+    for (uint8_t i = 0; i < 32U; ++i) {
+      hex[i * 2U] = alphabet[digest[i] >> 4U];
+      hex[i * 2U + 1U] = alphabet[digest[i] & 15U];
+    }
+    hex[64] = '\0';
+    doc["sig"] = hex;
+  }
   publishJson("ack", doc, false);
 }
 
@@ -803,6 +849,8 @@ inline bool mqttVerifyV2(const char *channel, const JsonDocument &wire,
   diff = 0U;
   for (size_t i = 0; i < 32; ++i) diff |= actual[i] ^ suppliedBody[i];
   if (diff || deserializeJson(bodyDoc, body) != DeserializationError::Ok) return false;
+  memcpy(activeAckKey, sessionKey, sizeof(activeAckKey));
+  activeAckKeyValid = true;
   const bool validBody = bodyDoc["v"].as<int>() == 2 &&
       !strcmp(bodyDoc["clientId"] | "", clientId) &&
       strlen(bodyDoc["requestId"] | "") > 0U &&
@@ -921,6 +969,8 @@ inline void handleCommandMessage(const JsonDocument &doc) {
     slot.queuedAt = millis();
     snprintf(slot.requestId, sizeof(slot.requestId), "%s", requestId);
     snprintf(slot.operation, sizeof(slot.operation), "%s", activeOperation);
+    slot.signedAck = activeAckKeyValid;
+    if (slot.signedAck) memcpy(slot.ackKey, activeAckKey, sizeof(slot.ackKey));
     break;
   }
   portEXIT_CRITICAL(&webMux);
@@ -1082,6 +1132,9 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   pendingConfigSave.used = true;
   pendingConfigSave.queuedAt = millis();
   pendingConfigSave.revision = revision;
+  pendingConfigSave.signedAck = activeAckKeyValid;
+  if (activeAckKeyValid) memcpy(pendingConfigSave.ackKey, activeAckKey,
+                                sizeof(pendingConfigSave.ackKey));
   snprintf(pendingConfigSave.requestId, sizeof(pendingConfigSave.requestId), "%s",
            requestId);
   portEXIT_CRITICAL(&webMux);
@@ -1145,6 +1198,9 @@ inline void handleReminderSetMessage(const JsonDocument &doc) {
   pendingReminderSave.used = true;
   pendingReminderSave.queuedAt = millis();
   pendingReminderSave.revision = revision;
+  pendingReminderSave.signedAck = activeAckKeyValid;
+  if (activeAckKeyValid) memcpy(pendingReminderSave.ackKey, activeAckKey,
+                                sizeof(pendingReminderSave.ackKey));
   snprintf(pendingReminderSave.requestId, sizeof(pendingReminderSave.requestId), "%s",
            requestId);
   portEXIT_CRITICAL(&webMux);
@@ -1221,6 +1277,7 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
   if (deserializeJson(wireDoc, buffer, length) != DeserializationError::Ok) return;
 
   auto verifyAndDispatch = [&](const char *channel, auto handler) {
+    activeAckKeyValid = false;
     JsonDocument bodyDoc;
     const bool v2 = wireDoc["v"].as<int>() == 2;
     bool expired = false;
@@ -1234,6 +1291,7 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
         snprintf(normalized, sizeof(normalized), "%s", op);
         for (char *c = normalized; *c; ++c) if (*c == '_') *c = '.';
         publishAck(bodyDoc["requestId"] | "", "unauthorized", "SESSION_EXPIRED", normalized);
+        activeAckKeyValid = false;
         return;
       }
       const char *legacyRequestId = wireDoc["requestId"] | "";
@@ -1246,20 +1304,22 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
                     : !strcmp(channel, "reminders/set") ? "reminders.save" : "history.read";
     snprintf(activeOperation, sizeof(activeOperation), "%s", op);
     for (char *c = activeOperation; *c; ++c) if (*c == '_') *c = '.';
-    if (replayTerminal(id)) { activeOperation[0] = '\0'; return; }
+    if (replayTerminal(id)) { activeOperation[0] = '\0'; activeAckKeyValid = false; return; }
     bool inFlight = (pendingConfigSave.used && !strcmp(id, pendingConfigSave.requestId)) ||
                     (pendingReminderSave.used && !strcmp(id, pendingReminderSave.requestId)) ||
                     (historyResponsePending && !strcmp(id, historyRequestId));
     for (const auto &pending : pendingCommands)
       if (pending.used && !strcmp(id, pending.requestId)) inFlight = true;
-    if (inFlight) { publishAck(id, "accepted", ""); activeOperation[0] = '\0'; return; }
+    if (inFlight) { publishAck(id, "accepted", ""); activeOperation[0] = '\0'; activeAckKeyValid = false; return; }
     if (v2 && !checkReplaySequence(bodyDoc)) {
       publishAck(id, "stale", "REPLAY SEQUENCE");
       activeOperation[0] = '\0';
+      activeAckKeyValid = false;
       return;
     }
     handler(bodyDoc);
     activeOperation[0] = '\0';
+    activeAckKeyValid = false;
   };
 
   if (strstr(topic, "/config/set")) {
@@ -1394,7 +1454,8 @@ inline void drainAckOutbox() {
   portEXIT_CRITICAL(&webMux);
   for (uint8_t i = 0; i < count; ++i) {
     publishAck(items[i].requestId, items[i].result, items[i].message,
-               items[i].operation, items[i].receivedAt, items[i].completedAt);
+               items[i].operation, items[i].receivedAt, items[i].completedAt,
+               items[i].signedAck ? items[i].ackKey : nullptr);
   }
 }
 
@@ -1597,7 +1658,8 @@ inline void mayapWebConfirmCommand(uint32_t commandId, bool ok,
   for (PendingCommand &slot : pendingCommands) {
     if (!slot.used || slot.commandId != commandId) continue;
     enqueueAckLocked(slot.requestId, ok ? "applied" : "rejected", message,
-                     slot.operation, slot.queuedAt);
+                     slot.operation, slot.queuedAt,
+                     slot.signedAck ? slot.ackKey : nullptr);
     slot.used = false;
     break;
   }
@@ -1615,7 +1677,8 @@ inline void mayapWebConfirmConfigSave(uint32_t transactionId, bool ok,
     if (ok) webConfigRevision = pendingConfigSave.revision > webConfigRevision
         ? pendingConfigSave.revision : webConfigRevision + 1U;
     enqueueAckLocked(pendingConfigSave.requestId, ok ? "applied" : "rejected",
-                     ok ? "" : failureCode, "config.save", pendingConfigSave.queuedAt);
+                     ok ? "" : failureCode, "config.save", pendingConfigSave.queuedAt,
+                     pendingConfigSave.signedAck ? pendingConfigSave.ackKey : nullptr);
     pendingConfigSave.used = false;
   }
   portEXIT_CRITICAL(&webMux);
@@ -1632,7 +1695,8 @@ inline void mayapWebConfirmReminderSave(uint32_t transactionId, bool ok,
         ? pendingReminderSave.revision : webRemindersRevision + 1U;
     enqueueAckLocked(pendingReminderSave.requestId, ok ? "applied" : "rejected",
                      ok ? "" : "LUU NHAC NHO BI TU CHOI", "reminders.save",
-                     pendingReminderSave.queuedAt);
+                     pendingReminderSave.queuedAt,
+                     pendingReminderSave.signedAck ? pendingReminderSave.ackKey : nullptr);
     pendingReminderSave.used = false;
   }
   portEXIT_CRITICAL(&webMux);
