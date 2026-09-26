@@ -108,6 +108,7 @@ body{margin:0;color:var(--ink);font-family:Inter,ui-sans-serif,-apple-system,Bli
 .appShell,.main,.topbar,.page,.panel,.batchPanel,.batchGrid,.batchGrid>*,
 .compactTile,.compactTile input,.batchActions,.batchActions>*{min-width:0;max-width:100%}
 .appShell{width:100%;overflow-x:clip}
+.srOnly{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;white-space:nowrap;clip-path:inset(50%);border:0}
 @supports not (overflow:clip){html,body,.appShell{overflow-x:hidden}}
 button,input,select{font:inherit}
 button{-webkit-tap-highlight-color:transparent}
@@ -130,6 +131,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .nav{display:grid;gap:6px;margin-top:36px}
 .nav button{border:0;border-radius:14px;background:transparent;color:#bfd4d0;min-height:52px;padding:8px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;transition:background var(--ease),color var(--ease)}
 .nav button span{width:24px;font-size:20px;text-align:center}
+.nav button span svg{display:block;width:22px;height:22px;margin:auto}
 .nav button b{font-size:var(--fs-sm);font-weight:700}
 .nav button:hover{background:#1a4941;color:#fff}
 .nav button.active{background:#205b51;color:#fff}
@@ -142,7 +144,10 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .sideState small{margin-top:2px;color:#a8c5c0;font-size:var(--fs-2xs)}
 
 .main{grid-column:2;padding:0 28px 44px;max-width:1320px;width:100%;min-width:0;margin:0 auto}
-.topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:minmax(240px,1fr) repeat(3,minmax(0,148px));gap:12px;align-items:center;padding:calc(20px + env(safe-area-inset-top)) 0 16px;background:var(--topbarBg);backdrop-filter:blur(12px);transition:background var(--ease)}
+.topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:minmax(218px,1fr) repeat(2,minmax(0,148px)) minmax(0,170px);gap:12px;align-items:center;padding:calc(20px + env(safe-area-inset-top)) 0 16px;background:var(--topbarBg);backdrop-filter:blur(12px);transition:background var(--ease)}
+/* Trang cai dat chi rong 960px; gioi han header cung bang do rong nay de
+   ba o truc tiep thang hang voi mep phai cua day the cai dat ben duoi. */
+body[data-page="settings"] .topbar{max-width:960px}
 /* Tieu de + chu thich xep doc va can giua theo chieu doc trong thanh dau
    trang, ngang hang voi 3 o Nhiet do/Do am/Trang thai. */
 .title{display:flex;flex-direction:column;justify-content:center;min-width:0}
@@ -184,13 +189,14 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 #liveStateTile.tile-emergency{background:var(--emergencySoft);border-color:var(--emergencyBorder)}
 #liveStateTile.tile-emergency #liveState{color:var(--emergency)}
 .faultMark{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:var(--warningDark);color:#fff;font-size:10px;font-weight:800;line-height:1;vertical-align:middle;margin-left:2px}
-.faultPopup{position:absolute;top:calc(100% + 8px);right:0;z-index:50;width:min(78vw,260px);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:12px 14px;text-align:left;cursor:default;white-space:normal}
+.faultPopup{position:absolute;top:calc(100% + 8px);right:0;z-index:50;width:min(88vw,360px);max-height:min(60vh,420px);overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:12px 14px;text-align:left;cursor:default;white-space:normal}
+.faultPopupItem+.faultPopupItem{margin-top:11px;padding-top:11px;border-top:1px solid var(--lineSoft)}
 .faultPopupHead{display:flex;align-items:baseline;gap:6px;margin-bottom:4px}
 .faultPopupCode{font-size:var(--fs-lg);font-weight:800;color:var(--ink)}
 .faultPopupCode.sev-warn{color:var(--warningDark)}
 .faultPopupCode.sev-stop{color:var(--danger)}
 .faultPopupCode.sev-emergency{color:var(--emergency)}
-#faultPopupTitle{font-size:var(--fs-sm);font-weight:700;color:var(--ink)}
+.faultPopupTitle{font-size:var(--fs-sm);font-weight:700;color:var(--ink)}
 .faultPopup p{margin:0;font-size:var(--fs-xs);color:var(--muted);line-height:1.5}
 
 /* ================================= Panels ==================================== */
@@ -209,12 +215,12 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .pill.soft{background:var(--softBg);color:var(--softText)}
 
 .deviceCompact{padding:22px}
-.deviceIdentity h2{font-size:var(--fs-2xl);font-weight:700}
-.deviceIdentity small{display:block;margin-top:5px;color:var(--muted);font-size:var(--fs-sm)}
-.statusBlock{text-align:right;min-width:96px}
-.statusBlock small{display:block;margin-top:6px;color:var(--muted);font-size:var(--fs-2xs);white-space:nowrap}
+.deviceHeading{margin:2px 0 0!important;align-self:flex-start;color:var(--ink);font-size:var(--fs-xl)!important;font-weight:700!important;line-height:1.25;letter-spacing:-.3px!important;white-space:nowrap}
+.statusBlock{text-align:right;min-width:0;max-width:55%}
+.statusBlock small{display:block;margin-top:6px;color:var(--muted);font-size:var(--fs-2xs);line-height:1.3;overflow-wrap:anywhere}
 
 .devicePickerRow{display:flex;align-items:end;gap:10px;margin-top:18px}
+.devicePickerRow .customSelect{gap:0}
 .grow{flex:1}
 .addDevice{flex:0 0 54px;height:54px;border:0;border-radius:var(--radius-md);background:var(--primary);color:#fff;font-size:26px;line-height:1;cursor:pointer;box-shadow:0 9px 20px #0d827526;display:grid;place-items:center;transition:filter var(--ease),transform var(--ease)}
 .addDevice:hover{filter:brightness(1.06)}
@@ -308,12 +314,12 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .quickField input{font-size:20px;min-height:36px}
 .quickField b{font-size:var(--fs-md)}
 
-.outputStrip{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0}
-.outputStrip>div,.outputStrip>button{padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);transition:background var(--ease),border-color var(--ease)}
+.outputStrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:1fr;gap:10px;margin:16px 0}
+.outputStrip>div,.outputStrip>button{min-width:0;min-height:68px;padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);transition:background var(--ease),border-color var(--ease)}
 /* 2 o Den/Coi la nut bam that (xem app.js) - reset kieu button mac dinh
    cua trinh duyet de trong giong het 4 o hien thi con lai, chi them con
    tro tay + trang thai nhan/focus de bao hieu co the bam. */
-.outputStrip>button{font:inherit;text-align:inherit;width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.outputStrip>button{color:var(--ink);font:inherit;text-align:inherit;width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .outputStrip>button:active{transform:scale(.97)}
 .outputStrip>button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .outputStrip span,.outputStrip strong{display:block}
@@ -329,6 +335,8 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .outputStrip>div.on:has(#outputSiren),.outputStrip>button.on:has(#outputSiren){background:var(--dangerSoft);border-color:var(--dangerBorder)}
 .outputStrip>div.on:has(#outputSiren) span,.outputStrip>button.on:has(#outputSiren) span{color:var(--dangerTextStrong)}
 .outputStrip>button:disabled{cursor:not-allowed;opacity:.6}
+
+.outputStrip.hasHumidifier>button:last-child{grid-column:1/-1;width:calc((100% - 20px)/3);justify-self:center}
 
 .primary,.ghost{min-height:50px;border-radius:var(--radius-md);padding:0 18px;font-weight:700;font-size:var(--fs-sm);cursor:pointer;transition:filter var(--ease),transform var(--ease),background var(--ease),border-color var(--ease),box-shadow var(--ease)}
 .primary{border:0;background:var(--primaryGradient);color:#fff;box-shadow:0 8px 18px var(--primaryGlow)}
@@ -358,6 +366,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .batchPanel{padding:22px}
 .batchPanel .panelHead{align-items:center}
 .batchGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}
+.batchGrid.noHumidity .compactToggle{grid-column:1/-1;min-height:64px}
 /* 2 cot (khong phai 3) - dang dung cho ca 2 muc Nhiet do va Nang cao, nhieu
    nhan dai (vd "Toc do tang/giam bat thuong") nen 3 cot lam chu bi bop/
    xuong dong lien tuc, kho doc. Giu nguyen ten class "tempGrid" (khong doi
@@ -390,14 +399,14 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .temperatureFormCompact .primary{min-height:46px}
 
 /* Cài đặt theo progressive disclosure */
-.settingsStack{display:grid;gap:12px}
-.settingGroupLabel{margin:14px 4px -2px;color:var(--primary2);font-size:var(--fs-2xs);letter-spacing:1px;font-weight:800;text-transform:uppercase}
+.settingsStack{display:grid;gap:10px;max-width:960px}
+.settingGroupLabel{margin:19px 4px 0;color:var(--primary2);font-size:var(--fs-xs);letter-spacing:.55px;font-weight:800;text-transform:uppercase}
 .settingGroupLabel:first-child{margin-top:0}
 .settingCard{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadowSm);overflow:hidden}
-.settingCard summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:44px minmax(0,1fr) 34px;gap:14px;align-items:center;min-height:84px;padding:16px 16px 16px 17px;transition:background var(--ease)}
-.settingCard summary::-webkit-details-marker{display:none}
-.settingCard summary:hover{background:var(--wash)}
-.settingCard summary:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:0}
+.settingCard>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:44px minmax(0,1fr) 34px;gap:14px;align-items:center;min-height:84px;padding:16px 16px 16px 17px;transition:background var(--ease)}
+.settingCard>summary::-webkit-details-marker{display:none}
+.settingCard>summary:hover{background:var(--wash)}
+.settingCard>summary:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:0}
 /* Icon la SVG net mong (khong phai ky tu unicode nhu truoc) - dat width/
    height thang tren the <svg> nen o day chi can can giua, khong con phai lo
    font-size/letter-spacing rieng tung icon nhu khi con la text. */
@@ -409,25 +418,36 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .settingSummary{min-width:0}
 .settingSummary strong,.settingSummary small{display:block}
 .settingSummary strong{font-size:var(--fs-base);font-weight:700}
-.settingSummary small{margin-top:5px;color:var(--muted);font-size:var(--fs-xs);line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.settingSummary small{margin-top:5px;color:var(--muted);font-size:var(--fs-xs);line-height:1.4;overflow-wrap:anywhere}
 .disclosure{width:32px;height:32px;border-radius:10px;background:var(--chipBg);position:relative;justify-self:end;transition:background var(--ease)}
 .disclosure:before,.disclosure:after{content:"";position:absolute;left:9px;right:9px;top:15px;height:2px;border-radius:2px;background:var(--primary2);transition:transform .18s ease}
 .disclosure:after{transform:rotate(90deg)}
-.settingCard[open] .disclosure:after{transform:rotate(0)}
-.settingCard[open] .disclosure{background:var(--primarySoft)}
-.settingCard[open] summary{border-bottom:1px solid var(--lineSoft)}
+.settingCard[open] > summary .disclosure:after{transform:rotate(0)}
+.settingCard[open] > summary .disclosure{background:var(--primarySoft)}
+.settingCard[open] > summary{border-bottom:1px solid var(--lineSoft)}
 .settingBody{padding:16px;display:grid;gap:12px}
 .settingBody .grid2{margin-top:0}
 .manualActions{gap:12px}
 .manualActions button{width:100%;min-height:50px;text-align:center}
 .settingFootnote{margin:0;color:var(--muted);font-size:var(--fs-sm);line-height:1.5}
 .stackForm{display:grid;gap:10px}
+.reminderFields{display:grid;grid-template-columns:minmax(140px,.35fr) minmax(0,1fr);gap:10px}
 .settingDivider{border:none;border-top:1px solid var(--line);margin:12px 0}
 
-.notificationLine{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:2px 0}
+.notificationLine{display:flex;align-items:center;justify-content:space-between;gap:18px;min-width:0;padding:12px 14px;border:1px solid var(--lineSoft);border-radius:var(--radius-sm);background:var(--tile)}
+.notificationLine>div{min-width:0}
+.notificationLine .toggle{flex:0 0 auto;margin-right:4px}
 .notificationLine strong,.notificationLine small{display:block}
 .notificationLine strong{font-size:var(--fs-base);font-weight:700}
 .notificationLine small{font-size:var(--fs-xs);color:var(--muted);margin-top:4px;line-height:1.5}
+.settingHintTrigger{display:block;border:0;padding:4px 0;margin:0;background:none;color:var(--ink);font:inherit;font-size:var(--fs-base);font-weight:700;text-align:left;cursor:pointer}
+.settingHintTrigger:focus-visible,.settingHintNote summary:focus-visible{outline:2px solid var(--ring);outline-offset:3px;border-radius:4px}
+.settingHintTrigger[aria-expanded="true"]{color:var(--primary2)}
+.settingHintContent[hidden],.settingCard[hidden]{display:none!important}
+.settingHintNote{color:var(--muted);font-size:var(--fs-sm)}
+.settingHintNote summary{display:block;min-height:0;padding:4px 0;cursor:pointer;color:var(--label);font-weight:700;background:transparent!important;border:0!important}
+.settingHintNote summary:before{content:'ⓘ';margin-right:7px;color:var(--primary2)}
+.settingHintNote .settingFootnote{margin:7px 0 0}
 
 .themeToggle{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:5px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--tile)}
 .themeToggle button{min-height:44px;border:0;border-radius:10px;background:transparent;color:var(--label);font-size:var(--fs-sm);font-weight:700;cursor:pointer;transition:background var(--ease),color var(--ease)}
@@ -456,7 +476,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .passwordToggle{position:absolute;right:7px;top:7px;height:38px;border:0;border-radius:10px;background:var(--chipBg);color:var(--primary2);padding:0 12px;font-size:var(--fs-2xs);font-weight:700;cursor:pointer;transition:background var(--ease)}
 .passwordToggle:hover{background:var(--primarySoft)}
 
-.wifiGuide{margin:14px 0;padding:16px 17px;border:1px solid var(--lineSoft);border-radius:var(--radius-md);background:var(--tile);display:grid;gap:7px}
+.wifiGuide{margin:0 0 2px;padding:13px 15px;border:1px solid var(--lineSoft);border-radius:var(--radius-md);background:var(--tile);display:grid;gap:7px}
 .wifiGuide strong{font-size:var(--fs-sm)}
 .wifiGuide small{font-size:var(--fs-xs);line-height:1.7;color:var(--muted)}
 .pill.soft{white-space:nowrap}
@@ -519,11 +539,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
 .deviceListItem button:hover{filter:brightness(.95)}
 
 /* =============================== Responsive =================================== */
-/* Vùng máy tính bảng cầm dọc (~801-1024px, vd iPad 810/820/834): layout
-   sidebar cũ vẫn phù hợp hơn thanh điều hướng dưới của điện thoại, nhưng
-   sidebar 240px + topbar 3 cột cố định 148px không đủ chỗ và bị cắt chữ
-   (tràn ẩn do overflow-x:clip). Thu hẹp sidebar và cho topbar co giãn theo
-   tỉ lệ để không còn tràn, giữ nguyên bố cục desktop. */
+/* Tablet dọc: thu sidebar và cho ba ô trạng thái co giãn. */
 @media(max-width:1024px) and (min-width:801px){
   .appShell{grid-template-columns:208px minmax(0,1fr)}
   .sidebar{width:208px;padding:20px 15px}
@@ -551,28 +567,21 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .nav button span{width:auto;font-size:20px;line-height:1}
   .nav button b{font-size:var(--fs-2xs)}
   .main{width:100%;max-width:100%;min-height:100dvh;padding:0 10px calc(var(--navH) + env(safe-area-inset-bottom) + 10px);overflow-x:clip}
-  .topbar{grid-template-columns:minmax(88px,1fr) repeat(3,minmax(0,80px));gap:6px;padding:calc(10px + env(safe-area-inset-top)) 0 10px;min-height:86px}
-  .title h1{font-size:24px;white-space:nowrap}
-  /* Dien thoai: cot tieu de chi con ~112-130px trong khi cau chu thich can
-     156-174px - hien ra se bi cat cut ("Theo doi va di..."), xau hon la
-     khong hien. Thanh dau trang o day cung khong con cho trong nhu tren may
-     tinh, nen an han chu thich, chi giu tieu de. */
-  .title p{display:none}
-  .live{padding:8px;border-radius:11px}
-  /* "Trang thai" (10 ky tu) dai hon han "Nhiet do"/"Do am" cung hang - viet
-     hoa + letter-spacing mac dinh (.7px) khien no la nhan DUY NHAT bi tran
-     va cat "..." tren man hinh hep, du 2 nhan kia van vua khung binh thuong.
-     Giam rieng letter-spacing (khong giam them font-size, van doc duoc) de
-     lay lai vai px, du de khong con bi cat. */
-  .live>span{font-size:9px;letter-spacing:.2px}
-  .live>strong{font-size:15px}
+  .topbar{grid-template-columns:minmax(80px,1fr) repeat(2,minmax(0,72px)) minmax(92px,108px);gap:6px;align-items:stretch;padding:calc(10px + env(safe-area-inset-top)) 0 10px;min-height:86px}
+  .title{align-self:start;padding-top:1px}
+  .title h1{font-size:24px;line-height:1.08;white-space:nowrap}
+  .title p{display:block;margin-top:4px;font-size:9px;line-height:1.25;white-space:normal;overflow:visible;text-overflow:clip}
+  .live{min-height:64px;padding:9px 8px;border-radius:11px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center}
+  .live>span{font-size:9px;line-height:1.1;letter-spacing:.2px}
+  .live>strong{font-size:15px;line-height:1.15;margin-top:7px}
+  #liveStateTile{padding-inline:6px}
+  #liveState{font-size:13px;letter-spacing:-.2px}
   .panel{padding:18px;border-radius:16px}
-  .deviceIdentity h2{font-size:20px}
+  .deviceHeading{font-size:clamp(18px,5.5vw,22px)!important;line-height:29px}
   .devicePickerRow{margin-top:14px}
   .addDevice{height:52px;flex-basis:52px}
   .grid2{grid-template-columns:1fr}
-  /* Giu 2 cot cho "Thong so van hanh" (giong batchGrid) - nhan ngan, gop
-     2 cot tren mobile giup trang Thiet bi thap hon, de vua 1 man hon. */
+  /* Hai thông số vận hành nằm cùng hàng trên điện thoại. */
   .quickGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
   .quickField{padding:11px}
   .quickField input{font-size:18px}
@@ -582,28 +591,26 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .tempGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .compactTile{padding:11px;min-height:80px}
   .compactTile input{font-size:18px}
-  /* Gia tri ngay theo dinh dang tieng Viet cua trinh duyet ("ngay 29 thg 7,
-     2026") dai hon han cac o so khac trong cung luoi 2 cot - giam rieng co
-     chu o nay de vua khung, giu nguyen luoi 2 cot nhu cac o khac (khong
-     tach hang rieng). Luu y: Safari/iOS co the tu phong to trang khi cham
-     vao input < 16px - chap nhan danh doi nay de giu dung bo cuc. */
   .compactTile input[type=date]{font-size:13px}
   .compactTile .unit b{font-size:15px}
   .batchActions{grid-template-columns:repeat(2,minmax(0,1fr))}
   .outputStrip{grid-template-columns:1fr 1fr}
+  .outputStrip.hasHumidifier>button:last-child{width:calc((100% - 10px)/2)}
+  .toast{bottom:calc(var(--navH) + env(safe-area-inset-bottom) + 12px)}
   .actions{display:grid;grid-template-columns:1fr 1fr}
   .actions .dark{grid-column:1/-1}
-  .settingCard summary{min-height:76px;padding:13px}
+  .settingCard>summary{min-height:76px;padding:13px}
   .settingIcon{width:40px;height:40px;border-radius:12px}
   .settingIcon svg{width:19px;height:19px}
   .settingSummary strong{font-size:var(--fs-sm)}
-  .settingSummary small{font-size:var(--fs-2xs)}
-  .settingBody{padding:16px}
+  .settingSummary small{font-size:var(--fs-xs)}
+  .settingBody{padding:14px 16px;gap:10px}
   .batchLogPanel{padding:13px 15px}
   .batchLogRow{grid-template-columns:40px minmax(0,1fr) auto}
   .batchLogRow .logDuration{max-width:76px;overflow:hidden;text-overflow:ellipsis}
   .wifiInputRow{grid-template-columns:1fr}
   .wifiInputRow button{width:100%}
+  body[data-page="settings"] .topbar{max-width:none}
 }
 @media(max-width:360px){
   .tempGrid{gap:6px}
@@ -614,11 +621,11 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .quickField input{font-size:17px}
   .quickField b{font-size:14px}
   .batchActions button{font-size:var(--fs-2xs)}
-  .topbar{grid-template-columns:minmax(82px,1fr) repeat(3,minmax(0,64px))}
+  .topbar{grid-template-columns:minmax(72px,1fr) repeat(2,minmax(0,56px)) minmax(88px,98px)}
   .title h1{font-size:22px}
   .live>strong{font-size:13px}
   .deviceTop{gap:8px}
-  .statusBlock{min-width:78px}
+  .statusBlock{max-width:58%}
   .devicePickerRow{gap:7px}
   .addDevice{flex-basis:50px;width:50px}
   .panel{padding:15px}
@@ -714,7 +721,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   body[data-page="device"] .devicePickerRow{margin-top:11px}
   body[data-page="device"] .quickGrid{margin-top:11px}
   body[data-page="device"] .outputStrip{margin:11px 0}
-  body[data-page="device"] .outputStrip>div{padding:9px 10px}
+  body[data-page="device"] .outputStrip>div,body[data-page="device"] .outputStrip>button{padding:9px 10px}
 }
 @media(max-height:600px){
   body[data-page="device"] #page-device.active{gap:9px}
@@ -724,7 +731,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   body[data-page="device"] .quickField{padding:9px}
   body[data-page="device"] .quickGrid{margin-top:9px;gap:8px}
   body[data-page="device"] .outputStrip{margin:9px 0;gap:8px}
-  body[data-page="device"] .outputStrip>div{padding:8px 9px}
+  body[data-page="device"] .outputStrip>div,body[data-page="device"] .outputStrip>button{min-height:60px;padding:8px 9px}
   body[data-page="device"] .outputStrip strong{margin-top:4px}
   body[data-page="device"] .quickForm .primary{min-height:42px}
 }
@@ -794,11 +801,19 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
 .telemetryMeta span{min-width:0;color:var(--muted);font-size:var(--fs-2xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
 .telemetryCanvasWrap{position:relative;margin-top:8px;width:100%;height:250px;min-height:190px;border:1px solid var(--lineSoft);border-radius:var(--radius-sm);background:var(--tile);overflow:hidden}
 #temperatureChartCanvas{display:block;width:100%;height:100%}
-.telemetryEmpty{position:absolute;inset:0;display:grid;place-items:center;padding:20px;color:var(--muted);font-size:var(--fs-xs);text-align:center;pointer-events:none}
+.telemetryEmpty{position:absolute;inset:0;z-index:2;display:grid;place-items:center;padding:20px;background:var(--tile);color:var(--muted);font-size:var(--fs-xs);text-align:center;pointer-events:none}
 .telemetryEmpty[hidden]{display:none}
 .telemetryAxis{display:flex;justify-content:space-between;gap:8px;margin:7px 3px 0 42px;color:var(--muted);font-size:var(--fs-2xs);font-variant-numeric:tabular-nums}
 .diagnosticsLogBody .currentActivity{margin-top:0}
-@media(max-width:720px){.telemetryPanel{padding:13px 15px}.telemetryHead{align-items:flex-start}.telemetryLegend{gap:8px}.telemetryCanvasWrap{height:220px}.telemetryAxis{margin-left:38px}}
+@media(max-width:720px){.telemetryPanel{padding:13px 15px}.telemetryHead{align-items:flex-start}.telemetryHead .eyebrow{display:none}.telemetryLegend{gap:8px}.telemetryCanvasWrap{height:220px}.telemetryAxis{margin-left:38px}}
 @media(min-height:481px){body[data-page="batch"] .telemetryPanel{flex:1 1 auto;min-height:250px;margin-top:0;overflow:hidden;display:flex;flex-direction:column}body[data-page="batch"] .telemetryCanvasWrap{flex:1 1 auto;height:auto;min-height:180px}}
+@media(max-width:800px) and (min-height:481px) and (max-height:760px){body[data-page="batch"] .telemetryPanel{min-height:150px}body[data-page="batch"] .telemetryCanvasWrap{min-height:80px}}
 @media(max-height:480px){body[data-page="batch"] .telemetryPanel{display:flex;flex-direction:column;min-height:260px;margin-top:14px;overflow:hidden}}
 @media(min-width:1025px){body[data-page="batch"] .telemetryPanel{margin-top:0;min-height:0}}
+@media(max-width:600px){
+  .reminderFields{grid-template-columns:1fr}
+  .advancedForm .tempGrid{grid-template-columns:1fr}
+  .advancedForm .compactTile{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:62px}
+  .advancedForm .compactTile>span{flex:1;min-width:0;font-size:var(--fs-xs)}
+  .advancedForm .compactTile>input,.advancedForm .compactTile>.unit{flex:0 0 100px;width:100px}
+}

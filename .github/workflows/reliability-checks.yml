@@ -39,6 +39,7 @@ jobs:
           node --check cloudflare/src/db.js
           node --check cloudflare/src/push.js
           node --check app.js
+          node --check protocol_v2.js
           node --check config.js
           node --check push.js
           node --check sw.js
@@ -48,6 +49,9 @@ jobs:
 
       - name: Static reliability regression checks
         run: python3 tools/check_v381_reliability.py
+
+      - name: Protocol V2 transaction and packet regression
+        run: node --test tests/*.test.cjs
 
       - name: Reject unsafe firmware shortcuts
         run: |

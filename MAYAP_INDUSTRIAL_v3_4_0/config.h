@@ -35,7 +35,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.3";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.4";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
 constexpr char HMI_FIRMWARE_VERSION[] = "3.7.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
@@ -1132,6 +1132,7 @@ struct MachineConfig {
   bool humidifierInstalled = false;
   bool humidifierEnabled = false;
   float targetHumidity = 58.0f;
+  uint8_t humidifierHysteresisRh = static_cast<uint8_t>(HUMIDIFIER_HYSTERESIS_RH);
 
   bool circulationFanEnabled = true;
   float ventOnTemp = 38.0f;

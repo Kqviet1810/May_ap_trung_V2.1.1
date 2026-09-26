@@ -135,6 +135,9 @@ jobs:
       - name: Kiem tra reliability truoc build/release
         run: python3 tools/check_v381_reliability.py
 
+      - name: Protocol V2 transaction and packet regression
+        run: node --test tests/*.test.cjs
+
       - name: Tao MQTT credential cho compile
         env:
           MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
@@ -166,6 +169,7 @@ jobs:
       - name: Kiem tra JavaScript
         run: |
           node --check app.js
+          node --check protocol_v2.js
           node --check push.js
           node --check sw.js
           node --check config.js

@@ -1372,6 +1372,8 @@ inline void sanitizeMachineConfig(MachineConfig &cfg) {
   cfg.humidityAlarmDelaySec = static_cast<uint16_t>(constrain(
       static_cast<int>(cfg.humidityAlarmDelaySec), 0, 600));
   cfg.targetHumidity = clampFloat(cfg.targetHumidity, 30.0f, 90.0f);
+  cfg.humidifierHysteresisRh = static_cast<uint8_t>(constrain(
+      static_cast<int>(cfg.humidifierHysteresisRh), 1, 10));
   if (!cfg.humidifierInstalled) cfg.humidifierEnabled = false;
 
   cfg.ventScheduleCount = static_cast<uint8_t>(constrain(
@@ -1723,9 +1725,11 @@ inline PackedMachineConfigV1 packConfig(const MachineConfig &c) {
   p.pidCycleSec = c.pidCycleSec;
   p.maxHeaterPower = c.maxHeaterPower;
   p.lowHumidityAlarm = c.lowHumidityAlarm;
-  // Bit14 luu CO/KHONG phan cung tao am, bit15 luu enable; delay thuc te
-  // chi 0..600. Cach nay giu nguyen prefix schema 10 de nang cap tai cho.
-  p.humidityAlarmDelaySec = static_cast<uint16_t>(c.humidityAlarmDelaySec & 0x3FFFU) |
+  // Delay 0..600 chi can 10 bit. Bit 10..13 giu khoang bat/tat tao am;
+  // 0 trong record cu nghia la mac dinh 2%RH. Giu nguyen schema/kich thuoc.
+  // Bit 14: co phan cung; bit 15: cho phep tao am.
+  p.humidityAlarmDelaySec = static_cast<uint16_t>(c.humidityAlarmDelaySec & 0x03FFU) |
+      (static_cast<uint16_t>(c.humidifierHysteresisRh & 0x0FU) << 10U) |
       (c.humidifierInstalled ? 0x4000U : 0U) |
       (c.humidifierEnabled ? 0x8000U : 0U);
   p.circulationFanEnabled = static_cast<uint8_t>(constrain(
@@ -1782,7 +1786,9 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.lowHumidityAlarm = p.lowHumidityAlarm;
   c.humidifierInstalled = (p.humidityAlarmDelaySec & 0x4000U) != 0U;
   c.humidifierEnabled = (p.humidityAlarmDelaySec & 0x8000U) != 0U;
-  c.humidityAlarmDelaySec = static_cast<uint16_t>(p.humidityAlarmDelaySec & 0x3FFFU);
+  c.humidityAlarmDelaySec = static_cast<uint16_t>(p.humidityAlarmDelaySec & 0x03FFU);
+  const uint8_t humidityGap = static_cast<uint8_t>((p.humidityAlarmDelaySec >> 10U) & 0x0FU);
+  c.humidifierHysteresisRh = humidityGap ? humidityGap : MachineConfig{}.humidifierHysteresisRh;
   c.targetHumidity = (p.circulationFanEnabled >= 30U && p.circulationFanEnabled <= 90U)
       ? static_cast<float>(p.circulationFanEnabled) : MachineConfig{}.targetHumidity;
   c.circulationFanEnabled = true;
@@ -4459,7 +4465,9 @@ class MachineController {
       }
       if (ok) clearStorageDegraded(now);
       hmiConfirmConfigSave(transactionId, ok, ok ? &readback : nullptr);
-      mayapWebConfirmConfigSave(transactionId, ok, ok ? &readback : nullptr);
+      mayapWebConfirmConfigSave(transactionId, ok, ok ? &readback : nullptr,
+          !saveAllowed ? (protectedBatchChange ? "CONFIG_BATCH_LOCKED" : "CONFIG_SAFETY_BLOCK")
+                       : "CONFIG_EEPROM_ERROR");
       mayapSerialPrintf(false, "[CFG] save=%s%s SV=%.1f HIGH=%.1f EMG=%.1f turn=%umin\n",
                        ok ? "OK" : "FAIL",
                        saveAllowed ? "" : (protectedBatchChange ? "(BATCH_LOCK)" : "(SAFETY_BLOCK)"), requested.targetTemp,
@@ -6034,7 +6042,7 @@ class MachineController {
         req.humidifier = humidity_ < config_.targetHumidity;
       } else {
         req.humidifier = humidity_ <=
-            (config_.targetHumidity - HUMIDIFIER_HYSTERESIS_RH);
+            (config_.targetHumidity - config_.humidifierHysteresisRh);
       }
     }
 

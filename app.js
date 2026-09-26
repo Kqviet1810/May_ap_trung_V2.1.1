@@ -74,7 +74,7 @@
   const CONFIG_KEYS = Object.freeze([
     'targetTemp', 'tempHysteresis', 'lowTempAlarm', 'highTempAlarm',
     'emergencyTemp', 'kp', 'ki', 'kd', 'lowHumidityAlarm', 'humidifierInstalled',
-    'humidifierEnabled', 'targetHumidity', 'ventOnTemp',
+    'humidifierEnabled', 'targetHumidity', 'humidifierHysteresisRh', 'ventOnTemp',
     'ventOffTemp', 'ventScheduleEnabled', 'ventScheduleCount', 'ventScheduleDurationMin',
     'ventScheduleHour1', 'ventScheduleHour2', 'ventScheduleHour3', 'ventScheduleHour4',
     'ventScheduleHour5', 'ventScheduleHour6', 'tempOffset', 'humidityOffset', 'pidCycleSec',
@@ -112,7 +112,8 @@
   const telemetryChart = {
     deviceId: '', points: [], historyLoaded: false, historyLoadedAt: 0,
     historyLoading: false, historyRetryAt: 0, historyRequestSeq: 0,
-    activeRequestId: '', lastSampleAt: 0, renderRaf: 0,
+    activeRequestId: '', nextCursor: 0, historyGap: false,
+    lastSampleAt: 0, renderRaf: 0,
   };
 
   const state = {
@@ -123,14 +124,50 @@
     mqttMessage: 'Chưa kết nối MQTT',
     mqttSessionState: 'idle',
     subscriptions: new Set(),
+    subscriptionPromise: null,
     sessionTimer: 0,
     staleTimer: 0,
     formFlags: new Map(),
     pending: new Map(),
+    configChunks: new Map(),
+    lastTerminalByDevice: new Map(),
+    uncertain: new Map(),
     confirmResolver: null,
     currentActivityStartedAt: 0,
     lastResumePromptBootId: 0
   };
+  // Per-tab identity. The pairing token stays in the existing browser session;
+  // the five-minute control key exists only in this tab's memory.
+  const controlClientId = `w-${Array.from(crypto.getRandomValues(new Uint8Array(8)),
+    (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  const controlSessions = new Map();
+  const transactions = new window.MayapProtocolV2.TransactionLedger();
+  const controlSequences = new Map();
+  const PACKET_POLICY = window.MayapProtocolV2.PacketPolicy;
+  const encoder = new TextEncoder();
+  async function storeControlSession(device, control) {
+    if (!/^[a-f0-9]{64}$/i.test(control.sessionKey)) throw new Error('PROTOCOL_ERROR');
+    control.key = await crypto.subtle.importKey('raw', new Uint8Array(
+      control.sessionKey.match(/../g).map((v) => parseInt(v, 16))),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+    delete control.sessionKey;
+    controlSessions.set(device.id, control);
+    return control;
+  }
+  async function controlSession(device) {
+    const cached = controlSessions.get(device.id);
+    if (cached && cached.expiresAt > Math.floor(Date.now() / 1000) + 30) return cached;
+    const result = await postCloudJson('/api/device/mqtt-session', {
+      device_id: device.id, pairing_token: device.pairingToken,
+      control_client_id: controlClientId
+    });
+    if (!result.success || !result.control) {
+      const error = new Error(result.error || 'Phiên điều khiển hết hạn');
+      error.code = [401, 403].includes(result.status) ? 'AUTH_ERROR' : 'TRANSPORT_ERROR';
+      throw error;
+    }
+    return storeControlSession(device, result.control);
+  }
 
   function createDevice(id, name, pairingToken = '') {
     return {
@@ -309,10 +346,10 @@
         body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.success) return { success: false, error: body.error || `Máy chủ từ chối (HTTP ${res.status})` };
+      if (!res.ok || !body.success) return { success: false, status: res.status, error: body.error || `Máy chủ từ chối (HTTP ${res.status})` };
       return body;
     } catch (error) {
-      return { success: false, error: String(error?.message || error) };
+      return { success: false, status: 0, error: String(error?.message || error) };
     }
   }
 
@@ -343,22 +380,35 @@
 
   async function signMqttWrite(device, channel, body) {
     if (!device?.pairingToken) {
-      throw new Error('Cần xác thực lại PIN: bấm + và thêm lại đúng ID thiết bị để làm mới quyền điều khiển.');
+      const error = new Error('Cần xác thực lại PIN: bấm + và thêm lại đúng ID thiết bị để làm mới quyền điều khiển.');
+      error.code = 'AUTH_ERROR';
+      throw error;
     }
-    const result = await postCloudJson('/api/device/sign-mqtt', {
-      device_id: device.id,
-      pairing_token: device.pairingToken,
-      channel,
-      body
-    });
-    if (!result.success || !result.body || !result.signature) {
-      if (String(result.error || '').includes('ghép nối')) {
-        device.pairingToken = '';
-        saveDevices();
+    if (Number(device.presence?.proto || 0) >= 2) {
+      const session = await controlSession(device);
+      if (!device.bootId) {
+        const error = new Error('Chưa nhận bootId từ ESP32; hãy chờ đồng bộ');
+        error.code = 'PROTOCOL_ERROR';
+        throw error;
       }
-      throw new Error(result.error || 'Máy chủ không ký được yêu cầu điều khiển');
+      body.bootId = device.bootId;
+      const pending = state.pending.get(String(body.requestId || ''));
+      if (pending) pending.ackKey = session.key;
+      if (channel === 'command') body.expiresAt = Math.floor(Date.now() / 1000) + 8;
+      body.clientId = controlClientId;
+      body.seq = Math.max(Date.now(), (controlSequences.get(device.id) || 0) + 1);
+      controlSequences.set(device.id, body.seq);
+      body.nonce ||= Array.from(crypto.getRandomValues(new Uint8Array(8)),
+        (b) => b.toString(16).padStart(2, '0')).join('');
+      const bodyText = JSON.stringify(body);
+      const message = `mayap-mqtt-write:v2\n${device.id}\n${channel}\n${session.grant}\n${bodyText}`;
+      const sig = Array.from(new Uint8Array(await crypto.subtle.sign('HMAC', session.key,
+        encoder.encode(message))), (b) => b.toString(16).padStart(2, '0')).join('');
+      return { v: 2, grant: session.grant, grantSig: session.grantSig, body: bodyText, sig };
     }
-    return { v: 1, body: String(result.body), sig: String(result.signature) };
+    const error = new Error('Firmware cũ chưa hỗ trợ giao thức V2. Hãy cập nhật máy để điều khiển từ Web.');
+    error.code = 'PROTOCOL_ERROR';
+    throw error;
   }
 
   // Ten thiet bi la thuoc tinh CHUNG (luu tren Worker, xem renameDeviceRemote())
@@ -397,14 +447,6 @@
     return value === true;
   }
 
-  // runtime.activeFaults[] do firmware gui, da sap xep uu tien cao nhat
-  // truoc (FaultManager::copyActiveForHmi() trong machine_control.h) - phan
-  // tu dau tien la loi quan trong nhat dang active.
-  function topActiveFault(runtime) {
-    const list = Array.isArray(runtime?.activeFaults) ? runtime.activeFaults : [];
-    return list.length ? list[0] : null;
-  }
-
   let faultPopupTimer = null;
   function closeFaultPopup() {
     const popup = $('faultPopup');
@@ -416,19 +458,33 @@
   // 1 lan lam popup khong bao gio tu dong tat" (renderDevice() co
   // setInterval refresh 5000 ms doc lap voi popup).
   function refreshFaultPopupContent(device) {
-    const fault = device?.activeFault;
+    const faults = Array.isArray(device?.activeFaults) ? device.activeFaults : [];
     const popup = $('faultPopup');
-    if (!fault || !popup) return;
-    const code = Number(fault.code);
-    const severity = Number(fault.severity || 0);
-    const sevClass = severity >= 3 ? 'sev-emergency' : severity >= 2 ? 'sev-stop' : 'sev-warn';
-    $('faultPopupCode').textContent = `E${code}`;
-    $('faultPopupCode').className = `faultPopupCode ${sevClass}`;
-    $('faultPopupTitle').textContent = FAULT_TITLES[code] || `Mã lỗi ${code}`;
-    $('faultPopupDesc').textContent = FAULT_DESCRIPTIONS[code] || FAULT_TITLES[code] || '';
+    const list = $('faultPopupList');
+    if (!faults.length || !popup || !list) return;
+    list.replaceChildren(...faults.map((fault) => {
+      const code = Number(fault.code);
+      const severity = Number(fault.severity || 0);
+      const sevClass = severity >= 3 ? 'sev-emergency' : severity >= 2 ? 'sev-stop' : 'sev-warn';
+      const item = document.createElement('section');
+      item.className = 'faultPopupItem';
+      const head = document.createElement('div');
+      head.className = 'faultPopupHead';
+      const codeElement = document.createElement('span');
+      codeElement.className = `faultPopupCode ${sevClass}`;
+      codeElement.textContent = `E${code}`;
+      const title = document.createElement('span');
+      title.className = 'faultPopupTitle';
+      title.textContent = FAULT_TITLES[code] || `Mã lỗi ${code}`;
+      const description = document.createElement('p');
+      description.textContent = FAULT_DESCRIPTIONS[code] || FAULT_TITLES[code] || '';
+      head.append(codeElement, title);
+      item.append(head, description);
+      return item;
+    }));
   }
   function openFaultPopup(device) {
-    if (!device?.activeFault) return;
+    if (!device?.activeFaults?.length) return;
     refreshFaultPopupContent(device);
     $('faultPopup').hidden = false;
     if (faultPopupTimer) clearTimeout(faultPopupTimer);
@@ -452,7 +508,9 @@
       return;
     }
     const online = connectionStatus(device) === 'online';
-    const fault = online ? topActiveFault(runtime) : null;
+    const faults = online && Array.isArray(runtime?.activeFaults) ? runtime.activeFaults : [];
+    const fault = faults.length ? faults[0] : null;
+    device.activeFaults = faults;
     device.activeFault = fault;
 
     tile.classList.remove('tile-warn', 'tile-stop', 'tile-emergency');
@@ -493,7 +551,7 @@
   // ngang dai 36 ky tu; kem tien to "cfg-"/"cmd-" (4 ky tu) la du 40 ky tu va
   // BI FIRMWARE TU CHOI TOAN BO GOI (readString tra ve false -> "invalid").
   // Bo dau gach ngang de con 32 ky tu hex, luon nam duoi gioi han an toan.
-  const REQUEST_ID_MAX = 36;
+  const REQUEST_ID_MAX = 24;
   function requestId(prefix = 'req') {
     const raw = crypto.randomUUID
       ? crypto.randomUUID().replace(/-/g, '')
@@ -744,11 +802,10 @@
 
   function renderDevice() {
     const device = currentDevice();
+    syncHumidifierFeatureUi(device?.config);
     const connection = connectionStatus(device);
     const pill = $('onlinePill');
 
-    $('deviceNameView').textContent = device?.name || 'Chưa chọn thiết bị';
-    $('deviceIdView').textContent = device?.id || 'Nhấn + để thêm thiết bị';
     $('sideDevice').textContent = device?.name || 'Chưa có thiết bị';
     refreshDeviceNameIfNeeded(device);
 
@@ -839,7 +896,7 @@
     const dotEl = $('firmwareUpdateDot');
     if (!summaryEl || !bodyEl) return;
     if (!device) {
-      summaryEl.textContent = 'Chưa chọn thiết bị';
+      summaryEl.textContent = 'Chờ kết nối máy';
       bodyEl.innerHTML = '';
       if (dotEl) dotEl.hidden = true;
       return;
@@ -988,6 +1045,7 @@
       updateOutput('outputTurn', false, 'ĐANG ĐẢO', 'CHỜ');
       updateOutput('outputLight', false);
       updateOutput('outputSiren', false);
+      if ($('sirenActionHint')) $('sirenActionHint').textContent = 'Chỉ khi còi đang kêu';
       if ($('outputLightBtn')) $('outputLightBtn').disabled = true;
       if ($('outputSirenBtn')) $('outputSirenBtn').disabled = true;
       // F-10: chua co snapshot = chua biet may co dang chay me hay khong -
@@ -1014,6 +1072,8 @@
     updateOutput('outputHumidifier', bool(runtime.humidifierOn));
     updateOutput('outputLight', bool(runtime.lightOn));
     updateOutput('outputSiren', bool(runtime.sirenOn));
+    if ($('sirenActionHint')) $('sirenActionHint').textContent = bool(runtime.sirenOn)
+      ? 'Chạm để tạm tắt' : 'Chỉ khi còi đang kêu';
     // Nut Den bam duoc bat cu luc nao thiet bi online; nut Coi CHI bam duoc
     // khi coi dang thuc su keu (giong het dieu kien mo man Alarm tren HMI).
     if ($('outputLightBtn')) $('outputLightBtn').disabled = !isDeviceOnline(device);
@@ -1068,8 +1128,8 @@
         (device?.batchUiAwaitingConfirmTarget === 'stopped' && !runtime.batchRunning)) {
       const startedNow = device.batchUiAwaitingConfirmTarget === 'running';
       const lateOkMessage = startedNow
-        ? 'Xác nhận muộn từ máy: mẻ ấp ĐÃ bắt đầu thành công (thông báo trước đó không chính xác do mạng chậm)'
-        : 'Xác nhận muộn từ máy: mẻ ấp ĐÃ kết thúc thành công (thông báo trước đó không chính xác do mạng chậm)';
+        ? 'Trạng thái máy cho thấy mẻ đã bắt đầu; ACK của thao tác chưa tới'
+        : 'Trạng thái máy cho thấy mẻ đã kết thúc; ACK của thao tác chưa tới';
       device.batchUiAwaitingConfirmTarget = '';
       if (device.id === state.selectedId) setFormError('batchForm', '');
       addBatchLog(device, lateOkMessage);
@@ -1160,6 +1220,7 @@
       ? `Tự động · mỗi ${$('turnInterval').value || '—'} phút`
       : 'Đang tắt đảo tự động';
     $('sensorSummary').textContent = `Bù ${numberVi($('tempOffset').value)}°C · timeout ${$('sensorTimeout').value || '—'} giây`;
+    $('humidifierSummary').textContent = `Bật ≤${$('humidifierOnHumidity').value || '—'}% · tắt ≥${$('humidifierOffHumidity').value || '—'}%RH`;
   }
 
   function hasDirtyForm(formId) {
@@ -1169,14 +1230,11 @@
   function syncHumidifierFeatureUi(config) {
     const installed = Boolean(config?.humidifierInstalled);
     if ($('outputHumidifierTile')) $('outputHumidifierTile').hidden = !installed;
-    if ($('humidifierEnabledTile')) $('humidifierEnabledTile').hidden = !installed;
-    const input = $('targetHumidity');
-    const label = $('targetHumidityLabel');
-    if (label) label.textContent = installed ? 'Độ ẩm đặt' : 'Độ ẩm tham khảo';
-    if (input) {
-      input.min = installed ? '30' : '20';
-      input.max = installed ? '90' : '95';
-    }
+    $('outputStrip')?.classList?.toggle('hasHumidifier', installed);
+    $('humidifierSetting').hidden = !installed;
+    if (!installed) $('humidifierSetting').open = false;
+    $('batchHumidityTile').hidden = installed;
+    $('batchGrid')?.classList?.toggle('noHumidity', installed);
   }
 
   function applyConfigToUi(device, force = false) {
@@ -1209,8 +1267,10 @@
     assign('batchForm', 'batchTarget', config.targetTemp);
     assign('batchForm', 'totalDays', config.totalIncubationDays);
     check('batchForm', 'resumeAfterPowerLoss', config.autoResumeAfterPower);
-    check('batchForm', 'humidifierEnabled', config.humidifierEnabled);
-    if (config.humidifierInstalled) assign('batchForm', 'targetHumidity', config.targetHumidity);
+    check('humidifierForm', 'humidifierEnabled', config.humidifierEnabled);
+    assign('humidifierForm', 'humidifierOffHumidity', config.targetHumidity);
+    assign('humidifierForm', 'humidifierOnHumidity',
+      Math.round(Number(config.targetHumidity) - Number(config.humidifierHysteresisRh ?? 2)));
     if (!hasDirtyForm('batchForm') || force) {
       $('batchName').value = device.batchMeta.name;
       $('startDate').value = device.batchMeta.startDate;
@@ -1261,7 +1321,7 @@
     assign('advancedForm', 'advAutotuneRelayPowerPercent', config.autotuneRelayPowerPercent);
     assign('advancedForm', 'advAutotuneBandC', config.autotuneBandC);
 
-    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm', 'advancedForm'].forEach((formId) => {
+    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm', 'humidifierForm', 'advancedForm'].forEach((formId) => {
       if (force || !hasDirtyForm(formId)) setFormState(formId, 'saved', 'Đã đồng bộ với ESP32');
     });
     updateSettingSummaries();
@@ -1316,10 +1376,6 @@
       shiftTempThresholds(config, config.targetTemp, newTarget);
       config.targetTemp = newTarget;
       config.totalIncubationDays = Number($('totalDays').value);
-      if (config.humidifierInstalled) {
-        config.targetHumidity = Number($('targetHumidity').value);
-        config.humidifierEnabled = $('humidifierEnabled').checked;
-      }
       config.autoResumeAfterPower = $('resumeAfterPowerLoss').checked;
     } else if (group === 'temperature') {
       config.targetTemp = Number($('targetTemp').value);
@@ -1343,6 +1399,13 @@
     } else if (group === 'lightAlarm') {
       config.lightAfterBatchAlarmEnabled = $('lightAfterBatchAlarmEnabled').checked;
       config.sirenSelfTestEnabled = $('sirenSelfTestEnabled').checked;
+    } else if (group === 'humidifier') {
+      if (!config.humidifierInstalled) return null;
+      const off = Number($('humidifierOffHumidity').value);
+      const on = Number($('humidifierOnHumidity').value);
+      config.targetHumidity = off;
+      config.humidifierHysteresisRh = off - on;
+      config.humidifierEnabled = $('humidifierEnabled').checked;
     } else if (group === 'advanced') {
       config.kp = Number($('advKp').value);
       config.ki = Number($('advKi').value);
@@ -1375,12 +1438,139 @@
 
   function publish(topic, payload, options = {}) {
     if (!state.mqttConnected || !state.mqtt?.connected) {
-      throw new Error('MQTT chưa kết nối');
+      const error = new Error('MQTT chưa kết nối'); error.code = 'TRANSPORT_ERROR'; throw error;
     }
-    state.mqtt.publish(topic, JSON.stringify(payload), {
-      qos: options.qos ?? 1,
-      retain: options.retain ?? false
+    const wire = JSON.stringify(payload);
+    const bytes = encoder.encode(wire).length + encoder.encode(topic).length + PACKET_POLICY.MQTT_OVERHEAD;
+    if (bytes > PACKET_POLICY.NORMAL_CAP) {
+      const error = new Error(`Gói MQTT vượt giới hạn ${PACKET_POLICY.NORMAL_CAP} B (${bytes} B)`);
+      error.code = 'PROTOCOL_ERROR';
+      throw error;
+    }
+    if (options.awaitAck) return new Promise((resolve, reject) => {
+      try {
+        state.mqtt.publish(topic, wire, { qos: 1, retain: false }, (error) => {
+          if (error) { error.code = 'UNCERTAIN'; reject(error); }
+          else {
+            const id = options.requestId;
+            const pending = state.pending.get(id) || state.uncertain.get(id);
+            const tPuback = performance.now();
+            if (pending && pending.tBrokerPuback == null) pending.tBrokerPuback = tPuback;
+            const outcome = terminalOutcomes.get(id);
+            if (outcome && outcome.tBrokerPuback == null) {
+              outcome.tBrokerPuback = tPuback;
+              console.info('[TX broker PUBACK after terminal]', { operation: outcome.operation,
+                publishToBrokerPubackMs: outcome.tPublished == null ? null
+                  : Math.round(tPuback - outcome.tPublished),
+                clickToBrokerPubackMs: Math.round(tPuback - outcome.tCreated) });
+            }
+            resolve(); // Broker PUBACK; controller outcome still pending.
+          }
+        });
+      } catch (error) { error.code = 'TRANSPORT_ERROR'; reject(error); }
     });
+    state.mqtt.publish(topic, wire, { qos: options.qos ?? 1,
+      retain: options.retain ?? false });
+  }
+
+  function startTransaction(id, pending, timeoutMs) {
+    transactions.create(id, pending.operation);
+    pending.phase = 'CREATED';
+    pending.tCreated = performance.now();
+    pending.timeoutMs = timeoutMs;
+    pending.onTimeout = () => {
+      if (state.pending.get(id) !== pending) return;
+      moveToUncertain(id, pending);
+      const device = state.devices.find((item) => item.id === pending.deviceId);
+      if (pending.kind === 'config') setFormState(pending.formId, 'unconfirmed', 'Chưa nhận xác nhận cuối từ ESP32 · đang đồng bộ trạng thái');
+      if (pending.kind === 'reminders' && device) {
+        device.remindersPending = false;
+        if (device.id === state.selectedId) renderReminderList(device);
+      }
+      if (pending.kind === 'history') {
+        telemetryChart.historyLoading = false;
+        telemetryChart.historyRetryAt = Date.now() + 30_000;
+        telemetrySetStatus('Chưa nhận xác nhận cuối từ EEPROM · kết quả chưa chắc chắn');
+      }
+      if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
+        clearBatchActionPending(device);
+        device.batchUiAwaitingConfirmTarget = batchTargetForAction(pending.action);
+        if (device.id === state.selectedId) setFormError('batchForm', 'Chưa nhận xác nhận cuối · đang kiểm tra trạng thái máy');
+      }
+      // Doc lich su EEPROM la tac vu nen tu chay khi mo trang Me ap. Neu
+      // ESP32 tra cham, chi cap nhat trang thai ngay trong bieu do; khong
+      // hien toast nhu mot thao tac that bai do nguoi dung vua thuc hien.
+      if (pending.kind !== 'history')
+        toast('Chưa nhận xác nhận cuối từ ESP32; kết quả chưa chắc chắn', 5000);
+      if (device) sendSession(device.id, true, true);
+    };
+    state.pending.set(id, pending);
+    return pending;
+  }
+
+  function moveToUncertain(id, pending) {
+    if (state.pending.get(id) !== pending) return;
+    clearTimeout(pending.timeout);
+    clearTimeout(pending.retryTimer);
+    transactions.uncertain(id);
+    pending.phase = 'UNCERTAIN';
+    pending.uncertainAt = performance.now();
+    state.pending.delete(id);
+    state.uncertain.set(id, pending);
+  }
+
+  function sweepUncertain() {
+    const now = performance.now();
+    for (const id of transactions.expireUncertain(now)) {
+      const pending = state.uncertain.get(id);
+      if (!pending) continue;
+      state.uncertain.delete(id);
+      const device = state.devices.find((item) => item.id === pending.deviceId);
+      if (pending.observed) {
+        if (pending.kind === 'config' && Number(device?.revision || 0) <= pending.revision)
+          setFormState(pending.formId, 'unconfirmed', 'Đã thấy cấu hình trên máy; không nhận được ACK cho giao dịch');
+        if (pending.kind === 'reminders')
+          toast('Đã thấy nhắc nhở trên máy; không nhận được ACK cho giao dịch', 5000);
+        if (pending.kind === 'history' && telemetryChart.activeRequestId === id)
+          telemetrySetStatus('Đã nhận lịch sử EEPROM; không nhận được ACK cuối');
+        continue;
+      }
+      if (pending.kind === 'config' && Number(device?.revision || 0) <= pending.revision)
+        setFormState(pending.formId, 'unconfirmed', 'Không nhận được kết quả cuối; kiểm tra lại cấu hình trên máy');
+      if (pending.kind === 'reminders') toast('Chưa xác nhận được nhắc nhở; kiểm tra trên máy', 5000);
+      if (pending.kind === 'history' && telemetryChart.activeRequestId === id)
+        telemetrySetStatus('Chưa xác nhận được lịch sử EEPROM · có thể thử đọc lại');
+      if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
+        if (device) device.batchUiAwaitingConfirmTarget = '';
+        if (device?.id === state.selectedId) setFormError('batchForm', 'Chưa xác nhận được kết quả; kiểm tra trạng thái trên máy');
+      }
+      console.warn('[TX] Hết thời gian đối soát', pending.operation, id);
+    }
+  }
+
+  function armTransaction(id) {
+    const pending = state.pending.get(id);
+    if (pending) pending.timeout = setTimeout(pending.onTimeout, pending.timeoutMs);
+  }
+
+  function transactionPublished(id) {
+    transactions.published(id);
+    const pending = state.pending.get(id);
+    if (pending) { pending.phase = 'PUBLISHED'; pending.tPublished = performance.now(); }
+  }
+
+  function retrySameRequest(id, topic, envelope) {
+    const pending = state.pending.get(id);
+    if (!pending) return;
+    let attempts = 0;
+    const retry = () => {
+      if (state.pending.get(id) !== pending || !state.mqttConnected) return;
+      // Reuse the signed envelope and requestId; ESP replays the cached result.
+      publish(topic, envelope, { awaitAck: true, requestId: id }).catch((error) =>
+        console.warn('[TX retry]', pending.operation, error));
+      if (++attempts < 2) pending.retryTimer = setTimeout(retry, 3500);
+    };
+    pending.retryTimer = setTimeout(retry, 3500);
   }
 
   async function sendConfig(formId, group) {
@@ -1411,18 +1601,14 @@
 
     const revision = nextRevision(device);
     const id = requestId('cfg');
-    const payload = { v: PROTOCOL_VERSION, revision, requestId: id, config };
+    const patch = Object.fromEntries(Object.entries(config).filter(([key, value]) =>
+      CONFIG_KEYS.includes(key) && !Object.is(value, device.config?.[key])));
+    if (!Object.keys(patch).length) return;
+    const payload = { v: Number(device.presence?.proto || 0) >= 2 ? 2 : PROTOCOL_VERSION,
+      revision, requestId: id, config: patch };
     setFormState(formId, 'pending', 'Đang gửi tới ESP32…');
-    state.pending.set(id, {
-      kind: 'config', deviceId: device.id, formId, revision, config,
-      timeout: setTimeout(() => {
-        const pending = state.pending.get(id);
-        if (!pending) return;
-        state.pending.delete(id);
-        setFormState(formId, 'unconfirmed', 'ESP32 chưa xác nhận · có thể thử lưu lại');
-        toast('ESP32 chưa xác nhận · có thể thử lưu lại', 3600);
-      }, WEB.configTimeoutMs)
-    });
+    startTransaction(id, { kind: 'config', operation: 'config.save', deviceId: device.id,
+      formId, revision, config, patch, bootId: device.bootId }, WEB.configTimeoutMs);
     try {
       // retain:false (KHONG giu lai tren broker) - day la lenh "luu cau hinh"
       // 1 lan, khong phai trang thai. Voi retain:true truoc day, ESP32 se
@@ -1432,8 +1618,13 @@
       // va co the DE LEN cau hinh moi hon nguoi dung vua sua truc tiep tren
       // HMI sau lan luu web gan nhat - loi im lang, rat kho tu phat hien.
       const envelope = await signMqttWrite(device, 'config/set', payload);
-      publish(topics(device.id).config, envelope, { qos: 1, retain: false });
+      armTransaction(id);
+      transactionPublished(id);
+      await publish(topics(device.id).config, envelope, { awaitAck: true, requestId: id });
+      retrySameRequest(id, topics(device.id).config, envelope);
     } catch (error) {
+      if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return;
+      if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return; }
       clearPending(id);
       setFormState(formId, 'error', error.message);
       toast(error.message, 3600);
@@ -1470,41 +1661,29 @@
       arg1: options.arg1 ?? 0,
       value: options.value ?? 0
     };
-
-    state.pending.set(id, {
-      kind: 'command', deviceId: device.id, action,
-      timeout: setTimeout(() => {
-        if (!state.pending.has(id)) return;
-        state.pending.delete(id);
-        const timeoutMessage = 'Không nhận được phản hồi từ ESP32 (mất kết nối?) - đang kiểm tra lại trạng thái máy';
-        if (action === 'batch_start' || action === 'batch_stop') {
-          clearBatchActionPending(device);
-          if (device.id === state.selectedId) renderBatchAction(device);
-          // Khac voi cac lenh khac (chi toast la du) - "Bat dau/Ket thuc me"
-          // can 1 canh bao NAM YEN tren form (giong duong xu ly khi ESP32 tra
-          // ve ket qua tu choi) vi day la truong hop nguy hiem nhat: nguoi
-          // dung khong biet lenh co thuc su toi may hay khong. Ghi lai muc
-          // tieu dang cho vao batchUiAwaitingConfirmTarget (KHONG dung
-          // batchUiPendingTarget vi clearBatchActionPending() vua xoa no) de
-          // applySnapshotToUi() con co the SUA lai thanh thong bao THANH
-          // CONG neu snapshot sau do chung minh may thuc ra DA nhan lenh
-          // (mang cham nhung lenh van toi noi).
-          device.batchUiAwaitingConfirmTarget = batchTargetForAction(action);
-          // batchForm la DOM dung chung, luon gan voi thiet bi dang CHON -
-          // chi ghi canh bao vao do neu day dung la thiet bi dang xem, tranh
-          // de lai thong bao ve 1 thiet bi khac ma nguoi dung khong con nhin.
-          if (device.id === state.selectedId) setFormError('batchForm', timeoutMessage);
-          addBatchLog(device, timeoutMessage);
-        }
-        toast(timeoutMessage, 3600);
-      }, WEB.commandTimeoutMs)
-    });
+    if (Number(device.presence?.proto || 0) >= 2) {
+      payload.v = 2;
+      delete payload.sequence;
+      delete payload.validForMs;
+      payload.clientId = controlClientId;
+      payload.nonce = Array.from(crypto.getRandomValues(new Uint8Array(8)),
+        (b) => b.toString(16).padStart(2, '0')).join('');
+      // No optional zero fields in the hot path.
+      for (const key of ['leaseMs', 'alarmMask', 'arg0', 'arg1', 'value']) if (!payload[key]) delete payload[key];
+    }
+    startTransaction(id, { kind: 'command', operation: action.replaceAll('_', '.'),
+      deviceId: device.id, action }, WEB.commandTimeoutMs);
 
     try {
       const envelope = await signMqttWrite(device, 'command', payload);
-      publish(topics(device.id).command, envelope, { qos: 1, retain: false });
+      armTransaction(id);
+      transactionPublished(id);
+      await publish(topics(device.id).command, envelope, { awaitAck: true, requestId: id });
+      retrySameRequest(id, topics(device.id).command, envelope);
       return true;
     } catch (error) {
+      if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return true;
+      if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return true; }
       clearPending(id);
       toast(error.message);
       return false;
@@ -1514,88 +1693,152 @@
   function clearPending(id) {
     const pending = state.pending.get(id);
     if (pending?.timeout) clearTimeout(pending.timeout);
+    if (pending?.retryTimer) clearTimeout(pending.retryTimer);
     state.pending.delete(id);
+    transactions.remove(id);
+  }
+
+  // A terminal ACK can beat the MQTT.js PUBACK callback (or its error).
+  // Keep a bounded terminal record so that the later callback cannot undo it.
+  const terminalOutcomes = new Map();
+  function pendingOutcomeKnown(id) { return terminalOutcomes.has(id); }
+  function rememberOutcome(id, ok, pending) {
+    terminalOutcomes.set(id, { ok, at: performance.now(), operation: pending.operation,
+      tCreated: pending.tCreated, tPublished: pending.tPublished,
+      tBrokerPuback: pending.tBrokerPuback });
   }
 
   function handleAck(device, ack) {
+    const id = String(ack.requestId || '');
+    const pending = state.pending.get(id) || state.uncertain.get(id);
+    if (!pending || pending.deviceId !== device.id) return;
+    const transition = Number(ack.v) === 2 ? transactions.ack(id, ack) : null;
+    if (transition === 'IGNORED') return;
+    if (transition === 'PROTOCOL_ERROR') {
+      toast('PROTOCOL_ERROR: ACK từ máy không hợp lệ');
+      return;
+    }
     if (Number.isFinite(Number(ack.bootId))) device.bootId = Number(ack.bootId);
-    const pending = state.pending.get(String(ack.requestId || ''));
+    const v2 = Number(ack.v) === 2;
     const result = String(ack.result || '').toLowerCase();
-    const message = humanAckMessage(ack);
-
-    if (!pending) {
-      if (result === 'rejected' || result === 'invalid' || result === 'expired' || result === 'stale') {
-        addBatchLog(device, message);
-      }
+    const phase = v2 ? String(ack.phase || '').toLowerCase()
+      : result === 'accepted' ? 'received' : 'completed';
+    if (phase === 'received') {
+      if (pending.phase === 'UNCERTAIN') return;
+      pending.phase = 'RECEIVED';
+      pending.tDeviceReceived = performance.now();
+      if (pending.kind === 'config') setFormState(pending.formId, 'pending', 'Máy đã nhận · đang lưu EEPROM…');
+      else toast('Máy đã nhận yêu cầu · đang thực hiện');
       return;
     }
-
-    if (pending.kind === 'config') {
-      if (result === 'accepted') {
-        setFormState(pending.formId, 'pending', 'ESP32 đã nhận · đang lưu EEPROM…');
-        return;
-      }
-      if (result === 'applied') {
-        setFormState(pending.formId, 'pending', 'Đã lưu · đang đọc lại cấu hình…');
-        return;
-      }
-      if (result === 'duplicate') {
-        setFormState(pending.formId, 'pending', 'Đang đồng bộ cấu hình đã lưu…');
-        sendSession(device.id, true, true);
-        return;
-      }
-      clearPending(String(ack.requestId));
-      setFormState(pending.formId, 'error', message);
-      toast(message);
-      return;
-    }
-
-    if (pending.kind === 'reminders') {
-      if (result === 'accepted' || result === 'applied') return;  // cho "reminders/reported" xac nhan hoan tat
-      if (result === 'duplicate') {
-        sendSession(device.id, true, true);
-        return;
-      }
-      clearPending(String(ack.requestId));
-      device.remindersPending = false;
-      if (device.id === state.selectedId) renderReminderList(device);
-      toast(message, 3600);
-      return;
-    }
-
-    clearPending(String(ack.requestId));
-    if (['accepted', 'applied'].includes(result)) {
-      // Tin nhan goc tu firmware cho lenh nay la chu HOA khong dau (quy uoc
-      // danh cho Serial/HMI, xem machine_control.h) - thay bang cau tieng
-      // Viet co dau cho web, dep hon.
-      if (pending.action === 'firmware_check_now') {
-        toast('Đã yêu cầu máy kiểm tra ngay - xem màn hình máy nếu có bản mới.');
-      } else {
-        toast(message);
-      }
-      if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
-        setFormError('batchForm', '');
-      }
-    } else {
+    if (phase === 'uncertain') {
+      moveToUncertain(id, pending);
+      if (pending.kind === 'config') setFormState(pending.formId, 'unconfirmed',
+        'Máy chưa xác nhận lưu EEPROM · đang đồng bộ');
+      if (pending.kind === 'reminders') device.remindersPending = false;
       if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
         clearBatchActionPending(device);
-        if (device.id === state.selectedId) renderBatchAction(device);
-        // Toast tu bien mat sau vai giay - rieng lenh Bat dau/Ket thuc me
-        // can 1 canh bao NAM YEN ngay tren nut bam (giong loi validate form)
-        // toi khi nguoi dung thu lai, tranh truong hop nguoi dung lo mat
-        // toast roi khong hieu vi sao nut lai tro ve trang thai cu.
-        if (device.id === state.selectedId) setFormError('batchForm', message);
-        // Ket qua "expired"/"stale" o day co the la BAO ĐỘNG GIẢ: ESP32 co the
-        // van da nhan va thuc hien lenh nhung goi ACK bi tre/mat tren duong
-        // mang ve (xem giai thich o applySnapshotToUi()). Ghi lai muc tieu
-        // dang cho (KHONG dung batchUiPendingTarget vi clearBatchActionPending()
-        // vua xoa no) de con SUA lai thanh thong bao THANH CONG neu snapshot
-        // runtime sau do chung minh dieu nguoc lai voi nhung gi ACK nay vua bao.
         device.batchUiAwaitingConfirmTarget = batchTargetForAction(pending.action);
       }
-      toast(message, 3600);
-      addBatchLog(device, message);
+      toast('Chưa xác định kết quả thực hiện; đang đọc lại trạng thái máy', 5000);
+      sendSession(device.id, true, true);
+      return;
     }
+    if (phase !== 'completed' || (v2 && typeof ack.ok !== 'boolean')) {
+      toast('PROTOCOL_ERROR: ACK từ máy không hợp lệ');
+      return;
+    }
+    const ok = v2 ? ack.ok : result === 'applied';
+    const message = humanAckMessage(ack);
+    rememberOutcome(id, ok, pending);
+    pending.phase = ok ? 'APPLIED' : 'REJECTED';
+    const tAckBrowser = performance.now();
+    const late = state.uncertain.has(id);
+    pending.tAckBrowser = tAckBrowser;
+    const deviceReceived = Number(ack.tDeviceReceived);
+    const deviceCompleted = Number(ack.tDeviceCompleted);
+    console.info('[TX latency]', { operation: pending.operation, code: ack.code || result,
+      late, tCreatedBrowser: pending.tCreated, tPublishBrowser: pending.tPublished,
+      tBrokerPubackBrowser: pending.tBrokerPuback ?? null, tAckBrowser,
+      tDeviceReceivedEsp: ack.tDeviceReceived, tDeviceCompletedEsp: ack.tDeviceCompleted,
+      webToPublishMs: Math.round((pending.tPublished || pending.tCreated) - pending.tCreated),
+      publishToBrokerPubackMs: pending.tBrokerPuback && pending.tPublished
+        ? Math.round(pending.tBrokerPuback - pending.tPublished) : null,
+      clickToBrokerPubackMs: pending.tBrokerPuback == null ? null
+        : Math.round(pending.tBrokerPuback - pending.tCreated),
+      publishToReceivedAckMs: pending.tDeviceReceived && pending.tPublished
+        ? Math.round(pending.tDeviceReceived - pending.tPublished) : null,
+      clickToTerminalAckMs: Math.round(tAckBrowser - pending.tCreated),
+      deviceProcessMs: Number.isFinite(deviceReceived) && Number.isFinite(deviceCompleted)
+        ? (deviceCompleted - deviceReceived) >>> 0 : null });
+    state.lastTerminalByDevice.set(device.id, { operation: pending.operation,
+      tAckBrowser, at: Date.now() });
+    if (late) { state.uncertain.delete(id); transactions.remove(id); }
+    else clearPending(id);
+    if (pending.kind === 'config') {
+      const superseded = Number(device.revision || 0) > Number(ack.revision || pending.revision);
+      if (ok) {
+        if (Number(ack.revision || pending.revision) >= device.revision) {
+          device.config = { ...pending.config };
+          device.revision = Number(ack.revision || pending.revision);
+        }
+        if (!superseded) setFormState(pending.formId, 'saved', 'ESP32 đã lưu và kiểm tra EEPROM');
+        toast('Đã lưu cấu hình vào ESP32');
+      } else {
+        if (!superseded) setFormState(pending.formId, 'error', message);
+        toast(`ESP32 từ chối: ${message}`, 5000);
+      }
+      return;
+    }
+    if (pending.kind === 'reminders') {
+      device.remindersPending = false;
+      if (ok) {
+        if (Number(ack.revision || pending.revision) >= Number(device.remindersRevision || 0)) {
+          device.reminders = pending.nextList;
+          device.remindersRevision = Number(ack.revision || pending.revision);
+        }
+      }
+      if (device.id === state.selectedId) renderReminderList(device);
+      toast(ok ? 'Đã lưu danh sách nhắc nhở' : `ESP32 từ chối: ${message}`, 5000);
+      return;
+    }
+    if (pending.kind === 'history') {
+      telemetryChart.historyLoading = false;
+      telemetryChart.historyRetryAt = ok ? 0 : Date.now() + 30_000;
+      if (!ok) telemetrySetStatus(ack.code === 'HISTORY_EEPROM_ERROR'
+        ? 'Lỗi đọc EEPROM lịch sử' : message);
+      else telemetrySetStatus(ack.code === 'HISTORY_EMPTY'
+        ? 'EEPROM chưa có dữ liệu · cập nhật trực tiếp' : 'Đã đọc lịch sử EEPROM');
+      return;
+    }
+    if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
+      device.batchUiAwaitingConfirmTarget = '';
+      if (!ok) {
+        clearBatchActionPending(device);
+        if (device.id === state.selectedId) {
+          renderBatchAction(device);
+          setFormError('batchForm', message);
+        }
+        addBatchLog(device, message);
+      } else if (device.id === state.selectedId) setFormError('batchForm', '');
+    }
+    toast(ok ? message : `ESP32 từ chối: ${message}`, 5000);
+  }
+
+  async function verifyDeviceAck(device, ack) {
+    const pending = state.pending.get(String(ack?.requestId || '')) ||
+      state.uncertain.get(String(ack?.requestId || ''));
+    if (!pending || pending.deviceId !== device.id) return false;
+    if (!pending.ackKey || !/^[a-f0-9]{64}$/i.test(String(ack.sig || ''))) {
+      console.warn('[TX] ACK thiếu chữ ký phiên', ack.requestId);
+      return false;
+    }
+    const fields = ['mayap-mqtt-ack:v2', device.id, ack.requestId, ack.operation,
+      ack.phase, ack.ok ? '1' : '0', ack.code, ack.bootId, ack.revision, ack.message];
+    if (fields.some((field) => field === undefined || field === null)) return false;
+    const bytes = new Uint8Array(ack.sig.match(/../g).map((hex) => parseInt(hex, 16)));
+    return crypto.subtle.verify('HMAC', pending.ackKey, bytes,
+      encoder.encode(fields.join('\n')));
   }
 
   // Toan bo chuoi "message" ma firmware co the tra ve trong ack (xem
@@ -1705,20 +1948,43 @@
   }
 
   function handleConfigReport(device, report) {
+    if (Number(report.v) === 2) {
+      const key = `${device.id}:${report.bootId}:${report.revision}`;
+      let assembly = state.configChunks.get(key);
+      if (!assembly || Number(report.part) === 0) {
+        assembly = { next: 0, config: {} };
+        state.configChunks.set(key, assembly);
+      }
+      if (Number(report.part) !== assembly.next || !report.config) return;
+      Object.assign(assembly.config, report.config);
+      assembly.next += 1;
+      if (!report.done) return;
+      state.configChunks.delete(key);
+      report = { ...report, config: assembly.config };
+    }
     if (!report.config || !validateFullConfig(report.config)) return;
+    if (Number(report.revision || 0) < Number(device.revision || 0)) return;
     device.config = { ...report.config };
     device.revision = Number(report.revision || 0);
     device.configAt = Date.now();
     device.bootId = Number(report.bootId || device.bootId || 0);
 
-    for (const [id, pending] of state.pending.entries()) {
-      if (pending.kind !== 'config' || pending.deviceId !== device.id) continue;
-      if (device.revision >= pending.revision && configEquals(device.config, pending.config)) {
-        clearPending(id);
-        setFormState(pending.formId, 'saved', 'Đã lưu và ESP32 xác nhận');
-        addBatchLog(device, 'Cấu hình đã được ESP32 lưu và xác nhận');
-        toast('Đã lưu và ESP32 xác nhận');
-      }
+    for (const [id, pending] of [...state.pending, ...state.uncertain]) {
+      if (pending.deviceId !== device.id || pending.kind !== 'config' ||
+          pending.bootId !== device.bootId || report.requestId !== id ||
+          device.revision !== pending.revision ||
+          !Object.entries(pending.patch).every(([key, value]) =>
+            Object.is(device.config[key], value))) continue;
+      // Firmware publishes this revision only after EEPROM save and readback.
+      // A matching complete report is sufficient when the terminal ACK was lost.
+      rememberOutcome(id, true, pending);
+      if (state.uncertain.has(id)) {
+        state.uncertain.delete(id);
+        transactions.remove(id);
+      } else clearPending(id);
+      setFormState(pending.formId, 'saved', 'ESP32 đã lưu và đọc lại cấu hình');
+      toast('Đã lưu cấu hình vào ESP32');
+      console.info('[CFG-TX] reconciled from verified config/reported', id);
     }
 
     if (device.id === state.selectedId) applyConfigToUi(device);
@@ -1737,6 +2003,7 @@
   }
 
   function handleReminderReport(device, report) {
+    if (Number(report.revision || 0) < Number(device.remindersRevision || 0)) return;
     const list = Array.isArray(report.reminders)
       ? report.reminders
           .map((item) => ({ day: Number(item.day) || 0, label: truncateUtf8Bytes(String(item.label || ''), REMINDER_LABEL_MAX_BYTES) }))
@@ -1745,12 +2012,12 @@
     device.reminders = list;
     device.remindersRevision = Number(report.revision || 0);
 
-    for (const [id, pending] of state.pending.entries()) {
-      if (pending.kind !== 'reminders' || pending.deviceId !== device.id) continue;
-      if (device.remindersRevision >= pending.revision && remindersEqual(device.reminders, pending.nextList)) {
-        clearPending(id);
-        device.remindersPending = false;
-        toast('Đã lưu danh sách nhắc nhở');
+    for (const [id, pending] of state.uncertain) {
+      if (pending.deviceId !== device.id || pending.kind !== 'reminders') continue;
+      if (!pending.observed && device.remindersRevision >= pending.revision &&
+          remindersEqual(device.reminders, pending.nextList)) {
+        pending.observed = true;
+        toast('Nhắc nhở đã xuất hiện trên máy; đang chờ ACK xác nhận', 5000);
       }
     }
 
@@ -1800,21 +2067,17 @@
     const payload = { v: PROTOCOL_VERSION, revision, requestId: id, reminders: nextList };
     device.remindersPending = true;
     renderReminderList(device);
-    state.pending.set(id, {
-      kind: 'reminders', deviceId: device.id, revision, nextList,
-      timeout: setTimeout(() => {
-        const pending = state.pending.get(id);
-        if (!pending) return;
-        state.pending.delete(id);
-        device.remindersPending = false;
-        if (device.id === state.selectedId) renderReminderList(device);
-        toast('ESP32 chưa xác nhận nhắc nhở · thử lại sau', 3600);
-      }, WEB.configTimeoutMs)
-    });
+    startTransaction(id, { kind: 'reminders', operation: 'reminders.save',
+      deviceId: device.id, revision, nextList }, WEB.configTimeoutMs);
     try {
       const envelope = await signMqttWrite(device, 'reminders/set', payload);
-      publish(topics(device.id).reminders, envelope, { qos: 1, retain: false });
+      armTransaction(id);
+      transactionPublished(id);
+      await publish(topics(device.id).reminders, envelope, { awaitAck: true, requestId: id });
+      retrySameRequest(id, topics(device.id).reminders, envelope);
     } catch (error) {
+      if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return;
+      if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return; }
       clearPending(id);
       device.remindersPending = false;
       if (device.id === state.selectedId) renderReminderList(device);
@@ -1823,6 +2086,18 @@
   }
 
   function handleSnapshot(device, snapshot) {
+    const last = state.lastTerminalByDevice.get(device.id);
+    if (last) {
+      console.info('[TX state]', { operation: last.operation,
+        ackToStateMs: Math.round(performance.now() - last.tAckBrowser) });
+      state.lastTerminalByDevice.delete(device.id);
+    }
+    for (const pending of state.uncertain.values()) {
+      if (pending.deviceId !== device.id || pending.observed ||
+          !['batch_start', 'batch_stop'].includes(pending.action)) continue;
+      if (Boolean(snapshot.runtime?.batchRunning) ===
+          (batchTargetForAction(pending.action) === 'running')) pending.observed = true;
+    }
     device.snapshot = snapshot;
     device.snapshotAt = Date.now();
     feedTelemetrySnapshot(device, snapshot);
@@ -2038,7 +2313,7 @@
     const device = currentDevice();
     telemetryEnsureDevice(device);
     if (!device) {
-      telemetrySetStatus('Chưa chọn thiết bị');
+      telemetrySetStatus('Đang chờ dữ liệu');
       requestTemperatureChartRender();
       return;
     }
@@ -2061,13 +2336,24 @@
     const seq = ++telemetryChart.historyRequestSeq;
     const requestId = `hist-${Date.now().toString(36)}-${seq.toString(36)}`.slice(0, 39);
     telemetryChart.activeRequestId = requestId;
+    telemetryChart.nextCursor = 0;
+    telemetryChart.historyGap = false;
     telemetrySetStatus('Đang đọc EEPROM 30 phút gần nhất…');
     try {
       const body = { v: 1, requestId, minutes: 30 };
       const envelope = await signMqttWrite(device, 'history/request', body);
       if (telemetryChart.deviceId !== device.id || telemetryChart.activeRequestId !== requestId) return;
-      publish(topics(device.id).historyRequest, envelope, { qos: 1, retain: false });
+      if (Number(device.presence?.proto || 0) >= 2) {
+        startTransaction(requestId, { kind: 'history', operation: 'history.read',
+          deviceId: device.id }, 15_000);
+        state.pending.get(requestId).ackKey = controlSessions.get(device.id)?.key;
+        armTransaction(requestId);
+        transactionPublished(requestId);
+      }
+      await publish(topics(device.id).historyRequest, envelope, { awaitAck: true, requestId });
+      retrySameRequest(requestId, topics(device.id).historyRequest, envelope);
       window.setTimeout(() => {
+        if (state.pending.has(requestId)) return; // V2 transaction owns its timeout.
         if (telemetryChart.activeRequestId !== requestId || !telemetryChart.historyLoading) return;
         telemetryChart.historyLoading = false;
         telemetryChart.historyRetryAt = Date.now() + 30_000;
@@ -2075,6 +2361,9 @@
         requestTemperatureChartRender();
       }, 8000);
     } catch (error) {
+      if (state.uncertain.has(requestId) || pendingOutcomeKnown(requestId)) return;
+      if (error.code === 'UNCERTAIN') { state.pending.get(requestId)?.onTimeout(); return; }
+      clearPending(requestId);
       if (telemetryChart.activeRequestId !== requestId) return;
       telemetryChart.historyLoading = false;
       telemetryChart.historyRetryAt = Date.now() + 30_000;
@@ -2086,17 +2375,25 @@
     if (!device || device.id !== state.selectedId) return;
     telemetryEnsureDevice(device);
     if (String(payload?.requestId || '') !== telemetryChart.activeRequestId) return;
+    const cursor = Number(payload?.cursor);
+    if (Number.isFinite(cursor) && cursor !== telemetryChart.nextCursor) {
+      telemetryChart.historyGap = true;
+    }
+    telemetryChart.nextCursor = Number.isFinite(cursor) ? cursor + 12 : telemetryChart.nextCursor;
     const samples = Array.isArray(payload?.samples) ? payload.samples : [];
     telemetryMerge(samples.map((row) => ({
       t: Number(row?.[0]) * 1000,
       temperature: Number(row?.[1]),
     })));
     if (payload?.done) {
+      const pending = state.uncertain.get(String(payload.requestId || ''));
+      if (pending?.deviceId === device.id && pending.kind === 'history' && !telemetryChart.historyGap)
+        pending.observed = true;
       telemetryChart.historyLoading = false;
-      telemetryChart.historyLoaded = true;
+      telemetryChart.historyLoaded = !telemetryChart.historyGap;
       telemetryChart.historyLoadedAt = Date.now();
-      telemetryChart.historyRetryAt = 0;
-      telemetrySetStatus(telemetryChart.points.length
+      telemetryChart.historyRetryAt = telemetryChart.historyGap ? Date.now() + 10_000 : 0;
+      telemetrySetStatus(telemetryChart.historyGap ? 'Thiếu gói lịch sử · sẽ đọc lại' : telemetryChart.points.length
         ? 'EEPROM 5 phút · cập nhật trực tiếp'
         : 'EEPROM chưa có dữ liệu · cập nhật trực tiếp');
     }
@@ -2238,6 +2535,7 @@
     if (!state.mqttConnected || !deviceId) return;
     try {
       publish(topics(deviceId).session, {
+        clientId: controlClientId,
         active,
         ttlMs: active ? WEB.sessionTtlMs : 1000,
         sync
@@ -2261,7 +2559,8 @@
     state.sessionTimer = setInterval(() => {
       const device = currentDevice();
       const needsSync = device?.id !== state.selectedId ||
-          !device?.config || !validateFullConfig(device.config);
+          !device?.config || !validateFullConfig(device.config) ||
+          Number(device.snapshot?.revision || 0) > Number(device.revision || 0);
       sendSession(state.selectedId, true, needsSync);
     }, WEB.sessionRefreshMs);
   }
@@ -2273,30 +2572,43 @@
   function syncSelectedDevice(force = false) {
     const device = currentDevice();
     if (!device) return;
-    subscribeDevice(device.id);
-    activateSelectedSession(force);
+    subscribeDevice(device.id).then(() => {
+      if (device.id === state.selectedId) activateSelectedSession(force);
+    }).catch((error) => {
+      state.mqttMessage = `SUBACK lỗi: ${error.message}`;
+      renderDevice();
+    });
     if (device.config) applyConfigToUi(device, force);
     renderReminderList(device);
     renderDevice();
     renderPushStatus();
   }
 
-  function subscribeDevice(deviceId) {
+  async function subscribeDevice(deviceId) {
     if (!state.mqttConnected || !state.mqtt?.connected || !deviceId) return;
     const outputTopics = topics(deviceId);
-    [outputTopics.presence, outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log, outputTopics.historyReport]
-      .forEach((topic) => {
-        if (state.subscriptions.has(topic)) return;
-        state.mqtt.subscribe(topic, { qos: topic.endsWith('/snapshot') ? 0 : 1 }, (error) => {
-          if (!error) state.subscriptions.add(topic);
+    const selected = deviceId === state.selectedId;
+    const desired = selected
+      ? [outputTopics.presence, outputTopics.snapshot, outputTopics.report,
+        outputTopics.remindersReport, outputTopics.ack, outputTopics.log, outputTopics.historyReport]
+      : [outputTopics.presence];
+    await Promise.all(desired.filter((topic) => !state.subscriptions.has(topic)).map((topic) =>
+      new Promise((resolve, reject) => {
+        state.mqtt.subscribe(topic, { qos: topic.endsWith('/snapshot') ? 0 : 1 }, (error, granted) => {
+          if (error || !granted?.length || granted.some((item) => item.qos === 128)) {
+            reject(error || new Error(`Broker từ chối ${topic}`));
+            return;
+          }
+          state.subscriptions.add(topic);
+          resolve();
         });
-      });
+      })));
   }
 
   function unsubscribeDevice(deviceId) {
     if (!state.mqtt?.connected || !deviceId) return;
     const outputTopics = topics(deviceId);
-    [outputTopics.presence, outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log, outputTopics.historyReport]
+    [outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log, outputTopics.historyReport]
       .forEach((topic) => {
         if (!state.subscriptions.has(topic)) return;
         state.mqtt.unsubscribe(topic);
@@ -2339,7 +2651,7 @@
       state.mqttMessage = 'MQTT đã kết nối';
       state.subscriptions.clear();
       state.devices.forEach((device) => {
-        subscribeDevice(device.id);
+        if (device.id !== state.selectedId) subscribeDevice(device.id).catch(console.error);
         // Don rac 1 lan: cac ban truoc cua trang nay tung gui config/set voi
         // retain:true (da sua), co the con sot lai tren broker tu truoc khi
         // sua. Publish payload rong kem retain:true la cach chuan cua MQTT de
@@ -2349,7 +2661,7 @@
           state.mqtt.publish(topics(device.id).config, '', { qos: 1, retain: true });
         } catch (_) {}
       });
-      activateSelectedSession(true);
+      syncSelectedDevice(true);
       renderDevice();
     });
     state.mqtt.on('reconnect', () => {
@@ -2378,12 +2690,21 @@
       if (!device) return;
       let payload;
       try { payload = JSON.parse(data.toString()); } catch (_) { return; }
-      if (Number.isFinite(Number(payload.bootId))) device.bootId = Number(payload.bootId);
+      if (parsedTopic.channel !== 'ack' && Number.isFinite(Number(payload.bootId)))
+        device.bootId = Number(payload.bootId);
       if (parsedTopic.channel === 'presence') handlePresence(device, payload);
       else if (parsedTopic.channel === 'snapshot') handleSnapshot(device, payload);
       else if (parsedTopic.channel === 'config/reported') handleConfigReport(device, payload);
       else if (parsedTopic.channel === 'reminders/reported') handleReminderReport(device, payload);
-      else if (parsedTopic.channel === 'ack') handleAck(device, payload);
+      else if (parsedTopic.channel === 'ack') {
+        verifyDeviceAck(device, payload).then((valid) => {
+          if (valid) handleAck(device, payload);
+          else if (state.pending.has(String(payload.requestId || '')) ||
+              state.uncertain.has(String(payload.requestId || ''))) {
+            console.warn('[TX] PROTOCOL_ERROR: ACK không xác thực được');
+          }
+        }).catch((error) => console.error('[TX] ACK verify', error));
+      }
       else if (parsedTopic.channel === 'log') handleLog(device, payload);
       else if (parsedTopic.channel === 'history/reported') handleTemperatureHistory(device, payload);
     });
@@ -2405,15 +2726,67 @@
     const days = Number($('totalDays').value);
     const temperature = Number($('batchTarget').value);
     const humidity = Number($('targetHumidity').value);
-    const humidifierInstalled = Boolean(currentDevice()?.config?.humidifierInstalled);
     if (!(days >= 1 && days <= 40)) return invalidate('batchForm', 'totalDays', 'Tổng số ngày ấp phải từ 1 đến 40 ngày.');
     if (!(temperature >= 30 && temperature <= 40)) return invalidate('batchForm', 'batchTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
-    if (humidifierInstalled) {
-      if (!(humidity >= 30 && humidity <= 90)) return invalidate('batchForm', 'targetHumidity', 'Độ ẩm đặt phải từ 30 đến 90%RH.');
-    } else if (!(humidity >= 20 && humidity <= 95)) {
+    if (!currentDevice()?.config?.humidifierInstalled && !(humidity >= 20 && humidity <= 95)) {
       return invalidate('batchForm', 'targetHumidity', 'Độ ẩm tham khảo phải từ 20 đến 95%RH.');
     }
     return true;
+  }
+
+  function validateHumidifierForm() {
+    clearInvalid('humidifierForm');
+    const on = Number($('humidifierOnHumidity').value);
+    const off = Number($('humidifierOffHumidity').value);
+    if (!Number.isInteger(off) || off < 30 || off > 90)
+      return invalidate('humidifierForm', 'humidifierOffHumidity', 'Ngưỡng tắt phải từ 30 đến 90%RH.');
+    if (!Number.isInteger(on) || on < 20 || on > 89 || off - on < 1 || off - on > 10)
+      return invalidate('humidifierForm', 'humidifierOnHumidity', 'Ngưỡng bật phải thấp hơn ngưỡng tắt từ 1 đến 10%RH.');
+    return true;
+  }
+
+  function initSettingHints() {
+    let index = 0;
+    const addToggle = (label, content) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'settingHintTrigger';
+      button.textContent = label.textContent;
+      content.id ||= `settingHint${++index}`;
+      content.classList.add('settingHintContent');
+      content.hidden = true;
+      button.setAttribute('aria-controls', content.id);
+      button.setAttribute('aria-expanded', 'false');
+      button.addEventListener('click', () => {
+        content.hidden = !content.hidden;
+        button.setAttribute('aria-expanded', String(!content.hidden));
+      });
+      label.replaceWith(button);
+    };
+    document.querySelectorAll('#page-settings .notificationLine > div').forEach((row) => {
+      const label = row.querySelector(':scope > strong');
+      const note = row.querySelector(':scope > small');
+      if (label && note) addToggle(label, note);
+    });
+    const footnotes = {
+      'startTune': 'Điều kiện tự dò PID',
+      'advancedForm': 'Lưu ý cài đặt nâng cao',
+      'renameDeviceForm': 'Phạm vi đổi tên',
+      'changePinForm': 'Yêu cầu mã PIN'
+    };
+    for (const [parentId, label] of Object.entries(footnotes)) {
+      const parent = $(parentId);
+      const note = parentId === 'startTune'
+        ? parent?.parentElement?.querySelector(':scope > .settingFootnote')
+        : parent?.querySelector(':scope > .settingFootnote');
+      if (!note || note.querySelector('strong')) continue;
+      const details = document.createElement('details');
+      details.className = 'settingHintNote';
+      const summary = document.createElement('summary');
+      summary.textContent = label;
+      note.replaceWith(details);
+      details.append(summary, note);
+    }
   }
 
   function validateTemperatureForm() {
@@ -2524,6 +2897,7 @@
   }
 
   function bindUi() {
+    initSettingHints();
     $('confirmCancel').addEventListener('click', () => finishConfirm(false));
     $('confirmAccept').addEventListener('click', () => finishConfirm(true));
     $('confirmDialog').addEventListener('cancel', (event) => { event.preventDefault(); finishConfirm(false); });
@@ -2538,6 +2912,7 @@
       const previous = state.selectedId;
       state.selectedId = event.target.value;
       deactivateSession(previous);
+      if (previous && previous !== state.selectedId) unsubscribeDevice(previous);
       saveDevices();
       syncSelectedDevice(true);
       syncDeviceSelectorUi();
@@ -2558,7 +2933,7 @@
 
     $('liveStateTile').addEventListener('click', (event) => {
       const device = currentDevice();
-      if (!device?.activeFault) return;
+      if (!device?.activeFaults?.length) return;
       event.stopPropagation();
       const popup = $('faultPopup');
       if (popup && !popup.hidden) closeFaultPopup();
@@ -2617,6 +2992,7 @@
       const previous = state.selectedId;
       state.selectedId = id;
       deactivateSession(previous);
+      if (previous && previous !== id) unsubscribeDevice(previous);
       renderSelector();
       subscribeDevice(id);
       $('deviceDialog').close();
@@ -2772,6 +3148,14 @@
           accept: 'Bắt đầu mẻ'
         });
         if (!ok) return;
+        if (!$('resumeAfterPowerLoss').checked) {
+          const confirmed = await confirmAction({
+            title: 'Bắt đầu khi đã tắt khôi phục?',
+            message: 'Nếu mất điện, mẻ sẽ không tự tiếp tục. Bạn xác nhận vẫn bắt đầu mẻ với lựa chọn này?',
+            accept: 'Vẫn bắt đầu mẻ', danger: true
+          });
+          if (!confirmed) return;
+        }
         setFormError('batchForm', '');
         beginBatchActionPending(device, 'running');
         if (!await sendCommand('batch_start')) {
@@ -2806,7 +3190,7 @@
     $('outputSirenBtn')?.addEventListener('click', async () => {
       const device = currentDevice();
       if (!device?.snapshot?.runtime?.sirenOn) return;
-      if (await sendCommand('alarm_ack')) toast('Đã tạm tắt còi vài phút');
+      await sendCommand('alarm_ack');
     });
 
     $('temperatureForm').addEventListener('submit', async (event) => {
@@ -2855,6 +3239,13 @@
       await sendConfig('lightAlarmForm', 'lightAlarm');
     });
 
+    $('humidifierForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!validateHumidifierForm()) return;
+      updateSettingSummaries();
+      await sendConfig('humidifierForm', 'humidifier');
+    });
+
     $('advancedForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!validateAdvancedForm()) return;
@@ -2888,12 +3279,21 @@
       if (ok) window.location.href = 'http://192.168.4.1/';
     });
 
-    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm', 'advancedForm'].forEach(registerDirty);
+    ['quickForm', 'batchForm', 'temperatureForm', 'turningForm', 'sensorForm', 'lightAlarmForm', 'humidifierForm', 'advancedForm'].forEach(registerDirty);
   }
 
   function startTimers() {
     clearInterval(state.staleTimer);
-    state.staleTimer = setInterval(() => renderDevice(), 5000);
+    state.staleTimer = setInterval(() => {
+      sweepUncertain();
+      for (const [id, entry] of state.lastTerminalByDevice)
+        if (Date.now() - entry.at > PACKET_POLICY.UNCERTAIN_TTL_MS)
+          state.lastTerminalByDevice.delete(id);
+      for (const [id, entry] of terminalOutcomes)
+        if (performance.now() - entry.at > PACKET_POLICY.UNCERTAIN_TTL_MS)
+          terminalOutcomes.delete(id);
+      renderDevice();
+    }, 5000);
   }
 
   // Web Push (thay Telegram) - trang thai va nut bam trong card "Thông báo".
@@ -3052,9 +3452,11 @@
     state.mqttSessionState = 'loading';
     const result = await postCloudJson('/api/device/mqtt-session', {
       device_id: device.id,
-      pairing_token: device.pairingToken
+      pairing_token: device.pairingToken,
+      control_client_id: controlClientId
     });
     if (result.success && saveProvisionedMqtt(result)) {
+      if (result.control) await storeControlSession(device, result.control);
       state.mqttSessionState = 'ready';
       return true;
     }

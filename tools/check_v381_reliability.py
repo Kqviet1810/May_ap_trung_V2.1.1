@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,7 +34,8 @@ security = read("cloudflare/src/security-wrapper.js")
 safety = read("doc/SAFETY_HARDWARE_REQUIREMENTS.md")
 build_workflow = read(".github/workflows/build-firmware.yml")
 
-require_re(config, r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"3\.8\.3"', "firmware version")
+release = json.loads(read("release-manifest.json"))["firmware"]
+require_re(config, rf'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"{re.escape(release)}"', "firmware version")
 
 # MQTT deploy image must fail at compile time if broker credentials are absent.
 require(config, "static_assert(sizeof(MQTT_BROKER_HOST) > 1U", "MQTT host compile guard")
@@ -155,7 +157,7 @@ require(config, "PIN_OUT_HUMIDIFIER", "single-relay humidifier GPIO")
 require(config, "humidifierEnabled = false", "humidifier optional default off")
 require(machine, "config_.humidifierInstalled &&", "humidifier hardware gate")
 require(machine, "config_.humidifierEnabled && batchRunning_", "humidifier batch permit")
-require(machine, "HUMIDIFIER_HYSTERESIS_RH", "humidifier hysteresis")
+require(machine, "config_.humidifierHysteresisRh", "humidifier hysteresis")
 require(app, "'humidifierEnabled',", "web humidifier config field")
 require(app, "outputHumidifierTile", "web humidifier feature-gated runtime tile")
 require(app, "syncHumidifierFeatureUi", "web humidifier feature gate")
@@ -164,4 +166,4 @@ require(machine, "scheduledVentActive", "periodic ventilation RTC control")
 require(machine, "CONFIG_SCHEMA = 11", "config schema 11 for ventilation schedule")
 require(app, "advVentScheduleHour6", "web periodic ventilation schedule")
 
-print("v3.8.3 reliability regression checks: OK")
+print(f"v{release} reliability regression checks: OK")
