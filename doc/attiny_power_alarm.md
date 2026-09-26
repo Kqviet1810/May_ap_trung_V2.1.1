@@ -62,15 +62,17 @@ Nhung **khong truyen 16..23 xung tren day BUS**. Bench thuc te cho thay cac fram
 Wire format hien tai:
 - **So xung vat ly 8..15** = `8 + (batch | 9V-low | siren)`; chi mang 3 bit thap.
 - **Xung LOW dau tien 30 ms** = activity OFF.
-- **Xung LOW dau tien 60 ms** = activity ON.
+- **Xung LOW dau tien 120 ms** = activity ON.
 - Cac xung LOW con lai = 30 ms.
 - ESP giai ma do rong xung dau, khoi phuc bit activity va tra ve dung status logic `8..23` cho `MachineController`.
 - Moi status van chi co **mot frame + mot ACK 30 ms**.
 
+Marker 120 ms duoc chon co chu dich de **fail-closed khi tron firmware cu/moi**: receiver ESP cu coi LOW tu 90 ms tro len la frame loi. Vi vay Tiny moi + ESP cu se bao mat status/E501 thay vi am tham doc activity ON thanh OFF. Chieu nguoc lai, ESP moi cung tu choi frame status cu co hon 15 xung. Hai phien ban khong khop se loi ro, khong gia vo dong bo.
+
 Vi du logical status `22`:
 - `22 - 8 = 14 = 0b1110`: 9V-low=1, siren=1, activity=1, batch=0.
 - So xung vat ly = `8 + 2 + 4 = 14`.
-- Xung thu nhat LOW 60 ms de danh dau activity=ON.
+- Xung thu nhat LOW 120 ms de danh dau activity=ON.
 - 13 xung con lai LOW 30 ms.
 - ESP giai ma lai thanh logical `22`.
 
@@ -119,7 +121,7 @@ Muc tieu bench dong ngu phai do tren mach that sau khi chot nguon pin, divider v
 GitHub Actions build ATtiny13A bang avr-g++ va fail neu Flash >1024 B hoac static RAM >64 B.
 CI kiem protocol/message/status constants giua ESP32 va Tiny, dong thoi khoa cac invariant moi:
 - frame STATUS vat ly khong vuot 15 xung;
-- activity phai ma hoa bang do rong xung dau;
+- activity phai ma hoa bang do rong xung dau 120 ms;
 - khong duoc dua split-status state machine tro lai;
 - PB0 phai Hi-Z khi ESP mat nguon;
 - khong duoc dua delay 50 ms sau wake tro lai.
