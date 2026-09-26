@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { test } = require('node:test');
-const { TransactionLedger } = require('../protocol_v2.js');
+const { TransactionLedger, PacketPolicy } = require('../protocol_v2.js');
 
 const ack = (id, operation, phase, ok, code) =>
   ({ v: 2, requestId: id, operation, phase, ok, code });
@@ -65,10 +65,10 @@ test('MQTT packet worst cases stay within budgets', () => {
     clientId: `w-${'a'.repeat(16)}`, seq: 1780000000000, nonce: 'c'.repeat(16) };
   const wireBytes = (suffix, body) => Buffer.byteLength(JSON.stringify({ v: 2,
     grant, grantSig: 'a'.repeat(64), body: JSON.stringify(body), sig: 'b'.repeat(64) })) +
-    Buffer.byteLength(topic(suffix)) + 5;
+    Buffer.byteLength(topic(suffix)) + PacketPolicy.MQTT_OVERHEAD;
   const command = { ...base, bootId: 4294967295, expiresAt: 1780000000,
     action: 'batch_overdue_continue' };
-  assert.ok(wireBytes('command', command) < 512);
+  assert.ok(wireBytes('command', command) < PacketPolicy.SMALL_TARGET);
   const advanced = {
     kp: 100, ki: 20, kd: 200, pidCycleSec: 60, maxHeaterPower: 100,
     tempRateLimitC: 10, tempRateWindowSec: 1800, tempOscillationCrossLimit: 30,
@@ -87,14 +87,14 @@ test('MQTT packet worst cases stay within budgets', () => {
   assert.deepEqual([...new Set(advancedFields)].sort(), Object.keys(advanced).sort());
   const config = { ...base, requestId: `cfg-${'a'.repeat(20)}`,
     revision: 4294967295, bootId: 4294967295, config: advanced };
-  assert.ok(wireBytes('config/set', config) < 1024);
+  assert.ok(wireBytes('config/set', config) < PacketPolicy.CHUNK_TARGET);
   const report = { v: 2, bootId: 4294967295, revision: 4294967295,
     part: 99, done: true, config: { field: 'x'.repeat(700) } };
-  assert.ok(Buffer.byteLength(JSON.stringify(report)) + Buffer.byteLength(topic('config/reported')) + 5 < 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(report)) + Buffer.byteLength(topic('config/reported')) + PacketPolicy.MQTT_OVERHEAD < PacketPolicy.CHUNK_TARGET);
   const history = { v: 2, bootId: 4294967295, requestId: `hist-${'a'.repeat(20)}`,
     windowMin: 1440, intervalSec: 300, cursor: 288, done: true,
     samples: Array.from({ length: 12 }, (_, i) => [4294967295 - i * 300, -20.0]) };
-  assert.ok(Buffer.byteLength(JSON.stringify(history)) + Buffer.byteLength(topic('history/reported')) + 5 < 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(history)) + Buffer.byteLength(topic('history/reported')) + PacketPolicy.MQTT_OVERHEAD < PacketPolicy.CHUNK_TARGET);
   const snapshot = { bootId: 4294967295, revision: 4294967295, runtime: {
     temperature: 100, humidity: 100, machineState: 4294967295,
     batchRunning: true, currentDay: 200, heaterOn: true, heaterPower: 100,
@@ -103,14 +103,46 @@ test('MQTT packet worst cases stay within budgets', () => {
     autoTuneState: 255, autoTuneProgress: 100, resumeConfirmationRequired: true,
     batchOverdueConfirmationPending: true,
     activeFaults: Array.from({ length: 12 }, () => ({ code: 65535, severity: 255 })) } };
-  assert.ok(Buffer.byteLength(JSON.stringify(snapshot)) + Buffer.byteLength(topic('snapshot')) + 5 < 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(snapshot)) + Buffer.byteLength(topic('snapshot')) + PacketPolicy.MQTT_OVERHEAD < PacketPolicy.CHUNK_TARGET);
   const response = { v: 2, requestId: `cmd-${'a'.repeat(20)}`,
     operation: 'batch.overdue.continue', phase: 'completed', ok: false,
     code: 'BATCH_HEATER_SWITCH_OFF', bootId: 4294967295,
     result: 'rejected', message: 'Hãy bật công tắc thanh nhiệt trước',
     revision: 4294967295, tDeviceReceived: 4294967295,
     tDeviceCompleted: 4294967295, sig: 'a'.repeat(64) };
-  assert.ok(Buffer.byteLength(JSON.stringify(response)) + Buffer.byteLength(topic('ack')) + 5 < 512);
+  assert.ok(Buffer.byteLength(JSON.stringify(response)) + Buffer.byteLength(topic('ack')) + PacketPolicy.MQTT_OVERHEAD < PacketPolicy.SMALL_TARGET);
+});
+
+test('all seven config forms use patches within the shared packet policy', () => {
+  const source = readFileSync(require.resolve('../app.js'), 'utf8');
+  const build = source.split('  function buildConfig(group) {')[1].split('  function nextRevision')[0];
+  const groups = ['quick', 'batch', 'temperature', 'turning', 'sensor', 'lightAlarm', 'advanced'];
+  for (const group of groups) {
+    const section = build.split(new RegExp(`(?:if|else if) \\(group === '${group}'\\) \\{`))[1]
+      ?.split(/\n    \} else if|\n    \}\n    return config/)[0];
+    assert.ok(section, `missing config form: ${group}`);
+    const names = [...new Set([...section.matchAll(/config\.([A-Za-z0-9]+)\s*=/g)]
+      .map((match) => match[1]))];
+    if (group === 'quick' || group === 'batch') names.push(
+      'lowTempAlarm', 'highTempAlarm', 'emergencyTemp', 'ventOnTemp', 'ventOffTemp');
+    assert.ok(names.length, `${group}: no fields`);
+    const patch = Object.fromEntries(names.map((name) => [name, name === 'sirenSelfTestEnabled'
+      ? true : 4294967295]));
+    const body = { v: 2, requestId: 'cfg-' + 'a'.repeat(20), clientId: 'w-' + 'b'.repeat(16),
+      seq: 1780000000000, nonce: 'c'.repeat(16), bootId: 4294967295,
+      revision: 4294967295, config: patch };
+    const envelope = { v: 2, grant: `w-${'b'.repeat(16)}|1780000000|${'d'.repeat(24)}`,
+      grantSig: 'e'.repeat(64), body: JSON.stringify(body), sig: 'f'.repeat(64) };
+    const bytes = Buffer.byteLength(JSON.stringify(envelope)) +
+      Buffer.byteLength('mayap/v1/MAP-1234567890AB/config/set') + PacketPolicy.MQTT_OVERHEAD;
+    assert.ok(bytes < PacketPolicy.NORMAL_CAP, `${group}: ${bytes} B`);
+  }
+  const header = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v3_4_0/protocol_limits.h'), 'utf8');
+  for (const [key, name] of [['HARD_CAP', 'MQTT_HARD_CAP'],
+    ['NORMAL_CAP', 'MQTT_NORMAL_CAP'], ['SMALL_TARGET', 'MQTT_SMALL_TARGET'],
+    ['CHUNK_TARGET', 'MQTT_CHUNK_TARGET'], ['MQTT_OVERHEAD', 'MQTT_OVERHEAD']]) {
+    assert.match(header, new RegExp(`${name} = ${PacketPolicy[key]}U;`));
+  }
 });
 
 test('ACK HMAC binds result, reason and request identity', async () => {

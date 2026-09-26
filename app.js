@@ -143,14 +143,13 @@
   const controlSessions = new Map();
   const transactions = new window.MayapProtocolV2.TransactionLedger();
   const controlSequences = new Map();
-  const PACKET_HARD_CAP = 4096;
-  const PACKET_NORMAL_CAP = 2048;
+  const PACKET_POLICY = window.MayapProtocolV2.PacketPolicy;
   const encoder = new TextEncoder();
   async function storeControlSession(device, control) {
     if (!/^[a-f0-9]{64}$/i.test(control.sessionKey)) throw new Error('PROTOCOL_ERROR');
     control.key = await crypto.subtle.importKey('raw', new Uint8Array(
       control.sessionKey.match(/../g).map((v) => parseInt(v, 16))),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
     delete control.sessionKey;
     controlSessions.set(device.id, control);
     return control;
@@ -1429,9 +1428,9 @@
       const error = new Error('MQTT chưa kết nối'); error.code = 'TRANSPORT_ERROR'; throw error;
     }
     const wire = JSON.stringify(payload);
-    const bytes = encoder.encode(wire).length + encoder.encode(topic).length + 5;
-    if (bytes > PACKET_NORMAL_CAP || bytes > PACKET_HARD_CAP) {
-      const error = new Error(`Gói MQTT vượt giới hạn ${PACKET_NORMAL_CAP} B (${bytes} B)`);
+    const bytes = encoder.encode(wire).length + encoder.encode(topic).length + PACKET_POLICY.MQTT_OVERHEAD;
+    if (bytes > PACKET_POLICY.NORMAL_CAP) {
+      const error = new Error(`Gói MQTT vượt giới hạn ${PACKET_POLICY.NORMAL_CAP} B (${bytes} B)`);
       error.code = 'PROTOCOL_ERROR';
       throw error;
     }
@@ -1439,7 +1438,21 @@
       try {
         state.mqtt.publish(topic, wire, { qos: 1, retain: false }, (error) => {
           if (error) { error.code = 'UNCERTAIN'; reject(error); }
-          else resolve(); // Broker PUBACK; controller outcome still pending.
+          else {
+            const id = options.requestId;
+            const pending = state.pending.get(id) || state.uncertain.get(id);
+            const tPuback = performance.now();
+            if (pending && pending.tBrokerPuback == null) pending.tBrokerPuback = tPuback;
+            const outcome = terminalOutcomes.get(id);
+            if (outcome && outcome.tBrokerPuback == null) {
+              outcome.tBrokerPuback = tPuback;
+              console.info('[TX broker PUBACK after terminal]', { operation: outcome.operation,
+                publishToBrokerPubackMs: outcome.tPublished == null ? null
+                  : Math.round(tPuback - outcome.tPublished),
+                clickToBrokerPubackMs: Math.round(tPuback - outcome.tCreated) });
+            }
+            resolve(); // Broker PUBACK; controller outcome still pending.
+          }
         });
       } catch (error) { error.code = 'TRANSPORT_ERROR'; reject(error); }
     });
@@ -1454,12 +1467,7 @@
     pending.timeoutMs = timeoutMs;
     pending.onTimeout = () => {
       if (state.pending.get(id) !== pending) return;
-      pending.phase = 'UNCERTAIN';
-      clearTimeout(pending.retryTimer);
-      transactions.timeout(id);
-      state.pending.delete(id);
-      transactions.remove(id);
-      state.uncertain.set(id, { ...pending, uncertainAt: Date.now() });
+      moveToUncertain(id, pending);
       const device = state.devices.find((item) => item.id === pending.deviceId);
       if (pending.kind === 'config') setFormState(pending.formId, 'unconfirmed', 'Chưa nhận xác nhận cuối từ ESP32 · đang đồng bộ trạng thái');
       if (pending.kind === 'reminders' && device) {
@@ -1483,6 +1491,46 @@
     return pending;
   }
 
+  function moveToUncertain(id, pending) {
+    if (state.pending.get(id) !== pending) return;
+    clearTimeout(pending.timeout);
+    clearTimeout(pending.retryTimer);
+    transactions.uncertain(id);
+    pending.phase = 'UNCERTAIN';
+    pending.uncertainAt = performance.now();
+    state.pending.delete(id);
+    state.uncertain.set(id, pending);
+  }
+
+  function sweepUncertain() {
+    const now = performance.now();
+    for (const id of transactions.expireUncertain(now)) {
+      const pending = state.uncertain.get(id);
+      if (!pending) continue;
+      state.uncertain.delete(id);
+      const device = state.devices.find((item) => item.id === pending.deviceId);
+      if (pending.observed) {
+        if (pending.kind === 'config' && Number(device?.revision || 0) <= pending.revision)
+          setFormState(pending.formId, 'unconfirmed', 'Đã thấy cấu hình trên máy; không nhận được ACK cho giao dịch');
+        if (pending.kind === 'reminders')
+          toast('Đã thấy nhắc nhở trên máy; không nhận được ACK cho giao dịch', 5000);
+        if (pending.kind === 'history' && telemetryChart.activeRequestId === id)
+          telemetrySetStatus('Đã nhận lịch sử EEPROM; không nhận được ACK cuối');
+        continue;
+      }
+      if (pending.kind === 'config' && Number(device?.revision || 0) <= pending.revision)
+        setFormState(pending.formId, 'unconfirmed', 'Không nhận được kết quả cuối; kiểm tra lại cấu hình trên máy');
+      if (pending.kind === 'reminders') toast('Chưa xác nhận được nhắc nhở; kiểm tra trên máy', 5000);
+      if (pending.kind === 'history' && telemetryChart.activeRequestId === id)
+        telemetrySetStatus('Chưa xác nhận được lịch sử EEPROM · có thể thử đọc lại');
+      if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
+        if (device) device.batchUiAwaitingConfirmTarget = '';
+        if (device?.id === state.selectedId) setFormError('batchForm', 'Chưa xác nhận được kết quả; kiểm tra trạng thái trên máy');
+      }
+      console.warn('[TX] Hết thời gian đối soát', pending.operation, id);
+    }
+  }
+
   function armTransaction(id) {
     const pending = state.pending.get(id);
     if (pending) pending.timeout = setTimeout(pending.onTimeout, pending.timeoutMs);
@@ -1500,7 +1548,7 @@
     pending.retryTimer = setTimeout(() => {
       if (state.pending.get(id) !== pending || !state.mqttConnected) return;
       // Same signed envelope and requestId: ESP replays cached terminal result.
-      publish(topic, envelope, { awaitAck: true }).catch((error) =>
+      publish(topic, envelope, { awaitAck: true, requestId: id }).catch((error) =>
         console.warn('[TX retry]', pending.operation, error));
     }, 3500);
   }
@@ -1552,9 +1600,10 @@
       const envelope = await signMqttWrite(device, 'config/set', payload);
       armTransaction(id);
       transactionPublished(id);
-      await publish(topics(device.id).config, envelope, { awaitAck: true });
+      await publish(topics(device.id).config, envelope, { awaitAck: true, requestId: id });
       retrySameRequest(id, topics(device.id).config, envelope);
     } catch (error) {
+      if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return;
       if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return; }
       clearPending(id);
       setFormState(formId, 'error', error.message);
@@ -1609,10 +1658,11 @@
       const envelope = await signMqttWrite(device, 'command', payload);
       armTransaction(id);
       transactionPublished(id);
-      await publish(topics(device.id).command, envelope, { awaitAck: true });
+      await publish(topics(device.id).command, envelope, { awaitAck: true, requestId: id });
       retrySameRequest(id, topics(device.id).command, envelope);
       return true;
     } catch (error) {
+      if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return true;
       if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return true; }
       clearPending(id);
       toast(error.message);
@@ -1628,10 +1678,19 @@
     transactions.remove(id);
   }
 
+  // A terminal ACK can beat the MQTT.js PUBACK callback (or its error).
+  // Keep a bounded terminal record so that the later callback cannot undo it.
+  const terminalOutcomes = new Map();
+  function pendingOutcomeKnown(id) { return terminalOutcomes.has(id); }
+  function rememberOutcome(id, ok, pending) {
+    terminalOutcomes.set(id, { ok, at: performance.now(), operation: pending.operation,
+      tCreated: pending.tCreated, tPublished: pending.tPublished,
+      tBrokerPuback: pending.tBrokerPuback });
+  }
+
   function handleAck(device, ack) {
-    if (Number.isFinite(Number(ack.bootId))) device.bootId = Number(ack.bootId);
     const id = String(ack.requestId || '');
-    const pending = state.pending.get(id);
+    const pending = state.pending.get(id) || state.uncertain.get(id);
     if (!pending || pending.deviceId !== device.id) return;
     const transition = Number(ack.v) === 2 ? transactions.ack(id, ack) : null;
     if (transition === 'IGNORED') return;
@@ -1639,11 +1698,13 @@
       toast('PROTOCOL_ERROR: ACK từ máy không hợp lệ');
       return;
     }
+    if (Number.isFinite(Number(ack.bootId))) device.bootId = Number(ack.bootId);
     const v2 = Number(ack.v) === 2;
     const result = String(ack.result || '').toLowerCase();
     const phase = v2 ? String(ack.phase || '').toLowerCase()
       : result === 'accepted' ? 'received' : 'completed';
     if (phase === 'received') {
+      if (pending.phase === 'UNCERTAIN') return;
       pending.phase = 'RECEIVED';
       pending.tDeviceReceived = performance.now();
       if (pending.kind === 'config') setFormState(pending.formId, 'pending', 'Máy đã nhận · đang lưu EEPROM…');
@@ -1651,8 +1712,7 @@
       return;
     }
     if (phase === 'uncertain') {
-      clearPending(id);
-      state.uncertain.set(id, { ...pending, uncertainAt: Date.now() });
+      moveToUncertain(id, pending);
       if (pending.kind === 'config') setFormState(pending.formId, 'unconfirmed',
         'Máy chưa xác nhận lưu EEPROM · đang đồng bộ');
       if (pending.kind === 'reminders') device.remindersPending = false;
@@ -1670,27 +1730,42 @@
     }
     const ok = v2 ? ack.ok : result === 'applied';
     const message = humanAckMessage(ack);
-    pending.tDeviceCompleted = performance.now();
+    rememberOutcome(id, ok, pending);
+    pending.phase = ok ? 'APPLIED' : 'REJECTED';
+    const tAckBrowser = performance.now();
+    const late = state.uncertain.has(id);
+    pending.tAckBrowser = tAckBrowser;
+    const deviceReceived = Number(ack.tDeviceReceived);
+    const deviceCompleted = Number(ack.tDeviceCompleted);
     console.info('[TX latency]', { operation: pending.operation, code: ack.code || result,
-      tCreated: pending.tCreated, tPublished: pending.tPublished,
-      tDeviceReceived: ack.tDeviceReceived, tDeviceCompleted: ack.tDeviceCompleted,
+      late, tCreatedBrowser: pending.tCreated, tPublishBrowser: pending.tPublished,
+      tBrokerPubackBrowser: pending.tBrokerPuback ?? null, tAckBrowser,
+      tDeviceReceivedEsp: ack.tDeviceReceived, tDeviceCompletedEsp: ack.tDeviceCompleted,
       webToPublishMs: Math.round((pending.tPublished || pending.tCreated) - pending.tCreated),
-      publishToReceivedMs: pending.tDeviceReceived && pending.tPublished
+      publishToBrokerPubackMs: pending.tBrokerPuback && pending.tPublished
+        ? Math.round(pending.tBrokerPuback - pending.tPublished) : null,
+      clickToBrokerPubackMs: pending.tBrokerPuback == null ? null
+        : Math.round(pending.tBrokerPuback - pending.tCreated),
+      publishToReceivedAckMs: pending.tDeviceReceived && pending.tPublished
         ? Math.round(pending.tDeviceReceived - pending.tPublished) : null,
-      deviceProcessMs: Number.isFinite(Number(ack.tDeviceReceived)) &&
-        Number.isFinite(Number(ack.tDeviceCompleted))
-        ? (Number(ack.tDeviceCompleted) - Number(ack.tDeviceReceived)) >>> 0 : null });
+      clickToTerminalAckMs: Math.round(tAckBrowser - pending.tCreated),
+      deviceProcessMs: Number.isFinite(deviceReceived) && Number.isFinite(deviceCompleted)
+        ? (deviceCompleted - deviceReceived) >>> 0 : null });
     state.lastTerminalByDevice.set(device.id, { operation: pending.operation,
-      tDeviceCompleted: pending.tDeviceCompleted });
-    clearPending(id);
+      tAckBrowser, at: Date.now() });
+    if (late) { state.uncertain.delete(id); transactions.remove(id); }
+    else clearPending(id);
     if (pending.kind === 'config') {
+      const superseded = Number(device.revision || 0) > Number(ack.revision || pending.revision);
       if (ok) {
-        device.config = { ...pending.config };
-        device.revision = Number(ack.revision || pending.revision);
-        setFormState(pending.formId, 'saved', 'ESP32 đã lưu và kiểm tra EEPROM');
+        if (Number(ack.revision || pending.revision) >= device.revision) {
+          device.config = { ...pending.config };
+          device.revision = Number(ack.revision || pending.revision);
+        }
+        if (!superseded) setFormState(pending.formId, 'saved', 'ESP32 đã lưu và kiểm tra EEPROM');
         toast('Đã lưu cấu hình vào ESP32');
       } else {
-        setFormState(pending.formId, 'error', message);
+        if (!superseded) setFormState(pending.formId, 'error', message);
         toast(`ESP32 từ chối: ${message}`, 5000);
       }
       return;
@@ -1698,8 +1773,10 @@
     if (pending.kind === 'reminders') {
       device.remindersPending = false;
       if (ok) {
-        device.reminders = pending.nextList;
-        device.remindersRevision = Number(ack.revision || pending.revision);
+        if (Number(ack.revision || pending.revision) >= Number(device.remindersRevision || 0)) {
+          device.reminders = pending.nextList;
+          device.remindersRevision = Number(ack.revision || pending.revision);
+        }
       }
       if (device.id === state.selectedId) renderReminderList(device);
       toast(ok ? 'Đã lưu danh sách nhắc nhở' : `ESP32 từ chối: ${message}`, 5000);
@@ -1715,6 +1792,7 @@
       return;
     }
     if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
+      device.batchUiAwaitingConfirmTarget = '';
       if (!ok) {
         clearBatchActionPending(device);
         if (device.id === state.selectedId) {
@@ -1728,7 +1806,8 @@
   }
 
   async function verifyDeviceAck(device, ack) {
-    const pending = state.pending.get(String(ack?.requestId || ''));
+    const pending = state.pending.get(String(ack?.requestId || '')) ||
+      state.uncertain.get(String(ack?.requestId || ''));
     if (!pending || pending.deviceId !== device.id) return false;
     if (!pending.ackKey || !/^[a-f0-9]{64}$/i.test(String(ack.sig || ''))) {
       console.warn('[TX] ACK thiếu chữ ký phiên', ack.requestId);
@@ -1864,6 +1943,7 @@
       report = { ...report, config: assembly.config };
     }
     if (!report.config || !validateFullConfig(report.config)) return;
+    if (Number(report.revision || 0) < Number(device.revision || 0)) return;
     device.config = { ...report.config };
     device.revision = Number(report.revision || 0);
     device.configAt = Date.now();
@@ -1871,12 +1951,11 @@
 
     for (const [id, pending] of state.uncertain) {
       if (pending.deviceId !== device.id || pending.kind !== 'config') continue;
-      if (Date.now() - pending.uncertainAt > 120_000) { state.uncertain.delete(id); continue; }
-      if (device.revision >= pending.revision &&
+      if (!pending.observed && device.revision >= pending.revision &&
           Object.entries(pending.patch).every(([key, value]) =>
             Object.is(device.config[key], value))) {
-        state.uncertain.delete(id);
-        setFormState(pending.formId, 'saved', 'Cấu hình đã xuất hiện trong bộ nhớ máy; ACK bị mất');
+        pending.observed = true;
+        setFormState(pending.formId, 'unconfirmed', 'Cấu hình đã xuất hiện trên máy; đang chờ ACK xác nhận giao dịch');
       }
     }
 
@@ -1896,6 +1975,7 @@
   }
 
   function handleReminderReport(device, report) {
+    if (Number(report.revision || 0) < Number(device.remindersRevision || 0)) return;
     const list = Array.isArray(report.reminders)
       ? report.reminders
           .map((item) => ({ day: Number(item.day) || 0, label: truncateUtf8Bytes(String(item.label || ''), REMINDER_LABEL_MAX_BYTES) }))
@@ -1906,11 +1986,10 @@
 
     for (const [id, pending] of state.uncertain) {
       if (pending.deviceId !== device.id || pending.kind !== 'reminders') continue;
-      if (Date.now() - pending.uncertainAt > 120_000) { state.uncertain.delete(id); continue; }
-      if (device.remindersRevision >= pending.revision &&
+      if (!pending.observed && device.remindersRevision >= pending.revision &&
           remindersEqual(device.reminders, pending.nextList)) {
-        state.uncertain.delete(id);
-        toast('Danh sách nhắc nhở đã xuất hiện trên máy; ACK bị mất');
+        pending.observed = true;
+        toast('Nhắc nhở đã xuất hiện trên máy; đang chờ ACK xác nhận', 5000);
       }
     }
 
@@ -1966,9 +2045,10 @@
       const envelope = await signMqttWrite(device, 'reminders/set', payload);
       armTransaction(id);
       transactionPublished(id);
-      await publish(topics(device.id).reminders, envelope, { awaitAck: true });
+      await publish(topics(device.id).reminders, envelope, { awaitAck: true, requestId: id });
       retrySameRequest(id, topics(device.id).reminders, envelope);
     } catch (error) {
+      if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return;
       if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return; }
       clearPending(id);
       device.remindersPending = false;
@@ -1981,9 +2061,14 @@
     const last = state.lastTerminalByDevice.get(device.id);
     if (last) {
       console.info('[TX state]', { operation: last.operation,
-        tStateReceived: performance.now(),
-        terminalToStateMs: Math.round(performance.now() - last.tDeviceCompleted) });
+        ackToStateMs: Math.round(performance.now() - last.tAckBrowser) });
       state.lastTerminalByDevice.delete(device.id);
+    }
+    for (const pending of state.uncertain.values()) {
+      if (pending.deviceId !== device.id || pending.observed ||
+          !['batch_start', 'batch_stop'].includes(pending.action)) continue;
+      if (Boolean(snapshot.runtime?.batchRunning) ===
+          (batchTargetForAction(pending.action) === 'running')) pending.observed = true;
     }
     device.snapshot = snapshot;
     device.snapshotAt = Date.now();
@@ -2237,7 +2322,7 @@
         armTransaction(requestId);
         transactionPublished(requestId);
       }
-      await publish(topics(device.id).historyRequest, envelope, { awaitAck: true });
+      await publish(topics(device.id).historyRequest, envelope, { awaitAck: true, requestId });
       retrySameRequest(requestId, topics(device.id).historyRequest, envelope);
       window.setTimeout(() => {
         if (state.pending.has(requestId)) return; // V2 transaction owns its timeout.
@@ -2248,6 +2333,7 @@
         requestTemperatureChartRender();
       }, 8000);
     } catch (error) {
+      if (state.uncertain.has(requestId) || pendingOutcomeKnown(requestId)) return;
       if (error.code === 'UNCERTAIN') { state.pending.get(requestId)?.onTimeout(); return; }
       clearPending(requestId);
       if (telemetryChart.activeRequestId !== requestId) return;
@@ -2272,6 +2358,9 @@
       temperature: Number(row?.[1]),
     })));
     if (payload?.done) {
+      const pending = state.uncertain.get(String(payload.requestId || ''));
+      if (pending?.deviceId === device.id && pending.kind === 'history' && !telemetryChart.historyGap)
+        pending.observed = true;
       telemetryChart.historyLoading = false;
       telemetryChart.historyLoaded = !telemetryChart.historyGap;
       telemetryChart.historyLoadedAt = Date.now();
@@ -2573,7 +2662,8 @@
       if (!device) return;
       let payload;
       try { payload = JSON.parse(data.toString()); } catch (_) { return; }
-      if (Number.isFinite(Number(payload.bootId))) device.bootId = Number(payload.bootId);
+      if (parsedTopic.channel !== 'ack' && Number.isFinite(Number(payload.bootId)))
+        device.bootId = Number(payload.bootId);
       if (parsedTopic.channel === 'presence') handlePresence(device, payload);
       else if (parsedTopic.channel === 'snapshot') handleSnapshot(device, payload);
       else if (parsedTopic.channel === 'config/reported') handleConfigReport(device, payload);
@@ -2581,7 +2671,8 @@
       else if (parsedTopic.channel === 'ack') {
         verifyDeviceAck(device, payload).then((valid) => {
           if (valid) handleAck(device, payload);
-          else if (state.pending.has(String(payload.requestId || ''))) {
+          else if (state.pending.has(String(payload.requestId || '')) ||
+              state.uncertain.has(String(payload.requestId || ''))) {
             console.warn('[TX] PROTOCOL_ERROR: ACK không xác thực được');
           }
         }).catch((error) => console.error('[TX] ACK verify', error));
@@ -3097,7 +3188,16 @@
 
   function startTimers() {
     clearInterval(state.staleTimer);
-    state.staleTimer = setInterval(() => renderDevice(), 5000);
+    state.staleTimer = setInterval(() => {
+      sweepUncertain();
+      for (const [id, entry] of state.lastTerminalByDevice)
+        if (Date.now() - entry.at > PACKET_POLICY.UNCERTAIN_TTL_MS)
+          state.lastTerminalByDevice.delete(id);
+      for (const [id, entry] of terminalOutcomes)
+        if (performance.now() - entry.at > PACKET_POLICY.UNCERTAIN_TTL_MS)
+          terminalOutcomes.delete(id);
+      renderDevice();
+    }, 5000);
   }
 
   // Web Push (thay Telegram) - trang thai va nut bam trong card "Thông báo".

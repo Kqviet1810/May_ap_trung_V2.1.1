@@ -51,7 +51,7 @@ jobs:
         run: python3 tools/check_v381_reliability.py
 
       - name: Protocol V2 transaction and packet regression
-        run: node --test tests/protocol-v2.test.cjs
+        run: node --test tests/*.test.cjs
 
       - name: Reject unsafe firmware shortcuts
         run: |

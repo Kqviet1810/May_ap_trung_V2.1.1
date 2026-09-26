@@ -251,7 +251,7 @@ inline void publishJson(const char *suffix, const JsonDocument &doc,
   const size_t length = serializeJson(doc, buffer, sizeof(buffer));
   const char *topic = topicOf(suffix);
   if (length == 0U || length >= sizeof(buffer) ||
-      length + strlen(topic) + 5U > MayapProtocol::MQTT_NORMAL_CAP) {
+      length + strlen(topic) + MayapProtocol::MQTT_OVERHEAD > MayapProtocol::MQTT_NORMAL_CAP) {
     mayapSerialPrintf(true, "[WEBLINK] packet vuot budget: %s (%u B)\n",
                       suffix, static_cast<unsigned>(length));
     return;
@@ -814,7 +814,7 @@ inline bool mqttVerifyV2(const char *channel, const JsonDocument &wire,
   const char *grantSig = wire["grantSig"] | "";
   const char *body = wire["body"] | "";
   const char *signature = wire["sig"] | "";
-  if (!channel || strlen(grant) > 96U || strlen(body) >= 1700U ||
+  if (!channel || strlen(grant) > 96U || strlen(body) >= MayapProtocol::MQTT_SIGNED_BODY_CAP ||
       !grant[0] || !body[0]) return false;
   char clientId[40] = "";
   unsigned long expiry = 0;
@@ -1588,7 +1588,8 @@ inline void mayapWebLinkBegin() {
   using namespace MayapRealtimeInternal;
   ensureIdentity();
   mqttBufferReady = mqtt.setBufferSize(MayapProtocol::MQTT_HARD_CAP);
-  if (!mqttBufferReady) mayapSerialPrintf(true, "[WEBLINK] khong cap duoc MQTT buffer 4096 B\n");
+  if (!mqttBufferReady) mayapSerialPrintf(true, "[WEBLINK] khong cap duoc MQTT buffer %u B\n",
+                                      static_cast<unsigned>(MayapProtocol::MQTT_HARD_CAP));
   mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
   mqtt.setCallback(mqttMessageCallback);
 #if MQTT_USE_TLS
