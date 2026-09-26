@@ -6,25 +6,29 @@ namespace MayapAttinyBusInternal {
 inline uint32_t elapsedMs(uint32_t now, uint32_t then) { return static_cast<uint32_t>(now - then); }
 inline bool reached(uint32_t now, uint32_t deadline) { return static_cast<int32_t>(now - deadline) >= 0; }
 
-constexpr uint8_t EDGE_BUF_SIZE = 48U;
 constexpr uint8_t TX_QUEUE_SIZE = 8U;
-static_assert(static_cast<uint16_t>(ATTINY_MSG_STATUS_MAX) * 2U <= EDGE_BUF_SIZE,
-              "ATtiny status frame vuot edge buffer");
 
-// ISR capture mode. Khi ESP dang tu phat xung thi bo qua canh cua chinh no;
-// khi cho ACK thi ISR do truc tiep do rong xung ACK; con lai ghi canh STATUS.
+// BUS RX/TX capture modes. The ESP never drives HIGH: OUTPUT LOW or INPUT/Hi-Z only.
 enum CaptureMode : uint8_t { CaptureIgnore = 0U, CaptureAck = 1U, CaptureIncoming = 2U };
 static volatile uint8_t captureMode_ = CaptureIncoming;
 
-static volatile uint32_t edgeAtUs_[EDGE_BUF_SIZE];
-static volatile uint8_t edgeLow_[EDGE_BUF_SIZE];
-static volatile uint8_t edgeCount_ = 0U;
-static volatile bool edgeOverflow_ = false;
-
+// ACK capture (Tiny -> ESP). Width is measured fully inside the GPIO ISR so a
+// 30 ms ACK cannot be missed even if the 5 ms control task is briefly delayed.
 static volatile uint32_t ackFallAtUs_ = 0U;
 static volatile uint32_t ackLowUs_ = 0U;
 static volatile bool ackFallSeen_ = false;
 static volatile bool ackPulseReady_ = false;
+
+// Incoming STATUS capture (Tiny -> ESP). Protocol encodes only the number of
+// valid LOW pulses, so count pulses directly in the ISR instead of buffering
+// and later pairing every edge. This removes frame-length sensitivity and a
+// lost-edge pairing failure mode for long status values (16..23).
+static volatile uint32_t rxFallAtUs_ = 0U;
+static volatile uint32_t rxLastEdgeAtUs_ = 0U;
+static volatile uint8_t rxPulseCount_ = 0U;
+static volatile bool rxFrameActive_ = false;
+static volatile bool rxLowActive_ = false;
+static volatile bool rxInvalid_ = false;
 
 static volatile bool busBusy_ = false;
 static uint8_t txQueue_[TX_QUEUE_SIZE]{};
@@ -43,8 +47,12 @@ inline void busDriveLow() { pinMode(PIN_ATTINY_BUS, OUTPUT); digitalWrite(PIN_AT
 inline bool busIsLow() { return digitalRead(PIN_ATTINY_BUS) == LOW; }
 
 inline void resetIncomingUnsafe() {
-  edgeCount_ = 0U;
-  edgeOverflow_ = false;
+  rxFallAtUs_ = 0U;
+  rxLastEdgeAtUs_ = 0U;
+  rxPulseCount_ = 0U;
+  rxFrameActive_ = false;
+  rxLowActive_ = false;
+  rxInvalid_ = false;
 }
 
 inline void setCaptureIgnore() {
@@ -82,28 +90,61 @@ void IRAM_ATTR busIsr() {
 
   const uint32_t atUs = micros();
   const bool low = digitalRead(PIN_ATTINY_BUS) == LOW;
+  const uint32_t minUs = ATTINY_BUS_MIN_PULSE_MS * 1000UL;
+  const uint32_t maxUs = ATTINY_BUS_PULSE_MS * 3UL * 1000UL;
 
   if (mode == CaptureAck) {
     if (ackPulseReady_) return;
+
     if (low) {
-      ackFallAtUs_ = atUs;
-      ackFallSeen_ = true;
+      if (!ackFallSeen_) {
+        ackFallAtUs_ = atUs;
+        ackFallSeen_ = true;
+      }
     } else if (ackFallSeen_) {
-      ackLowUs_ = static_cast<uint32_t>(atUs - ackFallAtUs_);
+      const uint32_t lowUs = static_cast<uint32_t>(atUs - ackFallAtUs_);
       ackFallSeen_ = false;
+
+      if (lowUs < minUs) {
+        return;
+      }
+
+      ackLowUs_ = lowUs;
       ackPulseReady_ = true;
     }
     return;
   }
 
-  if (edgeCount_ >= EDGE_BUF_SIZE) {
-    edgeOverflow_ = true;
+  rxLastEdgeAtUs_ = atUs;
+
+  if (low) {
+    if (rxLowActive_) {
+      rxInvalid_ = true;
+      return;
+    }
+    rxFallAtUs_ = atUs;
+    rxLowActive_ = true;
+    rxFrameActive_ = true;
     return;
   }
-  const uint8_t index = edgeCount_;
-  edgeAtUs_[index] = atUs;
-  edgeLow_[index] = low ? 1U : 0U;
-  edgeCount_ = static_cast<uint8_t>(index + 1U);
+
+  if (!rxLowActive_) {
+    if (rxFrameActive_) rxInvalid_ = true;
+    return;
+  }
+
+  const uint32_t lowUs = static_cast<uint32_t>(atUs - rxFallAtUs_);
+  rxLowActive_ = false;
+
+  if (lowUs >= maxUs) {
+    rxInvalid_ = true;
+    return;
+  }
+
+  if (lowUs >= minUs) {
+    if (rxPulseCount_ < UINT8_MAX) ++rxPulseCount_;
+    if (rxPulseCount_ > ATTINY_MSG_STATUS_MAX) rxInvalid_ = true;
+  }
 }
 
 inline bool queuedOrActive(uint8_t code) {
@@ -117,8 +158,6 @@ inline bool queuedOrActive(uint8_t code) {
 
 inline void publishResult(bool acked) {
   busRelease();
-  // Mo thu STATUS truoc khi cong bo transaction da xong. Tiny STATUS_QUERY
-  // doi 170 ms sau ACK, nhung thu tu nay van loai bo cua so race cu.
   armIncomingCapture();
   busBusy_ = false;
   resultCode_ = txCode_;
@@ -131,7 +170,6 @@ inline void publishResult(bool acked) {
 inline void beginAttempt(uint32_t now) {
   ++txAttempt_;
   txPulsesRemaining_ = txCode_;
-  // Bo qua canh do chinh ESP tao ra trong suot pha TX.
   setCaptureIgnore();
   busRelease();
   txDeadline_ = now + 5UL;
@@ -156,7 +194,7 @@ inline void finishAckTransmit() {
 
 inline void startNext(uint32_t now) {
   noInterrupts();
-  const bool incomingPending = edgeCount_ != 0U || edgeOverflow_;
+  const bool incomingPending = rxFrameActive_ || rxLowActive_;
   interrupts();
   if (incomingPending) return;
 
@@ -233,8 +271,6 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
       } else if (txIsAck_) {
         finishAckTransmit();
       } else {
-        // Tiny chi ACK sau END_GAP=150 ms; ISR da duoc mo ngay tu day nen
-        // khong con phu thuoc controlTask co kip polling trong 30 ms hay khong.
         armAckCapture();
         ackWaitStartedAt_ = now;
         txPhase_ = TxPhase::WaitAck;
@@ -256,7 +292,6 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
         if (lowUs >= minUs && lowUs < maxUs) {
           publishResult(true);
         } else if (lowUs < minUs) {
-          // Xung ngan la noise: tiep tuc cho ACK hop le trong timeout goc.
           armAckCapture();
         } else {
           retryOrFinish(now);
@@ -282,64 +317,28 @@ inline uint8_t mayapAttinyBusPollIncoming() {
   using namespace MayapAttinyBusInternal;
   if (busBusy_ || captureMode_ != CaptureIncoming) return 0U;
 
-  // Copy frame atomically, roi clear buffer truoc khi parse. Neu frame moi bat
-  // dau sau do thi ISR ghi vao buffer moi, khong bi reset mat nhu code cu.
-  uint32_t localAtUs[EDGE_BUF_SIZE];
-  uint8_t localLow[EDGE_BUF_SIZE];
-  uint8_t n = 0U;
-  bool overflow = false;
+  const uint32_t nowUs = micros();
+  uint8_t pulses = 0U;
+  bool invalid = false;
 
   noInterrupts();
-  n = edgeCount_;
-  overflow = edgeOverflow_;
-  if (overflow) {
-    resetIncomingUnsafe();
-    interrupts();
-    return 0U;
-  }
-  if (n == 0U) {
+  if (!rxFrameActive_ || rxLowActive_) {
     interrupts();
     return 0U;
   }
 
-  const uint32_t nowUs = micros();
-  const uint32_t lastEdgeAt = edgeAtUs_[n - 1U];
-  if (static_cast<uint32_t>(nowUs - lastEdgeAt) < (ATTINY_BUS_END_GAP_MS * 1000UL)) {
+  if (static_cast<uint32_t>(nowUs - rxLastEdgeAtUs_) <
+      (ATTINY_BUS_END_GAP_MS * 1000UL)) {
     interrupts();
     return 0U;
   }
 
-  for (uint8_t i = 0U; i < n; ++i) {
-    localAtUs[i] = edgeAtUs_[i];
-    localLow[i] = edgeLow_[i];
-  }
+  pulses = rxPulseCount_;
+  invalid = rxInvalid_;
   resetIncomingUnsafe();
   interrupts();
 
-  uint8_t pulses = 0U;
-  bool waitingRise = false;
-  uint32_t fallAtUs = 0U;
-  const uint32_t minUs = ATTINY_BUS_MIN_PULSE_MS * 1000UL;
-  const uint32_t maxUs = ATTINY_BUS_PULSE_MS * 3UL * 1000UL;
-
-  for (uint8_t i = 0U; i < n; ++i) {
-    if (localLow[i] != 0U) {
-      // FALL khi van dang cho RISE => mat canh/noise, bo ca frame de khong
-      // bien status N thanh N-1/N+1 mot cach im lang.
-      if (waitingRise) return 0U;
-      fallAtUs = localAtUs[i];
-      waitingRise = true;
-    } else {
-      // Frame hop le phai bat dau bang FALL. RISE don le bi coi la race/noise.
-      if (!waitingRise) return 0U;
-      const uint32_t lowUs = static_cast<uint32_t>(localAtUs[i] - fallAtUs);
-      waitingRise = false;
-      if (lowUs >= maxUs) return 0U;
-      if (lowUs >= minUs) ++pulses;  // xung ngan hon MIN la noise, bo qua.
-    }
-  }
-
-  if (waitingRise) return 0U;
+  if (invalid) return 0U;
   if (pulses < ATTINY_MSG_STATUS_BASE || pulses > ATTINY_MSG_STATUS_MAX) return 0U;
 
   ackRequested_ = true;
