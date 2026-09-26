@@ -182,6 +182,7 @@
           body.client_name = browserName();
         } else if (
           url.pathname === '/api/device/mqtt-session' ||
+          url.pathname === '/api/device/sign-mqtt' ||
           (url.pathname === '/api/push/subscribe' && method === 'POST')
         ) {
           body.client_id = cid;

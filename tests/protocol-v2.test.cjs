@@ -122,6 +122,10 @@ test('ACK HMAC binds result, reason and request identity', async () => {
 test('firmware guards the replay, EEPROM, safety and packet boundaries', () => {
   const realtime = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v3_4_0/realtime_link.h'), 'utf8');
   const machine = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v3_4_0/machine_control.h'), 'utf8');
+  const web = readFileSync(require.resolve('../app.js'), 'utf8');
+  const worker = readFileSync(require.resolve('../cloudflare/src/index.js'), 'utf8');
+  assert.equal(web.includes('/api/device/sign-mqtt'), false);
+  assert.ok(worker.includes('handleLegacySignMqtt'));
   assert.match(realtime, /terminalCache\[16\]/);
   assert.match(realtime, /replayTerminal\(id\)/);
   assert.match(realtime, /checkReplaySequence\(bodyDoc\)/);

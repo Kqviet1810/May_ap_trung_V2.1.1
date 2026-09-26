@@ -35,7 +35,9 @@ realtime ESP chỉ có một boolean; giới hạn gói 1350/1450/1536 nằm ở
    ESP dùng 8 lease theo clientId để hai tab không tắt realtime của nhau.
 
 Firmware V1 không nhận control từ Web V2: UI yêu cầu cập nhật firmware. Worker
-V2 phải triển khai trước khi Web V2. PID, heater, turning, alarm, HMI, bố cục
+V2 phải triển khai trước khi Web V2; Worker giữ `/sign-mqtt` chỉ cho các trang
+V1 đang mở trong giai đoạn chuyển tiếp. Web V2 không gọi endpoint đó.
+PID, heater, turning, alarm, HMI, bố cục
 EEPROM và AT24C32 history không bị thay đổi đường điều khiển.
 
 ## Ngân sách và kiểm tra

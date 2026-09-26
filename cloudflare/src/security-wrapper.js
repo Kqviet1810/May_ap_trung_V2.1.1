@@ -487,6 +487,9 @@ export default {
       if (path === '/api/device/mqtt-session' && request.method === 'POST') {
         return handleBrowserAuthorizedDelegate(request, env, ctx);
       }
+      if (path === '/api/device/sign-mqtt' && request.method === 'POST') {
+        return handleBrowserAuthorizedDelegate(request, env, ctx);
+      }
       if (path === '/api/device/session-check' && request.method === 'POST') {
         return handleSessionCheck(request, env);
       }
