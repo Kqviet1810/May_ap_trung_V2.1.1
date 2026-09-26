@@ -13,9 +13,9 @@
 <aside class="sidebar">
 <div class="brand"><div class="brandMark">M</div><div><strong>MAYAP</strong><small>Điều khiển máy ấp</small></div></div>
 <nav class="nav">
-<button class="active" data-page="device" type="button"><span>▦</span><b>Thiết bị</b></button>
-<button data-page="batch" type="button"><span>◉</span><b>Mẻ ấp</b></button>
-<button data-page="settings" type="button"><span>⚙</span><b>Cài đặt</b></button>
+<button class="active" data-page="device" type="button"><span aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h4M7 12h4M7 16h10M16 8h1"/></svg></span><b>Thiết bị</b></button>
+<button data-page="batch" type="button"><span aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3c4 0 7 6.5 7 11a7 7 0 0 1-14 0c0-4.5 3-11 7-11Z"/><path d="M9 17c.6.7 1.5 1 3 1"/></svg></span><b>Mẻ ấp</b></button>
+<button data-page="settings" type="button"><span aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M10.5 3h3l.7 2.2 1.8.8 2.1-1 2.1 2.1-1 2.1.8 1.8 2.2.7v3l-2.2.7-.8 1.8 1 2.1-2.1 2.1-2.1-1-1.8.8-.7 2.2h-3l-.7-2.2-1.8-.8-2.1 1-2.1-2.1 1-2.1-.8-1.8L2 13.5v-3l2.2-.7L5 8l-1-2.1L6.1 3.8l2.1 1 1.8-.8Z"/><circle cx="12" cy="12" r="3"/></svg></span><b>Cài đặt</b></button>
 </nav>
 <div class="sideState"><i></i><div><strong id="sideDevice">Máy ấp trứng 01</strong><small id="sideStatus">Đang trực tuyến</small></div></div>
 </aside>
@@ -39,7 +39,7 @@
 </div>
 <div class="devicePickerRow">
 <div class="field grow customSelect" id="deviceSelectorField">
-<span id="deviceSelectorFieldLabel">Thiết bị</span>
+<span class="srOnly" id="deviceSelectorFieldLabel">Thiết bị đang điều khiển</span>
 <button aria-expanded="false" aria-haspopup="listbox" aria-labelledby="deviceSelectorFieldLabel deviceSelectorLabel" class="customSelectTrigger" id="deviceSelectorTrigger" type="button"><span id="deviceSelectorLabel">Chưa có thiết bị</span></button>
 <select aria-hidden="true" class="customSelectNative" id="deviceSelector" tabindex="-1"></select>
 <div class="customSelectPanel" hidden id="deviceSelectorPanel" role="listbox" tabindex="-1"></div>
@@ -48,27 +48,33 @@
 </div>
 </section>
 <form class="panel" id="quickForm">
-<div class="panelHead"><h2>Vận hành</h2><span class="pill soft">Đồng bộ ESP32</span></div>
+<div class="panelHead"><h2>Vận hành</h2></div>
 <div class="quickGrid">
 <label class="quickField"><span>Nhiệt độ đặt</span><div><input id="quickTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
 <label class="quickField"><span>Chu kỳ đảo</span><div><input id="quickTurn" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
 </div>
-<div class="outputStrip">
+<p class="sectionLabel">Trạng thái thiết bị</p>
+<div class="outputStrip" id="outputStrip">
 <div><span>Thanh nhiệt</span><strong class="on" id="outputHeater">BẬT</strong></div>
 <div><span>Tuần hoàn</span><strong class="on" id="outputCirculation">BẬT</strong></div>
 <div><span>Thông gió</span><strong id="outputVent">TẮT</strong></div>
 <div hidden id="outputHumidifierTile"><span>Tạo ẩm</span><strong id="outputHumidifier">TẮT</strong></div>
 <div><span>Đảo trứng</span><strong id="outputTurn">CHỜ</strong></div>
-<button aria-label="Bật/tắt đèn" id="outputLightBtn" type="button"><span>Đèn</span><strong id="outputLight">TẮT</strong></button>
-<button aria-label="Tạm tắt còi báo" id="outputSirenBtn" type="button"><span>Còi báo</span><strong id="outputSiren">TẮT</strong></button>
 </div>
-<button class="primary full" type="submit">Lưu thông số nhanh</button>
+<button class="primary full" type="submit">Lưu thông số</button>
+<div class="controlGroup">
+<p class="sectionLabel">Điều khiển trực tiếp</p>
+<div class="outputActions">
+<button aria-label="Bật/tắt đèn" id="outputLightBtn" type="button"><span>Đèn</span><strong id="outputLight">TẮT</strong><span class="actionHint">Chạm để bật/tắt</span></button>
+<button aria-label="Tạm tắt còi báo" id="outputSirenBtn" type="button"><span>Còi báo</span><strong id="outputSiren">TẮT</strong><span class="actionHint" id="sirenActionHint">Chỉ khi còi đang kêu</span></button>
+</div>
+</div>
 </form>
 </section>
 <section class="page" id="page-batch">
 <form class="panel batchPanel" id="batchForm">
 <div class="panelHead"><h2>Cấu hình mẻ ấp</h2><span class="pill soft" id="batchPill">CHƯA BẮT ĐẦU</span></div>
-<div class="batchGrid">
+<div class="batchGrid" id="batchGrid">
 <label class="compactTile"><span>Tên mẻ ấp</span><input id="batchName" maxlength="32" value="Mẻ ấp 01"/></label>
 <label class="compactTile"><span>Ngày bắt đầu</span><input id="startDate" type="date" value="2026-07-29"/></label>
 <label class="compactTile"><span>Tổng số ngày ấp</span><div class="unit"><input id="totalDays" max="40" min="1" type="number" value="21"/><b>Ngày</b></div></label>
@@ -105,24 +111,34 @@
 </details>
 <p class="settingGroupLabel">Cảnh báo &amp; nhắc nhở</p>
 <details class="settingCard">
-<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span><span class="settingSummary"><strong>Thông báo</strong><small id="notificationSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span><span class="settingSummary"><strong>Thông báo trên điện thoại</strong><small id="notificationSummary">Đang kiểm tra…</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">
-<div class="notificationLine"><div><strong>Nhận cảnh báo trên điện thoại</strong><small>Nhận được kể cả khi không mở trang.</small></div><span class="pill soft" id="pushStatusPill">…</span></div>
+<div class="notificationLine"><div><strong>Trạng thái nhận cảnh báo</strong><small>Thông báo đến cả khi không mở trang.</small></div><span class="pill soft" id="pushStatusPill">…</span></div>
 <div class="formError" id="pushZeroDevicesBanner" role="alert">⚠️ Chưa có điện thoại nào nhận thông báo cho máy này.</div>
 <p class="settingFootnote" id="pushIosGuide" hidden>iPhone/iPad: nhấn nút Chia sẻ trên Safari → "Thêm vào Màn hình chính" → mở lại MAYAP từ biểu tượng đó rồi bật thông báo.</p>
 <p class="settingFootnote" id="pushErrorText" hidden></p>
 <button class="primary full" id="enablePushBtn" type="button">Bật thông báo</button>
 <button class="ghost full" id="testPushBtn" type="button" hidden>Kiểm tra thông báo</button>
+</div>
+</details>
+<details class="settingCard">
+<summary><span class="settingIcon" aria-hidden="true"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 3v10M9 17h6M5 20h14"/><path d="M7 7a5 5 0 0 0 0 6M17 7a5 5 0 0 1 0 6"/></svg></span><span class="settingSummary"><strong>Cảnh báo phụ</strong><small>Nhắc đèn và tự kiểm tra còi</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<div class="settingBody">
 <form class="stackForm" id="lightAlarmForm">
 <div class="notificationLine"><div><strong>Nhắc nếu đèn còn bật khi đang ấp</strong><small>Nhắc lại mỗi 30 phút nếu đèn vẫn bật sau khi mẻ ấp đã bắt đầu.</small></div><label class="toggle"><input checked="" id="lightAfterBatchAlarmEnabled" type="checkbox"/><i></i></label></div>
 <div class="notificationLine"><div><strong>Tự kiểm tra còi định kỳ</strong><small>Còi phát 1 tiếng bíp ngắn mỗi 7 ngày để xác nhận còi vẫn hoạt động, không phải cảnh báo thật.</small></div><label class="toggle"><input id="sirenSelfTestEnabled" type="checkbox"/><i></i></label></div>
-<button class="ghost full" type="submit">Lưu cài đặt cảnh báo phụ</button>
+<button class="primary full" type="submit">Lưu cảnh báo phụ</button>
 </form>
-<hr class="settingDivider"/>
-<p class="settingFootnote"><strong>Nhắc nhở tùy chỉnh</strong><br/><small id="remindersSummary">Chưa có nhắc nào</small></p>
+</div>
+</details>
+<details class="settingCard">
+<summary><span class="settingIcon" aria-hidden="true"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 10h16M8 15h8"/></svg></span><span class="settingSummary"><strong>Nhắc nhở tùy chỉnh</strong><small id="remindersSummary">Chưa có nhắc nào</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<div class="settingBody">
 <form class="stackForm" id="remindersForm">
-<input aria-label="Sau bao nhiêu ngày" id="reminderDayInput" max="99" min="1" placeholder="Ngày, ví dụ: 4" step="1" type="number"/>
-<input aria-label="Nội dung nhắc" id="reminderLabelInput" maxlength="120" placeholder="Nội dung nhắc, ví dụ: mang khay số 3 ra kiểm tra" type="text"/>
+<div class="reminderFields">
+<label class="field"><span>Ngày ấp thứ</span><input id="reminderDayInput" max="99" min="1" placeholder="Ví dụ: 4" step="1" type="number"/></label>
+<label class="field"><span>Nội dung nhắc</span><input id="reminderLabelInput" maxlength="120" placeholder="Ví dụ: kiểm tra khay số 3" type="text"/></label>
+</div>
 <p class="formError" id="remindersFormError" role="alert"></p>
 <button class="ghost full" id="addReminderBtn" type="submit">Thêm nhắc nhở</button>
 </form>
@@ -131,7 +147,7 @@
 </details>
 <p class="settingGroupLabel">Vận hành mẻ ấp</p>
 <details class="settingCard" hidden id="humidifierSetting">
-<summary><span class="settingIcon" aria-hidden="true">◉</span><span class="settingSummary"><strong>Tạo ẩm</strong><small id="humidifierSummary">Ngưỡng bật/tắt tạo ẩm</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon" aria-hidden="true"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 3c-3 4-6 7.5-6 11a6 6 0 0 0 12 0c0-3.5-3-7-6-11Z"/><path d="M9 16c.3 1.1 1.1 1.8 2.2 2"/></svg></span><span class="settingSummary"><strong>Tạo ẩm</strong><small id="humidifierSummary">Ngưỡng bật/tắt tạo ẩm</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody" id="humidifierForm">
 <div class="notificationLine"><div><strong>Tạo ẩm tự động</strong><small>Chỉ hoạt động khi đang ấp, cảm biến hợp lệ và máy cho phép.</small></div><label aria-label="Bật tạo ẩm tự động" class="toggle"><input id="humidifierEnabled" type="checkbox"/><i></i></label></div>
 <div class="tempGrid">
@@ -141,6 +157,18 @@
 <button class="primary full" type="submit">Lưu cài đặt tạo ẩm</button>
 </form>
 </details>
+<details class="settingCard">
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 8 8 8"/></svg></span><span class="settingSummary"><strong>Đảo trứng</strong><small id="turningSummary">Tự động · mỗi 120 phút</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<form class="settingBody" id="turningForm">
+<div class="notificationLine"><div><strong>Đảo tự động</strong><small>ESP32 thực hiện theo chu kỳ và công tắc hành trình.</small></div><label class="toggle"><input checked="" id="turningEnabled" type="checkbox"/><i></i></label></div>
+<div class="notificationLine"><div><strong>Đảo tay cập nhật lịch</strong><small>Bật: sau khi đảo tay, máy tính lại chu kỳ đảo tự động từ vị trí vừa đảo. Tắt: đảo tay không đổi lịch đảo tự động.</small></div><label class="toggle"><input id="manualTurnReanchorsSchedule" type="checkbox"/><i></i></label></div>
+<label class="field"><span>Khoảng thời gian giữa hai lần đảo</span><div class="unit"><input id="turnInterval" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
+<label class="field"><span>Thời gian chờ hành trình</span><div class="unit"><input id="limitAlarmTime" max="120" min="3" type="number" value="20"/><b>Giây</b></div></label>
+<label class="field"><span>Hướng đảo kế tiếp</span><select id="nextDirection"><option value="left">Trái</option><option value="right">Phải</option></select></label>
+<button class="primary full" type="submit">Lưu cài đặt đảo</button>
+</form>
+</details>
+<p class="settingGroupLabel">Nhiệt độ &amp; cảm biến</p>
 <details class="settingCard">
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M14 4v10.5a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></svg></span><span class="settingSummary"><strong>Nhiệt độ và bảo vệ</strong><small id="temperatureSummary">Đặt 37,5°C · ngắt khẩn 39,0°C</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody temperatureFormCompact" id="temperatureForm">
@@ -155,17 +183,6 @@
 <div class="notificationLine"><div><strong>Thông gió định kỳ</strong><small>Bật quạt hút theo các giờ đã đặt trong Cài đặt nâng cao; chỉ chạy khi đang có mẻ và RTC hợp lệ.</small></div><label class="toggle"><input id="ventScheduleEnabled" type="checkbox"/><i></i></label></div>
 <div class="notificationLine"><div><strong>Báo nhiệt cao/khẩn cấp ngoài mẻ</strong><small>Bật: cảnh báo nhiệt độ cao/khẩn cấp hoạt động mọi lúc, kể cả khi không có mẻ ấp. Tắt: chỉ kiểm tra khi đang có mẻ ấp.</small></div><label class="toggle"><input checked="" id="highTempAlarmWithoutBatch" type="checkbox"/><i></i></label></div>
 <button class="primary full" type="submit">Lưu nhiệt độ và bảo vệ</button>
-</form>
-</details>
-<details class="settingCard">
-<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 8 8 8"/></svg></span><span class="settingSummary"><strong>Đảo trứng</strong><small id="turningSummary">Tự động · mỗi 120 phút</small></span><span aria-hidden="true" class="disclosure"></span></summary>
-<form class="settingBody" id="turningForm">
-<div class="notificationLine"><div><strong>Đảo tự động</strong><small>ESP32 thực hiện theo chu kỳ và công tắc hành trình.</small></div><label class="toggle"><input checked="" id="turningEnabled" type="checkbox"/><i></i></label></div>
-<div class="notificationLine"><div><strong>Đảo tay cập nhật lịch</strong><small>Bật: sau khi đảo tay, máy tính lại chu kỳ đảo tự động từ vị trí vừa đảo. Tắt: đảo tay không đổi lịch đảo tự động.</small></div><label class="toggle"><input id="manualTurnReanchorsSchedule" type="checkbox"/><i></i></label></div>
-<label class="field"><span>Khoảng thời gian giữa hai lần đảo</span><div class="unit"><input id="turnInterval" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
-<label class="field"><span>Thời gian chờ hành trình</span><div class="unit"><input id="limitAlarmTime" max="120" min="3" type="number" value="20"/><b>Giây</b></div></label>
-<label class="field"><span>Hướng đảo kế tiếp</span><select id="nextDirection"><option value="left">Trái</option><option value="right">Phải</option></select></label>
-<button class="primary full" type="submit">Lưu cài đặt đảo</button>
 </form>
 </details>
 <details class="settingCard">
@@ -187,7 +204,7 @@
 </div>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 20v-6M12 10V4M5 20v-9M5 7V4M19 20v-4M19 12V4"/><circle cx="12" cy="12" r="2"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="14" r="2"/></svg></span><span class="settingSummary"><strong>Nâng cao</strong><small id="advancedSummary">PID thủ công · ngưỡng chẩn đoán · Tự dò PID</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 20v-6M12 10V4M5 20v-9M5 7V4M19 20v-4M19 12V4"/><circle cx="12" cy="12" r="2"/><circle cx="5" cy="9" r="2"/><circle cx="19" cy="14" r="2"/></svg></span><span class="settingSummary"><strong>Thông số nâng cao</strong><small id="advancedSummary">PID thủ công · chẩn đoán · lịch thông gió</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody" id="advancedForm">
 <p class="settingFootnote">Chỉ chỉnh khi đã hiểu rõ tác động. Sai giá trị có thể gây báo giả hoặc vọt lố nhiệt độ.</p>
 <p class="settingFootnote"><strong>PID thủ công</strong></p>
@@ -230,7 +247,7 @@
 <button class="primary full" type="submit">Lưu cài đặt nâng cao</button>
 </form>
 </details>
-<p class="settingGroupLabel">Thiết bị</p>
+<p class="settingGroupLabel">Thiết bị &amp; hỗ trợ</p>
 <details class="settingCard">
 <summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></span><span class="settingSummary"><strong>Tên máy &amp; mã PIN</strong><small id="deviceIdentitySummary">Đổi tên hiển thị và mã PIN của máy đang chọn</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <div class="settingBody">

@@ -1037,6 +1037,7 @@
       updateOutput('outputTurn', false, 'ĐANG ĐẢO', 'CHỜ');
       updateOutput('outputLight', false);
       updateOutput('outputSiren', false);
+      if ($('sirenActionHint')) $('sirenActionHint').textContent = 'Chỉ khi còi đang kêu';
       if ($('outputLightBtn')) $('outputLightBtn').disabled = true;
       if ($('outputSirenBtn')) $('outputSirenBtn').disabled = true;
       // F-10: chua co snapshot = chua biet may co dang chay me hay khong -
@@ -1063,6 +1064,8 @@
     updateOutput('outputHumidifier', bool(runtime.humidifierOn));
     updateOutput('outputLight', bool(runtime.lightOn));
     updateOutput('outputSiren', bool(runtime.sirenOn));
+    if ($('sirenActionHint')) $('sirenActionHint').textContent = bool(runtime.sirenOn)
+      ? 'Chạm để tạm tắt' : 'Chỉ khi còi đang kêu';
     // Nut Den bam duoc bat cu luc nao thiet bi online; nut Coi CHI bam duoc
     // khi coi dang thuc su keu (giong het dieu kien mo man Alarm tren HMI).
     if ($('outputLightBtn')) $('outputLightBtn').disabled = !isDeviceOnline(device);
@@ -1219,9 +1222,11 @@
   function syncHumidifierFeatureUi(config) {
     const installed = Boolean(config?.humidifierInstalled);
     if ($('outputHumidifierTile')) $('outputHumidifierTile').hidden = !installed;
+    $('outputStrip')?.classList?.toggle('hasHumidifier', installed);
     $('humidifierSetting').hidden = !installed;
     if (!installed) $('humidifierSetting').open = false;
     $('batchHumidityTile').hidden = installed;
+    $('batchGrid')?.classList?.toggle('noHumidity', installed);
   }
 
   function applyConfigToUi(device, force = false) {
