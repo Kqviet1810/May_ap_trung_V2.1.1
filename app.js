@@ -794,6 +794,7 @@
 
   function renderDevice() {
     const device = currentDevice();
+    syncHumidifierFeatureUi(device?.config);
     const connection = connectionStatus(device);
     const pill = $('onlinePill');
 
