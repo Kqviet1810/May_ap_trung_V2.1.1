@@ -78,6 +78,13 @@ test('MQTT packet worst cases stay within budgets', () => {
     ventScheduleHour4: 23, ventScheduleHour5: 23, ventScheduleHour6: 23,
     autotuneRelayPowerPercent: 80, autotuneBandC: 1,
   };
+  const webSource = readFileSync(require.resolve('../app.js'), 'utf8');
+  const advancedSource = webSource.split("} else if (group === 'advanced') {")[1]
+    ?.split('    return config;')[0];
+  assert.ok(advancedSource, 'advanced form source not found');
+  const advancedFields = [...advancedSource.matchAll(/config\.([A-Za-z0-9]+)\s*=/g)]
+    .map((match) => match[1]);
+  assert.deepEqual([...new Set(advancedFields)].sort(), Object.keys(advanced).sort());
   const config = { ...base, requestId: `cfg-${'a'.repeat(20)}`,
     revision: 4294967295, bootId: 4294967295, config: advanced };
   assert.ok(wireBytes('config/set', config) < 1024);
