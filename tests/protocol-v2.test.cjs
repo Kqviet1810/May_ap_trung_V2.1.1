@@ -79,7 +79,7 @@ test('MQTT packet worst cases stay within budgets', () => {
     autotuneRelayPowerPercent: 80, autotuneBandC: 1,
   };
   const config = { ...base, requestId: `cfg-${'a'.repeat(20)}`,
-    revision: 4294967295, config: advanced };
+    revision: 4294967295, bootId: 4294967295, config: advanced };
   assert.ok(wireBytes('config/set', config) < 1024);
   const report = { v: 2, bootId: 4294967295, revision: 4294967295,
     part: 99, done: true, config: { field: 'x'.repeat(700) } };
@@ -129,6 +129,7 @@ test('firmware guards the replay, EEPROM, safety and packet boundaries', () => {
   assert.match(realtime, /terminalCache\[16\]/);
   assert.match(realtime, /replayTerminal\(id\)/);
   assert.match(realtime, /checkReplaySequence\(bodyDoc\)/);
+  assert.match(realtime, /bodyDoc\["bootId"\]\.as<uint32_t>\(\) != bootId/);
   assert.match(realtime, /expiry < static_cast<unsigned long>\(now\)/);
   assert.match(realtime, /WebClientLease webClientLeases\[8\]/);
   assert.match(realtime, /forceSnapshotPublish = true/);

@@ -387,6 +387,12 @@
     }
     if (Number(device.presence?.proto || 0) >= 2) {
       const session = await controlSession(device);
+      if (!device.bootId) {
+        const error = new Error('Chưa nhận bootId từ ESP32; hãy chờ đồng bộ');
+        error.code = 'PROTOCOL_ERROR';
+        throw error;
+      }
+      body.bootId = device.bootId;
       const pending = state.pending.get(String(body.requestId || ''));
       if (pending) pending.ackKey = session.key;
       if (channel === 'command') body.expiresAt = Math.floor(Date.now() / 1000) + 8;

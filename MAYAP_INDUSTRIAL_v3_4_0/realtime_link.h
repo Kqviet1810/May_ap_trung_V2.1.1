@@ -577,6 +577,8 @@ inline const char *ackFriendlyMessage(const char *code, const char *raw) {
     return "Cấu hình tổng thể không hợp lệ";
   if (raw && !strcmp(raw, "REPLAY SEQUENCE"))
     return "Yêu cầu cũ đã được gửi trước đó";
+  if (raw && !strcmp(raw, "STALE_BOOT"))
+    return "Máy vừa khởi động lại; hãy đồng bộ rồi thử lại";
   struct Text { const char *code; const char *message; };
   static constexpr Text texts[] = {
     {"BATCH_AUTO_OFF", "Hãy chuyển công tắc sang AUTO trước"},
@@ -1313,6 +1315,12 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
                     : !strcmp(channel, "reminders/set") ? "reminders.save" : "history.read";
     snprintf(activeOperation, sizeof(activeOperation), "%s", op);
     for (char *c = activeOperation; *c; ++c) if (*c == '_') *c = '.';
+    if (v2 && bodyDoc["bootId"].as<uint32_t>() != bootId) {
+      publishAck(id, "stale", "STALE_BOOT");
+      activeOperation[0] = '\0';
+      activeAckKeyValid = false;
+      return;
+    }
     if (replayTerminal(id)) { activeOperation[0] = '\0'; activeAckKeyValid = false; return; }
     bool inFlight = (pendingConfigSave.used && !strcmp(id, pendingConfigSave.requestId)) ||
                     (pendingReminderSave.used && !strcmp(id, pendingReminderSave.requestId)) ||
