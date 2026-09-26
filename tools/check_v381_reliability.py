@@ -53,7 +53,6 @@ require(app, "state.mqttSessionState = 'ready';", "web MQTT session ready state"
 require(app, "if (mqttReady) connectMqtt();", "web MQTT init readiness gate")
 require(app, "state.mqttSessionState === 'error' || state.mqttSessionState === 'auth-required'", "web MQTT no infinite connecting state")
 
-
 # Wi-Fi portal must quiesce cross-task network I/O before changing radio mode.
 require(network, "PortalPhase::Quiescing", "Wi-Fi portal quiescing phase")
 require(network, "WiFi.disconnect(false, false)", "portal disconnect keeps radio alive")
@@ -94,11 +93,35 @@ require(attiny, "batchActive || criticalActivity", "ATtiny power-loss alarm OR p
 require(attiny, "eeActivityState", "ATtiny activity EEPROM persistence")
 require(attiny, "FLAG_ACTIVITY", "ATtiny activity status feedback")
 require(attiny, "PRR |= _BV(PRADC)", "ATtiny ADC power reduction")
-require(attiny_bus, "EDGE_BUF_SIZE = 48U", "ATtiny v3 4-bit status edge capacity")
+
+# Hardened wire encoding: logical status stays 8..23, but physical frame is
+# always <=15 pulses. Activity is carried by first LOW width (30/60ms), so the
+# transaction remains ONE frame + ONE ACK; split-status state machines are
+# forbidden because bench testing exposed a second-frame ACK failure mode.
+require(attiny_bus, "STATUS_WIRE_MAX", "ATtiny physical status cap")
+require(attiny_bus, "STATUS_WIRE_MAX == 15U", "ATtiny physical status compile guard")
+require(attiny_bus, "STATUS_LONG_MIN_US", "ATtiny activity width decoder")
+require(attiny_bus, "rxActivityMarker_", "ATtiny activity marker capture")
+require(attiny_bus, "pulses + (activity ? ATTINY_STATUS_FLAG_ACTIVITY : 0U)", "ATtiny logical status reconstruction")
+require(attiny, "ACTIVITY_MARK_PULSE_MS = 60U", "ATtiny activity long pulse encoder")
+require(attiny, "(i == 0U && activity) ? ACTIVITY_MARK_PULSE_MS : PULSE_MS", "ATtiny first-pulse activity encoding")
+if "splitStatus" in attiny_bus:
+    raise SystemExit("FAIL: split ATtiny STATUS state machine reintroduced")
+if "EDGE_BUF_SIZE" in attiny_bus:
+    raise SystemExit("FAIL: obsolete ATtiny edge-pair buffer reintroduced")
+
+# Power-loss BUS safety: never clamp the shared BUS LOW while ESP rail is off,
+# and never sleep for 50ms after a pin-change wake (30ms command pulses would
+# be lost). Sleep entry must use the atomic SEI->SLEEP pattern.
+require(attiny, "static inline void configureWakeMask(bool espOn)", "ATtiny wake mask")
+require(attiny, "busRelease();", "ATtiny BUS Hi-Z release")
+require(attiny, "sleepUntilPinChange", "ATtiny race-free sleep helper")
+require(attiny, "sleep_enable();\n  sei();\n  sleep_cpu();", "ATtiny atomic SEI/SLEEP sequence")
+if "_delay_ms(50)" in attiny:
+    raise SystemExit("FAIL: ATtiny 50ms post-wake delay reintroduced")
 require(attiny, "FIELD_MEASURED_3V3_LOSS_MV", "3V3 calibration note")
 require(attiny, "FIELD_MEASURED_9V_LOW_MV", "9V calibration note")
 require(attiny_doc, "Den, coi va tao am khong arm rieng bao mat dien", "humidifier covered by batch arm")
-require(attiny_bus, "status frame vuot edge buffer", "ATtiny status edge buffer guard")
 require(hmi, "(view == View::WifiChange) ? WIFI_PORTAL_UI_IDLE_TIMEOUT_MS", "Wi-Fi screen uses dedicated timeout")
 require(network, "id=wifiPassword", "Wi-Fi portal password input id")
 require(network, "id=showPassword", "Wi-Fi portal show-password control")
