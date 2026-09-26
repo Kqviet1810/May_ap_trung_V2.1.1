@@ -95,15 +95,16 @@ require(attiny, "FLAG_ACTIVITY", "ATtiny activity status feedback")
 require(attiny, "PRR |= _BV(PRADC)", "ATtiny ADC power reduction")
 
 # Hardened wire encoding: logical status stays 8..23, but physical frame is
-# always <=15 pulses. Activity is carried by first LOW width (30/60ms), so the
-# transaction remains ONE frame + ONE ACK; split-status state machines are
-# forbidden because bench testing exposed a second-frame ACK failure mode.
+# always <=15 pulses. Activity is carried by first LOW width, so the transaction
+# remains ONE frame + ONE ACK. The 120ms marker is deliberately > legacy ESP's
+# 90ms accepted-low ceiling so mixed NEW-Tiny/OLD-ESP versions fail visibly.
 require(attiny_bus, "STATUS_WIRE_MAX", "ATtiny physical status cap")
 require(attiny_bus, "STATUS_WIRE_MAX == 15U", "ATtiny physical status compile guard")
 require(attiny_bus, "STATUS_LONG_MIN_US", "ATtiny activity width decoder")
+require(attiny_bus, "STATUS_HARD_MAX_US", "ATtiny hardened status pulse ceiling")
 require(attiny_bus, "rxActivityMarker_", "ATtiny activity marker capture")
 require(attiny_bus, "pulses + (activity ? ATTINY_STATUS_FLAG_ACTIVITY : 0U)", "ATtiny logical status reconstruction")
-require(attiny, "ACTIVITY_MARK_PULSE_MS = 60U", "ATtiny activity long pulse encoder")
+require(attiny, "ACTIVITY_MARK_PULSE_MS = 120U", "ATtiny fail-closed activity marker")
 require(attiny, "(i == 0U && activity) ? ACTIVITY_MARK_PULSE_MS : PULSE_MS", "ATtiny first-pulse activity encoding")
 if "splitStatus" in attiny_bus:
     raise SystemExit("FAIL: split ATtiny STATUS state machine reintroduced")
