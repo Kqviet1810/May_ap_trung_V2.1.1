@@ -145,6 +145,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 
 .main{grid-column:2;padding:0 28px 44px;max-width:1320px;width:100%;min-width:0;margin:0 auto}
 .topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:minmax(240px,1fr) repeat(3,minmax(0,148px));gap:12px;align-items:center;padding:calc(20px + env(safe-area-inset-top)) 0 16px;background:var(--topbarBg);backdrop-filter:blur(12px);transition:background var(--ease)}
+/* Trang cai dat chi rong 960px; gioi han header cung bang do rong nay de
+   ba o truc tiep thang hang voi mep phai cua day the cai dat ben duoi. */
+body[data-page="settings"] .topbar{max-width:960px}
 /* Tieu de + chu thich xep doc va can giua theo chieu doc trong thanh dau
    trang, ngang hang voi 3 o Nhiet do/Do am/Trang thai. */
 .title{display:flex;flex-direction:column;justify-content:center;min-width:0}
@@ -566,14 +569,14 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .topbar{grid-template-columns:minmax(80px,1fr) repeat(2,minmax(0,72px)) minmax(92px,108px);gap:6px;align-items:stretch;padding:calc(10px + env(safe-area-inset-top)) 0 10px;min-height:86px}
   .title{align-self:start;padding-top:1px}
   .title h1{font-size:24px;line-height:1.08;white-space:nowrap}
-  .title p{display:none}
-  .live{padding:8px;border-radius:11px;display:flex;flex-direction:column;justify-content:center}
-  .live>span{font-size:9px;letter-spacing:.2px}
-  .live>strong{font-size:15px}
+  .title p{display:block;margin-top:4px;font-size:9px;line-height:1.25;white-space:normal;overflow:visible;text-overflow:clip}
+  .live{min-height:64px;padding:9px 8px;border-radius:11px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center}
+  .live>span{font-size:9px;line-height:1.1;letter-spacing:.2px}
+  .live>strong{font-size:15px;line-height:1.15;margin-top:7px}
   #liveStateTile{padding-inline:6px}
-  #liveState{font-size:clamp(11px,3vw,15px);letter-spacing:-.35px}
+  #liveState{font-size:13px;letter-spacing:-.2px}
   .panel{padding:18px;border-radius:16px}
-  .deviceHeading{margin:0;align-self:flex-start;font-size:11px;line-height:29px;letter-spacing:.55px}
+  .deviceHeading{margin:0;align-self:flex-start;font-size:12px;line-height:29px;letter-spacing:.2px}
   .devicePickerRow{margin-top:14px}
   .addDevice{height:52px;flex-basis:52px}
   .grid2{grid-template-columns:1fr}
@@ -606,6 +609,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .batchLogRow .logDuration{max-width:76px;overflow:hidden;text-overflow:ellipsis}
   .wifiInputRow{grid-template-columns:1fr}
   .wifiInputRow button{width:100%}
+  body[data-page="settings"] .topbar{max-width:none}
 }
 @media(max-width:360px){
   .tempGrid{gap:6px}
@@ -800,7 +804,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
 .telemetryEmpty[hidden]{display:none}
 .telemetryAxis{display:flex;justify-content:space-between;gap:8px;margin:7px 3px 0 42px;color:var(--muted);font-size:var(--fs-2xs);font-variant-numeric:tabular-nums}
 .diagnosticsLogBody .currentActivity{margin-top:0}
-@media(max-width:720px){.telemetryPanel{padding:13px 15px}.telemetryHead{align-items:flex-start}.telemetryLegend{gap:8px}.telemetryCanvasWrap{height:220px}.telemetryAxis{margin-left:38px}}
+@media(max-width:720px){.telemetryPanel{padding:13px 15px}.telemetryHead{align-items:flex-start}.telemetryHead .eyebrow{display:none}.telemetryLegend{gap:8px}.telemetryCanvasWrap{height:220px}.telemetryAxis{margin-left:38px}}
 @media(min-height:481px){body[data-page="batch"] .telemetryPanel{flex:1 1 auto;min-height:250px;margin-top:0;overflow:hidden;display:flex;flex-direction:column}body[data-page="batch"] .telemetryCanvasWrap{flex:1 1 auto;height:auto;min-height:180px}}
 @media(max-width:800px) and (min-height:481px) and (max-height:760px){body[data-page="batch"] .telemetryPanel{min-height:150px}body[data-page="batch"] .telemetryCanvasWrap{min-height:80px}}
 @media(max-height:480px){body[data-page="batch"] .telemetryPanel{display:flex;flex-direction:column;min-height:260px;margin-top:14px;overflow:hidden}}

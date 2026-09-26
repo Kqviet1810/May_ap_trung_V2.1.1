@@ -125,6 +125,18 @@ test('bounded uncertain cleanup includes every operation and late ACK after obse
   assert.equal(other.state.uncertain.size, 0);
 });
 
+test('background history timeout stays inside chart and does not show a global toast', () => {
+  const h = browser();
+  const toast = { textContent: '', classList: { add() {}, remove() {} } };
+  h.elements.set('toast', toast);
+  const pending = h.startTransaction('hist-background', {
+    kind: 'history', operation: 'history.read', deviceId: h.device.id
+  }, 100);
+  pending.onTimeout();
+  assert.equal(pending.phase, 'UNCERTAIN');
+  assert.equal(toast.textContent, '');
+});
+
 test('config, reminders and batch state reconcile without hiding a later signed rejection', async () => {
   const h = browser();
   const full = Object.fromEntries(h.CONFIG_KEYS.map((key) => [key, 1]));

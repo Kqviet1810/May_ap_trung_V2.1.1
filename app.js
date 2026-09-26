@@ -1489,7 +1489,11 @@
         device.batchUiAwaitingConfirmTarget = batchTargetForAction(pending.action);
         if (device.id === state.selectedId) setFormError('batchForm', 'Chưa nhận xác nhận cuối · đang kiểm tra trạng thái máy');
       }
-      toast('Chưa nhận xác nhận cuối từ ESP32; kết quả chưa chắc chắn', 5000);
+      // Doc lich su EEPROM la tac vu nen tu chay khi mo trang Me ap. Neu
+      // ESP32 tra cham, chi cap nhat trang thai ngay trong bieu do; khong
+      // hien toast nhu mot thao tac that bai do nguoi dung vua thuc hien.
+      if (pending.kind !== 'history')
+        toast('Chưa nhận xác nhận cuối từ ESP32; kết quả chưa chắc chắn', 5000);
       if (device) sendSession(device.id, true, true);
     };
     state.pending.set(id, pending);
