@@ -22,19 +22,18 @@
 <main class="main">
 <header class="topbar">
 <div class="title"><h1 id="pageTitle">Thiết bị</h1><p id="pageSubtitle">Theo dõi và điều khiển máy.</p></div>
-<div class="live"><span>Nhiệt độ</span><strong id="liveTemp">37,5°C</strong></div>
-<div class="live"><span>Độ ẩm</span><strong id="liveHumidity">58%</strong></div>
-<div class="live" id="liveStateTile"><span>Trạng thái</span><strong id="liveState">Sẵn sàng</strong>
+<div class="live"><span>Nhiệt độ:</span><strong id="liveTemp">37,5°C</strong></div>
+<div class="live"><span>Độ ẩm:</span><strong id="liveHumidity">58%</strong></div>
+<div class="live" id="liveStateTile"><span>Trạng thái:</span><strong id="liveState">Sẵn sàng</strong>
 <div class="faultPopup" hidden id="faultPopup" role="dialog">
-<div class="faultPopupHead"><span class="faultPopupCode" id="faultPopupCode">E000</span><span id="faultPopupTitle">—</span></div>
-<p id="faultPopupDesc"></p>
+<div id="faultPopupList"></div>
 </div>
 </div>
 </header>
 <section class="page active" id="page-device">
 <section class="panel deviceCompact">
 <div class="deviceTop">
-<p class="eyebrow deviceHeading">MÁY ĐANG ĐIỀU KHIỂN</p>
+<h2 class="deviceHeading">Máy đang điều khiển</h2>
 <div class="statusBlock"><span class="pill online" id="onlinePill">TRỰC TUYẾN</span><small id="wifiConnectionText">Wi‑Fi đã kết nối</small></div>
 </div>
 <div class="devicePickerRow">

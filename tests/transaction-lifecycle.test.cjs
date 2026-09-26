@@ -11,7 +11,8 @@ function browser() {
       verifyDeviceAck, sweepUncertain, handleConfigReport, handleReminderReport,
       moveToUncertain, publish, retrySameRequest, storeControlSession,
       signMqttWrite, controlSession, controlSessions, handleSnapshot, CONFIG_KEYS,
-      buildConfig, validateHumidifierForm, syncHumidifierFeatureUi });
+      buildConfig, validateHumidifierForm, syncHumidifierFeatureUi,
+      refreshFaultPopupContent });
   })();`);
   const timers = new Map();
   let nextTimer = 0;
@@ -27,7 +28,10 @@ function browser() {
     localStorage: { getItem: () => null, setItem() {} },
     fetch: async () => ({ ok: false, status: 403,
       json: async () => ({ success: false, error: 'Phiên hết hạn' }) }),
-    document: { getElementById: id => elements.get(id) || null, addEventListener() {} },
+    document: { getElementById: id => elements.get(id) || null, addEventListener() {},
+      createElement: () => ({ children: [], className: '', textContent: '',
+        append(...items) { this.children.push(...items); },
+        replaceChildren(...items) { this.children = items; } }) },
     setTimeout: fn => { const id = ++nextTimer; timers.set(id, fn); return id; },
     clearTimeout: id => timers.delete(id),
     setInterval: () => 1, clearInterval() {} };
@@ -135,6 +139,22 @@ test('background history timeout stays inside chart and does not show a global t
   pending.onTimeout();
   assert.equal(pending.phase, 'UNCERTAIN');
   assert.equal(toast.textContent, '');
+});
+
+test('fault popup renders every active fault instead of only the newest one', () => {
+  const h = browser();
+  const list = { children: [], replaceChildren(...items) { this.children = items; } };
+  h.elements.set('faultPopup', { hidden: true });
+  h.elements.set('faultPopupList', list);
+  h.device.activeFaults = [
+    { code: 101, severity: 1 },
+    { code: 502, severity: 1 },
+    { code: 301, severity: 2 }
+  ];
+  h.refreshFaultPopupContent(h.device);
+  assert.equal(list.children.length, 3);
+  assert.equal(list.children[0].children[0].children[0].textContent, 'E101');
+  assert.equal(list.children[2].children[0].children[0].textContent, 'E301');
 });
 
 test('config, reminders and batch state reconcile without hiding a later signed rejection', async () => {

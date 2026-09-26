@@ -447,14 +447,6 @@
     return value === true;
   }
 
-  // runtime.activeFaults[] do firmware gui, da sap xep uu tien cao nhat
-  // truoc (FaultManager::copyActiveForHmi() trong machine_control.h) - phan
-  // tu dau tien la loi quan trong nhat dang active.
-  function topActiveFault(runtime) {
-    const list = Array.isArray(runtime?.activeFaults) ? runtime.activeFaults : [];
-    return list.length ? list[0] : null;
-  }
-
   let faultPopupTimer = null;
   function closeFaultPopup() {
     const popup = $('faultPopup');
@@ -466,19 +458,33 @@
   // 1 lan lam popup khong bao gio tu dong tat" (renderDevice() co
   // setInterval refresh 5000 ms doc lap voi popup).
   function refreshFaultPopupContent(device) {
-    const fault = device?.activeFault;
+    const faults = Array.isArray(device?.activeFaults) ? device.activeFaults : [];
     const popup = $('faultPopup');
-    if (!fault || !popup) return;
-    const code = Number(fault.code);
-    const severity = Number(fault.severity || 0);
-    const sevClass = severity >= 3 ? 'sev-emergency' : severity >= 2 ? 'sev-stop' : 'sev-warn';
-    $('faultPopupCode').textContent = `E${code}`;
-    $('faultPopupCode').className = `faultPopupCode ${sevClass}`;
-    $('faultPopupTitle').textContent = FAULT_TITLES[code] || `Mã lỗi ${code}`;
-    $('faultPopupDesc').textContent = FAULT_DESCRIPTIONS[code] || FAULT_TITLES[code] || '';
+    const list = $('faultPopupList');
+    if (!faults.length || !popup || !list) return;
+    list.replaceChildren(...faults.map((fault) => {
+      const code = Number(fault.code);
+      const severity = Number(fault.severity || 0);
+      const sevClass = severity >= 3 ? 'sev-emergency' : severity >= 2 ? 'sev-stop' : 'sev-warn';
+      const item = document.createElement('section');
+      item.className = 'faultPopupItem';
+      const head = document.createElement('div');
+      head.className = 'faultPopupHead';
+      const codeElement = document.createElement('span');
+      codeElement.className = `faultPopupCode ${sevClass}`;
+      codeElement.textContent = `E${code}`;
+      const title = document.createElement('span');
+      title.className = 'faultPopupTitle';
+      title.textContent = FAULT_TITLES[code] || `Mã lỗi ${code}`;
+      const description = document.createElement('p');
+      description.textContent = FAULT_DESCRIPTIONS[code] || FAULT_TITLES[code] || '';
+      head.append(codeElement, title);
+      item.append(head, description);
+      return item;
+    }));
   }
   function openFaultPopup(device) {
-    if (!device?.activeFault) return;
+    if (!device?.activeFaults?.length) return;
     refreshFaultPopupContent(device);
     $('faultPopup').hidden = false;
     if (faultPopupTimer) clearTimeout(faultPopupTimer);
@@ -502,7 +508,9 @@
       return;
     }
     const online = connectionStatus(device) === 'online';
-    const fault = online ? topActiveFault(runtime) : null;
+    const faults = online && Array.isArray(runtime?.activeFaults) ? runtime.activeFaults : [];
+    const fault = faults.length ? faults[0] : null;
+    device.activeFaults = faults;
     device.activeFault = fault;
 
     tile.classList.remove('tile-warn', 'tile-stop', 'tile-emergency');
@@ -2925,7 +2933,7 @@
 
     $('liveStateTile').addEventListener('click', (event) => {
       const device = currentDevice();
-      if (!device?.activeFault) return;
+      if (!device?.activeFaults?.length) return;
       event.stopPropagation();
       const popup = $('faultPopup');
       if (popup && !popup.hidden) closeFaultPopup();
