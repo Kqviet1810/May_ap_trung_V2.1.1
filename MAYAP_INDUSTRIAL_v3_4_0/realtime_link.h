@@ -606,7 +606,7 @@ inline void publishAck(const char *requestId, const char *result,
   doc["bootId"] = bootId;
   doc["result"] = result;
   doc["message"] = ackFriendlyMessage(code, message);
-  doc["revision"] = webConfigRevision;
+  doc["revision"] = !strcmp(op, "reminders.save") ? webRemindersRevision : webConfigRevision;
   doc["tDeviceReceived"] = receivedAt ? receivedAt : millis();
   doc["tDeviceCompleted"] = completedAt ? completedAt : lastDeviceCompletedAt;
   publishJson("ack", doc, false);
@@ -1514,6 +1514,7 @@ inline void mayapWebLinkBegin() {
 // mayapNetworkUpdate ma no chay canh).
 inline void mayapWebLinkUpdate(uint32_t now) {
   using namespace MayapRealtimeInternal;
+  serviceSessionTimeout(now);
   // Phai chay TRUOC moi nhanh return ben duoi: cong doi Wi-Fi co the dang mo
   // ngay ca khi STA (va vi vay MQTT) dang tat han, nhung AP van can duoc giu
   // WIFI_PS_NONE de phat song on dinh trong luc do.
@@ -1536,7 +1537,6 @@ inline void mayapWebLinkUpdate(uint32_t now) {
   mqtt.loop();
   expirePendingCommands(now);
   drainAckOutbox();
-  serviceSessionTimeout(now);
   serviceConfigPublish();
   serviceReminderPublish();
   serviceSnapshotPublish(now);

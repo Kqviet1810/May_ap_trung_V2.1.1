@@ -112,7 +112,8 @@
   const telemetryChart = {
     deviceId: '', points: [], historyLoaded: false, historyLoadedAt: 0,
     historyLoading: false, historyRetryAt: 0, historyRequestSeq: 0,
-    activeRequestId: '', lastSampleAt: 0, renderRaf: 0,
+    activeRequestId: '', nextCursor: 0, historyGap: false,
+    lastSampleAt: 0, renderRaf: 0,
   };
 
   const state = {
@@ -2194,6 +2195,8 @@
     const seq = ++telemetryChart.historyRequestSeq;
     const requestId = `hist-${Date.now().toString(36)}-${seq.toString(36)}`.slice(0, 39);
     telemetryChart.activeRequestId = requestId;
+    telemetryChart.nextCursor = 0;
+    telemetryChart.historyGap = false;
     telemetrySetStatus('Đang đọc EEPROM 30 phút gần nhất…');
     try {
       const body = { v: 1, requestId, minutes: 30 };
@@ -2228,6 +2231,11 @@
     if (!device || device.id !== state.selectedId) return;
     telemetryEnsureDevice(device);
     if (String(payload?.requestId || '') !== telemetryChart.activeRequestId) return;
+    const cursor = Number(payload?.cursor);
+    if (Number.isFinite(cursor) && cursor !== telemetryChart.nextCursor) {
+      telemetryChart.historyGap = true;
+    }
+    telemetryChart.nextCursor = Number.isFinite(cursor) ? cursor + 12 : telemetryChart.nextCursor;
     const samples = Array.isArray(payload?.samples) ? payload.samples : [];
     telemetryMerge(samples.map((row) => ({
       t: Number(row?.[0]) * 1000,
@@ -2235,10 +2243,10 @@
     })));
     if (payload?.done) {
       telemetryChart.historyLoading = false;
-      telemetryChart.historyLoaded = true;
+      telemetryChart.historyLoaded = !telemetryChart.historyGap;
       telemetryChart.historyLoadedAt = Date.now();
-      telemetryChart.historyRetryAt = 0;
-      telemetrySetStatus(telemetryChart.points.length
+      telemetryChart.historyRetryAt = telemetryChart.historyGap ? Date.now() + 10_000 : 0;
+      telemetrySetStatus(telemetryChart.historyGap ? 'Thiếu gói lịch sử · sẽ đọc lại' : telemetryChart.points.length
         ? 'EEPROM 5 phút · cập nhật trực tiếp'
         : 'EEPROM chưa có dữ liệu · cập nhật trực tiếp');
     }
