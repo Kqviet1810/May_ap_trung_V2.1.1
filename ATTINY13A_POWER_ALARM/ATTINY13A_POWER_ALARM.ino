@@ -27,7 +27,10 @@ constexpr uint16_t FIELD_MEASURED_9V_LOW_MV       = 0U;
 constexpr uint16_t FIELD_MEASURED_9V_OK_MV        = 0U;
 
 constexpr uint16_t PULSE_MS = 30U;
-constexpr uint16_t ACTIVITY_MARK_PULSE_MS = 60U;
+// 120 ms is deliberately above the legacy ESP receiver's 90 ms maximum.
+// New Tiny + old ESP therefore fails visibly instead of silently losing the
+// activity bit. New ESP explicitly accepts this marker only on the first pulse.
+constexpr uint16_t ACTIVITY_MARK_PULSE_MS = 120U;
 constexpr uint16_t MIN_PULSE_MS = 15U;
 constexpr uint16_t END_GAP_MS = 150U;
 constexpr uint16_t ACK_TIMEOUT_MS = 350U;
@@ -125,7 +128,7 @@ static uint8_t receiveCommand() {
 
 // Logical STATUS remains 8..23, but physical frame is ALWAYS <=15 pulses:
 //   count 8..15 = lower three flags (batch / 9V-low / siren)
-//   first LOW 30ms = activity OFF, 60ms = activity ON
+//   first LOW 30ms = activity OFF, 120ms = activity ON
 // ESP reconstructs the original logical activity bit, so upper layers do not
 // change at all. One frame, one ACK; no split transaction/state timeout.
 static void sendStatus(uint8_t logicalCode) {
