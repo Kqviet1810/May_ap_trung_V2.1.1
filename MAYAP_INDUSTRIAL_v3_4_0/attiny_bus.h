@@ -72,6 +72,17 @@ static uint32_t txHoldUntil_ = 0U;
 static bool resultReady_ = false, resultAcked_ = false, ackRequested_ = false, txIsAck_ = false;
 static uint8_t resultCode_ = 0U;
 
+// MachineController keeps two siren mirrors: the command mirror and the last
+// STATUS mirror. After SIREN_OFF is ACKed, the latter remains stale until the
+// next STATUS query, so the upper layer can request SIREN_OFF again every
+// 5 ms. Re-sending an already ACKed OFF command provides no new information
+// and can eventually turn one transient missed ACK into a false E501.
+// Transport therefore coalesces repeated SIREN_OFF after a confirmed ACK.
+// Any newly received STATUS clears this guard, allowing exactly one fresh
+// correction if the Tiny really reports siren ON again. SIREN_ON is NEVER
+// suppressed because its periodic reassert is an intentional safety feature.
+static bool sirenOffConfirmed_ = false;
+
 inline void busRelease() { pinMode(PIN_ATTINY_BUS, INPUT); }
 inline void busDriveLow() { pinMode(PIN_ATTINY_BUS, OUTPUT); digitalWrite(PIN_ATTINY_BUS, LOW); }
 inline bool busIsLow() { return digitalRead(PIN_ATTINY_BUS) == LOW; }
@@ -203,10 +214,17 @@ inline bool queuedOrActive(uint8_t code) {
 }
 
 inline void publishResult(bool acked) {
+  const uint8_t completed = txCode_;
   busRelease();
   armIncomingCapture();
   busBusy_ = false;
-  resultCode_ = txCode_;
+
+  if (acked) {
+    if (completed == ATTINY_MSG_SIREN_OFF) sirenOffConfirmed_ = true;
+    else if (completed == ATTINY_MSG_SIREN_ON) sirenOffConfirmed_ = false;
+  }
+
+  resultCode_ = completed;
   resultAcked_ = acked;
   resultReady_ = true;
   txCode_ = 0U;
@@ -266,6 +284,7 @@ inline void startNext(uint32_t now) {
 inline void mayapAttinyBusBegin() {
   using namespace MayapAttinyBusInternal;
   busRelease();
+  sirenOffConfirmed_ = false;
   armIncomingCapture();
   attachInterrupt(digitalPinToInterrupt(PIN_ATTINY_BUS), busIsr, CHANGE);
 }
@@ -273,6 +292,13 @@ inline void mayapAttinyBusBegin() {
 inline bool mayapAttinyBusRequest(uint8_t code) {
   using namespace MayapAttinyBusInternal;
   if (code == 0U || code > ATTINY_MSG_MAX_COMMAND) return false;
+
+  // A confirmed SIREN_OFF is an idempotent level command. Do not put the
+  // same command on the wire every control cycle just because the last STATUS
+  // snapshot in MachineController is stale. A fresh STATUS below clears this
+  // guard, so a genuine mismatch can still be corrected immediately.
+  if (code == ATTINY_MSG_SIREN_OFF && sirenOffConfirmed_) return true;
+
   if (queuedOrActive(code)) return true;
   if (txCount_ >= TX_QUEUE_SIZE) return false;
   txQueue_[txTail_] = code;
@@ -393,6 +419,10 @@ inline uint8_t mayapAttinyBusPollIncoming() {
       pulses + (activity ? ATTINY_STATUS_FLAG_ACTIVITY : 0U));
   if (logical < ATTINY_MSG_STATUS_BASE || logical > ATTINY_MSG_STATUS_MAX) return 0U;
 
+  // Fresh STATUS is authoritative and may reveal that the Tiny really changed
+  // state (or rebooted), so release the OFF-command coalescing guard before
+  // handing the logical status to MachineController.
+  sirenOffConfirmed_ = false;
   ackRequested_ = true;
   return logical;
 }
