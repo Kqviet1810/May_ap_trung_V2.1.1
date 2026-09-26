@@ -136,6 +136,8 @@ static MachineConfig knownConfig{};
 static bool knownConfigValid = false;
 static bool configDirty = false;      // co ban cap nhat can phat "config/reported"
 static uint32_t webConfigRevision = 0U;
+static char lastVerifiedConfigRequestId[WEB_REQUEST_ID_CAPACITY] = "";
+static uint32_t lastVerifiedConfigRevision = 0U;
 
 static MachineRuntime knownRuntime{};
 static bool knownRuntimeValid = false;
@@ -364,6 +366,11 @@ inline void publishPresence(bool online) {
 }
 
 inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
+  char verifiedId[WEB_REQUEST_ID_CAPACITY] = "";
+  portENTER_CRITICAL(&webMux);
+  if (revision == lastVerifiedConfigRevision)
+    snprintf(verifiedId, sizeof(verifiedId), "%s", lastVerifiedConfigRequestId);
+  portEXIT_CRITICAL(&webMux);
   JsonDocument doc;
   doc["v"] = 1;
   doc["bootId"] = bootId;
@@ -438,6 +445,7 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
     chunk["v"] = 2;
     chunk["bootId"] = bootId;
     chunk["revision"] = revision;
+    if (verifiedId[0]) chunk["requestId"] = verifiedId;
     chunk["part"] = part;
     chunk["done"] = false;
     chunk["config"].to<JsonObject>();
@@ -1725,8 +1733,14 @@ inline void mayapWebConfirmConfigSave(uint32_t transactionId, bool ok,
   (void)stored;  // config moi da/se toi qua mayapWebSetConfig() tu cung noi goi
   portENTER_CRITICAL(&webMux);
   if (pendingConfigSave.used && pendingConfigSave.transactionId == transactionId) {
-    if (ok) webConfigRevision = pendingConfigSave.revision > webConfigRevision
-        ? pendingConfigSave.revision : webConfigRevision + 1U;
+    if (ok) {
+      webConfigRevision = pendingConfigSave.revision > webConfigRevision
+          ? pendingConfigSave.revision : webConfigRevision + 1U;
+      lastVerifiedConfigRevision = webConfigRevision;
+      snprintf(lastVerifiedConfigRequestId, sizeof(lastVerifiedConfigRequestId), "%s",
+               pendingConfigSave.requestId);
+      configDirty = true; // Publish a complete verified report even if a prior report raced.
+    }
     enqueueAckLocked(pendingConfigSave.requestId, ok ? "applied" : "rejected",
                      ok ? "" : failureCode, "config.save", pendingConfigSave.queuedAt,
                      pendingConfigSave.signedAck ? pendingConfigSave.ackKey : nullptr);

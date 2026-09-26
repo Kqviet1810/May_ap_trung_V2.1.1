@@ -132,17 +132,25 @@ test('config, reminders and batch state reconcile without hiding a later signed 
   const key = await webcrypto.subtle.importKey('raw', new Uint8Array(32).fill(9),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
   const config = h.startTransaction('cfg-a', { kind: 'config', operation: 'config.save',
-    deviceId: h.device.id, formId: 'quickForm', revision: 2,
+    deviceId: h.device.id, formId: 'quickForm', revision: 2, bootId: 123,
     patch: { targetTemp: 37 }, config: full, ackKey: key }, 100);
   config.onTimeout();
+  // A matching value without the verified request ID is not confirmation.
   h.handleConfigReport(h.device, { revision: 2, bootId: 123, config: full });
-  assert.equal(config.observed, true);
   assert.equal(h.state.uncertain.has('cfg-a'), true);
   const reject = await signedAck(h, 'cfg-a', 'config.save', false, key,
     { revision: 2, code: 'CONFIG_EEPROM_ERROR', message: 'Lưu EEPROM lỗi' });
   assert.equal(await h.verifyDeviceAck(h.device, reject), true);
   h.handleAck(h.device, reject);
   assert.equal(config.phase, 'REJECTED');
+
+  const verified = h.startTransaction('cfg-b', { kind: 'config', operation: 'config.save',
+    deviceId: h.device.id, formId: 'quickForm', revision: 3, bootId: 123,
+    patch: { targetTemp: 37 }, config: full, ackKey: key }, 100);
+  verified.onTimeout();
+  h.handleConfigReport(h.device, { revision: 3, bootId: 123, requestId: 'cfg-b', config: full });
+  assert.equal(verified.phase, 'UNCERTAIN'); // Settled by the verified report.
+  assert.equal(h.state.uncertain.has('cfg-b'), false);
 
   const reminder = h.startTransaction('rem-a', { kind: 'reminders', operation: 'reminders.save',
     deviceId: h.device.id, revision: 3, nextList: [{ day: 5, label: 'Kiểm tra' }],

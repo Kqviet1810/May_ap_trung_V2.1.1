@@ -1959,7 +1959,8 @@
 
     for (const [id, pending] of [...state.pending, ...state.uncertain]) {
       if (pending.deviceId !== device.id || pending.kind !== 'config' ||
-          pending.bootId !== device.bootId || device.revision !== pending.revision ||
+          pending.bootId !== device.bootId || report.requestId !== id ||
+          device.revision !== pending.revision ||
           !Object.entries(pending.patch).every(([key, value]) =>
             Object.is(device.config[key], value))) continue;
       // Firmware publishes this revision only after EEPROM save and readback.
