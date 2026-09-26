@@ -1402,9 +1402,13 @@ inline void attemptConnect(uint32_t now) {
 inline void expirePendingCommands(uint32_t now) {
   char requestIdsToExpire[COMMAND_QUEUE_SIZE][WEB_REQUEST_ID_CAPACITY];
   char operationsToExpire[COMMAND_QUEUE_SIZE][40];
+  uint8_t keysToExpire[COMMAND_QUEUE_SIZE][32];
+  bool signedToExpire[COMMAND_QUEUE_SIZE] = {};
   uint8_t expireCount = 0U;
   bool configExpired = false;
   char configRequestId[WEB_REQUEST_ID_CAPACITY] = "";
+  uint8_t configKey[32] = {};
+  bool configSigned = false;
 
   portENTER_CRITICAL(&webMux);
   for (PendingCommand &slot : pendingCommands) {
@@ -1414,6 +1418,8 @@ inline void expirePendingCommands(uint32_t now) {
              slot.requestId);
     snprintf(operationsToExpire[expireCount], sizeof(operationsToExpire[0]), "%s",
              slot.operation);
+    signedToExpire[expireCount] = slot.signedAck;
+    if (slot.signedAck) memcpy(keysToExpire[expireCount], slot.ackKey, 32U);
     ++expireCount;
     slot.used = false;
   }
@@ -1422,23 +1428,32 @@ inline void expirePendingCommands(uint32_t now) {
     configExpired = true;
     snprintf(configRequestId, sizeof(configRequestId), "%s",
              pendingConfigSave.requestId);
+    configSigned = pendingConfigSave.signedAck;
+    if (configSigned) memcpy(configKey, pendingConfigSave.ackKey, 32U);
     pendingConfigSave.used = false;
   }
   bool remindersExpired = false;
   char reminderRequestId[WEB_REQUEST_ID_CAPACITY] = "";
+  uint8_t reminderKey[32] = {};
+  bool reminderSigned = false;
   if (pendingReminderSave.used &&
       elapsedMs(now, pendingReminderSave.queuedAt) >= WEB_REMINDER_SAVE_ACK_TIMEOUT_MS) {
     remindersExpired = true;
     snprintf(reminderRequestId, sizeof(reminderRequestId), "%s",
              pendingReminderSave.requestId);
+    reminderSigned = pendingReminderSave.signedAck;
+    if (reminderSigned) memcpy(reminderKey, pendingReminderSave.ackKey, 32U);
     pendingReminderSave.used = false;
   }
   portEXIT_CRITICAL(&webMux);
 
   for (uint8_t i = 0; i < expireCount; ++i)
-    publishAck(requestIdsToExpire[i], "expired", "", operationsToExpire[i]);
-  if (configExpired) publishAck(configRequestId, "expired", "", "config.save");
-  if (remindersExpired) publishAck(reminderRequestId, "expired", "", "reminders.save");
+    publishAck(requestIdsToExpire[i], "expired", "", operationsToExpire[i],
+               0U, 0U, signedToExpire[i] ? keysToExpire[i] : nullptr);
+  if (configExpired) publishAck(configRequestId, "expired", "", "config.save",
+                                0U, 0U, configSigned ? configKey : nullptr);
+  if (remindersExpired) publishAck(reminderRequestId, "expired", "", "reminders.save",
+                                   0U, 0U, reminderSigned ? reminderKey : nullptr);
 }
 
 inline void drainAckOutbox() {
