@@ -33,7 +33,6 @@ const PIN_RATE_MAX_FAILURES = 5;
 
 const DEFAULT_MQTT_HOST = '2f4b95444c554498bd4a4b2da0de8013.s1.eu.hivemq.cloud';
 const DEFAULT_MQTT_USERNAME = 'Mayap_Iot';
-const MQTT_WRITE_CHANNELS = new Set(['command', 'config/set', 'reminders/set', 'history/request']);
 
 function bytesToHex(bytes) {
   return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -59,17 +58,6 @@ async function deriveCommandKeyHex(env, deviceId) {
   );
   return bytesToHex(digest);
 }
-async function signMqttWrite(env, deviceId, channel, bodyText) {
-  const commandKeyHex = await deriveCommandKeyHex(env, deviceId);
-  const commandKey = hexToBytes(commandKeyHex);
-  if (!commandKey) return '';
-  const message = `mayap-mqtt-write:v1
-${deviceId}
-${channel}
-${bodyText}`;
-  return bytesToHex(await hmacSha256(commandKey, message));
-}
-
 // HiveMQ Serverless khong dung JWT. Web chi nhan credential chung SAU KHI
 // xac thuc PIN/pairing token qua Worker; lenh ghi MQTT con duoc HMAC rieng
 // tung device ben duoi nen lo credential broker khong du de dieu khien may.
@@ -501,35 +489,19 @@ async function handleMqttSession(request, env) {
   }
   const mqtt = await webMqttConfig(env);
   if (!mqtt) return json(env, { success: false, error: 'Máy chủ MQTT chưa sẵn sàng' }, 503);
-  return json(env, { success: true, mqtt });
-}
-
-// -------------------------- Ky ban tin MQTT ghi --------------------------
-// Browser phai co pairing_token hop le. Worker ky CHINH chuoi JSON se duoc
-// publish; ESP32 xac minh HMAC truoc khi parse/thi hanh. Credential MQTT chung
-// vi vay chi con la lop van chuyen, khong phai quyen dieu khien may.
-async function handleSignMqttWrite(request, env) {
-  const body = await readJson(request);
-  const deviceId = String(body?.device_id || '').trim();
-  const pairingToken = String(body?.pairing_token || '');
-  const channel = String(body?.channel || '');
-  const payload = body?.body;
-  if (!isValidDeviceId(deviceId) || !MQTT_WRITE_CHANNELS.has(channel) ||
-      !payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return json(env, { success: false, error: 'du lieu ky MQTT khong hop le' }, 400);
+  const clientId = String(body?.control_client_id || '');
+  if (!/^[A-Za-z0-9_-]{8,40}$/.test(clientId)) {
+    return json(env, { success: false, error: 'client_id khong hop le' }, 400);
   }
-  const device = await getDeviceByDeviceId(env.DB, deviceId);
-  if (!device || !pairingToken || pairingToken !== device.pairing_token) {
-    return json(env, { success: false, error: 'Phiên ghép nối không hợp lệ - hãy xác thực lại PIN' }, 401);
-  }
-  const bodyText = JSON.stringify(payload);
-  const probe = JSON.stringify({ v: 1, body: bodyText, sig: '0'.repeat(64) });
-  if (probe.length >= 1450) {
-    return json(env, { success: false, error: 'ban tin MQTT qua lon' }, 413);
-  }
-  const signature = await signMqttWrite(env, deviceId, channel, bodyText);
-  if (!signature) return json(env, { success: false, error: 'may chu chua san sang ky lenh' }, 503);
-  return json(env, { success: true, body: bodyText, signature });
+  const commandKey = hexToBytes(await deriveCommandKeyHex(env, deviceId));
+  if (!commandKey) return json(env, { success: false, error: 'Khoa dieu khien chua san sang' }, 503);
+  const expiresAt = Math.floor(Date.now() / 1000) + 300;
+  const grant = `${clientId}|${expiresAt}|${randomToken(12)}`;
+  const grantSig = bytesToHex(await hmacSha256(commandKey,
+    `mayap-control-grant:v2\n${deviceId}\n${grant}`));
+  const sessionKey = bytesToHex(await hmacSha256(commandKey,
+    `mayap-control-session:v2\n${deviceId}\n${grant}`));
+  return json(env, { success: true, mqtt, control: { grant, grantSig, sessionKey, expiresAt } });
 }
 
 // -------------------------- Endpoint: doi ten may --------------------------
@@ -872,9 +844,6 @@ export default {
       }
       if (url.pathname === '/api/device/mqtt-session' && request.method === 'POST') {
         return await handleMqttSession(request, env);
-      }
-      if (url.pathname === '/api/device/sign-mqtt' && request.method === 'POST') {
-        return await handleSignMqttWrite(request, env);
       }
       if (url.pathname === '/api/device/rename' && request.method === 'POST') {
         return await handleRenameDevice(request, env);

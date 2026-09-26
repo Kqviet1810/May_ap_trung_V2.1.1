@@ -166,3 +166,12 @@ inline bool mayapTemperatureHistoryReadBucket(uint32_t absoluteBucket,
                                               MayapTemperatureHistoryPoint &out) {
   return MayapTemperatureHistoryInternal::readBucket(absoluteBucket, out);
 }
+
+// 0=I2C error, 1=empty/old CRC or bucket, 2=valid sample.
+inline uint8_t mayapTemperatureHistoryReadStatus(uint32_t bucket,
+                                                  MayapTemperatureHistoryPoint &out) {
+  uint8_t raw[TEMP_HISTORY_RECORD_BYTES]{};
+  if (!MayapTemperatureHistoryInternal::readRaw(
+          MayapTemperatureHistoryInternal::addressForBucket(bucket), raw)) return 0U;
+  return MayapTemperatureHistoryInternal::decode(bucket, raw, out) ? 2U : 1U;
+}

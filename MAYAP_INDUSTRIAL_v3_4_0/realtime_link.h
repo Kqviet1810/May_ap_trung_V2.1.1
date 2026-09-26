@@ -6,10 +6,12 @@
 #if MQTT_USE_TLS
 #include <WiFiClientSecure.h>
 #endif
-#include <PubSubClient.h>
+#include "mqtt_transport.h"
+#include "protocol_limits.h"
 #include <ArduinoJson.h>
 #include <esp_wifi.h>
 #include <mbedtls/md.h>
+#include <time.h>
 
 // ============================================================================
 // LOP GIAO TIEP THOI GIAN THUC WEB <-> ESP32 (MQTT qua broker)
@@ -63,6 +65,10 @@ static portMUX_TYPE webMux = portMUX_INITIALIZER_UNLOCKED;
 // "MAP-" + 12 hex + null = 17 byte toi thieu (khop DEVICE_ID_RE trong app.js).
 static char deviceId[20] = "";
 static uint32_t bootId = 0;
+static char activeOperation[40] = "";
+static uint32_t lastDeviceCompletedAt = 0U;
+inline void publishAck(const char *, const char *, const char *, const char * = "",
+                       uint32_t = 0U, uint32_t = 0U);
 
 inline void ensureIdentity() {
   if (deviceId[0]) return;
@@ -83,7 +89,8 @@ static WiFiClientSecure netClient;
 #else
 static WiFiClient netClient;
 #endif
-static PubSubClient mqtt(netClient);
+static MqttTransport mqtt(netClient);
+static bool mqttBufferReady = false;
 static bool mqttTlsReady = !MQTT_USE_TLS;
 
 // Backoff RIENG cho MQTT, doc lap hoan toan voi backoff cua STA Wi-Fi
@@ -95,9 +102,11 @@ static BackoffTimer mqttBackoff{};
 // Chi doc/ghi tu networkTask (session den qua MQTT callback, cung chay trong
 // mqtt.loop() goi tu networkTask) nen khong can mutex.
 static bool webSessionActive = false;
-static uint32_t webSessionExpiresAt = 0U;
+struct WebClientLease { char id[40] = ""; uint32_t expiresAt = 0U; };
+static WebClientLease webClientLeases[8];
 static bool highPerfWifiApplied = false;  // tranh goi esp_wifi_set_ps lap lai
 static uint32_t lastSnapshotPublishAt = 0U;
+static bool forceSnapshotPublish = false;
 
 inline void applyWifiPowerMode(bool highPerformance) {
   if (highPerfWifiApplied == highPerformance) return;
@@ -146,6 +155,7 @@ struct PendingCommand {
   uint32_t commandId = 0;
   uint32_t queuedAt = 0;
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
+  char operation[40] = "";
 };
 static PendingCommand pendingCommands[COMMAND_QUEUE_SIZE];
 
@@ -156,6 +166,7 @@ static PendingCommand pendingCommands[COMMAND_QUEUE_SIZE];
 struct PendingConfigSave {
   bool used = false;
   uint32_t queuedAt = 0;
+  uint32_t revision = 0;
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
 };
 static PendingConfigSave pendingConfigSave;
@@ -174,11 +185,15 @@ struct AckOutboxItem {
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
   char result[16] = "";
   char message[64] = "";
+  char operation[40] = "";
+  uint32_t receivedAt = 0U;
+  uint32_t completedAt = 0U;
 };
 static AckOutboxItem ackOutbox[COMMAND_QUEUE_SIZE + 2U];
 
 inline void enqueueAckLocked(const char *requestId, const char *result,
-                             const char *message) {
+                             const char *message, const char *operation = "",
+                             uint32_t receivedAt = 0U) {
   if (!requestId || !requestId[0]) return;
   for (AckOutboxItem &slot : ackOutbox) {
     if (slot.used) continue;
@@ -186,6 +201,9 @@ inline void enqueueAckLocked(const char *requestId, const char *result,
     snprintf(slot.requestId, sizeof(slot.requestId), "%s", requestId);
     snprintf(slot.result, sizeof(slot.result), "%s", result ? result : "");
     snprintf(slot.message, sizeof(slot.message), "%s", message ? message : "");
+    snprintf(slot.operation, sizeof(slot.operation), "%s", operation ? operation : "");
+    slot.receivedAt = receivedAt;
+    slot.completedAt = millis();
     return;
   }
   // Outbox day (rat hiem, toi da 6 ack cung luc): bo qua, web se tu timeout
@@ -208,27 +226,37 @@ static uint16_t historyCursor = 0U;
 static uint16_t historyCandidateCount = 0U;
 static uint32_t historySnapshotEpoch = 0U;
 static char historyRequestId[WEB_REQUEST_ID_CAPACITY] = "";
+static bool historyReadError = false;
+static uint16_t historySampleCount = 0U;
 
 // -------------------------------- Publish -------------------------------------
 // Tat ca ham publishXxx() ben duoi chi duoc goi tu networkTask.
 inline void publishJson(const char *suffix, const JsonDocument &doc,
                         bool retain) {
   if (!mqtt.connected()) return;
-  // config/reported (38 truong ke ca 8 truong "Nang cao") la payload lon
-  // nhat, toi ~1000-1050 byte o truong hop xau nhat (so am/thap phan dai) -
-  // qua sat gioi han 1024 cu, co the IM LANG khong gui duoc tuy gia tri
-  // (length >= sizeof(buffer) bi loai ngay duoi). Nang len 1536 (khop
-  // mqtt.setBufferSize() o mayapWebLinkBegin()) de co du du.
-  char buffer[1536];
+  // Budget applies to the whole MQTT packet (topic + headers + payload).
+  char buffer[MayapProtocol::MQTT_NORMAL_CAP];
   const size_t length = serializeJson(doc, buffer, sizeof(buffer));
-  if (length == 0U || length >= sizeof(buffer)) return;
-  mqtt.publish(topicOf(suffix), reinterpret_cast<const uint8_t *>(buffer),
-               static_cast<unsigned int>(length), retain);
+  const char *topic = topicOf(suffix);
+  if (length == 0U || length >= sizeof(buffer) ||
+      length + strlen(topic) + 5U > MayapProtocol::MQTT_NORMAL_CAP) {
+    mayapSerialPrintf(true, "[WEBLINK] packet vuot budget: %s (%u B)\n",
+                      suffix, static_cast<unsigned>(length));
+    return;
+  }
+  if (!mqtt.publish(topic, reinterpret_cast<const uint8_t *>(buffer),
+                    static_cast<unsigned int>(length), retain)) {
+    mayapSerialPrintf(false, "[WEBLINK] publish loi: %s\n", suffix);
+  }
 }
 
 inline void handleHistoryRequestMessage(const JsonDocument &doc) {
   const char *requestId = doc["requestId"] | "";
   if (!requestId[0]) return;
+  if (historyResponsePending) {
+    publishAck(requestId, "busy", "HISTORY_BUSY");
+    return;
+  }
   uint16_t minutes = static_cast<uint16_t>(doc["minutes"] | 30U);
   if (minutes < 5U) minutes = 5U;
   if (minutes > 1440U) minutes = 1440U;
@@ -244,6 +272,9 @@ inline void handleHistoryRequestMessage(const JsonDocument &doc) {
   historySnapshotEpoch = epoch;
   snprintf(historyRequestId, sizeof(historyRequestId), "%s", requestId);
   historyResponsePending = true;
+  historyReadError = false;
+  historySampleCount = 0U;
+  publishAck(requestId, "accepted", "HISTORY_ACCEPTED");
 }
 
 inline void serviceHistoryResponse() {
@@ -262,6 +293,7 @@ inline void serviceHistoryResponse() {
     doc["done"] = true;
     publishJson("history/reported", doc, false);
     historyResponsePending = false;
+    publishAck(historyRequestId, "applied", "HISTORY_EMPTY", "history.read");
     return;
   }
 
@@ -274,7 +306,10 @@ inline void serviceHistoryResponse() {
   for (uint16_t i = historyCursor; i < end; ++i) {
     const uint32_t absoluteBucket = firstBucket + i;
     MayapTemperatureHistoryPoint point{};
-    if (!mayapTemperatureHistoryReadBucket(absoluteBucket, point)) continue;
+    const uint8_t status = mayapTemperatureHistoryReadStatus(absoluteBucket, point);
+    if (status == 0U) { historyReadError = true; continue; }
+    if (status != 2U) continue;
+    ++historySampleCount;
     JsonArray row = samples.add<JsonArray>();
     row.add(point.epoch);
     row.add(static_cast<float>(point.temperatureX10) / 10.0f);
@@ -284,7 +319,12 @@ inline void serviceHistoryResponse() {
   const bool done = historyCursor >= historyCandidateCount;
   doc["done"] = done;
   publishJson("history/reported", doc, false);
-  if (done) historyResponsePending = false;
+  if (done) {
+    historyResponsePending = false;
+    publishAck(historyRequestId, historyReadError ? "rejected" : "applied",
+               historyReadError ? "HISTORY_EEPROM_ERROR" :
+               (historySampleCount ? "HISTORY_DONE" : "HISTORY_EMPTY"), "history.read");
+  }
 }
 
 inline void publishPresence(bool online) {
@@ -294,6 +334,12 @@ inline void publishPresence(bool online) {
   doc["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : "";
   doc["rssi"] = WiFi.isConnected() ? WiFi.RSSI() : 0;
   doc["fw"] = MAYAP_FIRMWARE_VERSION;
+  doc["firmware"] = MAYAP_FIRMWARE_VERSION;
+  doc["proto"] = 2;
+  doc["maxPacket"] = MayapProtocol::MQTT_HARD_CAP;
+  JsonArray caps = doc["caps"].to<JsonArray>();
+  caps.add("transactions"); caps.add("config.patch");
+  caps.add("control.session"); caps.add("history.chunk");
   doc["hw"] = MAYAP_HARDWARE_REVISION;
   publishJson("presence", doc, true);
 }
@@ -364,7 +410,32 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   c["tempOscillationWindowSec"] = cfg.tempOscillationWindowSec;
   c["autotuneRelayPowerPercent"] = cfg.autotuneRelayPowerPercent;
   c["autotuneBandC"] = cfg.autotuneBandC;
-  publishJson("config/reported", doc, true);
+  // Stream a full report in bounded chunks. Never retain a partial config.
+  JsonDocument chunk;
+  uint8_t part = 0U;
+  auto beginChunk = [&]() {
+    chunk.clear();
+    chunk["v"] = 2;
+    chunk["bootId"] = bootId;
+    chunk["revision"] = revision;
+    chunk["part"] = part;
+    chunk["done"] = false;
+    chunk["config"].to<JsonObject>();
+  };
+  beginChunk();
+  for (JsonPairConst field : c) {
+    const char *key = field.key().c_str();
+    chunk["config"][key] = field.value();
+    if (measureJson(chunk) > 850U) {
+      chunk["config"].as<JsonObject>().remove(key);
+      publishJson("config/reported", chunk, false);
+      ++part;
+      beginChunk();
+      chunk["config"][key] = field.value();
+    }
+  }
+  chunk["done"] = true;
+  publishJson("config/reported", chunk, false);
 }
 
 // Danh sach nhac nho tuy chinh hien co - web dung de dong bo lai form khi mo
@@ -419,14 +490,125 @@ inline void publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
   publishJson("snapshot", doc, false);
 }
 
+struct TerminalResult {
+  bool used = false;
+  char requestId[WEB_REQUEST_ID_CAPACITY] = "";
+  char operation[40] = "";
+  char result[16] = "";
+  char message[64] = "";
+};
+static TerminalResult terminalCache[16];
+static uint8_t terminalCursor = 0;
+inline bool replayTerminal(const char *id) {
+  if (!id || !id[0]) return false;
+  for (const auto &item : terminalCache) {
+    if (!item.used || strcmp(item.requestId, id)) continue;
+    // Replayed terminal result never executes the controller again.
+    publishAck(item.requestId, item.result, item.message, item.operation);
+    return true;
+  }
+  return false;
+}
+
+inline const char *ackCode(const char *result, const char *message) {
+  if (message && !strncmp(message, "HISTORY_", 8U)) return message;
+  if (message && !strncmp(message, "CONFIG_", 7U)) return message;
+  if (!strcmp(result, "applied")) return "APPLIED";
+  if (!strcmp(result, "accepted")) return "RECEIVED";
+  if (!strcmp(result, "unauthorized")) return "AUTH_ERROR";
+  if (!strcmp(result, "stale")) return "STALE_REQUEST";
+  if (!strcmp(result, "busy")) return "CONTROLLER_BUSY";
+  if (!strcmp(result, "expired")) return "CONTROLLER_TIMEOUT";
+  if (!strcmp(result, "invalid")) return "INVALID_REQUEST";
+  if (!strcmp(result, "unsupported")) return "UNSUPPORTED_OPERATION";
+  struct Reason { const char *raw; const char *code; };
+  static constexpr Reason reasons[] = {
+    {"HAY CHUYEN SANG AUTO", "BATCH_AUTO_OFF"},
+    {"HAY BAT CONG TAC NHIET", "BATCH_HEATER_SWITCH_OFF"},
+    {"CAM BIEN CHUA SAN SANG", "BATCH_SENSOR_ERROR"},
+    {"RTC CHUA HOP LE", "BATCH_RTC_INVALID"},
+    {"LOI 2 HANH TRINH", "BATCH_LIMIT_SWITCH_FAULT"},
+    {"DANG CO LOI DAO", "BATCH_TURNING_FAULT"},
+    {"NHIET DANG QUA CAO", "BATCH_OVERHEAT"},
+    {"DANG QUA NHIET KHAN CAP", "BATCH_EMERGENCY_OVERHEAT"},
+    {"ME DANG CHAY", "BATCH_ALREADY_RUNNING"},
+    {"DUNG ME CU TRUOC", "BATCH_ALREADY_RUNNING"},
+    {"DANG XOA DU LIEU ME CU", "BATCH_STORAGE_BUSY"},
+    {"LOI LUU TRANG THAI ME", "BATCH_EEPROM_ERROR"},
+    {"LOI BO NHO CAU HINH", "CONFIG_EEPROM_ERROR"},
+    {"LUU CAU HINH BI TU CHOI", "CONFIG_SAVE_REJECTED"},
+    {"LUU NHAC NHO BI TU CHOI", "REMINDERS_EEPROM_ERROR"},
+    {"KHONG CO ME DANG CHAY", "BATCH_NOT_RUNNING"},
+    {"COI KHAN CAP CAN ACK TAI MAY", "ALARM_PHYSICAL_ACK_REQUIRED"},
+    {"LOI DAO CAN ACK TAI MAY", "TURN_PHYSICAL_ACK_REQUIRED"},
+    {"HAY BAT TU DONG DAO", "BATCH_TURNING_DISABLED"},
+    {"HAY XAC NHAN RESET LOI", "BATCH_RESET_ACK_REQUIRED"},
+    {"LOI NHAT KY AN TOAN", "BATCH_SAFETY_JOURNAL_ERROR"}
+  };
+  for (const Reason &reason : reasons) if (!strcmp(message, reason.raw)) return reason.code;
+  return "CONTROLLER_REJECTED";
+}
+
+inline const char *ackFriendlyMessage(const char *code, const char *raw) {
+  struct Text { const char *code; const char *message; };
+  static constexpr Text texts[] = {
+    {"BATCH_AUTO_OFF", "Hãy chuyển công tắc sang AUTO trước"},
+    {"BATCH_HEATER_SWITCH_OFF", "Hãy bật công tắc thanh nhiệt trước"},
+    {"BATCH_SENSOR_ERROR", "Cảm biến chưa sẵn sàng"},
+    {"BATCH_RTC_INVALID", "Đồng hồ RTC chưa hợp lệ"},
+    {"BATCH_LIMIT_SWITCH_FAULT", "Lỗi hai công tắc hành trình"},
+    {"BATCH_TURNING_FAULT", "Cơ cấu đảo trứng đang lỗi"},
+    {"BATCH_OVERHEAT", "Nhiệt độ đang quá cao"},
+    {"BATCH_EMERGENCY_OVERHEAT", "Đang quá nhiệt khẩn cấp"},
+    {"BATCH_ALREADY_RUNNING", "Mẻ ấp đang chạy"},
+    {"BATCH_EEPROM_ERROR", "Không lưu được trạng thái mẻ"},
+    {"CONFIG_EEPROM_ERROR", "Không ghi/đọc lại được EEPROM cấu hình"},
+    {"CONFIG_BATCH_LOCKED", "Thông số này bị khóa khi mẻ đang chạy"},
+    {"CONFIG_SAFETY_BLOCK", "Máy đang có lỗi an toàn; chưa thể lưu"},
+    {"HISTORY_EEPROM_ERROR", "Không đọc được EEPROM lịch sử"},
+    {"HISTORY_EMPTY", "EEPROM chưa có lịch sử nhiệt"},
+    {"HISTORY_DONE", "Đã đọc xong lịch sử nhiệt"},
+    {"ALARM_PHYSICAL_ACK_REQUIRED", "Cần xác nhận còi khẩn cấp tại máy"},
+    {"TURN_PHYSICAL_ACK_REQUIRED", "Cần xác nhận lỗi đảo tại máy"},
+  };
+  for (const Text &text : texts) if (!strcmp(code, text.code)) return text.message;
+  return raw && raw[0] ? raw : (!strcmp(code, "APPLIED") ? "Máy đã thực hiện" :
+      !strcmp(code, "RECEIVED") ? "Máy đã nhận yêu cầu" : "Máy từ chối yêu cầu");
+}
+
 inline void publishAck(const char *requestId, const char *result,
-                       const char *message) {
+                       const char *message, const char *operation,
+                       uint32_t receivedAt, uint32_t completedAt) {
   if (!requestId || !requestId[0]) return;
+  const char *op = operation && operation[0] ? operation : activeOperation;
+  const bool received = !strcmp(result, "accepted");
+  const bool uncertain = !strcmp(result, "expired");
+  const bool ok = !strcmp(result, "applied");
+  if (!received) {
+    TerminalResult &slot = terminalCache[terminalCursor++ % 16U];
+    slot.used = true;
+    snprintf(slot.requestId, sizeof(slot.requestId), "%s", requestId);
+    snprintf(slot.operation, sizeof(slot.operation), "%s", op);
+    snprintf(slot.result, sizeof(slot.result), "%s", result);
+    snprintf(slot.message, sizeof(slot.message), "%s", message ? message : "");
+    lastSnapshotPublishAt = 0U;
+    forceSnapshotPublish = true;
+    lastDeviceCompletedAt = millis();
+  }
   JsonDocument doc;
+  doc["v"] = 2;
   doc["requestId"] = requestId;
+  doc["operation"] = op;
+  doc["phase"] = received ? "received" : uncertain ? "uncertain" : "completed";
+  doc["ok"] = ok;
+  const char *code = ackCode(result, message ? message : "");
+  doc["code"] = code;
   doc["bootId"] = bootId;
   doc["result"] = result;
-  doc["message"] = message ? message : "";
+  doc["message"] = ackFriendlyMessage(code, message);
+  doc["revision"] = webConfigRevision;
+  doc["tDeviceReceived"] = receivedAt ? receivedAt : millis();
+  doc["tDeviceCompleted"] = completedAt ? completedAt : lastDeviceCompletedAt;
   publishJson("ack", doc, false);
 }
 
@@ -524,7 +706,7 @@ inline bool mqttVerifySignedWrite(const char *channel, const JsonDocument &envel
   const char *body = envelope["body"] | "";
   const char *signatureHex = envelope["sig"] | "";
   const char *commandKeyHex = mayapCommandKey();
-  if (!body[0] || strlen(body) >= 1350U || !commandKeyHex || !commandKeyHex[0]) return false;
+  if (!body[0] || strlen(body) >= MayapProtocol::MQTT_NORMAL_CAP || !commandKeyHex || !commandKeyHex[0]) return false;
 
   uint8_t key[32] = {0};
   uint8_t provided[32] = {0};
@@ -561,6 +743,98 @@ inline bool mqttVerifySignedWrite(const char *channel, const JsonDocument &envel
   return deserializeJson(bodyDoc, body) == DeserializationError::Ok;
 }
 
+struct ClientReplayLease {
+  char id[40] = "";
+  uint64_t lastSeq = 0;
+  uint32_t expiresAt = 0;
+};
+static ClientReplayLease replayLeases[8];
+
+inline bool mqttVerifyV2(const char *channel, const JsonDocument &wire,
+                         JsonDocument &bodyDoc, bool &expired) {
+  expired = false;
+  const char *grant = wire["grant"] | "";
+  const char *grantSig = wire["grantSig"] | "";
+  const char *body = wire["body"] | "";
+  const char *signature = wire["sig"] | "";
+  if (!channel || strlen(grant) > 96U || strlen(body) >= 1700U ||
+      !grant[0] || !body[0]) return false;
+  char clientId[40] = "";
+  unsigned long expiry = 0;
+  char grantNonce[25] = "";
+  int consumed = 0;
+  if (sscanf(grant, "%39[A-Za-z0-9_-]|%lu|%24[0-9a-f]%n",
+             clientId, &expiry, grantNonce, &consumed) != 3 ||
+      static_cast<size_t>(consumed) != strlen(grant) ||
+      strlen(clientId) < 8U || strlen(grantNonce) != 24U) return false;
+  const time_t now = time(nullptr);
+  uint8_t key[32], suppliedGrant[32], suppliedBody[32], actual[32], sessionKey[32];
+  if (!mqttDecodeHex32(mayapCommandKey(), key) ||
+      !mqttDecodeHex32(grantSig, suppliedGrant) ||
+      !mqttDecodeHex32(signature, suppliedBody)) return false;
+  const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+  if (!info) return false;
+  char header[220];
+  int len = snprintf(header, sizeof(header), "mayap-control-grant:v2\n%s\n%s",
+                     deviceId, grant);
+  if (len < 0 || static_cast<size_t>(len) >= sizeof(header) ||
+      mbedtls_md_hmac(info, key, 32, reinterpret_cast<const uint8_t *>(header),
+                      len, actual) != 0) return false;
+  uint8_t diff = 0U;
+  for (size_t i = 0; i < 32; ++i) diff |= actual[i] ^ suppliedGrant[i];
+  if (diff) return false;
+  len = snprintf(header, sizeof(header), "mayap-control-session:v2\n%s\n%s",
+                 deviceId, grant);
+  if (len < 0 || static_cast<size_t>(len) >= sizeof(header) ||
+      mbedtls_md_hmac(info, key, 32, reinterpret_cast<const uint8_t *>(header),
+                      len, sessionKey) != 0) return false;
+  len = snprintf(header, sizeof(header), "mayap-mqtt-write:v2\n%s\n%s\n%s\n",
+                 deviceId, channel, grant);
+  if (len < 0 || static_cast<size_t>(len) >= sizeof(header)) return false;
+  mbedtls_md_context_t ctx;
+  mbedtls_md_init(&ctx);
+  bool ok = mbedtls_md_setup(&ctx, info, 1) == 0 &&
+      mbedtls_md_hmac_starts(&ctx, sessionKey, 32) == 0 &&
+      mbedtls_md_hmac_update(&ctx, reinterpret_cast<const uint8_t *>(header), len) == 0 &&
+      mbedtls_md_hmac_update(&ctx, reinterpret_cast<const uint8_t *>(body), strlen(body)) == 0 &&
+      mbedtls_md_hmac_finish(&ctx, actual) == 0;
+  mbedtls_md_free(&ctx);
+  if (!ok) return false;
+  diff = 0U;
+  for (size_t i = 0; i < 32; ++i) diff |= actual[i] ^ suppliedBody[i];
+  if (diff || deserializeJson(bodyDoc, body) != DeserializationError::Ok) return false;
+  const bool validBody = bodyDoc["v"].as<int>() == 2 &&
+      !strcmp(bodyDoc["clientId"] | "", clientId) &&
+      strlen(bodyDoc["requestId"] | "") > 0U &&
+      strlen(bodyDoc["nonce"] | "") >= 16U &&
+      bodyDoc["seq"].as<uint64_t>() > 0U;
+  if (!validBody) return false;
+  expired = now < 1700000000 || expiry < static_cast<unsigned long>(now) ||
+      expiry > static_cast<unsigned long>(now) + 300UL;
+  return !expired;
+}
+
+inline bool checkReplaySequence(const JsonDocument &doc) {
+  const char *client = doc["clientId"] | "";
+  const uint64_t seq = doc["seq"].as<uint64_t>();
+  const uint32_t now = millis();
+  ClientReplayLease *slot = nullptr;
+  for (auto &candidate : replayLeases) {
+    if (!strcmp(candidate.id, client)) { slot = &candidate; break; }
+  }
+  if (!slot) for (auto &candidate : replayLeases) {
+    if (!candidate.id[0] || timeReached(now, candidate.expiresAt)) {
+      slot = &candidate; break;
+    }
+  }
+  if (!slot) return false;  // bounded clients; do not evict an active replay fence
+  if (!strcmp(slot->id, client) && seq <= slot->lastSeq) return false;
+  snprintf(slot->id, sizeof(slot->id), "%s", client);
+  slot->lastSeq = seq;
+  slot->expiresAt = now + 330000U;
+  return true;
+}
+
 inline void handleCommandMessage(const JsonDocument &doc) {
   const char *requestId = doc["requestId"] | "";
   if (!mqttCommandChannelTrusted()) {
@@ -573,7 +847,7 @@ inline void handleCommandMessage(const JsonDocument &doc) {
 
   // Lenh dieu khien PHAI co requestId, sequence va bootId hop le.
   // bootId thay doi moi lan khoi dong, nen packet cua boot cu bi vo hieu.
-  if (!requestId[0] || sequence == 0U) {
+  if (!requestId[0] || (doc["v"].as<int>() != 2 && sequence == 0U)) {
     publishAck(requestId, "invalid", "");
     return;
   }
@@ -581,13 +855,18 @@ inline void handleCommandMessage(const JsonDocument &doc) {
     publishAck(requestId, "stale", "");
     return;
   }
+  if (doc["v"].as<int>() == 2) {
+    const uint32_t expiresAt = doc["expiresAt"] | 0UL;
+    const time_t nowEpoch = time(nullptr);
+    if (nowEpoch < 1700000000 || expiresAt < static_cast<uint32_t>(nowEpoch) ||
+        expiresAt > static_cast<uint32_t>(nowEpoch) + 30U) {
+      publishAck(requestId, "expired", "EXPIRED_REQUEST");
+      return;
+    }
+  }
 
   // Chong lap trong cung boot: requestId khong duoc lap va sequence phai tang.
-  if (!strcmp(requestId, lastCommandRequestId)) {
-    publishAck(requestId, "duplicate", "");
-    return;
-  }
-  if (lastCommandSequence != 0U && sequence <= lastCommandSequence) {
+  if ((doc["v"].as<int>() != 2) && lastCommandSequence != 0U && sequence <= lastCommandSequence) {
     publishAck(requestId, "stale", "");
     return;
   }
@@ -631,7 +910,7 @@ inline void handleCommandMessage(const JsonDocument &doc) {
     return;
   }
 
-  lastCommandSequence = sequence;
+  if (doc["v"].as<int>() != 2) lastCommandSequence = sequence;
   snprintf(lastCommandRequestId, sizeof(lastCommandRequestId), "%s", requestId);
 
   portENTER_CRITICAL(&webMux);
@@ -641,6 +920,7 @@ inline void handleCommandMessage(const JsonDocument &doc) {
     slot.commandId = commandId;
     slot.queuedAt = millis();
     snprintf(slot.requestId, sizeof(slot.requestId), "%s", requestId);
+    snprintf(slot.operation, sizeof(slot.operation), "%s", activeOperation);
     break;
   }
   portEXIT_CRITICAL(&webMux);
@@ -684,6 +964,32 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
     return;
   }
 
+  // Reject unknown and malformed patch fields before touching the controller.
+  static constexpr const char *patchKeys[] = {
+    "alarmEnabled", "allowHeatWithoutBatch", "autoResumeAfterPower", "autotuneBandC", "autotuneRelayPowerPercent",
+    "circulationFanEnabled", "controlMode", "emergencyTemp", "heaterStuckDurationSec", "heaterStuckMinRiseC",
+    "highTempAlarm", "highTempAlarmWithoutBatch", "humidifierEnabled", "humidityAlarmDelaySec", "humidityOffset",
+    "kd", "ki", "kp", "lightAfterBatchAlarmEnabled", "lowHumidityAlarm",
+    "lowTempAlarm", "manualTurnReanchorsSchedule", "maxHeaterPower", "nextDirection", "pidCycleSec",
+    "powerRestoreDelaySec", "sensorTimeoutSec", "sirenSelfTestEnabled", "targetHumidity", "targetTemp",
+    "tempHysteresis", "tempOffset", "tempOscillationCrossLimit", "tempOscillationWindowSec", "tempRateLimitC",
+    "tempRateWindowSec", "totalIncubationDays", "turnIntervalMin", "turnMaxRunSec", "turningEnabled",
+    "ventOffTemp", "ventOnTemp", "ventScheduleCount", "ventScheduleDurationMin", "ventScheduleEnabled",
+    "ventScheduleHour1", "ventScheduleHour2", "ventScheduleHour3", "ventScheduleHour4", "ventScheduleHour5",
+    "ventScheduleHour6",
+  };
+  JsonObjectConst fields = configObj.as<JsonObjectConst>();
+  if (fields.size() == 0U) { publishAck(requestId, "invalid", "EMPTY_PATCH"); return; }
+  for (JsonPairConst field : fields) {
+    bool known = false;
+    for (const char *key : patchKeys) if (!strcmp(field.key().c_str(), key)) { known = true; break; }
+    const JsonVariantConst value = field.value();
+    if (!known || !(value.is<bool>() || value.is<int>() || value.is<float>() || value.is<double>()) ||
+        (value.is<float>() && !isfinite(value.as<float>()))) {
+      publishAck(requestId, "invalid", "INVALID_CONFIG_PATCH");
+      return;
+    }
+  }
   candidate.targetTemp = configObj["targetTemp"] | candidate.targetTemp;
   candidate.tempHysteresis = configObj["tempHysteresis"] | candidate.tempHysteresis;
   candidate.lowTempAlarm = configObj["lowTempAlarm"] | candidate.lowTempAlarm;
@@ -758,6 +1064,14 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   candidate.autotuneBandC = configObj["autotuneBandC"] | candidate.autotuneBandC;
 
   sanitizeConfig(candidate);
+  if (!isfinite(candidate.targetTemp) || !isfinite(candidate.highTempAlarm) ||
+      !isfinite(candidate.emergencyTemp) ||
+      candidate.lowTempAlarm >= candidate.targetTemp ||
+      candidate.highTempAlarm <= candidate.targetTemp ||
+      candidate.emergencyTemp <= candidate.highTempAlarm) {
+    publishAck(requestId, "invalid", "INVALID_FULL_CONFIG");
+    return;
+  }
 
   if (!startConfigSave(candidate)) {
     publishAck(requestId, "busy", "");
@@ -765,9 +1079,9 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   }
 
   portENTER_CRITICAL(&webMux);
-  webConfigRevision = revision > webConfigRevision ? revision : webConfigRevision + 1U;
   pendingConfigSave.used = true;
   pendingConfigSave.queuedAt = millis();
+  pendingConfigSave.revision = revision;
   snprintf(pendingConfigSave.requestId, sizeof(pendingConfigSave.requestId), "%s",
            requestId);
   portEXIT_CRITICAL(&webMux);
@@ -828,9 +1142,9 @@ inline void handleReminderSetMessage(const JsonDocument &doc) {
   }
 
   portENTER_CRITICAL(&webMux);
-  webRemindersRevision = revision > webRemindersRevision ? revision : webRemindersRevision + 1U;
   pendingReminderSave.used = true;
   pendingReminderSave.queuedAt = millis();
+  pendingReminderSave.revision = revision;
   snprintf(pendingReminderSave.requestId, sizeof(pendingReminderSave.requestId), "%s",
            requestId);
   portEXIT_CRITICAL(&webMux);
@@ -841,21 +1155,30 @@ inline void handleReminderSetMessage(const JsonDocument &doc) {
 // cua san pham); neu nhieu tab/thiet bi web cung mo, "active" cua nguoi gui
 // SAU CUNG se thang - khong co dieu phoi nhieu client dong thoi.
 inline void handleSessionMessage(const JsonDocument &doc) {
+  const char *client = doc["clientId"] | "";
+  if (strlen(client) < 8U || strlen(client) >= sizeof(webClientLeases[0].id)) return;
   const bool active = doc["active"] | false;
   uint32_t ttlMs = doc["ttlMs"] | 0UL;
   const bool sync = doc["sync"] | false;
   const uint32_t now = millis();
 
+  WebClientLease *slot = nullptr;
+  for (auto &lease : webClientLeases) if (!strcmp(lease.id, client)) { slot = &lease; break; }
+  if (!slot) for (auto &lease : webClientLeases)
+    if (!lease.id[0] || timeReached(now, lease.expiresAt)) { slot = &lease; break; }
+  if (!slot) return;
   if (active) {
     if (ttlMs == 0U || ttlMs > WEB_SESSION_MAX_TTL_MS) ttlMs = WEB_SESSION_MAX_TTL_MS;
-    webSessionActive = true;
-    webSessionExpiresAt = now + ttlMs;
-    applyWifiPowerMode(true);
+    snprintf(slot->id, sizeof(slot->id), "%s", client);
+    slot->expiresAt = now + ttlMs;
   } else {
-    webSessionActive = false;
-    webSessionExpiresAt = now;
-    applyWifiPowerMode(false);
+    slot->id[0] = '\0';
+    slot->expiresAt = now;
   }
+  webSessionActive = false;
+  for (const auto &lease : webClientLeases)
+    if (lease.id[0] && !timeReached(now, lease.expiresAt)) webSessionActive = true;
+  applyWifiPowerMode(webSessionActive);
 
   if (sync) {
     portENTER_CRITICAL(&webMux);
@@ -870,6 +1193,7 @@ inline void handleSessionMessage(const JsonDocument &doc) {
     if (haveConfig) publishConfigReport(cfg, revision);
     if (haveReminders) publishReminderReport(reminders, remindersRevision);
     lastSnapshotPublishAt = 0U;  // ep publish snapshot ngay trong vong lap toi
+    forceSnapshotPublish = true;
     // Trinh duyet MOI mo/vua ket noi lai chi nhan duoc cac su kien XAY RA TU
     // LUC DO VE SAU qua topic "log" (MQTT khong co lich su, chi phat tuc
     // thoi) - "Nhat ky me ap" tren web vi vay trong/thieu neu bo lo su kien
@@ -887,24 +1211,55 @@ inline void handleSessionMessage(const JsonDocument &doc) {
 
 inline void mqttMessageCallback(char *topic, uint8_t *payload,
                       unsigned int length) {
-  // Ban tin ghi duoc boc trong envelope {body,sig}; 1536 byte van la tran
-  // chung cua PubSubClient va buffer cuc bo.
-  if (length >= 1536U) return;
-  char buffer[1536];
+  // Incoming envelope is bounded independently of the transport hard cap.
+  if (length >= MayapProtocol::MQTT_NORMAL_CAP) return;
+  char buffer[MayapProtocol::MQTT_NORMAL_CAP];
   memcpy(buffer, payload, length);
-  buffer[length] = ' ';
+  buffer[length] = '\0';
 
   JsonDocument wireDoc;
   if (deserializeJson(wireDoc, buffer, length) != DeserializationError::Ok) return;
 
   auto verifyAndDispatch = [&](const char *channel, auto handler) {
     JsonDocument bodyDoc;
-    if (!mqttVerifySignedWrite(channel, wireDoc, bodyDoc)) {
+    const bool v2 = wireDoc["v"].as<int>() == 2;
+    bool expired = false;
+    if (!(v2 ? mqttVerifyV2(channel, wireDoc, bodyDoc, expired)
+             : mqttVerifySignedWrite(channel, wireDoc, bodyDoc))) {
+      if (expired) {
+        const char *op = !strcmp(channel, "command") ? (bodyDoc["action"] | "")
+            : !strcmp(channel, "config/set") ? "config.save"
+            : !strcmp(channel, "reminders/set") ? "reminders.save" : "history.read";
+        char normalized[40];
+        snprintf(normalized, sizeof(normalized), "%s", op);
+        for (char *c = normalized; *c; ++c) if (*c == '_') *c = '.';
+        publishAck(bodyDoc["requestId"] | "", "unauthorized", "SESSION_EXPIRED", normalized);
+        return;
+      }
       const char *legacyRequestId = wireDoc["requestId"] | "";
       if (legacyRequestId[0]) publishAck(legacyRequestId, "unauthorized", "CHU KY LENH KHONG HOP LE");
       return;
     }
+    const char *id = bodyDoc["requestId"] | "";
+    const char *op = !strcmp(channel, "command") ? (bodyDoc["action"] | "")
+                    : !strcmp(channel, "config/set") ? "config.save"
+                    : !strcmp(channel, "reminders/set") ? "reminders.save" : "history.read";
+    snprintf(activeOperation, sizeof(activeOperation), "%s", op);
+    for (char *c = activeOperation; *c; ++c) if (*c == '_') *c = '.';
+    if (replayTerminal(id)) { activeOperation[0] = '\0'; return; }
+    bool inFlight = (pendingConfigSave.used && !strcmp(id, pendingConfigSave.requestId)) ||
+                    (pendingReminderSave.used && !strcmp(id, pendingReminderSave.requestId)) ||
+                    (historyResponsePending && !strcmp(id, historyRequestId));
+    for (const auto &pending : pendingCommands)
+      if (pending.used && !strcmp(id, pending.requestId)) inFlight = true;
+    if (inFlight) { publishAck(id, "accepted", ""); activeOperation[0] = '\0'; return; }
+    if (v2 && !checkReplaySequence(bodyDoc)) {
+      publishAck(id, "stale", "REPLAY SEQUENCE");
+      activeOperation[0] = '\0';
+      return;
+    }
     handler(bodyDoc);
+    activeOperation[0] = '\0';
   };
 
   if (strstr(topic, "/config/set")) {
@@ -941,7 +1296,7 @@ inline void subscribeAll() {
 }
 
 inline void attemptConnect(uint32_t now) {
-  if (!mqttTlsReady || !MQTT_BROKER_HOST[0]) return;
+  if (!mqttTlsReady || !mqttBufferReady || !MQTT_BROKER_HOST[0]) return;
   if (!mqttBackoff.ready(now)) return;
 
   char clientId[32];
@@ -986,6 +1341,7 @@ inline void attemptConnect(uint32_t now) {
 
 inline void expirePendingCommands(uint32_t now) {
   char requestIdsToExpire[COMMAND_QUEUE_SIZE][WEB_REQUEST_ID_CAPACITY];
+  char operationsToExpire[COMMAND_QUEUE_SIZE][40];
   uint8_t expireCount = 0U;
   bool configExpired = false;
   char configRequestId[WEB_REQUEST_ID_CAPACITY] = "";
@@ -996,6 +1352,8 @@ inline void expirePendingCommands(uint32_t now) {
     if (elapsedMs(now, slot.queuedAt) < WEB_COMMAND_ACK_TIMEOUT_MS) continue;
     snprintf(requestIdsToExpire[expireCount], WEB_REQUEST_ID_CAPACITY, "%s",
              slot.requestId);
+    snprintf(operationsToExpire[expireCount], sizeof(operationsToExpire[0]), "%s",
+             slot.operation);
     ++expireCount;
     slot.used = false;
   }
@@ -1017,9 +1375,10 @@ inline void expirePendingCommands(uint32_t now) {
   }
   portEXIT_CRITICAL(&webMux);
 
-  for (uint8_t i = 0; i < expireCount; ++i) publishAck(requestIdsToExpire[i], "expired", "");
-  if (configExpired) publishAck(configRequestId, "expired", "");
-  if (remindersExpired) publishAck(reminderRequestId, "expired", "");
+  for (uint8_t i = 0; i < expireCount; ++i)
+    publishAck(requestIdsToExpire[i], "expired", "", operationsToExpire[i]);
+  if (configExpired) publishAck(configRequestId, "expired", "", "config.save");
+  if (remindersExpired) publishAck(reminderRequestId, "expired", "", "reminders.save");
 }
 
 inline void drainAckOutbox() {
@@ -1034,17 +1393,18 @@ inline void drainAckOutbox() {
   }
   portEXIT_CRITICAL(&webMux);
   for (uint8_t i = 0; i < count; ++i) {
-    publishAck(items[i].requestId, items[i].result, items[i].message);
+    publishAck(items[i].requestId, items[i].result, items[i].message,
+               items[i].operation, items[i].receivedAt, items[i].completedAt);
   }
 }
 
 inline void serviceSessionTimeout(uint32_t now) {
-  if (webSessionActive && timeReached(now, webSessionExpiresAt)) {
-    // Web khong gui lai "active" dung han (dong tab/mat mang dot ngot): tu
-    // dong coi nhu khong con ai theo doi, chuyen ve tiet kiem nang luong.
-    webSessionActive = false;
-    applyWifiPowerMode(false);
+  bool active = false;
+  for (auto &lease : webClientLeases) {
+    if (lease.id[0] && timeReached(now, lease.expiresAt)) lease.id[0] = '\0';
+    if (lease.id[0]) active = true;
   }
+  webSessionActive = active;
 }
 
 // Nguon "can hieu nang cao": phien web dang active, HOAC cong doi Wi-Fi tren
@@ -1097,7 +1457,8 @@ inline void serviceReminderPublish() {
 inline void serviceSnapshotPublish(uint32_t now) {
   const uint32_t interval = webSessionActive ? WEB_SNAPSHOT_ACTIVE_INTERVAL_MS
                                              : WEB_SNAPSHOT_IDLE_INTERVAL_MS;
-  if (!timeReached(now, lastSnapshotPublishAt + interval)) return;
+  if (!forceSnapshotPublish && !timeReached(now, lastSnapshotPublishAt + interval)) return;
+  forceSnapshotPublish = false;
   lastSnapshotPublishAt = now;
   portENTER_CRITICAL(&webMux);
   const bool valid = knownRuntimeValid;
@@ -1133,7 +1494,8 @@ inline void serviceEventLogPublish() {
 inline void mayapWebLinkBegin() {
   using namespace MayapRealtimeInternal;
   ensureIdentity();
-  mqtt.setBufferSize(1536);
+  mqttBufferReady = mqtt.setBufferSize(MayapProtocol::MQTT_HARD_CAP);
+  if (!mqttBufferReady) mayapSerialPrintf(true, "[WEBLINK] khong cap duoc MQTT buffer 4096 B\n");
   mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
   mqtt.setCallback(mqttMessageCallback);
 #if MQTT_USE_TLS
@@ -1234,7 +1596,8 @@ inline void mayapWebConfirmCommand(uint32_t commandId, bool ok,
   portENTER_CRITICAL(&webMux);
   for (PendingCommand &slot : pendingCommands) {
     if (!slot.used || slot.commandId != commandId) continue;
-    enqueueAckLocked(slot.requestId, ok ? "applied" : "rejected", message);
+    enqueueAckLocked(slot.requestId, ok ? "applied" : "rejected", message,
+                     slot.operation, slot.queuedAt);
     slot.used = false;
     break;
   }
@@ -1242,14 +1605,17 @@ inline void mayapWebConfirmCommand(uint32_t commandId, bool ok,
 }
 
 inline void mayapWebConfirmConfigSave(uint32_t transactionId, bool ok,
-                                      const MachineConfig *stored) {
+                                      const MachineConfig *stored,
+                                      const char *failureCode = "CONFIG_SAVE_REJECTED") {
   using namespace MayapRealtimeInternal;
   (void)transactionId;
   (void)stored;  // config moi da/se toi qua mayapWebSetConfig() tu cung noi goi
   portENTER_CRITICAL(&webMux);
   if (pendingConfigSave.used) {
+    if (ok) webConfigRevision = pendingConfigSave.revision > webConfigRevision
+        ? pendingConfigSave.revision : webConfigRevision + 1U;
     enqueueAckLocked(pendingConfigSave.requestId, ok ? "applied" : "rejected",
-                     ok ? "" : "LUU CAU HINH BI TU CHOI");
+                     ok ? "" : failureCode, "config.save", pendingConfigSave.queuedAt);
     pendingConfigSave.used = false;
   }
   portEXIT_CRITICAL(&webMux);
@@ -1262,8 +1628,11 @@ inline void mayapWebConfirmReminderSave(uint32_t transactionId, bool ok,
   (void)stored;  // danh sach moi da/se toi qua mayapWebSetReminders() tu cung noi goi
   portENTER_CRITICAL(&webMux);
   if (pendingReminderSave.used) {
+    if (ok) webRemindersRevision = pendingReminderSave.revision > webRemindersRevision
+        ? pendingReminderSave.revision : webRemindersRevision + 1U;
     enqueueAckLocked(pendingReminderSave.requestId, ok ? "applied" : "rejected",
-                     ok ? "" : "LUU NHAC NHO BI TU CHOI");
+                     ok ? "" : "LUU NHAC NHO BI TU CHOI", "reminders.save",
+                     pendingReminderSave.queuedAt);
     pendingReminderSave.used = false;
   }
   portEXIT_CRITICAL(&webMux);

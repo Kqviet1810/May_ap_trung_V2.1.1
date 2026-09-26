@@ -4459,7 +4459,9 @@ class MachineController {
       }
       if (ok) clearStorageDegraded(now);
       hmiConfirmConfigSave(transactionId, ok, ok ? &readback : nullptr);
-      mayapWebConfirmConfigSave(transactionId, ok, ok ? &readback : nullptr);
+      mayapWebConfirmConfigSave(transactionId, ok, ok ? &readback : nullptr,
+          !saveAllowed ? (protectedBatchChange ? "CONFIG_BATCH_LOCKED" : "CONFIG_SAFETY_BLOCK")
+                       : "CONFIG_EEPROM_ERROR");
       mayapSerialPrintf(false, "[CFG] save=%s%s SV=%.1f HIGH=%.1f EMG=%.1f turn=%umin\n",
                        ok ? "OK" : "FAIL",
                        saveAllowed ? "" : (protectedBatchChange ? "(BATCH_LOCK)" : "(SAFETY_BLOCK)"), requested.targetTemp,
