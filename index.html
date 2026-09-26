@@ -48,27 +48,21 @@
 </div>
 </section>
 <form class="panel" id="quickForm">
-<div class="panelHead"><h2>Vận hành</h2></div>
+<div class="panelHead"><h2>Trạng thái thiết bị</h2></div>
 <div class="quickGrid">
 <label class="quickField"><span>Nhiệt độ đặt</span><div><input id="quickTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
 <label class="quickField"><span>Chu kỳ đảo</span><div><input id="quickTurn" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
 </div>
-<p class="sectionLabel">Trạng thái thiết bị</p>
 <div class="outputStrip" id="outputStrip">
 <div><span>Thanh nhiệt</span><strong class="on" id="outputHeater">BẬT</strong></div>
 <div><span>Tuần hoàn</span><strong class="on" id="outputCirculation">BẬT</strong></div>
 <div><span>Thông gió</span><strong id="outputVent">TẮT</strong></div>
 <div hidden id="outputHumidifierTile"><span>Tạo ẩm</span><strong id="outputHumidifier">TẮT</strong></div>
 <div><span>Đảo trứng</span><strong id="outputTurn">CHỜ</strong></div>
+<button aria-label="Bật/tắt đèn" id="outputLightBtn" type="button"><span>Đèn</span><strong id="outputLight">TẮT</strong></button>
+<button aria-label="Tạm tắt còi báo" id="outputSirenBtn" type="button"><span>Còi báo</span><strong id="outputSiren">TẮT</strong></button>
 </div>
 <button class="primary full" type="submit">Lưu thông số</button>
-<div class="controlGroup">
-<p class="sectionLabel">Điều khiển trực tiếp</p>
-<div class="outputActions">
-<button aria-label="Bật/tắt đèn" id="outputLightBtn" type="button"><span>Đèn</span><strong id="outputLight">TẮT</strong><span class="actionHint">Chạm để bật/tắt</span></button>
-<button aria-label="Tạm tắt còi báo" id="outputSirenBtn" type="button"><span>Còi báo</span><strong id="outputSiren">TẮT</strong><span class="actionHint" id="sirenActionHint">Chỉ khi còi đang kêu</span></button>
-</div>
-</div>
 </form>
 </section>
 <section class="page" id="page-batch">

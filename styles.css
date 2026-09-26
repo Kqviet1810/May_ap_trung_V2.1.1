@@ -144,7 +144,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .sideState small{margin-top:2px;color:#a8c5c0;font-size:var(--fs-2xs)}
 
 .main{grid-column:2;padding:0 28px 44px;max-width:1320px;width:100%;min-width:0;margin:0 auto}
-.topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:minmax(220px,1fr) repeat(2,minmax(128px,148px)) minmax(160px,188px);gap:12px;align-items:center;padding:calc(20px + env(safe-area-inset-top)) 0 16px;background:var(--topbarBg);backdrop-filter:blur(12px);transition:background var(--ease)}
+.topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:minmax(240px,1fr) repeat(3,minmax(0,148px));gap:12px;align-items:center;padding:calc(20px + env(safe-area-inset-top)) 0 16px;background:var(--topbarBg);backdrop-filter:blur(12px);transition:background var(--ease)}
 /* Tieu de + chu thich xep doc va can giua theo chieu doc trong thanh dau
    trang, ngang hang voi 3 o Nhiet do/Do am/Trang thai. */
 .title{display:flex;flex-direction:column;justify-content:center;min-width:0}
@@ -310,27 +310,29 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .quickField input{font-size:20px;min-height:36px}
 .quickField b{font-size:var(--fs-md)}
 
-.sectionLabel{margin:18px 0 9px;color:var(--label);font-size:var(--fs-xs);font-weight:800;letter-spacing:.25px}
-.outputStrip{display:grid;grid-template-columns:repeat(auto-fit,minmax(138px,1fr));gap:10px;margin:0 0 18px}
-.outputStrip>div{min-width:0;padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);transition:background var(--ease),border-color var(--ease)}
-.outputStrip span,.outputStrip strong,.outputActions span,.outputActions strong{display:block}
-.outputStrip span,.outputActions span:first-child{color:var(--muted);font-size:var(--fs-2xs);font-weight:700;letter-spacing:.4px;text-transform:uppercase}
-.outputStrip strong,.outputActions strong{font-size:var(--fs-md);font-weight:700;margin-top:6px;overflow-wrap:anywhere}
-.outputStrip strong.on,.outputActions strong.on{color:var(--successTextStrong)}
-.outputStrip strong:not(.on),.outputActions strong:not(.on){color:var(--faint)}
+.outputStrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:1fr;gap:10px;margin:16px 0}
+.outputStrip>div,.outputStrip>button{min-width:0;min-height:68px;padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);transition:background var(--ease),border-color var(--ease)}
+/* 2 o Den/Coi la nut bam that (xem app.js) - reset kieu button mac dinh
+   cua trinh duyet de trong giong het 4 o hien thi con lai, chi them con
+   tro tay + trang thai nhan/focus de bao hieu co the bam. */
+.outputStrip>button{color:var(--ink);font:inherit;text-align:inherit;width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.outputStrip>button:active{transform:scale(.97)}
+.outputStrip>button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.outputStrip span,.outputStrip strong{display:block}
+.outputStrip span{color:var(--muted);font-size:var(--fs-2xs);font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+.outputStrip strong{font-size:var(--fs-md);font-weight:700;margin-top:6px}
+.outputStrip strong.on{color:var(--successTextStrong)}
+.outputStrip strong:not(.on){color:var(--faint)}
 #outputSiren.on{color:var(--danger)}
-.outputStrip>div.on,.outputActions>button.on{background:var(--primarySoft);border-color:var(--onBorder)}
-.outputStrip>div.on span,.outputActions>button.on span:first-child{color:var(--successTextSoft)}
-.controlGroup{margin-top:17px;padding-top:2px;border-top:1px solid var(--lineSoft)}
-.controlGroup .sectionLabel{margin-top:13px}
-.outputActions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.outputActions>button{min-width:0;min-height:72px;padding:11px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--ink);font:inherit;text-align:left;cursor:pointer;transition:background var(--ease),border-color var(--ease),transform var(--ease)}
-.outputActions>button:hover:not(:disabled){border-color:var(--ring);background:var(--wash)}
-.outputActions>button:active:not(:disabled){transform:scale(.98)}
-.outputActions>button:disabled{cursor:not-allowed;opacity:.6}
-.outputActions>button.on:has(#outputSiren){background:var(--dangerSoft);border-color:var(--dangerBorder)}
-.outputActions>button.on:has(#outputSiren) span:first-child{color:var(--dangerTextStrong)}
-.outputActions .actionHint{margin-top:5px;color:var(--muted);font-size:var(--fs-2xs);font-weight:500;letter-spacing:0;text-transform:none}
+/* Thiet bi dang bat: sang ca o (nen + vien mau) thay vi chi doi mau chu,
+   de trang thai ON noi bat, de nhan biet tu xa hon la doc tung chu nho. */
+.outputStrip>div.on,.outputStrip>button.on{background:var(--primarySoft);border-color:var(--onBorder)}
+.outputStrip>div.on span,.outputStrip>button.on span{color:var(--successTextSoft)}
+.outputStrip>div.on:has(#outputSiren),.outputStrip>button.on:has(#outputSiren){background:var(--dangerSoft);border-color:var(--dangerBorder)}
+.outputStrip>div.on:has(#outputSiren) span,.outputStrip>button.on:has(#outputSiren) span{color:var(--dangerTextStrong)}
+.outputStrip>button:disabled{cursor:not-allowed;opacity:.6}
+
+.outputStrip.hasHumidifier>button:last-child{grid-column:1/-1;width:calc((100% - 20px)/3);justify-self:center}
 
 .primary,.ghost{min-height:50px;border-radius:var(--radius-md);padding:0 18px;font-weight:700;font-size:var(--fs-sm);cursor:pointer;transition:filter var(--ease),transform var(--ease),background var(--ease),border-color var(--ease),box-shadow var(--ease)}
 .primary{border:0;background:var(--primaryGradient);color:#fff;box-shadow:0 8px 18px var(--primaryGlow)}
@@ -538,7 +540,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .appShell{grid-template-columns:208px minmax(0,1fr)}
   .sidebar{width:208px;padding:20px 15px}
   .main{padding:0 20px 38px}
-  .topbar{grid-template-columns:minmax(150px,1fr) repeat(2,minmax(0,1fr)) minmax(130px,1.2fr);gap:8px}
+  .topbar{grid-template-columns:minmax(170px,1fr) repeat(3,minmax(0,1fr));gap:8px}
   .live{padding:11px}
   .live>strong{font-size:18px}
   .title h1{font-size:29px}
@@ -561,16 +563,14 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .nav button span{width:auto;font-size:20px;line-height:1}
   .nav button b{font-size:var(--fs-2xs)}
   .main{width:100%;max-width:100%;min-height:100dvh;padding:0 10px calc(var(--navH) + env(safe-area-inset-bottom) + 10px);overflow-x:clip}
-  .topbar{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;padding:calc(9px + env(safe-area-inset-top)) 0 10px;min-height:0}
-  .title{grid-column:1/-1}
-  .title h1{font-size:23px;white-space:nowrap}
-  /* Tiêu đề nằm riêng một hàng; ba ô số liệu dùng hàng kế tiếp. */
+  .topbar{grid-template-columns:minmax(74px,1fr) repeat(2,minmax(0,72px)) minmax(96px,1.25fr);gap:6px;padding:calc(10px + env(safe-area-inset-top)) 0 10px;min-height:86px}
+  .title h1{font-size:24px;white-space:nowrap}
   .title p{display:none}
-  .live{padding:8px 10px;border-radius:11px}
-  .live>span{font-size:10px;letter-spacing:.2px}
-  .live>strong{font-size:clamp(13px,3.8vw,17px)}
-  #liveStateTile{padding-inline:8px}
-  #liveState{font-size:clamp(12px,3.5vw,16px);letter-spacing:-.2px}
+  .live{padding:8px;border-radius:11px}
+  .live>span{font-size:9px;letter-spacing:.2px}
+  .live>strong{font-size:15px}
+  #liveStateTile{padding-inline:6px}
+  #liveState{font-size:clamp(11px,3vw,15px);letter-spacing:-.35px}
   .panel{padding:18px;border-radius:16px}
   .deviceHeading{font-size:9px;letter-spacing:.65px}
   .devicePickerRow{margin-top:14px}
@@ -581,16 +581,16 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .quickField{padding:11px}
   .quickField input{font-size:18px}
   .quickField b{font-size:15px}
-  .outputStrip{margin:0 0 14px}
+  .outputStrip{margin:12px 0}
   .batchGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .tempGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
   .compactTile{padding:11px;min-height:80px}
   .compactTile input{font-size:18px}
-  .compactTile input[type=date]{font-size:16px}
+  .compactTile input[type=date]{font-size:13px}
   .compactTile .unit b{font-size:15px}
   .batchActions{grid-template-columns:repeat(2,minmax(0,1fr))}
   .outputStrip{grid-template-columns:1fr 1fr}
-  .outputStrip.hasHumidifier>div:last-child{grid-column:1/-1}
+  .outputStrip.hasHumidifier>button:last-child{width:calc((100% - 10px)/2)}
   .toast{bottom:calc(var(--navH) + env(safe-area-inset-bottom) + 12px)}
   .actions{display:grid;grid-template-columns:1fr 1fr}
   .actions .dark{grid-column:1/-1}
@@ -615,6 +615,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .quickField input{font-size:17px}
   .quickField b{font-size:14px}
   .batchActions button{font-size:var(--fs-2xs)}
+  .topbar{grid-template-columns:minmax(66px,1fr) repeat(2,minmax(0,56px)) minmax(93px,1.35fr)}
   .title h1{font-size:22px}
   .live>strong{font-size:13px}
   .deviceTop{gap:8px}
@@ -629,24 +630,142 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   *{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
 }
 
-/* Nội dung trang cuộn theo tài liệu trên điện thoại. Form và biểu đồ giữ chiều cao
-   tự nhiên để nút thao tác không bị kẹt dưới thanh điều hướng cố định. */
+/* v9.0.2 - Gộp Bắt đầu/Kết thúc thành một nút theo trạng thái mẻ; bố cục mẻ ấp
+   toàn màn hình trên mobile (không cuộn trang, chỉ cuộn nhật ký). */
 @media(max-width:800px),(max-height:500px){
-  body[data-page="device"],body[data-page="batch"],
-  body[data-page="device"] .appShell,body[data-page="batch"] .appShell{height:auto;min-height:100dvh;overflow:visible}
-  body[data-page="device"] .main,body[data-page="batch"] .main{height:auto;min-height:100dvh;overflow:visible;display:block}
-  body[data-page="device"] #page-device.active,body[data-page="batch"] #page-batch.active{display:grid;gap:14px}
-  body[data-page="batch"] .telemetryPanel{min-height:0;margin-top:0;overflow:visible;display:block}
-  body[data-page="batch"] .telemetryCanvasWrap{height:220px;min-height:0}
+  body[data-page="batch"]{height:100dvh;min-height:0;overflow:hidden}
+  body[data-page="batch"] .appShell{height:100dvh;min-height:0;overflow:hidden}
+  body[data-page="batch"] .main{
+    height:100dvh;min-height:0;overflow-y:auto;
+    display:flex;flex-direction:column;
+    /* overflow-y:auto (khong phai hidden) - day la LUOI AN TOAN giong het
+       trang Thiet bi (xem giai thich tai body[data-page="device"] .main o
+       duoi): .batchPanel la flex:0 0 auto (KHONG tu co lai), neu noi dung
+       cua no (vd nhieu canh bao/nut hon binh thuong, hoac chu to accessibility)
+       cao hon phan con lai cua man hinh THAP (iPhone nho), no se tran qua
+       vung hien duoc. Truoc day .main la overflow:hidden nen phan tran do
+       (thuong la nut cuoi .batchPanel) bi KET LAI duoi thanh dieu huong co
+       dinh, khong co cach nao cuon len de bam duoc - dung loi nguoi dung bao
+       "man nho khong cuon len duoc, thanh tab che mat nut". overflow-y:auto
+       khong pha bo cuc binh thuong (noi dung vua khop van khong hien thanh
+       cuon), chi la duong thoat khi khong vua.
+    */
+  }
+  body[data-page="batch"] .topbar{flex:0 0 auto}
+  body[data-page="batch"] #page-batch.active{
+    flex:1 1 auto;min-height:0;width:100%;
+    display:flex;flex-direction:column;gap:10px;
+  }
+  /* .batchPanel flex:0 0 auto (khong tu co) nen cang GON thi Nhat ky (flex:1,
+     chiem het phan con lai) cang co nhieu cho hien - truoc day chi thu gon
+     tu @media(max-height:760px) tro xuong nen dien thoai binh thuong (cao
+     hon 760px, van hep < 800px) khong duoc thu gon gi ca, Nhat ky bi ep
+     nho lai vo ich. Ap dung thu gon o day (ngay khi vao che do "toan man
+     hinh khong cuon trang") thay vi doi them dieu kien chieu cao. */
+  body[data-page="batch"] .batchPanel{flex:0 0 auto;padding:16px}
+  body[data-page="batch"] .batchGrid{margin-top:12px;gap:9px}
+  body[data-page="batch"] .compactTile{min-height:72px;padding:10px 11px}
+  body[data-page="batch"] .batchActions{margin-top:10px}
+  body[data-page="batch"] .batchActions button{min-height:46px}
+  body[data-page="batch"] .batchLogPanel{
+    flex:1 1 auto;min-height:0;margin-top:0;overflow:hidden;
+    display:flex;flex-direction:column;
+  }
+  body[data-page="batch"] .batchLogList{
+    flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;align-content:start;
+    overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  }
+  body[data-page="batch"] .batchLogEmpty{
+    height:100%;min-height:42px;display:grid;place-items:center;padding:8px 4px;
+  }
+}
+
+/* Trang Thiet bi toan man hinh tren mobile, giong bo cuc trang Me ap, de
+   khong phai cuon trang tren cac man hinh dien thoai thong thuong. .main
+   van giu overflow-y:auto (thay vi hidden nhu trang Me ap) vi trang nay
+   khong co 1 vung cuon rieng nhu nhat ky - phong khi may qua thap/co chu
+   to (accessibility) van con du gon 1 chut thay vi cat mat noi dung. */
+@media(max-width:800px),(max-height:500px){
+  body[data-page="device"]{height:100dvh;min-height:0;overflow:hidden}
+  body[data-page="device"] .appShell{height:100dvh;min-height:0;overflow:hidden}
+  body[data-page="device"] .main{
+    height:100dvh;min-height:0;overflow-y:auto;
+    display:flex;flex-direction:column;
+  }
+  body[data-page="device"] .topbar{flex:0 0 auto}
+  body[data-page="device"] #page-device.active{
+    flex:1 1 auto;min-height:0;width:100%;
+    display:flex;flex-direction:column;gap:12px;
+    /* KHONG dung justify-content:center: khi 2 khoi con (deviceCompact +
+       quickForm) cao hon vung chua (de xay ra tren man hep nhu iPhone X -
+       tieu de + 3 o trang thai chiem nhieu cho hon man rong), canh giua se
+       day phan tran LEN TREN de vao thanh tieu de thay vi cho cuon xuong
+       xem duoc (day la loi nguoi dung bao "de het len nhau kho bam kho
+       nhin"). flex-start luon an toan: vua du thi trong dep, tran thi cuon
+       binh thuong qua .main{overflow-y:auto}. */
+    justify-content:flex-start;
+  }
+  body[data-page="device"] .deviceCompact,
+  body[data-page="device"] .quickForm{flex:0 0 auto}
+}
+@media(max-height:760px){
+  body[data-page="device"] .topbar{min-height:74px;padding:calc(6px + env(safe-area-inset-top)) 0 6px}
+  body[data-page="device"] .deviceCompact{padding:14px}
+  body[data-page="device"] .quickForm{padding:14px}
+  body[data-page="device"] .devicePickerRow{margin-top:11px}
+  body[data-page="device"] .quickGrid{margin-top:11px}
+  body[data-page="device"] .outputStrip{margin:11px 0}
+  body[data-page="device"] .outputStrip>div,body[data-page="device"] .outputStrip>button{padding:9px 10px}
 }
 @media(max-height:600px){
-  body[data-page="device"] .panel,body[data-page="batch"] .panel{padding:14px}
-  body[data-page="device"] .outputStrip>div{padding:10px}
+  body[data-page="device"] #page-device.active{gap:9px}
+  body[data-page="device"] .deviceCompact{padding:12px}
+  body[data-page="device"] .quickForm{padding:12px}
+  body[data-page="device"] .devicePickerRow{margin-top:9px}
+  body[data-page="device"] .quickField{padding:9px}
+  body[data-page="device"] .quickGrid{margin-top:9px;gap:8px}
+  body[data-page="device"] .outputStrip{margin:9px 0;gap:8px}
+  body[data-page="device"] .outputStrip>div,body[data-page="device"] .outputStrip>button{min-height:60px;padding:8px 9px}
+  body[data-page="device"] .outputStrip strong{margin-top:4px}
+  body[data-page="device"] .quickForm .primary{min-height:42px}
 }
-@media(min-width:1025px) and (min-height:501px){
-  body[data-page="batch"] #page-batch.active{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(340px,.85fr);gap:18px;align-items:stretch}
-  body[data-page="batch"] .telemetryPanel{margin-top:0;display:flex;flex-direction:column}
-  body[data-page="batch"] .telemetryCanvasWrap{flex:1;height:auto;min-height:250px}
+@media(max-height:760px){
+  body[data-page="batch"] .topbar{min-height:74px;padding:calc(6px + env(safe-area-inset-top)) 0 6px}
+  body[data-page="batch"] .batchPanel{padding:13px}
+  body[data-page="batch"] .batchGrid{margin-top:10px;gap:7px}
+  body[data-page="batch"] .compactTile{min-height:66px;padding:8px 9px}
+  body[data-page="batch"] .compactTile input{min-height:30px;height:30px;font-size:16px}
+  body[data-page="batch"] .compactTile input[type=date]{font-size:13px}
+  body[data-page="batch"] .batchActions{margin-top:8px}
+  body[data-page="batch"] .batchActions button{min-height:40px}
+  body[data-page="batch"] .batchLogPanel{padding:10px 13px}
+  body[data-page="batch"] .batchLogPanel .panelHead{display:none}
+  body[data-page="batch"] .currentActivity{margin-top:0;padding:9px 11px}
+  body[data-page="batch"] .batchLogRow{min-height:29px}
+  body[data-page="batch"] .batchLogRow .logMessage,body[data-page="batch"] .batchLogRow .logDuration,body[data-page="batch"] .batchLogRow time{font-size:10.5px}
+}
+/* Dien thoai ngang (~360-430px cao) qua thap: du da rut gon toi da, panel
+   cau hinh (6 the + 2 nut) van cao hon ca man hinh, ma khoa "vua khung
+   khong cuon" lai chan cuon (overflow:hidden) -> nut "Bat dau" va nhat ky
+   bi cat, khong bam toi duoc. Bo khoa o day, tra ve cuon trang binh
+   thuong (van day du, chi can cuon thay vi vua 1 man). */
+@media(max-height:480px){
+  body[data-page="batch"],body[data-page="batch"] .appShell{height:auto;overflow:visible}
+  body[data-page="batch"] .main{height:auto;overflow:visible;display:block}
+  body[data-page="batch"] #page-batch.active{display:block}
+  body[data-page="batch"] .batchLogPanel{display:block;overflow:visible;margin-top:14px}
+  body[data-page="batch"] .batchLogList{overflow:visible}
+  body[data-page="batch"] .batchLogEmpty{height:auto}
+}
+/* Bố cục mẻ ấp 2 cột chỉ đủ chỗ từ ~1025px trở lên - dưới mức đó (kể cả
+   tablet cầm dọc) giữ bố cục xếp chồng 1 cột như mobile để form không bị
+   bóp méo (nhãn xuống 3 dòng, công tắc đè lên chữ). */
+@media(min-width:1025px){
+  body[data-page="batch"] #page-batch.active{
+    display:grid;grid-template-columns:minmax(0,1.35fr) minmax(340px,.65fr);
+    gap:18px;align-items:stretch;
+  }
+  body[data-page="batch"] .batchLogPanel{margin-top:0}
 }
 
 /* Checkbox ẩn không được kế thừa width:100% của input thường. */
@@ -680,13 +799,11 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
 .telemetryEmpty[hidden]{display:none}
 .telemetryAxis{display:flex;justify-content:space-between;gap:8px;margin:7px 3px 0 42px;color:var(--muted);font-size:var(--fs-2xs);font-variant-numeric:tabular-nums}
 .diagnosticsLogBody .currentActivity{margin-top:0}
-@media(max-width:720px){
-  .telemetryPanel{padding:14px}
-  .telemetryHead{align-items:flex-start;flex-wrap:wrap}
-  .telemetryLegend{justify-content:flex-start;gap:8px}
-  .telemetryCanvasWrap{height:220px}
-  .telemetryAxis{margin-left:38px}
-}
+@media(max-width:720px){.telemetryPanel{padding:13px 15px}.telemetryHead{align-items:flex-start}.telemetryLegend{gap:8px}.telemetryCanvasWrap{height:220px}.telemetryAxis{margin-left:38px}}
+@media(min-height:481px){body[data-page="batch"] .telemetryPanel{flex:1 1 auto;min-height:250px;margin-top:0;overflow:hidden;display:flex;flex-direction:column}body[data-page="batch"] .telemetryCanvasWrap{flex:1 1 auto;height:auto;min-height:180px}}
+@media(max-width:800px) and (min-height:481px) and (max-height:760px){body[data-page="batch"] .telemetryPanel{min-height:150px}body[data-page="batch"] .telemetryCanvasWrap{min-height:80px}}
+@media(max-height:480px){body[data-page="batch"] .telemetryPanel{display:flex;flex-direction:column;min-height:260px;margin-top:14px;overflow:hidden}}
+@media(min-width:1025px){body[data-page="batch"] .telemetryPanel{margin-top:0;min-height:0}}
 @media(max-width:600px){
   .reminderFields{grid-template-columns:1fr}
   .advancedForm .tempGrid{grid-template-columns:1fr}
