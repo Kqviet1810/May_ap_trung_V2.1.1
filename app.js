@@ -2756,8 +2756,6 @@
       const note = row.querySelector(':scope > small');
       if (label && note) addToggle(label, note);
     });
-    const guide = document.querySelector('#page-settings .wifiGuide');
-    if (guide) addToggle(guide.querySelector('strong'), guide.querySelector('small'));
     const footnotes = {
       'startTune': 'Điều kiện tự dò PID',
       'advancedForm': 'Lưu ý cài đặt nâng cao',

@@ -399,10 +399,10 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .settingGroupLabel{margin:19px 4px 0;color:var(--primary2);font-size:var(--fs-xs);letter-spacing:.55px;font-weight:800;text-transform:uppercase}
 .settingGroupLabel:first-child{margin-top:0}
 .settingCard{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadowSm);overflow:hidden}
-.settingCard summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:44px minmax(0,1fr) 34px;gap:14px;align-items:center;min-height:84px;padding:16px 16px 16px 17px;transition:background var(--ease)}
-.settingCard summary::-webkit-details-marker{display:none}
-.settingCard summary:hover{background:var(--wash)}
-.settingCard summary:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:0}
+.settingCard>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:44px minmax(0,1fr) 34px;gap:14px;align-items:center;min-height:84px;padding:16px 16px 16px 17px;transition:background var(--ease)}
+.settingCard>summary::-webkit-details-marker{display:none}
+.settingCard>summary:hover{background:var(--wash)}
+.settingCard>summary:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:0}
 /* Icon la SVG net mong (khong phai ky tu unicode nhu truoc) - dat width/
    height thang tren the <svg> nen o day chi can can giua, khong con phai lo
    font-size/letter-spacing rieng tung icon nhu khi con la text. */
@@ -418,9 +418,9 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .disclosure{width:32px;height:32px;border-radius:10px;background:var(--chipBg);position:relative;justify-self:end;transition:background var(--ease)}
 .disclosure:before,.disclosure:after{content:"";position:absolute;left:9px;right:9px;top:15px;height:2px;border-radius:2px;background:var(--primary2);transition:transform .18s ease}
 .disclosure:after{transform:rotate(90deg)}
-.settingCard[open] .disclosure:after{transform:rotate(0)}
-.settingCard[open] .disclosure{background:var(--primarySoft)}
-.settingCard[open] summary{border-bottom:1px solid var(--lineSoft)}
+.settingCard[open] > summary .disclosure:after{transform:rotate(0)}
+.settingCard[open] > summary .disclosure{background:var(--primarySoft)}
+.settingCard[open] > summary{border-bottom:1px solid var(--lineSoft)}
 .settingBody{padding:16px;display:grid;gap:12px}
 .settingBody .grid2{margin-top:0}
 .manualActions{gap:12px}
@@ -472,7 +472,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .passwordToggle{position:absolute;right:7px;top:7px;height:38px;border:0;border-radius:10px;background:var(--chipBg);color:var(--primary2);padding:0 12px;font-size:var(--fs-2xs);font-weight:700;cursor:pointer;transition:background var(--ease)}
 .passwordToggle:hover{background:var(--primarySoft)}
 
-.wifiGuide{margin:14px 0;padding:16px 17px;border:1px solid var(--lineSoft);border-radius:var(--radius-md);background:var(--tile);display:grid;gap:7px}
+.wifiGuide{margin:0 0 2px;padding:13px 15px;border:1px solid var(--lineSoft);border-radius:var(--radius-md);background:var(--tile);display:grid;gap:7px}
 .wifiGuide strong{font-size:var(--fs-sm)}
 .wifiGuide small{font-size:var(--fs-xs);line-height:1.7;color:var(--muted)}
 .pill.soft{white-space:nowrap}
@@ -563,16 +563,17 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .nav button span{width:auto;font-size:20px;line-height:1}
   .nav button b{font-size:var(--fs-2xs)}
   .main{width:100%;max-width:100%;min-height:100dvh;padding:0 10px calc(var(--navH) + env(safe-area-inset-bottom) + 10px);overflow-x:clip}
-  .topbar{grid-template-columns:minmax(74px,1fr) repeat(2,minmax(0,72px)) minmax(96px,1.25fr);gap:6px;padding:calc(10px + env(safe-area-inset-top)) 0 10px;min-height:86px}
-  .title h1{font-size:24px;white-space:nowrap}
+  .topbar{grid-template-columns:minmax(80px,1fr) repeat(2,minmax(0,72px)) minmax(92px,108px);gap:6px;align-items:stretch;padding:calc(10px + env(safe-area-inset-top)) 0 10px;min-height:86px}
+  .title{align-self:start;padding-top:1px}
+  .title h1{font-size:24px;line-height:1.08;white-space:nowrap}
   .title p{display:none}
-  .live{padding:8px;border-radius:11px}
+  .live{padding:8px;border-radius:11px;display:flex;flex-direction:column;justify-content:center}
   .live>span{font-size:9px;letter-spacing:.2px}
   .live>strong{font-size:15px}
   #liveStateTile{padding-inline:6px}
   #liveState{font-size:clamp(11px,3vw,15px);letter-spacing:-.35px}
   .panel{padding:18px;border-radius:16px}
-  .deviceHeading{font-size:9px;letter-spacing:.65px}
+  .deviceHeading{margin:0;align-self:flex-start;font-size:11px;line-height:29px;letter-spacing:.55px}
   .devicePickerRow{margin-top:14px}
   .addDevice{height:52px;flex-basis:52px}
   .grid2{grid-template-columns:1fr}
@@ -594,12 +595,12 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .toast{bottom:calc(var(--navH) + env(safe-area-inset-bottom) + 12px)}
   .actions{display:grid;grid-template-columns:1fr 1fr}
   .actions .dark{grid-column:1/-1}
-  .settingCard summary{min-height:76px;padding:13px}
+  .settingCard>summary{min-height:76px;padding:13px}
   .settingIcon{width:40px;height:40px;border-radius:12px}
   .settingIcon svg{width:19px;height:19px}
   .settingSummary strong{font-size:var(--fs-sm)}
   .settingSummary small{font-size:var(--fs-xs)}
-  .settingBody{padding:16px}
+  .settingBody{padding:14px 16px;gap:10px}
   .batchLogPanel{padding:13px 15px}
   .batchLogRow{grid-template-columns:40px minmax(0,1fr) auto}
   .batchLogRow .logDuration{max-width:76px;overflow:hidden;text-overflow:ellipsis}
@@ -615,7 +616,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .quickField input{font-size:17px}
   .quickField b{font-size:14px}
   .batchActions button{font-size:var(--fs-2xs)}
-  .topbar{grid-template-columns:minmax(66px,1fr) repeat(2,minmax(0,56px)) minmax(93px,1.35fr)}
+  .topbar{grid-template-columns:minmax(72px,1fr) repeat(2,minmax(0,56px)) minmax(88px,98px)}
   .title h1{font-size:22px}
   .live>strong{font-size:13px}
   .deviceTop{gap:8px}
