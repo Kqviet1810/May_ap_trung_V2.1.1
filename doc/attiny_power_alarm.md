@@ -9,6 +9,15 @@ dao hay quat. Muc tieu thiet ke V3 la fail-safe va de CR2032 nuoi Tiny trong nhi
 - PB2: sense 3V3_ESP (HIGH = ESP co nguon).
 - PB3: sense nguon 9V coi (HIGH = 9V OK theo nguong phan ap tren PCB).
 
+## Dien tro tren BUS
+- R8 keo BUS len 3.3 V: 4.7 kOhm den 10 kOhm.
+- Neu can dien tro noi tiep bao ve giua PB0 va BUS, dung 470 Ohm (ky hieu
+  `470R`), toi da khoang 1 kOhm. **Khong dung 470 kOhm**: voi R8=10 kOhm,
+  PB0 keo LOW qua 470 kOhm chi ha BUS tu 3.3 V xuong khoang 3.23 V, nen ESP32
+  van doc HIGH va khong the nhan bat ky status/ACK nao.
+- Khi thu UNO, D8 phai noi thang vao nut BUS/GPIO41 (co the qua 470 Ohm),
+  khong noi o phia PB0 cua mot dien tro 470 kOhm. GND hai mach phai noi chung.
+
 ## Dieu kien arm bao mat dien
 ATtiny bat coi khi **PB2 mat 3V3** va mot trong hai co arm duoi day dang ON:
 
@@ -39,7 +48,8 @@ EEPROM khong bi bam theo chu ky PID.
 
 ## Protocol v4
 ESP32 luon khoi tao giao dich. GPIO41/PB0 la open-drain, can dien tro keo len 3.3 V
-va GND chung. ESP32 dung RMT de giu do rong xung on dinh khi Wi-Fi dang chay.
+va GND chung. ESP32 dung GPIO open-drain that va `esp_timer` chi de tha bus dung
+han; cach nay tranh xung dot giua peripheral RMT va GPIO interrupt tren cung chan.
 Mot lenh la **mot xung LOW**, khong dem so xung nhu v3:
 
 | LOW | Lenh |
@@ -60,7 +70,7 @@ batch, 9V-low, emergency siren, critical activity; parity la XOR cua bon bit.
 Khung status hop le chinh la ACK; Tiny khong phat ACK rieng. ESP loai khung
 sai do rong, sai so xung hoac sai parity, thu lai toi da 3 lan voi khoang nghi
 200 ms. E501 bat sau 3 lan khong nhan duoc frame hop le; neu bus ket LOW
-hoac RMT khong khoi tao duoc, loi duoc tra ve som hon. Moi lenh deu la SET,
+hoac GPIO/timer khong khoi tao duoc, loi duoc tra ve som hon. Moi lenh deu la SET,
 khong co TOGGLE; gui lai cung lenh khong dao trang thai. `eeprom_update_byte()`
 tranh ghi lai cell neu gia tri khong doi. Frame hop le cho ESP biet trang thai
 thuc te de phat hien E503 neu hai ben khong dong bo.

@@ -35,7 +35,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.6";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.7";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
 constexpr char HMI_FIRMWARE_VERSION[] = "3.7.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
@@ -334,7 +334,8 @@ constexpr uint8_t PIN_STATUS_RGB       = 42;  // SK6812MINI-C
 // Bus giao tiep 2 chieu voi ATtiny13A (mach bao mat dien doc lap dung pin
 // CR2032, xem doc/attiny_power_alarm.md). La bus "ho tro" (open-drain) dung
 // chung 1 day: ca 2 ben CHI duoc keo LOW hoac tha noi de nghi len HIGH qua
-// dien tro keo len R8. ESP phat lenh bang RMT open-drain; Tiny tra trang thai.
+// dien tro keo len R8. ESP phat lenh bang GPIO open-drain + esp_timer; Tiny tra
+// trang thai. Pull-up noi 3.3 V cua ESP chi la du phong idle, khong thay R8.
 constexpr uint8_t PIN_ATTINY_BUS = 41;
 
 // Pulse-width protocol v4. Each command is one LOW pulse (milliseconds).

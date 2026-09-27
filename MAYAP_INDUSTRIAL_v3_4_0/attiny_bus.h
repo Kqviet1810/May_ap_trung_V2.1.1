@@ -2,11 +2,12 @@
 #include "config.h"
 #include <Arduino.h>
 #include <driver/gpio.h>
-#include <esp32-hal-rmt.h>
+#include <esp_timer.h>
 
-// Protocol v4: one hardware-timed command pulse; Tiny replies with a
+// Protocol v4: one timer-released command pulse; Tiny replies with a
 // six-pulse status frame (preamble, four state bits, XOR parity).
-// GPIO41 and PB0 must remain open drain with an external 3.3 V pull-up.
+// GPIO41 and PB0 remain true GPIO open drain. The ESP internal 3.3 V pull-up
+// is enabled as a safe idle fallback; the PCB must still use the external R8.
 namespace MayapAttinyBusInternal {
 constexpr uint8_t TX_QUEUE_SIZE = 8U;
 constexpr uint8_t RESPONSE_EDGES = 12U;
@@ -23,16 +24,17 @@ static uint8_t txQueue_[TX_QUEUE_SIZE]{};
 static uint8_t txHead_ = 0U, txTail_ = 0U, txCount_ = 0U;
 static uint8_t txCode_ = 0U, txAttempt_ = 0U;
 static uint8_t resultCode_ = 0U, incomingCode_ = 0U;
-static bool resultReady_ = false, resultAcked_ = false, rmtReady_ = false;
+static bool resultReady_ = false, resultAcked_ = false, driverReady_ = false;
 static uint32_t txHoldUntil_ = 0U, txStartedAt_ = 0U;
 static uint32_t responseStartedAt_ = 0U, retryAt_ = 0U;
 static uint32_t idleBlockedAt_ = 0U;
 static bool idleBlocked_ = false;
-static rmt_data_t txSymbol_[8]{};
+static esp_timer_handle_t txReleaseTimer_ = nullptr;
 enum class Phase : uint8_t { Idle, Sending, WaitingReply, RetryGap };
 static Phase phase_ = Phase::Idle;
 
 static volatile bool rxEnabled_ = false, edgeOverflow_ = false;
+static volatile bool txPulseDone_ = false;
 static volatile uint8_t edgeCount_ = 0U;
 static volatile uint32_t edgeAtUs_[CAPTURE_EDGES]{};
 static volatile uint32_t lastBusEdgeUs_ = 0U;
@@ -43,6 +45,13 @@ void IRAM_ATTR busIsr() {
   if (!rxEnabled_) return;
   if (edgeCount_ >= CAPTURE_EDGES) { edgeOverflow_ = true; return; }
   edgeAtUs_[edgeCount_++] = at;
+}
+inline void releaseBus() {
+  (void)gpio_set_level(static_cast<gpio_num_t>(PIN_ATTINY_BUS), 1U);
+}
+void txReleaseCallback(void *) {
+  releaseBus();
+  txPulseDone_ = true;
 }
 inline bool reached(uint32_t now, uint32_t deadline) {
   return static_cast<int32_t>(now - deadline) >= 0;
@@ -62,6 +71,11 @@ inline bool queuedOrActive(uint8_t code) {
   return false;
 }
 inline void finish(bool ok, uint8_t flags = 0U) {
+  if (txReleaseTimer_ != nullptr && esp_timer_is_active(txReleaseTimer_)) {
+    (void)esp_timer_stop(txReleaseTimer_);
+  }
+  releaseBus();
+  txPulseDone_ = true;
   rxEnabled_ = false;
   clearEdges();
   resultCode_ = txCode_;
@@ -118,29 +132,20 @@ inline bool decodeFrame(uint8_t &flags) {
   return true;
 }
 inline void startAttempt(uint32_t now) {
-  if (!rmtReady_) { logFailure("RMT_INIT"); finish(false); return; }
+  if (!driverReady_ || txReleaseTimer_ == nullptr) {
+    logFailure("GPIO_TIMER_INIT");
+    finish(false);
+    return;
+  }
   clearEdges();
   rxEnabled_ = true;
-  uint32_t remainingUs = ATTINY_COMMAND_WIDTH_MS[txCode_] * 1000UL;
-  uint8_t symbols = 0U;
-  while (remainingUs != 0U) {
-    rmt_data_t &symbol = txSymbol_[symbols++];
-    const uint16_t first = remainingUs > 30000UL ? 30000U : remainingUs;
-    symbol.duration0 = first;
-    symbol.level0 = 0U;
-    remainingUs -= first;
-    if (remainingUs != 0U) {
-      const uint16_t second = remainingUs > 30000UL ? 30000U : remainingUs;
-      symbol.duration1 = second;
-      symbol.level1 = 0U;
-      remainingUs -= second;
-    } else {
-      symbol.duration1 = 1U;
-      symbol.level1 = 1U;
-    }
-  }
+  txPulseDone_ = false;
   ++txAttempt_;
-  if (!rmtWriteAsync(PIN_ATTINY_BUS, txSymbol_, symbols)) {
+  if (gpio_set_level(static_cast<gpio_num_t>(PIN_ATTINY_BUS), 0U) != ESP_OK ||
+      esp_timer_start_once(txReleaseTimer_,
+          static_cast<uint64_t>(ATTINY_COMMAND_WIDTH_MS[txCode_]) * 1000ULL) != ESP_OK) {
+    releaseBus();
+    txPulseDone_ = true;
     retryOrFinish(now, "TX_START");
     return;
   }
@@ -178,23 +183,32 @@ inline void startNext(uint32_t now) {
 
 inline void mayapAttinyBusBegin() {
   using namespace MayapAttinyBusInternal;
-  pinMode(PIN_ATTINY_BUS, INPUT);
-  lastBusEdgeUs_ = micros();
-  rmtReady_ = rmtInit(PIN_ATTINY_BUS, RMT_TX_MODE, RMT_MEM_NUM_BLOCKS_1, 1000000U);
-  if (rmtReady_) {
-    rmtReady_ = rmtSetEOT(PIN_ATTINY_BUS, HIGH) &&
-                gpio_set_direction(static_cast<gpio_num_t>(PIN_ATTINY_BUS),
-                                   GPIO_MODE_INPUT_OUTPUT_OD) == ESP_OK;
-    if (rmtReady_) {
-      rmt_data_t idle{};
-      idle.duration0 = 1U;
-      idle.level0 = 1U;
-      idle.duration1 = 1U;
-      idle.level1 = 1U;
-      rmtReady_ = rmtWrite(PIN_ATTINY_BUS, &idle, 1U, 50U);
-    }
+  // Set the output latch HIGH before enabling open drain: HIGH means release.
+  (void)gpio_set_level(static_cast<gpio_num_t>(PIN_ATTINY_BUS), 1U);
+  gpio_config_t busConfig{};
+  busConfig.pin_bit_mask = 1ULL << PIN_ATTINY_BUS;
+  busConfig.mode = GPIO_MODE_INPUT_OUTPUT_OD;
+  busConfig.pull_up_en = GPIO_PULLUP_ENABLE;
+  busConfig.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  busConfig.intr_type = GPIO_INTR_DISABLE;
+  driverReady_ = gpio_config(&busConfig) == ESP_OK;
+  if (driverReady_) releaseBus();
+
+  esp_timer_create_args_t timerArgs{};
+  timerArgs.callback = txReleaseCallback;
+  timerArgs.arg = nullptr;
+  timerArgs.dispatch_method = ESP_TIMER_TASK;
+  timerArgs.name = "attiny-tx-release";
+  if (driverReady_) {
+    driverReady_ = esp_timer_create(&timerArgs, &txReleaseTimer_) == ESP_OK;
   }
+  lastBusEdgeUs_ = micros();
   attachInterrupt(digitalPinToInterrupt(PIN_ATTINY_BUS), busIsr, CHANGE);
+#if MAYAP_DIAGNOSTIC_SERIAL
+  Serial.printf("[ATTINY-BUS] init gpio-timer=%u idle=%u\n",
+                driverReady_ ? 1U : 0U,
+                digitalRead(PIN_ATTINY_BUS) == HIGH ? 1U : 0U);
+#endif
 }
 inline bool mayapAttinyBusRequest(uint8_t code) {
   using namespace MayapAttinyBusInternal;
@@ -214,7 +228,7 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
   switch (phase_) {
     case Phase::Idle: startNext(now); return;
     case Phase::Sending:
-      if (!rmtTransmitCompleted(PIN_ATTINY_BUS)) {
+      if (!txPulseDone_) {
         if (static_cast<uint32_t>(now - txStartedAt_) >
             ATTINY_COMMAND_WIDTH_MS[txCode_] + 200UL) {
           logFailure("TX_TIMEOUT");
