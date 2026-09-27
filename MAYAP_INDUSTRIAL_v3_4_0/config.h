@@ -35,9 +35,9 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.8";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.9";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
-constexpr char HMI_FIRMWARE_VERSION[] = "3.7.0";
+constexpr char HMI_FIRMWARE_VERSION[] = "3.7.1";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
 
 // ----------------------------- BUILD -----------------------------------------
@@ -504,7 +504,8 @@ constexpr uint32_t HMI_IDLE_SELFHEAL_MS = 8000UL;
 constexpr uint8_t ENCODER_STEPS_PER_DETENT = 4;
 constexpr uint8_t ENCODER_MAX_STEPS_PER_UPDATE = 3;
 constexpr uint32_t BUTTON_DEBOUNCE_MS = 30UL;
-constexpr uint32_t BUTTON_LONG_PRESS_MS = 900UL;
+constexpr uint32_t BUTTON_RELEASE_DEBOUNCE_MS = 70UL;
+constexpr uint32_t BUTTON_LONG_PRESS_MS = 700UL;
 constexpr uint32_t DISPLAY_MIN_DRAW_MS = 110UL;
 constexpr uint32_t HOME_REFRESH_MS = 5000UL;
 // Man hinh khoi dong (splash): hien toi thieu ngan nay roi moi vao man chinh,

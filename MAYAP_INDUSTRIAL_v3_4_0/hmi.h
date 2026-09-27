@@ -346,6 +346,8 @@ void beginRotary() {
 #endif
   rotary.lastRawButton = digitalRead(PIN_ENCODER_SW);
   rotary.stableButton = rotary.lastRawButton;
+  rotary.rawChangedAt = millis();
+  rotary.pressedAt = rotary.rawChangedAt;
 }
 
 void updateRotary(uint32_t now) {
@@ -385,21 +387,29 @@ void updateRotary(uint32_t now) {
     rotary.lastRawButton = raw;
     rotary.rawChangedAt = now;
   }
-  if (raw != rotary.stableButton && now - rotary.rawChangedAt >= BUTTON_DEBOUNCE_MS) {
+  const uint32_t debounceMs = raw == HIGH ? BUTTON_RELEASE_DEBOUNCE_MS : BUTTON_DEBOUNCE_MS;
+  if (raw != rotary.stableButton && now - rotary.rawChangedAt >= debounceMs) {
     rotary.stableButton = raw;
     if (raw == LOW) {
       rotary.pressedAt = now;
       rotary.longPressReported = false;
     } else if (!rotary.longPressReported) {
-      rotary.button = ButtonEvent::ShortPress;
+      // Neu HMI bi tre dung luc nha nut, van phan loai theo thoi gian giu.
+      rotary.button = now - rotary.pressedAt >= BUTTON_LONG_PRESS_MS ?
+          ButtonEvent::LongPress : ButtonEvent::ShortPress;
     }
   }
 
   // Phat LongPress ngay khi du thoi gian, khong doi nguoi dung nha nut.
-  if (rotary.stableButton == LOW && !rotary.longPressReported &&
+  if (raw == LOW && rotary.stableButton == LOW && !rotary.longPressReported &&
       now - rotary.pressedAt >= BUTTON_LONG_PRESS_MS) {
     rotary.longPressReported = true;
     rotary.button = ButtonEvent::LongPress;
+  }
+  if (rotary.button != ButtonEvent::None) {
+    mayapSerialPrintf(false, "[HMI-KEY] %s hold=%lums\n",
+        rotary.button == ButtonEvent::LongPress ? "LONG" : "SHORT",
+        static_cast<unsigned long>(now - rotary.pressedAt));
   }
 }
 
@@ -547,17 +557,16 @@ const uint8_t GROUP_SETTING_INDEXES[] = {
   4,5,6,7,8,9,10,33,                   // Nhiet do + BAT/TAT thong gio dinh ky
   11,12,13,28,                          // Dao trung
   14,29,32,                             // He thong + Co bo tao am
-  15,16,17,18,19,20,21,22,23,24,25,26,27,34,35,36,37,38,39,40,41, // Nang cao
+  15,16,17,18,19,                         // PID / SSR
+  20,21,22,23,24,25,26,27,                // Bao ve nhiet
+  34,35,36,37,38,39,40,41,                // Lich thong gio
   30,31                                  // Tao am
 };
 
 struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
-// Chi so 0 = Cai dat me (goc tu MainMenu); 1..5 = 5 thu muc con cua
+// Chi so 0 = Cai dat me (goc tu MainMenu); con lai la thu muc con cua
 // "CAI DAT CHUNG" (goc tu ChungMenu). Dung chung mot co che SettingList.
-// LUU Y: nhom moi (Nang cao) PHAI o CUOI mang - groupExtraSlot()/
-// groupExtraSlotVisible() ben duoi dang tham chieu chi so nhom 1/2/3 TUYET
-// DOI (Nhiet do/Dao trung/He thong), chen nhom moi vao giua se lam sai lech
-// toan bo cac tham chieu do.
+// Nhom TAO AM phai o cuoi; groupExtraSlot() tham chieu co dinh nhom 1/2/3.
 const SettingGroup GROUPS[] = {
   {"CAI DAT ME", 0, 4},
   // Gop "Quat hut" vao chung nhom "Nhiet do" (7 thong so) - ca 2 deu la
@@ -569,11 +578,13 @@ const SettingGroup GROUPS[] = {
   // la cai dat mang - gom ca ma QR, dat lai PIN, cap nhat firmware... nen
   // "He thong" mo ta dung hon la cai dat chung cua may.
   {"HE THONG", 16, 3},
-  {"NANG CAO", 19, 21},
+  {"PID / SSR", 19, 5},
+  {"BAO VE NHIET", 24, 8},
+  {"LICH THONG", 32, 8},
   {"TAO AM", 40, 2}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
-static_assert(GROUP_COUNT == 6, "Bang GROUPS phai co 6 nhom");
+static_assert(GROUP_COUNT == 8, "Bang GROUPS phai co 8 nhom");
 static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == SETTING_COUNT,
               "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
 
@@ -923,6 +934,14 @@ constexpr uint32_t FIRMWARE_REMINDER_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;
 View alarmReturnView = View::Home;
 uint8_t alarmIndex = 0;
 uint8_t eventLogIndex = 0;
+View eventLogReturnView = View::MainMenu;
+bool eventLogFaultsOnly = false;
+constexpr uint8_t HMI_RECENT_FAULT_CAPACITY = 8U;
+HmiEventItem recentFaults[HMI_RECENT_FAULT_CAPACITY]{};
+uint32_t recentFaultCapturedAt[HMI_RECENT_FAULT_CAPACITY]{};
+uint8_t recentFaultCount = 0U;
+uint8_t lastEventWindowCount = 0U;
+uint32_t lastEventSourceSequence = 0U;
 uint32_t alarmPresentedMask = 0;
 // Man phu tu dong bat khi dong co BAT DAU chay dao/tim goc (canh trong
 // tick khi runtime.turnState chuyen sang Left/Right) - co che giong het
@@ -1028,7 +1047,7 @@ enum MainMenuIndex : uint8_t {
 const char *mainItemLabel(uint8_t index) {
   switch (index) {
     case MAIN_CAI_DAT_ME: return "CAI DAT ME";
-    case MAIN_NHAT_KY: return "NHAT KY ME";
+    case MAIN_NHAT_KY: return "LOI / NHAT KY";
     case MAIN_CAI_DAT_CHUNG: return "CAI DAT CHUNG";
     default: return "THOAT";
   }
@@ -1135,16 +1154,12 @@ bool confirmationActive() {
   return confirmAction != ConfirmAction::None;
 }
 
-void resetRotaryPending() {
-  // Neu dang nuot ngay 1 su kien LongPress VUA phat trong chinh chu ky nay
-  // (vd input guard vua duoc kich hoat do view doi dot ngot - co canh bao
-  // moi - dung luc nguoi dung giu nut cham nguong 900ms), phai mo lai co
-  // longPressReported. Neu khong: LongPress bi nuot mat (dung), NHUNG co
-  // nay van con true nen luc nguoi dung tha nut ra, nhanh "else if
-  // (!rotary.longPressReported)" trong updateRotary() cung khong con kich
-  // hoat ShortPress du phong - toan bo thao tac giu-va-tha bi nuot trang,
-  // khong co phan hoi nao ca.
-  if (rotary.button == ButtonEvent::LongPress) {
+void resetRotaryPending(bool rearmSwallowedLongPress = false) {
+  // Chi mo lai LongPress neu su kien THUC SU bi input guard nuot.
+  // Khi da doi view do LongPress, phai giu co reported cho den luc nha nut;
+  // neu khong mot lan giu se kich hoat tiep man vua mo.
+  if (rearmSwallowedLongPress && rotary.button == ButtonEvent::LongPress &&
+      rotary.stableButton == LOW) {
     rotary.longPressReported = false;
   }
   rotary.accumulator = 0;
@@ -1325,9 +1340,11 @@ void goBack() {
                         settingListItemCount(1U));
       break;
     case View::EventLog:
-      view = View::MainMenu;
-      mainIndex = MAIN_NHAT_KY;
-      alignMainMenuWindow();
+      view = eventLogReturnView;
+      if (view == View::MainMenu) {
+        mainIndex = MAIN_NHAT_KY;
+        alignMainMenuWindow();
+      }
       break;
     case View::TestMode:
     case View::TestSummary:
@@ -2112,6 +2129,8 @@ void selectMainItem() {
     case MAIN_CAI_DAT_ME: openGroup(0U); break;
     case MAIN_NHAT_KY:
       eventLogIndex = 0U;
+      eventLogFaultsOnly = false;
+      eventLogReturnView = View::MainMenu;
       view = View::EventLog;
       break;
     case MAIN_CAI_DAT_CHUNG: openChungMenu(); break;
@@ -2126,12 +2145,20 @@ void selectMainItem() {
 // Quy tac HMI khi dang co loi:
 // - Nhan ngan: giu nguyen chuc nang cua trang dang dung. Neu man canh bao
 //   dang tu bat, nhan ngan ACK/tat coi va an man nay tam thoi.
-// - Nhan giu tai Home: mo lai danh sach loi dang hoat dong de xem chi tiet.
+// - Nhan giu tai Home: xem loi dang hoat dong, neu da het thi xem loi gan day.
 // Nhieu loi van duoc xu ly o MachineController; doi thao tac HMI khong lam
 // vo hieu bat ky bao ve an toan nao.
 void activateHomeContext(bool longPress) {
-  if (longPress && currentRuntime.activeFaultDisplayCount) {
-    openAlarmView(View::Home);
+  if (longPress) {
+    if (currentRuntime.activeFaultDisplayCount) {
+      openAlarmView(View::Home);
+    } else {
+      eventLogIndex = 0U;
+      eventLogFaultsOnly = true;
+      eventLogReturnView = View::Home;
+      view = View::EventLog;
+      dirty = true;
+    }
     return;
   }
   if (homePage == 0U) {
@@ -2142,6 +2169,43 @@ void activateHomeContext(bool longPress) {
     listTop = 0U;
     dirty = true;
   }
+}
+
+bool eventLogIsFault(const HmiEventItem &item) {
+  // ACK la thao tac nguoi dung, khong chiem cho 8 ban ghi loi gan day.
+  return item.type == 4U || item.type == 5U;
+}
+
+void rememberRecentFaults(const HmiEventSnapshot &snapshot, uint32_t now) {
+  // Nhat ky me duoc xoa khi bat dau me moi. Khong tron loi me truoc vao me sau.
+  if (snapshot.totalInWindow < lastEventWindowCount) recentFaultCount = 0U;
+  for (int i = static_cast<int>(snapshot.count) - 1; i >= 0; --i) {
+    const HmiEventItem &item = snapshot.items[i];
+    if (static_cast<int32_t>(item.sequence - lastEventSourceSequence) <= 0 ||
+        !eventLogIsFault(item)) continue;
+    const uint8_t moveCount = std::min<uint8_t>(recentFaultCount,
+        HMI_RECENT_FAULT_CAPACITY - 1U);
+    if (moveCount) {
+      memmove(&recentFaults[1], &recentFaults[0],
+              moveCount * sizeof(recentFaults[0]));
+      memmove(&recentFaultCapturedAt[1], &recentFaultCapturedAt[0],
+              moveCount * sizeof(recentFaultCapturedAt[0]));
+    }
+    recentFaults[0] = item;
+    recentFaultCapturedAt[0] = now;
+    if (recentFaultCount < HMI_RECENT_FAULT_CAPACITY) ++recentFaultCount;
+  }
+  lastEventSourceSequence = snapshot.sourceSequence;
+  lastEventWindowCount = snapshot.totalInWindow;
+}
+
+uint8_t eventLogVisibleCount() {
+  return eventLogFaultsOnly ? recentFaultCount : currentEventLog.count;
+}
+
+const HmiEventItem *eventLogVisibleItem(uint8_t index) {
+  if (eventLogFaultsOnly) return index < recentFaultCount ? &recentFaults[index] : nullptr;
+  return index < currentEventLog.count ? &currentEventLog.items[index] : nullptr;
 }
 
 
@@ -2277,7 +2341,7 @@ bool handleInlineConfirmation() {
 void handleInput() {
   const uint32_t now = millis();
   if (!timeReached(now, inputGuardUntil)) {
-    resetRotaryPending();
+    resetRotaryPending(true);
     return;
   }
   // Dang o man khoi dong: nuot moi thao tac (khong dieu huong mu trong luc
@@ -2328,8 +2392,10 @@ void handleInput() {
       return;
     }
     if (view == View::Alarm) {
-      // Tu man canh bao, nhan giu de xem lai nhat ky su kien thay vi dong man.
+      // Tu man canh bao, nhan giu de xem lai cac loi gan day.
       eventLogIndex = 0U;
+      eventLogFaultsOnly = true;
+      eventLogReturnView = View::Home;
       view = View::EventLog;
       dirty = true;
       return;
@@ -2554,7 +2620,7 @@ void handleInput() {
       break;
 
     case View::EventLog: {
-      const uint8_t count = currentEventLog.count;
+      const uint8_t count = eventLogVisibleCount();
       if (count && rotary.step) {
         int next = static_cast<int>(eventLogIndex) + rotary.step;
         while (next < 0) next += count;
@@ -2621,6 +2687,15 @@ void drawHeader(const char *title, bool showDate) {
   lcd.drawHLine(0, 10, 128);
 }
 void drawHeader(const char *title) { drawHeader(title, true); }
+
+void drawListPosition(uint8_t index, uint8_t count) {
+  if (!count) return;
+  char position[8];
+  snprintf(position, sizeof(position), "%u/%u", index + 1U, count);
+  lcd.setFont(u8g2_font_5x8_tf);
+  lcd.drawStr(max(78, 127 - static_cast<int16_t>(lcd.getStrWidth(position))),
+              8, position);
+}
 
 // ---------------------- Chong tran chu dung chung ----------------------
 // Man hinh chi rong 128px. Moi cho ve chuoi co do dai THAY DOI theo du lieu
@@ -2728,8 +2803,13 @@ const char *faultTitle(uint16_t code) {
     case 313: return "CHUA XOA DU LIEU ME";
     case 314: return "LOI NHAT KY AN TOAN";
     case 315: return "MAT NHAT KY ME";
+    case 401: return "BO NHO RAM THAP";
+    case 402: return "RAM SAP CAN";
+    case 403: return "XU HUONG NHIET BAT THUONG";
+    case 404: return "EEPROM GHI LOI NHIEU";
     case 501: return "MAT LIEN LAC ATTINY";
     case 502: return "PIN COI SAP HET";
+    case 503: return "LECH TRANG THAI ATTINY";
     default: return "LOI KHONG XAC DINH";
   }
 }
@@ -2779,8 +2859,16 @@ void faultDetail(const HmiFaultItem &fault, char *out, size_t size) {
     case 313: snprintf(out, size, "DANG THU LAI EEPROM"); break;
     case 314: snprintf(out, size, "NVS NOI BO KHONG SAN SANG"); break;
     case 315: snprintf(out, size, "FLASH LOG KHONG GHI DUOC"); break;
+    case 401: case 402:
+      snprintf(out, size, "RAM CON %d%%", fault.detail); break;
+    case 403:
+      snprintf(out, size, "%s %d PHUT TOI NGUONG",
+               fault.detail < 0 ? "GIAM" : "TANG", abs(fault.detail)); break;
+    case 404:
+      snprintf(out, size, "EEPROM THU LAI %d LAN", fault.detail); break;
     case 501: snprintf(out, size, "ATTINY KHONG PHAN HOI"); break;
     case 502: snprintf(out, size, "HAY THAY PIN 9V SOM"); break;
+    case 503: snprintf(out, size, "KIEM TRA DONG BO TRANG THAI"); break;
     default: snprintf(out, size, "CHI TIET %d", fault.detail); break;
   }
 }
@@ -2806,12 +2894,13 @@ void drawAlarm() {
                   u8g2_font_6x12_tf, u8g2_font_5x8_tf);
 
   faultDetail(fault, detail, sizeof(detail));
-  drawCenteredFit(42, detail, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+  drawCenteredFit(40, detail, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
                   u8g2_font_5x8_tf);
-  snprintf(footer, sizeof(footer), "E%03u %u/%u NHAN=TAT GIU=XEM",
+  snprintf(footer, sizeof(footer), "E%03u  %u/%u  XOAY:LOI",
            fault.code, alarmIndex + 1U, count);
   lcd.setFont(u8g2_font_5x8_tf);
-  lcd.drawStr(1, 61, footer);
+  lcd.drawStr(1, 51, footer);
+  lcd.drawStr(1, 61, "NHAN:TAT COI  GIU:NHAT KY");
 }
 
 void drawCenteredText(int16_t y, const char *text) {
@@ -3024,6 +3113,7 @@ void drawMainMenu() {
 
 void drawChungMenu() {
   drawHeader("CAI DAT CHUNG", false);
+  drawListPosition(chungIndex, chungItemCount());
   lcd.setFont(u8g2_font_6x12_tf);
   for (uint8_t row = 0; row < 4 && chungTop + row < chungItemCount(); ++row) {
     const uint8_t index = chungTop + row;
@@ -3045,6 +3135,7 @@ void drawSettingList() {
   const uint8_t itemCount = settingListItemCount(selectedGroup);
   const uint8_t exitIndex = settingListExitIndex(selectedGroup);
   drawHeader(group.label, false);
+  drawListPosition(listIndex, itemCount);
   lcd.setFont(u8g2_font_6x12_tf);
   char value[18];
   for (uint8_t row = 0; row < 4 && listTop + row < itemCount; ++row) {
@@ -3257,6 +3348,8 @@ void drawEditSetting() {
   // cach hien thi voi cac loai gia tri khac (khong con nhanh rieng).
   drawCenteredFit(48, value, u8g2_font_helvB14_tf, u8g2_font_helvB12_tf,
                   u8g2_font_6x12_tf);
+  lcd.setFont(u8g2_font_5x8_tf);
+  lcd.drawStr(11, 62, "NHAN: LUU   GIU: HUY");
 }
 
 const char *autoTuneStateText(AutoTuneState state) {
@@ -3591,7 +3684,7 @@ const char *outputEventName(uint16_t code) {
 void eventText(const HmiEventItem &e, char *title, size_t titleSize,
                char *detail, size_t detailSize) {
   title[0] = detail[0] = '\0';
-  if (e.code >= 1100U && e.code < 1400U) {
+  if (e.code >= 1100U && e.code < 2000U) {
     const uint16_t faultCode = static_cast<uint16_t>(e.code - 1000U);
     snprintf(title, titleSize, "E%03u %s", faultCode, faultTitle(faultCode));
     switch (e.type) {
@@ -3711,20 +3804,26 @@ void formatEventDateTime(uint32_t epoch, char *out, size_t size) {
 }
 
 void drawEventLog() {
-  drawHeader("NHAT KY ME");
-  if (!currentEventLog.count) {
-    lcd.setFont(u8g2_font_6x12_tf);
-    lcd.drawStr(18, 35, "CHUA CO SU KIEN");
+  drawHeader(eventLogFaultsOnly ? "LOI GAN DAY" : "NHAT KY ME");
+  const uint8_t visibleCount = eventLogVisibleCount();
+  if (!visibleCount) {
+    drawCenteredFit(35,
+                    eventLogFaultsOnly ? "KHONG CO LOI GAN DAY" : "CHUA CO SU KIEN",
+                    u8g2_font_6x12_tf, u8g2_font_5x8_tf, u8g2_font_5x8_tf);
     return;
   }
-  if (eventLogIndex >= currentEventLog.count) eventLogIndex = 0U;
-  const HmiEventItem &e = currentEventLog.items[eventLogIndex];
+  if (eventLogIndex >= visibleCount) eventLogIndex = 0U;
+  const HmiEventItem *item = eventLogVisibleItem(eventLogIndex);
+  if (!item) return;
+  const HmiEventItem &e = *item;
   char age[18];
   char timestamp[24];
   char title[28];
   char detail[28];
   char footer[40];
-  formatEventAge(e.ageSec, age, sizeof(age));
+  const uint32_t ageSec = e.ageSec + (eventLogFaultsOnly ?
+      (millis() - recentFaultCapturedAt[eventLogIndex]) / 1000UL : 0U);
+  formatEventAge(ageSec, age, sizeof(age));
   formatEventDateTime(e.epoch, timestamp, sizeof(timestamp));
   eventText(e, title, sizeof(title), detail, sizeof(detail));
 
@@ -3741,7 +3840,8 @@ void drawEventLog() {
               u8g2_font_5x8_tf);
   lcd.setFont(u8g2_font_5x8_tf);
   snprintf(footer, sizeof(footer), "%u/%u  %s",
-           eventLogIndex + 1U, currentEventLog.totalInWindow, age);
+           eventLogIndex + 1U,
+           eventLogFaultsOnly ? visibleCount : currentEventLog.totalInWindow, age);
   lcd.drawStr(1, 59, footer);
 }
 
@@ -4584,7 +4684,8 @@ void serviceApiMailboxes() {
   if (hasRuntime) splashHadRuntime = true;
   if (hasEventLog) {
     currentEventLog = eventLog;
-    if (eventLogIndex >= currentEventLog.count) eventLogIndex = 0U;
+    rememberRecentFaults(eventLog, millis());
+    if (eventLogIndex >= eventLogVisibleCount()) eventLogIndex = 0U;
     if (view == View::EventLog) dirty = true;
   }
   if (hasCue) buzzerPlayCue(cue);
