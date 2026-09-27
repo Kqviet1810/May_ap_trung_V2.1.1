@@ -583,7 +583,7 @@ inline void checkWifiSignal(uint32_t now) {
 inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const char *path) {
   if (!TLS_ROOT_CA[0]) {
     mayapSetProvisioningState(MayapProvisioningState::TlsError);
-    mayapSerialPrintf(true, "[CLOUD] TLS bi khoa: thieu CA goc tin cay\n");
+    mayapSerialPrintf(false, "[CLOUD] TLS bi khoa: thieu CA goc tin cay\n");
     return false;
   }
   client.setCACert(TLS_ROOT_CA);
@@ -637,7 +637,7 @@ inline void storeProvisioningFromResponse(const String &response) {
   const char *commandKey = parsed["command_key"] | "";
   if (commandKey[0]) {
     if (!mayapStoreCommandKey(commandKey)) {
-      mayapSerialPrintf(true, "[CLOUD] command_key khong hop le/khong luu duoc\n");
+      mayapSerialPrintf(false, "[CLOUD] command_key khong hop le/khong luu duoc\n");
     }
   }
 }

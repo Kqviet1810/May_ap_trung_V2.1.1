@@ -457,7 +457,7 @@ inline void portalBeginStarting(uint32_t now) {
   (void)WiFi.disconnect(false, false);
   portalCrashMark(30U);
   if (!WiFi.mode(WIFI_AP_STA)) {
-    mayapSerialPrintf(true, "[PORTAL] WIFI_AP_STA that bai, giu STA cu\n");
+    mayapSerialPrintf(false, "[PORTAL] WIFI_AP_STA that bai, giu STA cu\n");
     portalPhase = PortalPhase::Idle;
     __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);
     __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);
@@ -481,7 +481,7 @@ inline void serviceStarting(uint32_t now) {
 
   if (!bringUpSoftAp()) {
     if (elapsedMs(now, portalApStartingSince_) >= WIFI_PORTAL_AP_START_TIMEOUT_MS) {
-      mayapSerialPrintf(true,
+      mayapSerialPrintf(false,
           "[PORTAL] khong bat duoc AP sau %lums, huy mo cong\n",
           static_cast<unsigned long>(WIFI_PORTAL_AP_START_TIMEOUT_MS));
       WiFi.mode(WIFI_STA);
@@ -539,7 +539,7 @@ inline void servicePortal(uint32_t now) {
       return;
     }
     if (elapsedMs(now, portalQuiesceStartedAt_) >= WIFI_PORTAL_QUIESCE_TIMEOUT_MS) {
-      mayapSerialPrintf(true, "[PORTAL] huy doi Wi-Fi: I/O mang chua quiesce sau %lums\n",
+      mayapSerialPrintf(false, "[PORTAL] huy doi Wi-Fi: I/O mang chua quiesce sau %lums\n",
           static_cast<unsigned long>(WIFI_PORTAL_QUIESCE_TIMEOUT_MS));
       __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);
       __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);
@@ -705,7 +705,7 @@ inline void mayapNetworkBegin() {
   using namespace MayapNetworkInternal;
   if (esp_reset_reason() == ESP_RST_PANIC && portalCrashMagic_ == PORTAL_CRASH_MAGIC &&
       portalCrashStage_ != 0U) {
-    mayapSerialPrintf(true, "[PORTAL-PANIC] stage=%lu (%s)\n",
+    mayapSerialPrintf(false, "[PORTAL-PANIC] stage=%lu (%s)\n",
         static_cast<unsigned long>(portalCrashStage_),
         portalCrashStageText(portalCrashStage_));
   }

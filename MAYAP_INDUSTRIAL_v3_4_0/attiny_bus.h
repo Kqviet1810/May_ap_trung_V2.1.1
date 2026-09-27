@@ -88,7 +88,7 @@ inline void finish(bool ok, uint8_t flags = 0U) {
 }
 #if MAYAP_DIAGNOSTIC_SERIAL
 inline void logFailure(const char *reason) {
-  Serial.printf("[ATTINY-BUS] FAIL reason=%s cmd=%u attempt=%u edges=%u overflow=%u\n",
+  mayapSerialPrintf(false, "[ATTINY-BUS] FAIL reason=%s cmd=%u attempt=%u edges=%u overflow=%u\n",
                 reason, static_cast<unsigned>(txCode_),
                 static_cast<unsigned>(txAttempt_),
                 static_cast<unsigned>(edgeCount_), edgeOverflow_ ? 1U : 0U);
@@ -205,7 +205,7 @@ inline void mayapAttinyBusBegin() {
   lastBusEdgeUs_ = micros();
   attachInterrupt(digitalPinToInterrupt(PIN_ATTINY_BUS), busIsr, CHANGE);
 #if MAYAP_DIAGNOSTIC_SERIAL
-  Serial.printf("[ATTINY-BUS] init gpio-timer=%u idle=%u\n",
+  mayapSerialPrintf(false, "[ATTINY-BUS] init gpio-timer=%u idle=%u\n",
                 driverReady_ ? 1U : 0U,
                 digitalRead(PIN_ATTINY_BUS) == HIGH ? 1U : 0U);
 #endif

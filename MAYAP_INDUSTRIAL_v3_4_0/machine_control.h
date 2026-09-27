@@ -3937,22 +3937,24 @@ class MachineController {
     return true;
   }
 
-  void serviceHealthHeap(uint32_t now) {
+  void serviceHealthHeap(uint32_t now, uint32_t recoveredHeap) {
     if (!healthBaselineCaptured_) return;
     const uint32_t freeHeap = ESP.getFreeHeap();
-    const uint32_t percent = static_cast<uint32_t>(
+    const uint32_t instantPercent = static_cast<uint32_t>(
         (static_cast<uint64_t>(freeHeap) * 100ULL) / healthHeapBaseline_);
+    const uint32_t percent = static_cast<uint32_t>(
+        (static_cast<uint64_t>(recoveredHeap) * 100ULL) / healthHeapBaseline_);
 
     // Muc 3 - NGUY CAP: khoi dong lai NGAY bat ke dang lam gi. O day rui ro
     // crash khong kiem soat (treo giua chung, du lieu dang ghi do dang) cao
     // hon han rui ro cua 1 lan restart chu dong - khong debounce, khong cho
     // "luc an toan" (nhip lay mau 30s da tu loc bot nhieu tuc thoi).
-    if (percent <= HEALTH_HEAP_CRITICAL_PERCENT) {
-      faults_.set(FaultCode::HeapCritical, true, now, static_cast<int16_t>(percent));
+    if (instantPercent <= HEALTH_HEAP_CRITICAL_PERCENT) {
+      faults_.set(FaultCode::HeapCritical, true, now, static_cast<int16_t>(instantPercent));
       __atomic_store_n(&healthRestartRequested_, true, __ATOMIC_RELEASE);
-      mayapSerialPrintf(true,
+      mayapSerialPrintf(false,
           "[HEALTH] Heap NGUY CAP %lu%% (%lu/%lu bytes) - xin khoi dong lai NGAY\n",
-          static_cast<unsigned long>(percent), static_cast<unsigned long>(freeHeap),
+          static_cast<unsigned long>(instantPercent), static_cast<unsigned long>(freeHeap),
           static_cast<unsigned long>(healthHeapBaseline_));
       return;
     }
@@ -3968,7 +3970,7 @@ class MachineController {
     }
     if (healthHeapSeriousStreak_ >= HEALTH_STREAK_CONFIRM && safeToHealthRestart()) {
       __atomic_store_n(&healthRestartRequested_, true, __ATOMIC_RELEASE);
-      mayapSerialPrintf(true,
+      mayapSerialPrintf(false,
           "[HEALTH] Heap thap keo dai %lu%% - dang o luc an toan, xin khoi dong lai\n",
           static_cast<unsigned long>(percent));
     }
@@ -4042,18 +4044,43 @@ class MachineController {
   }
 
   void serviceHealthMonitor(uint32_t now) {
+    const uint32_t bootAge = elapsedMs(now, bootAt_);
+    // Loai nua dau warm-up khoi baseline: Wi-Fi va MQTT van dang khoi dong.
+    if (!healthBaselineCaptured_ && !healthWarmupWindowStarted_ &&
+        bootAge >= HEALTH_BASELINE_CAPTURE_DELAY_MS / 2U) {
+      healthWarmupWindowStarted_ = true;
+      healthHeapWindowBest_ = 0U;
+      healthHeapWindowWorst_ = UINT32_MAX;
+    }
+    if (healthHeapSampleGate_.due(now, true)) {
+      const uint32_t freeHeap = ESP.getFreeHeap();
+      healthHeapWindowBest_ = std::max(healthHeapWindowBest_, freeHeap);
+      healthHeapWindowWorst_ = std::min(healthHeapWindowWorst_, freeHeap);
+    }
     if (!healthBaselineCaptured_) {
       // Doi he thong chay on dinh sau boot roi moi chup heap nen, bo qua
       // bien dong tam thoi luc vua khoi dong Wi-Fi/MQTT/OTA.
-      if (elapsedMs(now, bootAt_) < HEALTH_BASELINE_CAPTURE_DELAY_MS) return;
-      healthHeapBaseline_ = ESP.getFreeHeap();
+      if (bootAge < HEALTH_BASELINE_CAPTURE_DELAY_MS) return;
+      healthHeapBaseline_ = healthHeapWindowBest_;
       healthBaselineCaptured_ = healthHeapBaseline_ > 0U;
       mayapSerialPrintf(false, "[HEALTH] Heap nen = %lu bytes\n",
                         static_cast<unsigned long>(healthHeapBaseline_));
+      healthHeapWindowBest_ = 0U;
+      healthHeapWindowWorst_ = UINT32_MAX;
+      healthCheckGate_.reset(now);
+      (void)healthCheckGate_.due(now, false);
       return;
     }
     if (!healthCheckGate_.due(now, false)) return;
-    serviceHealthHeap(now);
+    // E401/E402 nghiem trong chi tinh tu muc heap DA PHUC HOI trong 30 giay,
+    // khong tu mot mau ngau nhien trung luc HTTPS cap phat bo nho. Muc nguy cap
+    // 6% van kiem tra heap hien tai de bao ve truong hop that su sap het RAM.
+    healthHeapLastBest_ = healthHeapWindowBest_;
+    healthHeapLastWorst_ = healthHeapWindowWorst_ == UINT32_MAX
+        ? ESP.getFreeHeap() : healthHeapWindowWorst_;
+    serviceHealthHeap(now, healthHeapLastBest_ ? healthHeapLastBest_ : ESP.getFreeHeap());
+    healthHeapWindowBest_ = 0U;
+    healthHeapWindowWorst_ = UINT32_MAX;
     serviceHealthTemperatureTrend(now);
     serviceHealthStorageRetry(now);
   }
@@ -7137,6 +7164,15 @@ class MachineController {
       mayapSerialPrintf(false, "[POWER] reset=%s storm=%u ack=%u safetyNvs=%u\n",
           resetReasonText(power_.reason()), power_.resetStormCount(),
           power_.ackRequired(), !safetyJournalFaultLatched_);
+    } else if (cmd && !strcmp(cmd, "HEAP")) {
+      mayapSerialPrintf(false,
+          "[HEAP] free=%lu minEver=%lu largest=%lu baseline=%lu windowBest=%lu windowWorst=%lu\n",
+          static_cast<unsigned long>(ESP.getFreeHeap()),
+          static_cast<unsigned long>(ESP.getMinFreeHeap()),
+          static_cast<unsigned long>(ESP.getMaxAllocHeap()),
+          static_cast<unsigned long>(healthHeapBaseline_),
+          static_cast<unsigned long>(healthHeapLastBest_),
+          static_cast<unsigned long>(healthHeapLastWorst_));
     } else if (cmd && !strcmp(cmd, "STATUS")) {
       printStatus(now);
     } else if (cmd && !strcmp(cmd, "CONFIG")) {
@@ -7172,7 +7208,7 @@ class MachineController {
     mayapSerialPrintf(false, "SIM RESET\n");
 #endif
     mayapSerialPrintf(false, "TIME SET YYYY-MM-DD HH:MM:SS\n");
-    mayapSerialPrintf(false, "BATCH START|STOP   ACK   FAULT LIST|CLEAR   STATUS   CONFIG   POWER\n");
+    mayapSerialPrintf(false, "BATCH START|STOP   ACK   FAULT LIST|CLEAR   STATUS   CONFIG   POWER   HEAP\n");
     mayapSerialPrintf(false, "Nhap SERIAL de tat/bat toan bo debug. DIAG ON|OFF doi toc do STATUS.\n");
     mayapSerialPrintf(false, "LOG = BAT debug Serial ngay. EXIT = TAT debug Serial ngay.\n");
     mayapSerialPrintf(false, "CONFIG = dump debug DAY DU (thong so + Wi-Fi/MQTT/Cloud Push + STATUS).\n");
@@ -7511,8 +7547,14 @@ class MachineController {
 
   // --- Giam sat suc khoe he thong (v3.6.0) - xem serviceHealthMonitor() ---
   PeriodicGate healthCheckGate_{HEALTH_CHECK_INTERVAL_MS};
+  PeriodicGate healthHeapSampleGate_{HEALTH_HEAP_SAMPLE_INTERVAL_MS};
   bool healthBaselineCaptured_ = false;
+  bool healthWarmupWindowStarted_ = false;
   uint32_t healthHeapBaseline_ = 0U;
+  uint32_t healthHeapWindowBest_ = 0U;
+  uint32_t healthHeapWindowWorst_ = UINT32_MAX;
+  uint32_t healthHeapLastBest_ = 0U;
+  uint32_t healthHeapLastWorst_ = 0U;
   uint8_t healthHeapLowStreak_ = 0U;
   bool healthHeapLowActive_ = false;
   uint8_t healthHeapSeriousStreak_ = 0U;

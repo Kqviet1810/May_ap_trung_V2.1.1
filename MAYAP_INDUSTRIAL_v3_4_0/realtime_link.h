@@ -255,7 +255,7 @@ inline bool publishJson(const char *suffix, const JsonDocument &doc,
   const char *topic = topicOf(suffix);
   if (length == 0U || length >= sizeof(buffer) ||
       length + strlen(topic) + MayapProtocol::MQTT_OVERHEAD > MayapProtocol::MQTT_NORMAL_CAP) {
-    mayapSerialPrintf(true, "[WEBLINK] packet vuot budget: %s (%u B)\n",
+    mayapSerialPrintf(false, "[WEBLINK] packet vuot budget: %s (%u B)\n",
                       suffix, static_cast<unsigned>(length));
     return false;
   }
@@ -1619,7 +1619,7 @@ inline void mayapWebLinkBegin() {
   using namespace MayapRealtimeInternal;
   ensureIdentity();
   mqttBufferReady = mqtt.setBufferSize(MayapProtocol::MQTT_HARD_CAP);
-  if (!mqttBufferReady) mayapSerialPrintf(true, "[WEBLINK] khong cap duoc MQTT buffer %u B\n",
+  if (!mqttBufferReady) mayapSerialPrintf(false, "[WEBLINK] khong cap duoc MQTT buffer %u B\n",
                                       static_cast<unsigned>(MayapProtocol::MQTT_HARD_CAP));
   mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
   mqtt.setCallback(mqttMessageCallback);
@@ -1628,7 +1628,7 @@ inline void mayapWebLinkBegin() {
   if (mqttTlsReady) {
     netClient.setCACert(TLS_ROOT_CA);
   } else {
-    mayapSerialPrintf(true,
+    mayapSerialPrintf(false,
         "[WEBLINK] TLS bi khoa: chua nhung MAYAP_TLS_ROOT_CA - KHONG ha cap insecure\n");
   }
 #endif

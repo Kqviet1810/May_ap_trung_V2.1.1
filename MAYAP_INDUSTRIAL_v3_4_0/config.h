@@ -35,7 +35,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.7";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.8";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
 constexpr char HMI_FIRMWARE_VERSION[] = "3.7.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
@@ -279,6 +279,8 @@ constexpr uint32_t WIFI_RSSI_WEAK_DURATION_MS = 300000UL; // 5 phut
 // Chu ky lay mau suc khoe he thong (heap/nhiet do xu huong/EEPROM). Du nhe de
 // chay moi chu ky dieu khien (5ms) ma khong ton chi phi dang ke.
 constexpr uint32_t HEALTH_CHECK_INTERVAL_MS = 30000UL; // 30 giay
+// Lay mau nhe trong ca cua so: HTTPS/TLS co the ha heap trong vai giay roi tra lai.
+constexpr uint32_t HEALTH_HEAP_SAMPLE_INTERVAL_MS = 1000UL;
 // Doi he thong chay on dinh sau boot roi moi chup heap nen (bo qua dinh cao
 // tam thoi luc vua khoi dong cac dich vu Wi-Fi/MQTT/OTA).
 constexpr uint32_t HEALTH_BASELINE_CAPTURE_DELAY_MS = 60000UL; // 60 giay

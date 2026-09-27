@@ -33,12 +33,12 @@ static bool inProgress = false;
 inline void onStart() {
   inProgress = true;
   const char *type = (ArduinoOTA.getCommand() == U_FLASH) ? "chuong trinh" : "he thong tep";
-  mayapSerialPrintf(true, "[OTA] Bat dau nap %s qua mang...\n", type);
+  mayapSerialPrintf(false, "[OTA] Bat dau nap %s qua mang...\n", type);
 }
 
 inline void onEnd() {
   inProgress = false;
-  mayapSerialPrintf(true, "[OTA] Nap xong, chuan bi khoi dong lai\n");
+  mayapSerialPrintf(false, "[OTA] Nap xong, chuan bi khoi dong lai\n");
   // Danh dau day la khoi dong lai CO CHU DICH (xem config.h) - thu vien
   // ArduinoOTA tu goi ESP.restart() ngay sau callback nay khi nap thanh
   // cong; khong danh dau se bi PowerManager tinh nham vao bo dem "reset bat
@@ -66,7 +66,7 @@ inline void onError(ota_error_t error) {
     case OTA_END_ERROR: reason = "LOI GHI HOAN TAT"; break;
     default: break;
   }
-  mayapSerialPrintf(true, "[OTA] THAT BAI: %s (ma %d)\n", reason,
+  mayapSerialPrintf(false, "[OTA] THAT BAI: %s (ma %d)\n", reason,
                     static_cast<int>(error));
 }
 

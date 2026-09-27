@@ -117,7 +117,7 @@ static_assert(sizeof(otaTaskStack) >= OTA_TASK_STACK_BYTES,
 static void fatalRestart(const char *stage, esp_err_t error) {
   mayapLatchSystemTrip();
   mayapSafeOutputsEarly();
-  mayapSerialPrintf(true, "[FATAL] %s err=%d -> RESTART\n",
+  mayapSerialPrintf(false, "[FATAL] %s err=%d -> RESTART\n",
                     stage ? stage : "SYSTEM", static_cast<int>(error));
   esp_restart();
   abort();
@@ -296,32 +296,28 @@ void mqttTask(void *parameter) {
       mayapWebLinkUpdate(now);
       promoteMqttWriteSubscriptionsToQos1();
 #if MAYAP_DIAGNOSTIC_SERIAL
-      if (lastMqttDiagAt == 0U || elapsedMs(now, lastMqttDiagAt) >= 5000UL) {
+      if (mayapSerialDebugEnabled() &&
+          (lastMqttDiagAt == 0U || elapsedMs(now, lastMqttDiagAt) >= 5000UL)) {
         lastMqttDiagAt = now;
         const NetworkStatus netStatus = mayapGetNetworkStatus();
         const int mqttState = MayapRealtimeInternal::mqtt.state();
         const uint32_t retryInMs = MayapRealtimeInternal::mqttBackoff.ready(now)
             ? 0U
             : static_cast<uint32_t>(MayapRealtimeInternal::mqttBackoff.nextAttemptAt - now);
-        Serial.printf(
-            "[MQTT-DIAG] wifi=%u rssi=%d client=%s host=%s port=%u tls=%u/%u "
-            "user=%s pass=%s mqtt=%u state=%d(%s) tcp=%u backoff=%u retry=%lums heap=%u\n",
+        mayapSerialPrintf(false,
+            "[MQTT-DIAG] wifi=%u rssi=%d mqtt=%u state=%d(%s) tcp=%u "
+            "backoff=%u retry=%lums heap=%u min=%u largest=%u\n",
             netStatus.connected ? 1U : 0U,
             netStatus.connected ? WiFi.RSSI() : 0,
-            MayapRealtimeInternal::deviceId,
-            MQTT_BROKER_HOST,
-            static_cast<unsigned>(MQTT_BROKER_PORT),
-            MQTT_USE_TLS ? 1U : 0U,
-            MayapRealtimeInternal::mqttTlsReady ? 1U : 0U,
-            MQTT_USERNAME[0] ? MQTT_USERNAME : "<EMPTY>",
-            MQTT_PASSWORD[0] ? "SET" : "EMPTY",
             MayapRealtimeInternal::mqtt.connected() ? 1U : 0U,
             mqttState,
             mqttStateText(mqttState),
             MayapRealtimeInternal::netClient.connected() ? 1U : 0U,
             static_cast<unsigned>(MayapRealtimeInternal::mqttBackoff.step),
             static_cast<unsigned long>(retryInMs),
-            static_cast<unsigned>(ESP.getFreeHeap()));
+            static_cast<unsigned>(ESP.getFreeHeap()),
+            static_cast<unsigned>(ESP.getMinFreeHeap()),
+            static_cast<unsigned>(ESP.getMaxAllocHeap()));
       }
 #endif
     }
@@ -399,7 +395,7 @@ void supervisorTask(void *parameter) {
       mayapLatchSystemTrip();
       if (controlTaskHandle) vTaskSuspend(controlTaskHandle);
       mayapSafeOutputsEarly();
-      mayapSerialPrintf(true,
+      mayapSerialPrintf(false,
           "[SUPERVISOR] TRIP reason=%s cycle=%luus count=%u\n",
           !controlHealthy ? "HEARTBEAT" : "DEADLINE",
           static_cast<unsigned long>(__atomic_load_n(&controlLastCycleUs, __ATOMIC_ACQUIRE)),
@@ -426,7 +422,7 @@ void supervisorTask(void *parameter) {
       if (controlTaskHandle) vTaskSuspend(controlTaskHandle);
       if (hmiTaskHandle) vTaskSuspend(hmiTaskHandle);
       mayapSafeOutputsEarly();
-      mayapSerialPrintf(true,
+      mayapSerialPrintf(false,
           "[SUPERVISOR] HMI FATAL heartbeatAge=%lums cycle=%luus slow=%u -> RESTART\n",
           static_cast<unsigned long>(elapsedMs(now, hmiBeat)),
           static_cast<unsigned long>(__atomic_load_n(&hmiLastCycleUs, __ATOMIC_ACQUIRE)),
@@ -439,7 +435,7 @@ void supervisorTask(void *parameter) {
       mayapLatchSystemTrip();
       if (controlTaskHandle) vTaskSuspend(controlTaskHandle);
       mayapSafeOutputsEarly();
-      mayapSerialPrintf(true, "[SUPERVISOR] Health-monitor xin khoi dong lai co kiem soat\n");
+      mayapSerialPrintf(false, "[SUPERVISOR] Health-monitor xin khoi dong lai co kiem soat\n");
       esp_restart();
       abort();
     }

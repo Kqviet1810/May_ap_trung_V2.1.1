@@ -181,7 +181,7 @@ inline bool mayapFirmwareWebCheck() {
         if (version[0] && sha256[0] && signature[0] && size > 0U &&
             mayapFirmwareVersionNewer(version, MAYAP_FIRMWARE_VERSION)) {
           publishPending(true, version, sha256, signature, size);
-          mayapSerialPrintf(true, "[FWWEB] Co ban moi: v%s (%lu bytes)\n",
+          mayapSerialPrintf(false, "[FWWEB] Co ban moi: v%s (%lu bytes)\n",
                             version, static_cast<unsigned long>(size));
         } else {
           available = false;
@@ -210,7 +210,7 @@ inline void mayapFirmwareWebApplyNow() {
 
   __atomic_store_n(&applyPhase, 1U, __ATOMIC_RELEASE);
   __atomic_store_n(&downloadPercent, 0U, __ATOMIC_RELEASE);
-  mayapSerialPrintf(true, "[FWWEB] Bat dau tai firmware v%s (%lu bytes)...\n",
+  mayapSerialPrintf(false, "[FWWEB] Bat dau tai firmware v%s (%lu bytes)...\n",
                     status.version, static_cast<unsigned long>(status.size));
 
   WiFiClientSecure client;
@@ -226,7 +226,7 @@ inline void mayapFirmwareWebApplyNow() {
   http.addHeader("X-Device-Key", mayapDeviceSecret());
   const int code = http.GET();
   if (code != 200) {
-    mayapSerialPrintf(true, "[FWWEB] Tai firmware THAT BAI, ma HTTP=%d\n", code);
+    mayapSerialPrintf(false, "[FWWEB] Tai firmware THAT BAI, ma HTTP=%d\n", code);
     setError("TAI FIRMWARE THAT BAI");
     http.end();
     __atomic_store_n(&applyPhase, 2U, __ATOMIC_RELEASE);
@@ -287,7 +287,7 @@ inline void mayapFirmwareWebApplyNow() {
     mbedtls_sha256_free(&sha);
     Update.abort();
     setError("MAT KET NOI GIUA LUC TAI - DA HUY, GIU FIRMWARE CU");
-    mayapSerialPrintf(true, "[FWWEB] Tai firmware bi ngat giua chung, HUY OTA, GIU NGUYEN firmware dang chay\n");
+    mayapSerialPrintf(false, "[FWWEB] Tai firmware bi ngat giua chung, HUY OTA, GIU NGUYEN firmware dang chay\n");
     __atomic_store_n(&applyPhase, 2U, __ATOMIC_RELEASE);
     return;
   }
@@ -302,7 +302,7 @@ inline void mayapFirmwareWebApplyNow() {
 
   if (strcasecmp(digestHex, status.sha256) != 0) {
     Update.abort();
-    mayapSerialPrintf(true,
+    mayapSerialPrintf(false,
         "[FWWEB] SAI CHECKSUM (nhan=%s, mong doi=%s) - HUY, GIU NGUYEN firmware dang chay\n",
         digestHex, status.sha256);
     setError("SAI CHECKSUM - DA HUY, GIU FIRMWARE CU");
@@ -340,20 +340,20 @@ inline void mayapFirmwareWebApplyNow() {
   if (verifyResult != 0) {
     Update.abort();
     setError("SAI CHU KY SO - DA HUY");
-    mayapSerialPrintf(true, "[FWWEB] Chu ky firmware KHONG HOP LE (%d) - HUY OTA\n",
+    mayapSerialPrintf(false, "[FWWEB] Chu ky firmware KHONG HOP LE (%d) - HUY OTA\n",
                       verifyResult);
     __atomic_store_n(&applyPhase, 2U, __ATOMIC_RELEASE);
     return;
   }
 
   if (!Update.end(true)) {
-    mayapSerialPrintf(true, "[FWWEB] Update.end() THAT BAI: %s\n", Update.errorString());
+    mayapSerialPrintf(false, "[FWWEB] Update.end() THAT BAI: %s\n", Update.errorString());
     setError("GHI FLASH THAT BAI");
     __atomic_store_n(&applyPhase, 2U, __ATOMIC_RELEASE);
     return;
   }
 
-  mayapSerialPrintf(true, "[FWWEB] Checksum khop, ghi flash thanh cong - KHOI DONG LAI\n");
+  mayapSerialPrintf(false, "[FWWEB] Checksum khop, ghi flash thanh cong - KHOI DONG LAI\n");
   __atomic_store_n(&applyPhase, 3U, __ATOMIC_RELEASE);
   publishPending(false, "", "", "", 0U);
   // Danh dau day la khoi dong lai CO CHU DICH (xem config.h) - khong de

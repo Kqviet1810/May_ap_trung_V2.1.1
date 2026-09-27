@@ -75,18 +75,18 @@ inline void mayapFirmwareRollbackUpdate(uint32_t now) {
   __atomic_store_n(&MayapOtaRollbackInternal::requestFlag, 0U, __ATOMIC_RELEASE);
 
   if (!mayapRollbackTargetValidUncached()) {
-    mayapSerialPrintf(true, "[ROLLBACK] KHONG CON ban truoc do hop le - HUY\n");
+    mayapSerialPrintf(false, "[ROLLBACK] KHONG CON ban truoc do hop le - HUY\n");
     return;
   }
   const esp_partition_t *running = esp_ota_get_running_partition();
   const esp_partition_t *target = esp_ota_get_next_update_partition(running);
   const esp_err_t err = esp_ota_set_boot_partition(target);
   if (err != ESP_OK) {
-    mayapSerialPrintf(true, "[ROLLBACK] esp_ota_set_boot_partition loi=%d\n",
+    mayapSerialPrintf(false, "[ROLLBACK] esp_ota_set_boot_partition loi=%d\n",
                       static_cast<int>(err));
     return;
   }
-  mayapSerialPrintf(true,
+  mayapSerialPrintf(false,
       "[ROLLBACK] Da chuyen huong khoi dong ve firmware truoc do - KHOI DONG LAI\n");
   // Danh dau day la khoi dong lai CO CHU DICH (xem config.h) - khong de
   // PowerManager tinh nham lan rollback thanh cong nay vao bo dem "reset bat

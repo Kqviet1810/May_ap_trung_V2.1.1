@@ -168,6 +168,24 @@ firmware_text = "\n".join(
     for p in (ROOT / "MAYAP_INDUSTRIAL_v3_4_0").glob("*")
     if p.suffix in {".h", ".ino"}
 )
+# LOG/EXIT must silence every firmware-originated diagnostic. Keep the three
+# explicit toggle confirmations, but never let a module bypass that gate.
+firmware_sources = list((ROOT / "MAYAP_INDUSTRIAL_v3_4_0").glob("*.h")) + list(
+    (ROOT / "MAYAP_INDUSTRIAL_v3_4_0").glob("*.ino")
+)
+for source in firmware_sources:
+    source_text = source.read_text(encoding="utf-8", errors="ignore")
+    direct_serial = re.findall(r"\bSerial\.(?:print|printf|write|flush)\s*\(", source_text)
+    if source.name == "machine_control.h":
+        if direct_serial != ["Serial.write("]:
+            raise SystemExit("FAIL: Serial output outside the gated helper")
+        forced = re.findall(r'mayapSerialPrintf\(true,\s*"([^"\n]*)"', source_text)
+        if forced != ["[SERIAL] %s\\n", "[SERIAL] ON (LOG)\\n", "[SERIAL] OFF (EXIT)\\n"]:
+            raise SystemExit("FAIL: unsolicited forced Serial output")
+    elif direct_serial or "mayapSerialPrintf(true" in source_text:
+        raise SystemExit(f"FAIL: ungated Serial output in {source.name}")
+require(config, "HEALTH_HEAP_SAMPLE_INTERVAL_MS = 1000UL", "bounded heap sampling")
+require(machine, "serviceHealthHeap(now, healthHeapLastBest_", "E401 uses recovered heap")
 if "setInsecure()" in firmware_text:
     raise SystemExit("FAIL: setInsecure() reintroduced")
 if "BEGIN PRIVATE KEY" in firmware_text or "BEGIN EC PRIVATE KEY" in firmware_text:
