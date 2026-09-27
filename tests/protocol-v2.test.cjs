@@ -73,9 +73,7 @@ test('MQTT packet worst cases stay within budgets', () => {
     kp: 100, ki: 20, kd: 200, pidCycleSec: 60, maxHeaterPower: 100,
     tempRateLimitC: 10, tempRateWindowSec: 1800, tempOscillationCrossLimit: 30,
     tempOscillationWindowSec: 3600, heaterStuckMinRiseC: 5,
-    heaterStuckDurationSec: 3600, ventScheduleCount: 6, ventScheduleDurationMin: 60,
-    ventScheduleHour1: 23, ventScheduleHour2: 23, ventScheduleHour3: 23,
-    ventScheduleHour4: 23, ventScheduleHour5: 23, ventScheduleHour6: 23,
+    heaterStuckDurationSec: 3600,
     autotuneRelayPowerPercent: 80, autotuneBandC: 1,
   };
   const webSource = readFileSync(require.resolve('../app.js'), 'utf8');
@@ -88,6 +86,11 @@ test('MQTT packet worst cases stay within budgets', () => {
   const config = { ...base, requestId: `cfg-${'a'.repeat(20)}`,
     revision: 4294967295, bootId: 4294967295, config: advanced };
   assert.ok(wireBytes('config/set', config) < PacketPolicy.CHUNK_TARGET);
+  const vent = { ventOnTemp: 39, ventOffTemp: 38, ventAutoEnabled: true,
+    ventProfileLevel: 2, ventCycleMinutes: 120, ventScheduleEnabled: false,
+    ventDutyDay1To3: 10, ventDutyDay4To7: 15, ventDutyDay8To11: 25,
+    ventDutyDay12To15: 35, ventDutyDay16To18: 50, ventDutyDay19To21: 70 };
+  assert.ok(wireBytes('config/set', { ...config, config: vent }) < PacketPolicy.CHUNK_TARGET);
   const report = { v: 2, bootId: 4294967295, revision: 4294967295,
     part: 99, done: true, config: { field: 'x'.repeat(700) } };
   assert.ok(Buffer.byteLength(JSON.stringify(report)) + Buffer.byteLength(topic('config/reported')) + PacketPolicy.MQTT_OVERHEAD < PacketPolicy.CHUNK_TARGET);

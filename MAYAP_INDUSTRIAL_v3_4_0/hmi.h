@@ -444,6 +444,7 @@ const char *const OPT_OFF_ON[] = {"TAT", "BAT"};
 const char *const OPT_NO_YES[] = {"KHONG", "CO"};
 const char *const OPT_OFFLINE_ONLINE[] = {"OFFLINE", "ONLINE"};
 const char *const OPT_ON_OFF_HOI[] = {"HOI XN", "TU DONG"};
+const char *const OPT_VENT_LEVEL[] = {"THAP", "TIEU CHUAN", "CAO"};
 #define ITEM_FLOAT(lbl, member, mn, mx, st, dec, unitText) \
   {lbl, SettingType::Float, offsetof(MachineConfig, member), mn, mx, st, dec, unitText, nullptr, 0}
 #define ITEM_U8(lbl, member, mn, mx, st, unitText) \
@@ -546,21 +547,30 @@ const SettingItem SETTINGS[] = {
   ITEM_U8("Gio lan 3", ventScheduleHour3, 0, 23, 1, "h"),                     // 38
   ITEM_U8("Gio lan 4", ventScheduleHour4, 0, 23, 1, "h"),                     // 39
   ITEM_U8("Gio lan 5", ventScheduleHour5, 0, 23, 1, "h"),                     // 40
-  ITEM_U8("Gio lan 6", ventScheduleHour6, 0, 23, 1, "h")                      // 41
+  ITEM_U8("Gio lan 6", ventScheduleHour6, 0, 23, 1, "h"),                     // 41
+  ITEM_BOOL("Thong gio tu dong", ventAutoEnabled),                            // 42
+  ITEM_U8_OPTIONS("Muc thong gio", ventProfileLevel, OPT_VENT_LEVEL, 3),      // 43
+  ITEM_U8("Chu ky thong gio", ventCycleMinutes, 40, 120, 10, "ph"),           // 44
+  ITEM_U8("Ngay 1-3", ventDutyDay1To3, 5, 90, 1, "%"),                       // 45
+  ITEM_U8("Ngay 4-7", ventDutyDay4To7, 5, 90, 1, "%"),                       // 46
+  ITEM_U8("Ngay 8-11", ventDutyDay8To11, 5, 90, 1, "%"),                     // 47
+  ITEM_U8("Ngay 12-15", ventDutyDay12To15, 5, 90, 1, "%"),                   // 48
+  ITEM_U8("Ngay 16-18", ventDutyDay16To18, 5, 90, 1, "%"),                   // 49
+  ITEM_U8("Ngay 19-21", ventDutyDay19To21, 5, 90, 1, "%")                    // 50
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 42, "Bang SETTINGS phai co 42 thong so");
+static_assert(SETTING_COUNT == 51, "Bang SETTINGS phai co 51 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
-  4,5,6,7,8,9,10,33,                   // Nhiet do + BAT/TAT thong gio dinh ky
-  11,12,13,28,                          // Dao trung
-  14,29,32,                             // He thong + Co bo tao am
-  15,16,17,18,19,                         // PID / SSR
-  20,21,22,23,24,25,26,27,                // Bao ve nhiet
-  34,35,36,37,38,39,40,41,                // Lich thong gio
-  30,31                                  // Tao am
+  4,5,6,7,8,                           // Nhiet do
+  11,12,13,28,                         // Dao trung
+  14,29,32,                            // He thong
+  15,16,17,18,19,                      // PID / SSR
+  20,21,22,23,24,25,26,27,             // Bao ve nhiet
+  9,10,                                // Quat hut; Thong gio la menu con
+  30,31                                // Tao am
 };
 
 struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
@@ -569,24 +579,22 @@ struct SettingGroup { const char *label; uint8_t first; uint8_t count; };
 // Nhom TAO AM phai o cuoi; groupExtraSlot() tham chieu co dinh nhom 1/2/3.
 const SettingGroup GROUPS[] = {
   {"CAI DAT ME", 0, 4},
-  // Gop "Quat hut" vao chung nhom "Nhiet do" (7 thong so) - ca 2 deu la
-  // thong so dieu khien nhiet, tach rieng truoc day khien menu vun vat
-  // khong can thiet.
-  {"NHIET DO", 4, 8},
-  {"DAO TRUNG", 12, 4},
+  // Nguong quat hut da duoc tach sang nhom QUAT HUT.
+  {"NHIET DO", 4, 5},
+  {"DAO TRUNG", 9, 4},
   // Doi ten tu "KET NOI" thanh "HE THONG": nhom nay tu lau da khong chi con
   // la cai dat mang - gom ca ma QR, dat lai PIN, cap nhat firmware... nen
   // "He thong" mo ta dung hon la cai dat chung cua may.
-  {"HE THONG", 16, 3},
-  {"PID / SSR", 19, 5},
-  {"BAO VE NHIET", 24, 8},
-  {"LICH THONG", 32, 8},
-  {"TAO AM", 40, 2}
+  {"HE THONG", 13, 3},
+  {"PID / SSR", 16, 5},
+  {"BAO VE NHIET", 21, 8},
+  {"QUAT HUT", 29, 2},
+  {"TAO AM", 31, 2}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
 static_assert(GROUP_COUNT == 8, "Bang GROUPS phai co 8 nhom");
-static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == SETTING_COUNT,
-              "Sai so luong tham chieu setting trong GROUP_SETTING_INDEXES");
+static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == 33U,
+              "Sai so luong setting hien trong menu chinh");
 
 // Dong phu (khong phai setting gia tri) duoc gan them vao cuoi mot so nhom.
 // Moi nhom co toi da 5 dong phu (hien tai chi HE THONG dung ca 5) - liet ke
@@ -594,7 +602,7 @@ static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) =
 // "Doi wifi" chi hien khi Online) qua visibleGroupExtraAt() de ra danh sach
 // LIEN TUC hien thi tren man hinh. (groupExtraSlotVisible/visibleGroupExtraAt/
 // groupVisibleExtraCount dat o DUOI, sau khai bao currentConfig - xem do.)
-enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode, CloudPinReset, FirmwareWebUpdate, AutoTuneEntry, FirmwareRollback };
+enum class GroupExtra : uint8_t { None, TurnStats, WifiChange, ConnectionInfo, QrCode, CloudPinReset, FirmwareWebUpdate, AutoTuneEntry, VentilationEntry };
 GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
   // NHIET DO -> "Tu chinh PID" (chuyen tu 1 muc rieng trong Cai dat chung
   // vao day - Auto Tune tu do thong so nhiet nen hop ly hon khi gan voi
@@ -608,10 +616,9 @@ GroupExtra groupExtraSlot(uint8_t group, uint8_t slot) {
   if (group == 3 && slot == 1) return GroupExtra::WifiChange;       // HE THONG -> "Doi wifi"
   if (group == 3 && slot == 2) return GroupExtra::QrCode;           // HE THONG -> "Ma QR ID"
   if (group == 3 && slot == 3) return GroupExtra::CloudPinReset;    // HE THONG -> "Dat lai ma PIN"
-  if (group == 3 && slot == 4) return GroupExtra::FirmwareWebUpdate; // HE THONG -> "Cap nhat" (luon hien khi Online)
-  // Dat ngay sau "Cap nhat" (lien quan chu de) - chi hien khi THAT SU con 1
-  // ban firmware truoc do hop le trong vi tri OTA con lai (xem groupExtraSlotVisible()).
-  if (group == 3 && slot == 5) return GroupExtra::FirmwareRollback;
+  if (group == 3 && slot == 4) return GroupExtra::FirmwareWebUpdate;
+  // Menu Thong gio la nhanh con cua QUAT HUT.
+  if (group == 6 && slot == 0) return GroupExtra::VentilationEntry;
   return GroupExtra::None;
 }
 
@@ -771,7 +778,7 @@ void formatSettingValue(const SettingItem &item, float value, char *out, size_t 
 enum class View : uint8_t {
   Home, MainMenu, ChungMenu, SettingList, EditSetting, TurnStats, AutoTune,
   EventLog, Alarm, TestMode, TestSummary, WifiChange, ConnectionInfo, QrCode,
-  FirmwareProgress, TurnStatus
+  FirmwareProgress, TurnStatus, VentilationMenu, VentilationAdvanced, FirmwareMenu
 };
 
 enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset, FirmwareWebApply, FirmwareRollback, BatchOverdueContinue };
@@ -803,25 +810,16 @@ bool groupExtraSlotVisible(GroupExtra extra) {
   // neu THAT SU co ban moi dang cho (xem openFirmwareWebConfirm()). Truoc
   // day chi hien khi co ban moi nen nguoi dung khong co cach nao vao xem
   // "may dang chay ban may" tu HMI.
-  if (extra == GroupExtra::FirmwareWebUpdate) {
-    return currentConfig.connectivityMode == ConnectivityMode::Online;
-  }
+  if (extra == GroupExtra::FirmwareWebUpdate) return true;
   // Chi hien khi THAT SU con 1 ban firmware truoc do hop le trong vi tri
   // OTA con lai (xem mayapOtaRollbackBegin() trong ota_rollback.h, kiem tra
   // 1 lan luc khoi dong) - may chua tung OTA lan nao thi khong co gi de
   // quay lai, an muc nay di thay vi de nguoi dung bam roi nhan loi.
-  if (extra == GroupExtra::FirmwareRollback) {
-    return mayapRollbackAvailable();
-  }
   return extra != GroupExtra::None;
 }
 GroupExtra visibleGroupExtraAt(uint8_t group, uint8_t visibleIdx) {
   uint8_t seen = 0;
-  // 6 slot (0..5) - PHAI khop voi so nhanh "if (group == X && slot == Y)"
-  // nhieu nhat trong groupExtraSlot() (hien tai nhom HE THONG dung het ca
-  // 6: ConnectionInfo/WifiChange/QrCode/CloudPinReset/FirmwareWebUpdate/
-  // FirmwareRollback) - tang so nay truoc neu sau nay them slot moi, neu
-  // khong slot moi se khong bao gio duoc duyet toi.
+  // 6 slot (0..5): tang gioi han neu groupExtraSlot() co them muc.
   for (uint8_t slot = 0; slot < 6U; ++slot) {
     const GroupExtra extra = groupExtraSlot(group, slot);
     if (!groupExtraSlotVisible(extra)) continue;
@@ -934,6 +932,10 @@ constexpr uint32_t FIRMWARE_REMINDER_INTERVAL_MS = 12UL * 60UL * 60UL * 1000UL;
 View alarmReturnView = View::Home;
 uint8_t alarmIndex = 0;
 uint8_t eventLogIndex = 0;
+View editReturnView = View::SettingList;
+uint8_t ventilationIndex = 0U;
+uint8_t ventilationAdvancedIndex = 0U;
+uint8_t firmwareMenuIndex = 0U;
 View eventLogReturnView = View::MainMenu;
 bool eventLogFaultsOnly = false;
 constexpr uint8_t HMI_RECENT_FAULT_CAPACITY = 8U;
@@ -1077,7 +1079,7 @@ const char *groupExtraLabelFor(GroupExtra extra) {
     case GroupExtra::ConnectionInfo: return "Thong tin ket noi";
     case GroupExtra::QrCode: return "Ma QR ID";
     case GroupExtra::CloudPinReset: return "Dat lai ma PIN";
-    case GroupExtra::FirmwareRollback: return "Quay lai ban cu";
+    case GroupExtra::VentilationEntry: return "Thong gio";
     case GroupExtra::FirmwareWebUpdate: {
       // Danh dau "*" ngay tren ten muc khi THAT SU co ban moi dang cho -
       // nguoi dung khong can bam vao moi biet co ban moi hay khong.
@@ -1100,6 +1102,8 @@ bool settingLockedDuringBatch(uint8_t settingIndex) {
       offset == offsetof(MachineConfig, targetHumidity) ||
       offset == offsetof(MachineConfig, ventOnTemp) ||
       offset == offsetof(MachineConfig, ventScheduleEnabled) ||
+      offset == offsetof(MachineConfig, ventAutoEnabled) ||
+      offset == offsetof(MachineConfig, ventProfileLevel) ||
       offset == offsetof(MachineConfig, ventOffTemp) ||
       offset == offsetof(MachineConfig, turningEnabled) ||
       offset == offsetof(MachineConfig, turnIntervalMin) ||
@@ -1323,7 +1327,23 @@ void goBack() {
       }
       break;
     case View::EditSetting:
+      view = editReturnView;
+      break;
+    case View::VentilationMenu:
       view = View::SettingList;
+      selectedGroup = 6U;
+      setListSelection(GROUPS[6U].count, settingListItemCount(6U));
+      break;
+    case View::VentilationAdvanced:
+      view = View::VentilationMenu;
+      ventilationIndex = currentConfig.ventAutoEnabled ? 2U : 1U;
+      break;
+    case View::FirmwareMenu:
+      view = View::SettingList;
+      selectedGroup = 3U;
+      setListSelection(static_cast<int>(GROUPS[3U].count) +
+                            visibleExtraIndexOf(3U, GroupExtra::FirmwareWebUpdate),
+                        settingListItemCount(3U));
       break;
     case View::TurnStats:
       view = View::SettingList;
@@ -1467,9 +1487,9 @@ void openWifiChange() {
   }
 }
 
-void openSetting() {
-  const SettingGroup &group = GROUPS[selectedGroup];
-  editSettingIndex = GROUP_SETTING_INDEXES[group.first + listIndex];
+void openSettingIndex(uint8_t settingIndex, View returnView) {
+  editSettingIndex = settingIndex;
+  editReturnView = returnView;
   if (settingLockedDuringBatch(editSettingIndex)) {
     showToast("DANG AP - THONG SO BI KHOA", true);
     return;
@@ -1484,6 +1504,12 @@ void openSetting() {
   editValue = constrain(readSetting(currentConfig, item), minimum, maximum);
   view = View::EditSetting;
   dirty = true;
+}
+
+void openSetting() {
+  const SettingGroup &group = GROUPS[selectedGroup];
+  openSettingIndex(GROUP_SETTING_INDEXES[group.first + listIndex],
+                   View::SettingList);
 }
 
 void openBatchConfirm(View returnView) {
@@ -1599,7 +1625,7 @@ void openCloudPinResetConfirm() {
 // hiem gap.
 void openFirmwareRollbackConfirm() {
   confirmAction = ConfirmAction::FirmwareRollback;
-  confirmReturnView = View::SettingList;
+  confirmReturnView = View::FirmwareMenu;
   confirmYes = false;
   clearToast();
   armInputGuard();
@@ -2049,7 +2075,7 @@ bool startReminderSave(const ReminderSet &candidate) {
 
 void commitSetting() {
   if (settingLockedDuringBatch(editSettingIndex)) {
-    view = View::SettingList;
+    view = editReturnView;
     showToast("DANG AP - KHONG DUOC DOI", true);
     return;
   }
@@ -2063,7 +2089,7 @@ void commitSetting() {
       item.offset == offsetof(MachineConfig, connectivityMode) &&
       currentConfig.connectivityMode == ConnectivityMode::Offline &&
       candidate.connectivityMode == ConnectivityMode::Online) {
-    view = View::SettingList;
+    view = editReturnView;
     showToast("DANG AP - KHONG BAT ONLINE", true);
     return;
   }
@@ -2081,7 +2107,7 @@ void commitSetting() {
 
   const float oldValue = readSetting(currentConfig, item);
   const float newValue = readSetting(candidate, item);
-  view = View::SettingList;
+  view = editReturnView;
   // Gia tri khong doi thi thoat lang le, khong can bao gi ca - nguoi dung
   // chi xem/luot qua thong so thi khong nen bi lam phien bang 1 dong toast.
   if (fabsf(oldValue - newValue) < 0.0001f) return;
@@ -2089,7 +2115,7 @@ void commitSetting() {
   // me) thay vi luu ngay - danh gia sai lech co the lam mat dao trung giua
   // luc dang ap ma khong ai de y.
   if (item.offset == offsetof(MachineConfig, turningEnabled)) {
-    openTurningToggleConfirm(candidate, View::SettingList);
+    openTurningToggleConfirm(candidate, editReturnView);
     return;
   }
   if (!startConfigSave(candidate)) return;
@@ -2169,6 +2195,13 @@ void activateHomeContext(bool longPress) {
     listTop = 0U;
     dirty = true;
   }
+}
+
+uint8_t ventilationMenuCount() {
+  return currentConfig.ventAutoEnabled ? 4U : 2U;
+}
+uint8_t firmwareMenuCount() {
+  return mayapRollbackAvailable() ? 4U : 3U;
 }
 
 bool eventLogIsFault(const HmiEventItem &item) {
@@ -2366,7 +2399,7 @@ void handleInput() {
     if (rotary.button == ButtonEvent::ShortPress ||
         rotary.button == ButtonEvent::LongPress) {
       buzzerPlayCue(BuzzerCue::Key);
-      view = View::SettingList;
+      view = View::FirmwareMenu;
       dirty = true;
     }
     return;
@@ -2461,9 +2494,13 @@ void handleInput() {
           } else if (extra == GroupExtra::CloudPinReset) {
             openCloudPinResetConfirm();
           } else if (extra == GroupExtra::FirmwareWebUpdate) {
-            openFirmwareWebConfirm();
-          } else if (extra == GroupExtra::FirmwareRollback) {
-            openFirmwareRollbackConfirm();
+            firmwareMenuIndex = 0U;
+            view = View::FirmwareMenu;
+            dirty = true;
+          } else if (extra == GroupExtra::VentilationEntry) {
+            ventilationIndex = 0U;
+            view = View::VentilationMenu;
+            dirty = true;
           }
         } else {
           exitSettingGroup();
@@ -2482,6 +2519,60 @@ void handleInput() {
       }
       if (rotary.button == ButtonEvent::ShortPress) selectChungItem();
       break;
+
+    case View::VentilationMenu: {
+      const uint8_t count = ventilationMenuCount();
+      if (ventilationIndex >= count) ventilationIndex = 0U;
+      if (rotary.step) {
+        ventilationIndex = static_cast<uint8_t>(constrain(
+            static_cast<int>(ventilationIndex) + rotary.step, 0, count - 1));
+        dirty = true;
+      }
+      if (rotary.button == ButtonEvent::ShortPress) {
+        if (ventilationIndex == 0U) openSettingIndex(42U, View::VentilationMenu);
+        else if (currentConfig.ventAutoEnabled && ventilationIndex == 1U)
+          openSettingIndex(43U, View::VentilationMenu);
+        else if (currentConfig.ventAutoEnabled && ventilationIndex == 2U) {
+          ventilationAdvancedIndex = 0U;
+          view = View::VentilationAdvanced;
+          dirty = true;
+        } else goBack();
+      }
+      break;
+    }
+    case View::VentilationAdvanced:
+      if (rotary.step) {
+        ventilationAdvancedIndex = static_cast<uint8_t>(constrain(
+            static_cast<int>(ventilationAdvancedIndex) + rotary.step, 0, 7));
+        dirty = true;
+      }
+      if (rotary.button == ButtonEvent::ShortPress) {
+        if (ventilationAdvancedIndex < 7U)
+          openSettingIndex(static_cast<uint8_t>(44U + ventilationAdvancedIndex),
+                           View::VentilationAdvanced);
+        else goBack();
+      }
+      break;
+    case View::FirmwareMenu: {
+      const uint8_t count = firmwareMenuCount();
+      if (firmwareMenuIndex >= count) firmwareMenuIndex = count - 1U;
+      if (rotary.step) {
+        firmwareMenuIndex = static_cast<uint8_t>(constrain(
+            static_cast<int>(firmwareMenuIndex) + rotary.step, 0, count - 1));
+        dirty = true;
+      }
+      if (rotary.button == ButtonEvent::ShortPress) {
+        if (firmwareMenuIndex == 0U) {
+          char version[25];
+          snprintf(version, sizeof(version), "HIEN TAI v%s", MAYAP_FIRMWARE_VERSION);
+          showToast(version);
+        } else if (firmwareMenuIndex == 1U) openFirmwareWebConfirm();
+        else if (mayapRollbackAvailable() && firmwareMenuIndex == 2U)
+          openFirmwareRollbackConfirm();
+        else goBack();
+      }
+      break;
+    }
 
     case View::EditSetting: {
       const SettingItem &item = SETTINGS[editSettingIndex];
@@ -3130,6 +3221,81 @@ void drawChungMenu() {
   }
 }
 
+void drawVentilationMenu() {
+  const uint8_t count = ventilationMenuCount();
+  if (ventilationIndex >= count) ventilationIndex = 0U;
+  drawHeader("THONG GIO", false);
+  drawListPosition(ventilationIndex, count);
+  lcd.setFont(u8g2_font_6x12_tf);
+  for (uint8_t i = 0U; i < count; ++i) {
+    const int16_t y = 22 + i * 12;
+    char row[24];
+    if (i == 0U) snprintf(row, sizeof(row), "Tu dong: %s",
+                          currentConfig.ventAutoEnabled ? "BAT" : "TAT");
+    else if (!currentConfig.ventAutoEnabled) snprintf(row, sizeof(row), "Thoat");
+    else if (i == 1U) snprintf(row, sizeof(row), "Muc: %s",
+                               OPT_VENT_LEVEL[currentConfig.ventProfileLevel]);
+    else if (i == 2U) snprintf(row, sizeof(row), "Nang cao");
+    else snprintf(row, sizeof(row), "Thoat");
+    if (i == ventilationIndex) {
+      lcd.drawBox(0, y - 9, 128, 11);
+      lcd.setDrawColor(0);
+    }
+    lcd.drawStr(12, y, row);
+    if (i == ventilationIndex) lcd.setDrawColor(1);
+  }
+}
+
+void drawVentilationAdvanced() {
+  if (ventilationAdvancedIndex > 7U) ventilationAdvancedIndex = 0U;
+  drawHeader("TG NANG CAO", false);
+  drawListPosition(ventilationAdvancedIndex, 8U);
+  lcd.setFont(u8g2_font_6x12_tf);
+  const uint8_t top = ventilationAdvancedIndex < 4U ? 0U :
+                      ventilationAdvancedIndex - 3U;
+  for (uint8_t row = 0U; row < 4U; ++row) {
+    const uint8_t index = top + row;
+    const int16_t y = 22 + row * 12;
+    char text[28];
+    if (index < 7U) {
+      const SettingItem &item = SETTINGS[44U + index];
+      char value[12];
+      formatSettingValue(item, readSetting(currentConfig, item), value, sizeof(value));
+      snprintf(text, sizeof(text), "%s %s", index == 0U ? "Chu ky" : item.label,
+               value);
+    } else snprintf(text, sizeof(text), "Thoat");
+    if (index == ventilationAdvancedIndex) {
+      lcd.drawBox(0, y - 9, 128, 11);
+      lcd.setDrawColor(0);
+    }
+    lcd.drawStr(12, y, text);
+    if (index == ventilationAdvancedIndex) lcd.setDrawColor(1);
+  }
+}
+
+void drawFirmwareMenu() {
+  const uint8_t count = firmwareMenuCount();
+  if (firmwareMenuIndex >= count) firmwareMenuIndex = count - 1U;
+  drawHeader("CAP NHAT", false);
+  drawListPosition(firmwareMenuIndex, count);
+  lcd.setFont(u8g2_font_6x12_tf);
+  for (uint8_t i = 0U; i < count; ++i) {
+    const int16_t y = 22 + i * 12;
+    char text[25];
+    if (i == 0U) snprintf(text, sizeof(text), "Hien tai v%s", MAYAP_FIRMWARE_VERSION);
+    else if (i == 1U) snprintf(text, sizeof(text), "Kiem tra cap nhat");
+    else if (mayapRollbackAvailable() && i == 2U)
+      snprintf(text, sizeof(text), "Quay lai ban cu");
+    else snprintf(text, sizeof(text), "Thoat");
+    if (i == firmwareMenuIndex) {
+      lcd.drawBox(0, y - 9, 128, 11);
+      lcd.setDrawColor(0);
+    }
+    lcd.drawStr(12, y, text);
+    if (i == firmwareMenuIndex) lcd.setDrawColor(1);
+  }
+}
+
 void drawSettingList() {
   const SettingGroup &group = GROUPS[selectedGroup];
   const uint8_t itemCount = settingListItemCount(selectedGroup);
@@ -3222,7 +3388,7 @@ void drawConnectionInfo() {
   // include TRUOC realtime_link.h trong .ino nen bien do chua khai bao
   // luc bien dich hmi.h (xem comment tai mayapDeviceIdText()).
   snprintf(text, sizeof(text), "ID: %s", mayapDeviceIdText().c_str());
-  drawLeftFit(6, 27, text, u8g2_font_6x12_tf, u8g2_font_5x8_tf,
+  drawLeftFit(6, 20, text, u8g2_font_6x12_tf, u8g2_font_5x8_tf,
               u8g2_font_5x8_tf);
 
   if (currentRuntime.networkConnected) {
@@ -3230,7 +3396,15 @@ void drawConnectionInfo() {
   } else {
     snprintf(text, sizeof(text), "WIFI: CHUA KET NOI");
   }
-  drawLeftFit(6, 41, text, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+  drawLeftFit(6, 31, text, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
+              u8g2_font_5x8_tf);
+
+  if (currentRuntime.networkConnected) {
+    const int32_t dbm = WiFi.RSSI();
+    snprintf(text, sizeof(text), "SONG: %ld dBm (%u/4)",
+             static_cast<long>(dbm), rssiToBars(static_cast<int8_t>(constrain(dbm, -127L, 0L))));
+  } else snprintf(text, sizeof(text), "SONG: CHUA KET NOI");
+  drawLeftFit(6, 43, text, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
               u8g2_font_5x8_tf);
 
   // Khach chi can ID + PIN nay; WSS va token cloud duoc cap tu dong.
@@ -3981,6 +4155,9 @@ void render(uint32_t now) {
       case View::Home: drawHome(); break;
       case View::MainMenu: drawMainMenu(); break;
       case View::ChungMenu: drawChungMenu(); break;
+      case View::VentilationMenu: drawVentilationMenu(); break;
+      case View::VentilationAdvanced: drawVentilationAdvanced(); break;
+      case View::FirmwareMenu: drawFirmwareMenu(); break;
       case View::SettingList: drawSettingList(); break;
       case View::EditSetting: drawEditSetting(); break;
       case View::TurnStats: drawTurnStats(); break;

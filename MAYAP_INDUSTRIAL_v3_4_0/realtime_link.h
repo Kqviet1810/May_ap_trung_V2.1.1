@@ -400,6 +400,15 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   c["ventScheduleHour4"] = cfg.ventScheduleHour4;
   c["ventScheduleHour5"] = cfg.ventScheduleHour5;
   c["ventScheduleHour6"] = cfg.ventScheduleHour6;
+  c["ventAutoEnabled"] = cfg.ventAutoEnabled;
+  c["ventProfileLevel"] = cfg.ventProfileLevel;
+  c["ventCycleMinutes"] = cfg.ventCycleMinutes;
+  c["ventDutyDay1To3"] = cfg.ventDutyDay1To3;
+  c["ventDutyDay4To7"] = cfg.ventDutyDay4To7;
+  c["ventDutyDay8To11"] = cfg.ventDutyDay8To11;
+  c["ventDutyDay12To15"] = cfg.ventDutyDay12To15;
+  c["ventDutyDay16To18"] = cfg.ventDutyDay16To18;
+  c["ventDutyDay19To21"] = cfg.ventDutyDay19To21;
   c["tempOffset"] = cfg.tempOffset;
   c["humidityOffset"] = cfg.humidityOffset;
   c["pidCycleSec"] = cfg.pidCycleSec;
@@ -1050,6 +1059,9 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
     "ventOffTemp", "ventOnTemp", "ventScheduleCount", "ventScheduleDurationMin", "ventScheduleEnabled",
     "ventScheduleHour1", "ventScheduleHour2", "ventScheduleHour3", "ventScheduleHour4", "ventScheduleHour5",
     "ventScheduleHour6",
+    "ventAutoEnabled", "ventProfileLevel", "ventCycleMinutes",
+    "ventDutyDay1To3", "ventDutyDay4To7", "ventDutyDay8To11",
+    "ventDutyDay12To15", "ventDutyDay16To18", "ventDutyDay19To21",
   };
   JsonObjectConst fields = configObj.as<JsonObjectConst>();
   if (fields.size() == 0U) { publishAck(requestId, "invalid", "EMPTY_PATCH"); return; }
@@ -1086,6 +1098,15 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   candidate.ventScheduleHour4 = configObj["ventScheduleHour4"] | candidate.ventScheduleHour4;
   candidate.ventScheduleHour5 = configObj["ventScheduleHour5"] | candidate.ventScheduleHour5;
   candidate.ventScheduleHour6 = configObj["ventScheduleHour6"] | candidate.ventScheduleHour6;
+  candidate.ventAutoEnabled = configObj["ventAutoEnabled"] | candidate.ventAutoEnabled;
+  candidate.ventProfileLevel = configObj["ventProfileLevel"] | candidate.ventProfileLevel;
+  candidate.ventCycleMinutes = configObj["ventCycleMinutes"] | candidate.ventCycleMinutes;
+  candidate.ventDutyDay1To3 = configObj["ventDutyDay1To3"] | candidate.ventDutyDay1To3;
+  candidate.ventDutyDay4To7 = configObj["ventDutyDay4To7"] | candidate.ventDutyDay4To7;
+  candidate.ventDutyDay8To11 = configObj["ventDutyDay8To11"] | candidate.ventDutyDay8To11;
+  candidate.ventDutyDay12To15 = configObj["ventDutyDay12To15"] | candidate.ventDutyDay12To15;
+  candidate.ventDutyDay16To18 = configObj["ventDutyDay16To18"] | candidate.ventDutyDay16To18;
+  candidate.ventDutyDay19To21 = configObj["ventDutyDay19To21"] | candidate.ventDutyDay19To21;
   candidate.tempOffset = configObj["tempOffset"] | candidate.tempOffset;
   candidate.humidityOffset = configObj["humidityOffset"] | candidate.humidityOffset;
   candidate.pidCycleSec = configObj["pidCycleSec"] | candidate.pidCycleSec;

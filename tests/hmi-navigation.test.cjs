@@ -49,8 +49,11 @@ test('all settings remain reachable exactly once in shorter groups', () => {
     .replace(/\/\/[^\n]*/g, '').match(/\d+/g).map(Number);
   const groups = [...hmi.matchAll(/\{"([^"\n]+)",\s*(\d+),\s*(\d+)\}/g)]
     .map((match) => ({ name: match[1], first: Number(match[2]), count: Number(match[3]) }));
-  assert.equal(indexes.length, 42);
-  assert.deepEqual([...indexes].sort((a, b) => a - b), Array.from({ length: 42 }, (_, i) => i));
+  assert.equal(indexes.length, 33);
+  assert.equal(new Set(indexes).size, 33);
+  assert.deepEqual([...indexes].sort((a, b) => a - b), [
+    ...Array.from({ length: 33 }, (_, i) => i).filter((i) => ![33, 34, 35, 36, 37, 38, 39, 40, 41].includes(i)),
+  ]);
   assert.equal(groups.length, 8);
   assert.equal(groups.at(-1).name, 'TAO AM');
   let next = 0;
@@ -60,4 +63,8 @@ test('all settings remain reachable exactly once in shorter groups', () => {
     next += group.count;
   }
   assert.equal(next, indexes.length);
+  const vent = bodyOf('void drawVentilationMenu()');
+  const advanced = bodyOf('void drawVentilationAdvanced()');
+  assert.match(vent, /ventAutoEnabled/);
+  assert.match(advanced, /SETTINGS\[44U \+ index\]/);
 });

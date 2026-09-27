@@ -35,9 +35,9 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.9";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.9.0";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
-constexpr char HMI_FIRMWARE_VERSION[] = "3.7.1";
+constexpr char HMI_FIRMWARE_VERSION[] = "3.8.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
 
 // ----------------------------- BUILD -----------------------------------------
@@ -242,6 +242,8 @@ constexpr float HUMIDITY_HIGH_HYSTERESIS_C = 2.0f;
 // Khong dung PID de tranh relay dong/ngat lien tuc.
 constexpr float HUMIDIFIER_HYSTERESIS_RH = 2.0f;
 constexpr uint8_t VENT_SCHEDULE_MAX_RUNS = 6U;
+constexpr uint32_t RELAY_VENT_MIN_ON_MS = 120000UL;
+constexpr uint32_t RELAY_VENT_MIN_OFF_MS = 120000UL;
 // [DA CHUYEN SANG MachineConfig, schema 8] Toc do tang/giam nhiet bat thuong,
 // dao dong nhiet mat on dinh, va nghi ngo SSR/relay dinh (thanh nhiet BAT lau
 // ma nhiet khong tang) tung la hang so cung o day (TEMP_RATE_WINDOW_MS/
@@ -1142,6 +1144,17 @@ struct MachineConfig {
   uint8_t ventScheduleHour4 = 16;
   uint8_t ventScheduleHour5 = 0;
   uint8_t ventScheduleHour6 = 4;
+  // Profile thong gio theo ngay ap. Mac dinh TAT khi nang cap may cu; nguoi
+  // van hanh bat trong menu Quat hut. Lich gio cu duoc giu de migrate.
+  bool ventAutoEnabled = false;
+  uint8_t ventProfileLevel = 1;  // 0=Thap, 1=Tieu chuan, 2=Cao
+  uint8_t ventCycleMinutes = 40;
+  uint8_t ventDutyDay1To3 = 10;
+  uint8_t ventDutyDay4To7 = 15;
+  uint8_t ventDutyDay8To11 = 25;
+  uint8_t ventDutyDay12To15 = 35;
+  uint8_t ventDutyDay16To18 = 50;
+  uint8_t ventDutyDay19To21 = 70;
 
   bool turningEnabled = true;
   uint16_t turnIntervalMin = 120;

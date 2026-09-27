@@ -1386,6 +1386,15 @@ inline void sanitizeMachineConfig(MachineConfig &cfg) {
   cfg.ventScheduleHour4 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventScheduleHour4), 0, 23));
   cfg.ventScheduleHour5 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventScheduleHour5), 0, 23));
   cfg.ventScheduleHour6 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventScheduleHour6), 0, 23));
+  cfg.ventProfileLevel = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventProfileLevel), 0, 2));
+  cfg.ventCycleMinutes = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventCycleMinutes), 40, 120));
+  cfg.ventDutyDay1To3 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventDutyDay1To3), 5, 90));
+  cfg.ventDutyDay4To7 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventDutyDay4To7), 5, 90));
+  cfg.ventDutyDay8To11 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventDutyDay8To11), 5, 90));
+  cfg.ventDutyDay12To15 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventDutyDay12To15), 5, 90));
+  cfg.ventDutyDay16To18 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventDutyDay16To18), 5, 90));
+  cfg.ventDutyDay19To21 = static_cast<uint8_t>(constrain(static_cast<int>(cfg.ventDutyDay19To21), 5, 90));
+  if (cfg.ventAutoEnabled) cfg.ventScheduleEnabled = false;
 
   // Trong AUTO, quat tuan hoan la chuc nang bat buoc. Giu truong nay trong
   // schema EEPROM de tuong thich ban cu, nhung khong cho du lieu cu tat quat.
@@ -1426,6 +1435,21 @@ inline void sanitizeMachineConfig(MachineConfig &cfg) {
     cfg.connectivityMode = defaults.connectivityMode;
   }
   cfg.alarmEnabled = true; // alarm an toan khong cho tat
+}
+
+inline uint8_t ventProfileDutyPercent(const MachineConfig &cfg,
+                                     uint32_t incubationDay, bool rhLow) {
+  uint8_t base = cfg.ventDutyDay19To21;
+  if (incubationDay <= 3U) base = cfg.ventDutyDay1To3;
+  else if (incubationDay <= 7U) base = cfg.ventDutyDay4To7;
+  else if (incubationDay <= 11U) base = cfg.ventDutyDay8To11;
+  else if (incubationDay <= 15U) base = cfg.ventDutyDay12To15;
+  else if (incubationDay <= 18U) base = cfg.ventDutyDay16To18;
+  const uint16_t scale = cfg.ventProfileLevel == 0U ? 70U :
+                         cfg.ventProfileLevel == 2U ? 130U : 100U;
+  const uint8_t duty = static_cast<uint8_t>(std::min<uint16_t>(90U,
+      (static_cast<uint16_t>(base) * scale + 50U) / 100U));
+  return rhLow ? std::min<uint8_t>(duty, 5U) : duty;
 }
 
 // ============================================================================
@@ -1489,6 +1513,16 @@ struct PackedMachineConfigV1 {
   uint8_t ventScheduleHour4;
   uint8_t ventScheduleHour5;
   uint8_t ventScheduleHour6;
+  // schema 12+: profile thong gio theo ngay ap, append-only de migrate.
+  uint8_t ventAutoEnabled;
+  uint8_t ventProfileLevel;
+  uint8_t ventCycleMinutes;
+  uint8_t ventDutyDay1To3;
+  uint8_t ventDutyDay4To7;
+  uint8_t ventDutyDay8To11;
+  uint8_t ventDutyDay12To15;
+  uint8_t ventDutyDay16To18;
+  uint8_t ventDutyDay19To21;
 };
 struct ConfigRecordV1 {
   uint32_t magic;
@@ -1630,7 +1664,7 @@ struct ConfigRecordLegacyV9 {
 constexpr size_t CONFIG_V10_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, ventScheduleEnabled);
 static_assert(CONFIG_V10_PAYLOAD_BYTES + 9U * sizeof(uint8_t) ==
-                  sizeof(PackedMachineConfigV1),
+                  offsetof(PackedMachineConfigV1, ventAutoEnabled),
               "9 truong lich thong gio phai nam cuoi schema 11");
 struct ConfigRecordLegacyV10 {
   uint32_t magic;
@@ -1638,6 +1672,18 @@ struct ConfigRecordLegacyV10 {
   uint16_t size;
   uint32_t sequence;
   uint8_t payload[CONFIG_V10_PAYLOAD_BYTES];
+  uint32_t crc;
+};
+constexpr size_t CONFIG_V11_PAYLOAD_BYTES =
+    offsetof(PackedMachineConfigV1, ventAutoEnabled);
+static_assert(CONFIG_V11_PAYLOAD_BYTES + 9U == sizeof(PackedMachineConfigV1),
+              "9 truong profile thong gio phai nam cuoi schema 12");
+struct ConfigRecordLegacyV11 {
+  uint32_t magic;
+  uint16_t schema;
+  uint16_t size;
+  uint32_t sequence;
+  uint8_t payload[CONFIG_V11_PAYLOAD_BYTES];
   uint32_t crc;
 };
 // Schema batch v3 bo sung moc bat dau me va lan dao thanh cong gan nhat.
@@ -1701,7 +1747,7 @@ constexpr uint32_t CONFIG_MAGIC = 0x4D415943UL; // MAYC
 constexpr uint32_t BATCH_MAGIC  = 0x4D415942UL; // MAYB
 constexpr uint32_t REMINDER_MAGIC = 0x4D415952UL; // MAYR
 constexpr uint16_t REMINDER_SCHEMA = 1;
-constexpr uint16_t CONFIG_SCHEMA = 11;
+constexpr uint16_t CONFIG_SCHEMA = 12;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V4 = 4;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V5 = 5;
@@ -1710,6 +1756,7 @@ constexpr uint16_t CONFIG_SCHEMA_LEGACY_V7 = 7;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V8 = 8;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V9 = 9;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V10 = 10;
+constexpr uint16_t CONFIG_SCHEMA_LEGACY_V11 = 11;
 constexpr uint16_t BATCH_SCHEMA = 3;
 constexpr uint16_t BATCH_SCHEMA_LEGACY = 2;
 
@@ -1770,6 +1817,15 @@ inline PackedMachineConfigV1 packConfig(const MachineConfig &c) {
   p.ventScheduleHour4 = c.ventScheduleHour4;
   p.ventScheduleHour5 = c.ventScheduleHour5;
   p.ventScheduleHour6 = c.ventScheduleHour6;
+  p.ventAutoEnabled = c.ventAutoEnabled ? 1U : 0U;
+  p.ventProfileLevel = c.ventProfileLevel;
+  p.ventCycleMinutes = c.ventCycleMinutes;
+  p.ventDutyDay1To3 = c.ventDutyDay1To3;
+  p.ventDutyDay4To7 = c.ventDutyDay4To7;
+  p.ventDutyDay8To11 = c.ventDutyDay8To11;
+  p.ventDutyDay12To15 = c.ventDutyDay12To15;
+  p.ventDutyDay16To18 = c.ventDutyDay16To18;
+  p.ventDutyDay19To21 = c.ventDutyDay19To21;
   return p;
 }
 inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
@@ -1828,6 +1884,15 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.ventScheduleHour4 = p.ventScheduleHour4;
   c.ventScheduleHour5 = p.ventScheduleHour5;
   c.ventScheduleHour6 = p.ventScheduleHour6;
+  c.ventAutoEnabled = p.ventAutoEnabled != 0U;
+  c.ventProfileLevel = p.ventProfileLevel;
+  c.ventCycleMinutes = p.ventCycleMinutes;
+  c.ventDutyDay1To3 = p.ventDutyDay1To3;
+  c.ventDutyDay4To7 = p.ventDutyDay4To7;
+  c.ventDutyDay8To11 = p.ventDutyDay8To11;
+  c.ventDutyDay12To15 = p.ventDutyDay12To15;
+  c.ventDutyDay16To18 = p.ventDutyDay16To18;
+  c.ventDutyDay19To21 = p.ventDutyDay19To21;
   sanitizeMachineConfig(c);
   return c;
 }
@@ -2029,6 +2094,8 @@ static_assert(sizeof(ConfigRecordLegacyV9) <= EEPROM_CONFIG_SLOT_BYTES,
               "Legacy config record V9 khong vua slot AT24C32");
 static_assert(sizeof(ConfigRecordLegacyV10) <= EEPROM_CONFIG_SLOT_BYTES,
               "Legacy config record V10 khong vua slot AT24C32");
+static_assert(sizeof(ConfigRecordLegacyV11) <= EEPROM_CONFIG_SLOT_BYTES,
+              "Legacy config record V11 khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordV1) <= EEPROM_BATCH_SLOT_BYTES,
               "Batch record khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordLegacyV2) <= EEPROM_BATCH_SLOT_BYTES,
@@ -2292,6 +2359,12 @@ class PersistentStore {
            r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
                             offsetof(ConfigRecordLegacyV10, crc));
   }
+  static bool validConfigLegacyV11(const ConfigRecordLegacyV11 &r) {
+    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V11 &&
+           r.size == sizeof(r) &&
+           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
+                            offsetof(ConfigRecordLegacyV11, crc));
+  }
   static bool validBatch(const BatchRecordV1 &r) {
     return r.magic == BATCH_MAGIC && r.schema == BATCH_SCHEMA &&
            r.size == sizeof(r) &&
@@ -2325,6 +2398,23 @@ class PersistentStore {
       return true;
     }
 
+    // Fallback schema 11: giu nguyen config cu, them profile moi mac dinh TAT.
+    ConfigRecordLegacyV11 la11{}, lb11{};
+    const bool vla11 = readRecord(EEPROM_ADDR_CONFIG_A, la11) &&
+                       validConfigLegacyV11(la11);
+    const bool vlb11 = readRecord(EEPROM_ADDR_CONFIG_B, lb11) &&
+                       validConfigLegacyV11(lb11);
+    if (vla11 || vlb11) {
+      const bool useA11 = !vlb11 || (vla11 && newer(la11.sequence, lb11.sequence));
+      const ConfigRecordLegacyV11 &best11 = useA11 ? la11 : lb11;
+      configPayload_ = packConfig(MachineConfig{});
+      memcpy(&configPayload_, best11.payload, sizeof(best11.payload));
+      configCacheValid_ = true;
+      configCurrentIsA_ = useA11;
+      configSequence_ = best11.sequence;
+      return true;
+    }
+
     // Fallback config schema 10 (ban truoc lich thong gio dinh ky).
     // Toan bo lich moi mac dinh TAT; cac gia tri gio/thoi luong duoc nap
     // default de lan dau BAT co cau hinh de hieu.
@@ -2336,7 +2426,7 @@ class PersistentStore {
     if (vla10 || vlb10) {
       const bool useA10 = !vlb10 || (vla10 && newer(la10.sequence, lb10.sequence));
       const ConfigRecordLegacyV10 &best10 = useA10 ? la10 : lb10;
-      configPayload_ = PackedMachineConfigV1{};
+      configPayload_ = packConfig(MachineConfig{});
       memcpy(&configPayload_, best10.payload, sizeof(best10.payload));
       configPayload_.ventScheduleEnabled = 0U;
       configPayload_.ventScheduleCount = 2U;
@@ -2366,7 +2456,7 @@ class PersistentStore {
     if (vla9 || vlb9) {
       const bool useA9 = !vlb9 || (vla9 && newer(la9.sequence, lb9.sequence));
       const ConfigRecordLegacyV9 &best9 = useA9 ? la9 : lb9;
-      configPayload_ = PackedMachineConfigV1{};
+      configPayload_ = packConfig(MachineConfig{});
       memcpy(&configPayload_, best9.payload, sizeof(best9.payload));
       configPayload_.sirenSelfTestEnabled = 0U;
       configCacheValid_ = true;
@@ -2388,7 +2478,7 @@ class PersistentStore {
     if (vla8 || vlb8) {
       const bool useA8 = !vlb8 || (vla8 && newer(la8.sequence, lb8.sequence));
       const ConfigRecordLegacyV8 &best8 = useA8 ? la8 : lb8;
-      configPayload_ = PackedMachineConfigV1{};
+      configPayload_ = packConfig(MachineConfig{});
       memcpy(&configPayload_, best8.payload, sizeof(best8.payload));
       configPayload_.manualTurnReanchorsSchedule = 0U;
       configCacheValid_ = true;
@@ -2410,7 +2500,7 @@ class PersistentStore {
     if (vla7 || vlb7) {
       const bool useA7 = !vlb7 || (vla7 && newer(la7.sequence, lb7.sequence));
       const ConfigRecordLegacyV7 &best7 = useA7 ? la7 : lb7;
-      configPayload_ = PackedMachineConfigV1{};
+      configPayload_ = packConfig(MachineConfig{});
       memcpy(&configPayload_, best7.payload, sizeof(best7.payload));
       configPayload_.heaterStuckMinRiseC = 0.3f;
       configPayload_.heaterStuckDurationSec = 900;
@@ -2439,7 +2529,7 @@ class PersistentStore {
     if (vla6 || vlb6) {
       const bool useA6 = !vlb6 || (vla6 && newer(la6.sequence, lb6.sequence));
       const ConfigRecordLegacyV6 &best6 = useA6 ? la6 : lb6;
-      configPayload_ = PackedMachineConfigV1{};
+      configPayload_ = packConfig(MachineConfig{});
       memcpy(&configPayload_, best6.payload, sizeof(best6.payload));
       configPayload_.highTempAlarmWithoutBatch = 1U;
       configCacheValid_ = true;
@@ -2460,7 +2550,7 @@ class PersistentStore {
     if (vla5 || vlb5) {
       const bool useA5 = !vlb5 || (vla5 && newer(la5.sequence, lb5.sequence));
       const ConfigRecordLegacyV5 &best5 = useA5 ? la5 : lb5;
-      configPayload_ = PackedMachineConfigV1{};
+      configPayload_ = packConfig(MachineConfig{});
       memcpy(&configPayload_, best5.payload, sizeof(best5.payload));
       configPayload_.lightAfterBatchAlarmEnabled = 1U;
       configPayload_.highTempAlarmWithoutBatch = 1U;
@@ -2482,7 +2572,7 @@ class PersistentStore {
     if (vla4 || vlb4) {
       const bool useA4 = !vlb4 || (vla4 && newer(la4.sequence, lb4.sequence));
       const ConfigRecordLegacyV4 &best4 = useA4 ? la4 : lb4;
-      configPayload_ = PackedMachineConfigV1{};
+      configPayload_ = packConfig(MachineConfig{});
       memcpy(&configPayload_, best4.payload, sizeof(best4.payload));
       configPayload_.autoResumeOnPowerLoss = 0U;
       configPayload_.lightAfterBatchAlarmEnabled = 1U;
@@ -2506,7 +2596,7 @@ class PersistentStore {
     }
     const bool useA = !vlb || (vla && newer(la.sequence, lb.sequence));
     const ConfigRecordLegacyV3 &best = useA ? la : lb;
-    configPayload_ = PackedMachineConfigV1{};
+    configPayload_ = packConfig(MachineConfig{});
     memcpy(&configPayload_, best.payload, sizeof(best.payload));
     configPayload_.connectivityMode =
         static_cast<uint8_t>(ConnectivityMode::Offline);
@@ -3211,6 +3301,8 @@ struct OutputRequest {
   bool turnLeft = false;
   bool turnRight = false;
   bool ventFan = false;
+  bool ventFanForceOn = false;
+  bool ventFanBypassTiming = false;
   bool light = false;
   bool circulationFan = false;
   bool siren = false;
@@ -3328,9 +3420,21 @@ class OutputArbiter {
       return;
     }
 
-    // Tai an toan: ON ngay; OFF ton trong thoi gian ON toi thieu de chong dap relay.
-    setMinOn(PIN_OUT_VENT_FAN, OutputChannel::VentFan,
-             request.ventFan, state_.ventFan, now, RELAY_FAN_MIN_ON_MS);
+    // Profile bao ve ca ON/OFF relay. Qua nhiet/loi an toan duoc bat NGAY,
+    // khong cho minimum-OFF giu quat tat khi nhiet dang nguy hiem.
+    if (request.ventFanBypassTiming) {
+      setImmediate(PIN_OUT_VENT_FAN, OutputChannel::VentFan,
+                   request.ventFan, state_.ventFan, now);
+    } else if (request.ventFan && request.ventFanForceOn) {
+      setImmediate(PIN_OUT_VENT_FAN, OutputChannel::VentFan,
+                   true, state_.ventFan, now);
+    } else if (request.ventFan) {
+      setMinOff(PIN_OUT_VENT_FAN, OutputChannel::VentFan,
+                true, state_.ventFan, now, RELAY_VENT_MIN_OFF_MS);
+    } else {
+      setMinOn(PIN_OUT_VENT_FAN, OutputChannel::VentFan,
+               false, state_.ventFan, now, RELAY_VENT_MIN_ON_MS);
+    }
     setMinSwitch(PIN_OUT_LIGHT, OutputChannel::Light,
                  request.light, state_.light, now, RELAY_LIGHT_MIN_SWITCH_MS);
     setMinOn(PIN_OUT_CIRC_FAN, OutputChannel::CirculationFan,
@@ -3493,6 +3597,18 @@ class OutputArbiter {
     const uint32_t last = lastTransitionAt_[static_cast<uint8_t>(channel)];
     if (last && elapsedMs(now, last) < minimumOnMs) return;
     setImmediate(pin, channel, false, stored, now);
+  }
+
+  void setMinOff(uint8_t pin, OutputChannel channel, bool requested,
+                 bool &stored, uint32_t now, uint32_t minimumOffMs) {
+    if (requested == stored) return;
+    if (!requested) {
+      setImmediate(pin, channel, false, stored, now);
+      return;
+    }
+    const uint32_t last = lastTransitionAt_[static_cast<uint8_t>(channel)];
+    if (last && elapsedMs(now, last) < minimumOffMs) return;
+    setImmediate(pin, channel, true, stored, now);
   }
 
   OutputState state_{};
@@ -5938,7 +6054,8 @@ class MachineController {
     const bool sensorFaultNeedsFan = !sensorUsable_ && !sensorStartupGraceActive &&
         (batchRunning_ || outputs_.state().heaterSsr || postCooling);
     bool scheduledVentActive = false;
-    if (config_.ventScheduleEnabled && batchRunning_ && rtc_.valid()) {
+    if (!config_.ventAutoEnabled && config_.ventScheduleEnabled &&
+        batchRunning_ && rtc_.valid()) {
       const uint8_t hours[VENT_SCHEDULE_MAX_RUNS] = {
         config_.ventScheduleHour1, config_.ventScheduleHour2,
         config_.ventScheduleHour3, config_.ventScheduleHour4,
@@ -5959,8 +6076,20 @@ class MachineController {
       }
     }
 
+    bool profileVentActive = false;
+    if (config_.ventAutoEnabled && batchRunning_) {
+      const uint32_t elapsedSec = elapsedBatchSec(now);
+      const uint32_t day = elapsedSec / 86400UL + 1UL;
+      const uint8_t duty = ventProfileDutyPercent(config_, day,
+          humidityLowActive_);
+      const uint32_t cycleSec = static_cast<uint32_t>(config_.ventCycleMinutes) * 60UL;
+      const uint32_t onSec = cycleSec * duty / 100UL;
+      profileVentActive = (elapsedSec % cycleSec) < onSec;
+    }
+
     const bool safetyForcesCirculation = faults_.circulationForced() ||
-        ventTemperatureActive_ || scheduledVentActive || sensorFaultNeedsFan || postCooling;
+        ventTemperatureActive_ || scheduledVentActive || profileVentActive ||
+        sensorFaultNeedsFan || postCooling;
     const bool circulation = baseCirculation || safetyForcesCirculation;
     req.circulationFan = circulation;
 
@@ -5971,8 +6100,12 @@ class MachineController {
     const bool fanStable = circulation && fanOnSince_ != 0U &&
                            elapsedMs(now, fanOnSince_) >= FAN_PRESTART_MS;
 
-    req.ventFan = faults_.ventForced() || ventTemperatureActive_ ||
-                  scheduledVentActive || sensorFaultNeedsFan;
+    // Thu tu: Emergency/High Temp > CO2 (chua co cam bien, nen khong tao
+    // gia tri gia) > profile ngay ap > gioi han RH. RH chi ha duty profile
+    // xuong 5%, khong bao gio khoa duong lam mat qua nhiet.
+    req.ventFanForceOn = emergencyActive_ || highTemperatureActive_ ||
+        ventTemperatureActive_ || faults_.ventForced() || sensorFaultNeedsFan;
+    req.ventFan = req.ventFanForceOn || profileVentActive || scheduledVentActive;
 
     // "Nhiet ngoai me" da bo khoi HMI (khong con cach nao nguoi dung tat lai
     // duoc neu no da tung bat), nen KHONG con duoc phep giu nhiet chay khi
@@ -6335,6 +6468,8 @@ class MachineController {
     req.circulationFan = pulseOn(TestOutputId::CirculationFan) || heaterRequested ||
                          heaterPostCool || faults_.circulationForced();
     req.ventFan = pulseOn(TestOutputId::VentFan) || faults_.ventForced();
+    req.ventFanForceOn = req.ventFan;
+    req.ventFanBypassTiming = true;
     req.light = pulseOn(TestOutputId::Light);
     req.siren = pulseOn(TestOutputId::Siren);
     // CTHT la interlock cuoi cung ngay tai output request, ngoai logic stop/
