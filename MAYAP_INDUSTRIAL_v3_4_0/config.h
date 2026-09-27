@@ -35,7 +35,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.4";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.5";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
 constexpr char HMI_FIRMWARE_VERSION[] = "3.7.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
@@ -333,29 +333,19 @@ constexpr uint8_t PIN_OUT_HUMIDIFIER  = 48;  // relay tao am tuy chon, mac dinh 
 constexpr uint8_t PIN_STATUS_RGB       = 42;  // SK6812MINI-C
 // Bus giao tiep 2 chieu voi ATtiny13A (mach bao mat dien doc lap dung pin
 // CR2032, xem doc/attiny_power_alarm.md). La bus "ho tro" (open-drain) dung
-// chung 1 day: ca 2 ben CHI duoc keo LOW hoac tha noi (INPUT) de nghi len
-// HIGH qua dien tro keo len R8 - KHONG BAO GIO chu dong ghi HIGH - tranh
-// dung do neu ca 2 cung "noi" mot luc. Giao thuc dem xung (xem
-// ATTINY_BUS_* ben duoi va attiny_bus.h).
+// chung 1 day: ca 2 ben CHI duoc keo LOW hoac tha noi de nghi len HIGH qua
+// dien tro keo len R8. ESP phat lenh bang RMT open-drain; Tiny tra trang thai.
 constexpr uint8_t PIN_ATTINY_BUS = 41;
 
-// ---- Giao thuc bus voi ATtiny13A (dem xung, co ACK, xem doc/attiny_power_alarm.md) ----
-// 1 xung = keo LOW trong ATTINY_BUS_PULSE_MS roi tha len lai HIGH trong tung
-// do; het 1 ban tin thi im lang (HIGH) it nhat ATTINY_BUS_END_GAP_MS. Xung
-// ngan hon ATTINY_BUS_MIN_PULSE_MS bi coi la nhieu, bo qua. Ben nhan tra loi
-// dung 1 xung ACK trong vong ATTINY_BUS_ACK_TIMEOUT_MS; ben gui khong thay
-// ACK thi gui lai toi da ATTINY_BUS_MAX_RETRY lan.
-constexpr uint32_t ATTINY_BUS_PULSE_MS = 30UL;
-constexpr uint32_t ATTINY_BUS_MIN_PULSE_MS = 15UL;
-constexpr uint32_t ATTINY_BUS_END_GAP_MS = 150UL;
-constexpr uint32_t ATTINY_BUS_ACK_TIMEOUT_MS = 350UL;
+// Pulse-width protocol v4. Each command is one LOW pulse (milliseconds).
+// Tiny returns preamble + four status bits + XOR parity; that frame is ACK.
+constexpr uint16_t ATTINY_COMMAND_WIDTH_MS[8] = {0U, 30U, 55U, 90U,
+                                                  140U, 210U, 310U, 450U};
 constexpr uint8_t ATTINY_BUS_MAX_RETRY = 3U;
 
-// ATtiny Link v3: ESP32 la master. Giu nguyen do nguon 9V/E502; them
-// CRITICAL_ACTIVITY cho tai quan trong dang chay NGOAI ME. Activity chi nam
-// RAM Tiny de khong mai EEPROM theo PID/relay. Status frame Tiny->ESP 8..15;
-// bitmask van gom batch / 9V-low / emergency-siren.
-constexpr uint8_t ATTINY_PROTOCOL_VERSION = 3U;
+// ESP32 is the only initiator. Status flags preserve batch, 9V, siren and
+// critical-activity reporting to the machine controller.
+constexpr uint8_t ATTINY_PROTOCOL_VERSION = 4U;
 constexpr uint8_t ATTINY_MSG_BATCH_START = 1U;
 constexpr uint8_t ATTINY_MSG_BATCH_END = 2U;
 constexpr uint8_t ATTINY_MSG_SIREN_ON = 3U;

@@ -1,7 +1,7 @@
-# ATtiny13A power alarm - protocol v3
+# ATtiny13A power alarm - pulse-width protocol v4
 
 ATtiny13A la lop **bao mat dien/canh bao doc lap**, khong tham gia PID, dieu khien heater,
-dao hay quat. Muc tieu thiet ke V3 la fail-safe, bus open-drain an toan va dong ngu rat thap.
+dao hay quat. Muc tieu thiet ke V3 la fail-safe va de CR2032 nuoi Tiny trong nhieu nam.
 
 ## Chan
 - PB0: BUS open-drain 1 day voi ESP32 GPIO41.
@@ -37,44 +37,37 @@ Cach nay tranh ghi EEPROM theo cac dao dong relay/ngan han.
 Voi heatMaster thay cho xung SSR, so lan ghi activity trong van hanh binh thuong rat thap;
 EEPROM khong bi bam theo chu ky PID.
 
-## Protocol v3
-ESP32 -> Tiny:
-- `1=BATCH_START`
-- `2=BATCH_END`
-- `3=SIREN_ON`
-- `4=SIREN_OFF`
-- `5=STATUS_QUERY`
-- `6=ACTIVITY_ON`
-- `7=ACTIVITY_OFF`
+## Protocol v4
+ESP32 luon khoi tao giao dich. GPIO41/PB0 la open-drain, can dien tro keo len 3.3 V
+va GND chung. ESP32 dung RMT de giu do rong xung on dinh khi Wi-Fi dang chay.
+Mot lenh la **mot xung LOW**, khong dem so xung nhu v3:
 
-Tiny ACK lenh batch/activity **chi sau khi EEPROM da ghi va doc verify dung**.
+| LOW | Lenh |
+| ---: | --- |
+| 30 ms | BATCH_START |
+| 55 ms | BATCH_END |
+| 90 ms | SIREN_ON |
+| 140 ms | SIREN_OFF |
+| 210 ms | STATUS_QUERY |
+| 310 ms | ACTIVITY_ON |
+| 450 ms | ACTIVITY_OFF |
 
-### STATUS Tiny -> ESP: mot frame, mot ACK
+Tiny phan loai theo cua so rong, loai xung ngan va cac khoang giua hai ma.
+Sau khi xu ly lenh (va verify EEPROM neu co), Tiny doi 40 ms roi tra
+`PREAMBLE + 4 bit status + parity`: preamble LOW 60 ms, bit 0 LOW 10 ms,
+bit 1 LOW 30 ms, cac xung cach nhau HIGH 15 ms. Thu tu bit status la
+batch, 9V-low, emergency siren, critical activity; parity la XOR cua bon bit.
+Khung status hop le chinh la ACK; Tiny khong phat ACK rieng. ESP loai khung
+sai do rong, sai so xung hoac sai parity, thu lai toi da 3 lan voi khoang nghi
+200 ms. E501 chi bat sau khi ca 3 lan deu that bai. Moi lenh deu la SET,
+khong co TOGGLE; gui lai cung lenh khong dao trang thai. `eeprom_update_byte()`
+tranh ghi lai cell neu gia tri khong doi. Frame hop le cho ESP biet trang thai
+thuc te de phat hien E503 neu hai ben khong dong bo.
 
-Trang thai logic van la `8..23`; `status-8` la bitmask 4 bit:
-- bit0 = batch
-- bit1 = 9V low
-- bit2 = emergency siren mirror
-- bit3 = critical activity
-
-Nhung **khong truyen 16..23 xung tren day BUS**. Bench thuc te cho thay cac frame dem xung dai tren 15 xung khong du on dinh. Cung khong tach status thanh hai frame vi cach do tao them ACK/timeout/trang thai trung gian va da xuat hien loi mat ACK frame thu hai.
-
-Wire format hien tai:
-- **So xung vat ly 8..15** = `8 + (batch | 9V-low | siren)`; chi mang 3 bit thap.
-- **Xung LOW dau tien 30 ms** = activity OFF.
-- **Xung LOW dau tien 120 ms** = activity ON.
-- Cac xung LOW con lai = 30 ms.
-- ESP giai ma do rong xung dau, khoi phuc bit activity va tra ve dung status logic `8..23` cho `MachineController`.
-- Moi status van chi co **mot frame + mot ACK 30 ms**.
-
-Marker 120 ms duoc chon co chu dich de **fail-closed khi tron firmware cu/moi**: receiver ESP cu coi LOW tu 90 ms tro len la frame loi. Vi vay Tiny moi + ESP cu se bao mat status/E501 thay vi am tham doc activity ON thanh OFF. Chieu nguoc lai, ESP moi cung tu choi frame status cu co hon 15 xung. Hai phien ban khong khop se loi ro, khong gia vo dong bo.
-
-Vi du logical status `22`:
-- `22 - 8 = 14 = 0b1110`: 9V-low=1, siren=1, activity=1, batch=0.
-- So xung vat ly = `8 + 2 + 4 = 14`.
-- Xung thu nhat LOW 120 ms de danh dau activity=ON.
-- 13 xung con lai LOW 30 ms.
-- ESP giai ma lai thanh logical `22`.
+V4 khong tuong thich V3: phai nap ESP32 va Tiny cung phien ban truoc khi van hanh.
+Khi ghep firmware lech phien ban, cac xung khong tao khung status v4 hop le,
+nen ESP bao E501. Khong su dung may that khi E501/E503 dang active.
+UNO R3 chi la bo mo phong de thu bus, khong thay the Tiny trong may that.
 
 ## Dong bo va tu phuc hoi
 - Bat dau me: BATCH_START duoc xep truoc khi activity ngoai me bi bo.
@@ -101,13 +94,17 @@ Trong `ATTINY13A_POWER_ALARM.ino` co 4 placeholder (mV, do tai nguon truoc divid
 - Power-down sleep la trang thai mac dinh.
 - WDT chi bat khi xu ly BUS, tat truoc khi ngu.
 - ADC va analog comparator khong dung duoc tat ro rang khi boot.
-- Khi ESP mat nguon, **PB0 luon Hi-Z (`busRelease`)** va bi mask khoi PCINT. Tuyet doi khong keo BUS LOW khi rail 3V3 ESP dang mat de tranh back-power/giu net sai muc.
-- Vao sleep theo chuoi atomic `cli -> clear PCIF -> recheck -> sleep_enable -> sei -> sleep_cpu`; khong co cua so lost-wakeup.
-- **Khong co `_delay_ms(50)` sau wake**. Lenh BUS chi co xung LOW 30 ms; delay 50 ms sau pin-change co the nuot tron xung dau cua lenh.
+- Khi ESP mat nguon, PB0 bi mask khoi PCINT va giu Hi-Z de tranh giu net
+  hoac back-power qua bus.
+- Vao sleep theo chuoi atomic `cli -> clear PCIF -> recheck -> sleep_enable ->
+  sei -> sleep_cpu` de khong bo lo xung dau tien.
+- Sau wake do bus, Tiny xu ly ngay xung dau tien; khong debounce 50 ms tren
+  duong bus vi nhu vay se cat mat dau khung.
 - Khong co polling nhanh; status 1 h khi arm, 6 h khi idle.
 - Emergency siren reassert 15 s chi xay ra trong tinh huong khan cap, khong anh huong tuoi pin binh thuong.
 
-Muc tieu bench dong ngu phai do tren mach that sau khi chot nguon pin, divider va BOD fuse; khong suy dien tuoi pin chi tu dong datasheet cua MCU.
+Dong ngu toan mach Tiny phai do tren PCB that sau khi chot divider, MOSFET,
+nguon pin va BOD fuse; khong suy dien tuoi pin chi tu dong datasheet cua MCU.
 
 ## Fail-safe
 - EEPROM batch/activity record hong -> arm thay vi im lang.
@@ -119,9 +116,6 @@ Muc tieu bench dong ngu phai do tren mach that sau khi chot nguon pin, divider v
 
 ## Build gate
 GitHub Actions build ATtiny13A bang avr-g++ va fail neu Flash >1024 B hoac static RAM >64 B.
-CI kiem protocol/message/status constants giua ESP32 va Tiny, dong thoi khoa cac invariant moi:
-- frame STATUS vat ly khong vuot 15 xung;
-- activity phai ma hoa bang do rong xung dau 120 ms;
-- khong duoc dua split-status state machine tro lai;
-- PB0 phai Hi-Z khi ESP mat nguon;
-- khong duoc dua delay 50 ms sau wake tro lai.
+CI kiem protocol/message/status constants va cua so do rong xung giua ESP32 va
+Tiny truoc khi compile firmware chinh; kiem PB0 Hi-Z khi ESP mat nguon, vao
+sleep atomic, khung status 6 xung va parity.

@@ -126,6 +126,25 @@ jobs:
               if ev != tv:
                   raise SystemExit(f'{label} mismatch ESP={ev} Tiny={tv}')
 
+          widths_match = re.search(r'ATTINY_COMMAND_WIDTH_MS\[8\]\s*=\s*\{([^}]+)\}', cfg)
+          if not widths_match:
+              raise SystemExit('Thieu bang do rong lenh ESP')
+          widths = [int(x) for x in re.findall(r'(\d+)U', widths_match.group(1))]
+          if len(widths) != 8 or widths[0] != 0:
+              raise SystemExit('Bang do rong lenh ESP khong hop le')
+          windows = re.findall(
+              r'if \(width >= (\d+)U && width <= (\d+)U\) return MSG_([A-Z_]+);', tiny)
+          expected = ['BATCH_START', 'BATCH_END', 'SIREN_ON', 'SIREN_OFF',
+                      'STATUS_QUERY', 'ACTIVITY_ON', 'ACTIVITY_OFF']
+          if [name for _, _, name in windows] != expected:
+              raise SystemExit('Thu tu cua so lenh Tiny khong khop ESP')
+          for index, (lo, hi, name) in enumerate(windows, 1):
+              width = widths[index]
+              if not (int(lo) <= width * 0.9 and width * 1.1 <= int(hi)):
+                  raise SystemExit(f'Cua so {name} khong du dung sai +/-10%')
+              if index > 1 and int(windows[index - 2][1]) >= int(lo):
+                  raise SystemExit(f'Cua so {name} chong len lenh truoc')
+
           print(f'ATtiny protocol v{esp_proto}: contract OK')
           PY
 

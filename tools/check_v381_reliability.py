@@ -53,6 +53,7 @@ require(app, "state.mqttSessionState = 'ready';", "web MQTT session ready state"
 require(app, "if (mqttReady) connectMqtt();", "web MQTT init readiness gate")
 require(app, "state.mqttSessionState === 'error' || state.mqttSessionState === 'auth-required'", "web MQTT no infinite connecting state")
 
+
 # Wi-Fi portal must quiesce cross-task network I/O before changing radio mode.
 require(network, "PortalPhase::Quiescing", "Wi-Fi portal quiescing phase")
 require(network, "WiFi.disconnect(false, false)", "portal disconnect keeps radio alive")
@@ -66,11 +67,11 @@ require(ino, "mayapSetWifiPortalOtaQuiesced(quiesced)", "otaTask quiesce acknowl
 require(config, "WIFI_PORTAL_MAX_OPEN_MS = 120000UL", "Wi-Fi portal 2 minute network timeout")
 require(config, "WIFI_PORTAL_UI_IDLE_TIMEOUT_MS = 120000UL", "Wi-Fi portal 2 minute HMI timeout")
 
-# ATtiny v3: keep 9V sensing and add outside-batch critical-load power-loss arm.
+# ATtiny v4: preserve power-loss protection with pulse-width bus framing.
 attiny = read("ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino")
 attiny_bus = read("MAYAP_INDUSTRIAL_v3_4_0/attiny_bus.h")
 attiny_doc = read("doc/attiny_power_alarm.md")
-require(config, "ATTINY_PROTOCOL_VERSION = 3U", "ATtiny protocol v3")
+require(config, "ATTINY_PROTOCOL_VERSION = 4U", "ATtiny protocol v4")
 require(config, "ATTINY_MSG_ACTIVITY_ON = 6U", "ATtiny activity-on command")
 require(config, "ATTINY_MSG_ACTIVITY_OFF = 7U", "ATtiny activity-off command")
 require(config, "ATTINY_STATUS_FLAG_9V_LOW = 2U", "ATtiny 9V status retained")
@@ -93,36 +94,25 @@ require(attiny, "batchActive || criticalActivity", "ATtiny power-loss alarm OR p
 require(attiny, "eeActivityState", "ATtiny activity EEPROM persistence")
 require(attiny, "FLAG_ACTIVITY", "ATtiny activity status feedback")
 require(attiny, "PRR |= _BV(PRADC)", "ATtiny ADC power reduction")
-
-# Hardened wire encoding: logical status stays 8..23, but physical frame is
-# always <=15 pulses. Activity is carried by first LOW width, so the transaction
-# remains ONE frame + ONE ACK. The 120ms marker is deliberately > legacy ESP's
-# 90ms accepted-low ceiling so mixed NEW-Tiny/OLD-ESP versions fail visibly.
-require(attiny_bus, "STATUS_WIRE_MAX", "ATtiny physical status cap")
-require(attiny_bus, "STATUS_WIRE_MAX == 15U", "ATtiny physical status compile guard")
-require(attiny_bus, "STATUS_LONG_MIN_US", "ATtiny activity width decoder")
-require(attiny_bus, "STATUS_HARD_MAX_US", "ATtiny hardened status pulse ceiling")
-require(attiny_bus, "rxActivityMarker_", "ATtiny activity marker capture")
-require(attiny_bus, "pulses + (activity ? ATTINY_STATUS_FLAG_ACTIVITY : 0U)", "ATtiny logical status reconstruction")
-require(attiny, "ACTIVITY_MARK_PULSE_MS = 120U", "ATtiny fail-closed activity marker")
-require(attiny, "(i == 0U && activity) ? ACTIVITY_MARK_PULSE_MS : PULSE_MS", "ATtiny first-pulse activity encoding")
-if "splitStatus" in attiny_bus:
-    raise SystemExit("FAIL: split ATtiny STATUS state machine reintroduced")
-if "EDGE_BUF_SIZE" in attiny_bus:
-    raise SystemExit("FAIL: obsolete ATtiny edge-pair buffer reintroduced")
-
-# Power-loss BUS safety: never clamp the shared BUS LOW while ESP rail is off,
-# and never sleep for 50ms after a pin-change wake (30ms command pulses would
-# be lost). Sleep entry must use the atomic SEI->SLEEP pattern.
+require(attiny_bus, "RESPONSE_EDGES = 12U", "ATtiny v4 response edge capacity")
+require(attiny_bus, "CAPTURE_EDGES = 14U", "ATtiny command and response edge capacity")
+require(attiny_bus, "gpio_set_direction(static_cast<gpio_num_t>(PIN_ATTINY_BUS)", "ESP open-drain bus")
+require(attiny_bus, "rmtWriteAsync(PIN_ATTINY_BUS", "hardware-timed command")
+require(attiny_bus, "else if (bit != parity) return false", "ATtiny response parity")
+require(attiny, "parity ^= bit", "ATtiny transmit parity")
 require(attiny, "static inline void configureWakeMask(bool espOn)", "ATtiny wake mask")
-require(attiny, "busRelease();", "ATtiny BUS Hi-Z release")
 require(attiny, "sleepUntilPinChange", "ATtiny race-free sleep helper")
+require(attiny, "GIFR |= _BV(PCIF)", "ATtiny clears stale pin-change")
 require(attiny, "sleep_enable();\n  sei();\n  sleep_cpu();", "ATtiny atomic SEI/SLEEP sequence")
+mask_body = attiny.split("static inline void configureWakeMask(bool espOn)", 1)[1].split("ISR(PCINT0_vect)", 1)[0]
+if "busLow()" in mask_body or "busRelease();" not in mask_body:
+    raise SystemExit("FAIL: ATtiny must keep PB0 Hi-Z when ESP power is absent")
 if "_delay_ms(50)" in attiny:
     raise SystemExit("FAIL: ATtiny 50ms post-wake delay reintroduced")
 require(attiny, "FIELD_MEASURED_3V3_LOSS_MV", "3V3 calibration note")
 require(attiny, "FIELD_MEASURED_9V_LOW_MV", "9V calibration note")
 require(attiny_doc, "Den, coi va tao am khong arm rieng bao mat dien", "humidifier covered by batch arm")
+require(attiny_bus, "if (count < RESPONSE_EDGES || count > CAPTURE_EDGES || overflow) return false", "ATtiny status frame length guard")
 require(hmi, "(view == View::WifiChange) ? WIFI_PORTAL_UI_IDLE_TIMEOUT_MS", "Wi-Fi screen uses dedicated timeout")
 require(network, "id=wifiPassword", "Wi-Fi portal password input id")
 require(network, "id=showPassword", "Wi-Fi portal show-password control")

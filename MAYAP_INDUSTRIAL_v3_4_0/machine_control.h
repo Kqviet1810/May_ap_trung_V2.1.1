@@ -3727,7 +3727,7 @@ class MachineController {
     outputs_.begin();
     led_.begin();
     // Bao mat dien qua ATtiny13A (mach doc lap dung pin CR2032, xem
-    // doc/attiny_power_alarm.md) - giao thuc dem xung 2 chieu tren PIN_ATTINY_BUS.
+    // doc/attiny_power_alarm.md) - pulse-width v4 tren PIN_ATTINY_BUS.
     mayapAttinyBusBegin();
     inputs_.begin();
     sensor_.begin();
@@ -6406,7 +6406,7 @@ class MachineController {
                    static_cast<uint16_t>(EventCode::SirenSelfTest));
   }
 
-  // Bao mat dien qua ATtiny13A - protocol v3.
+  // Bao mat dien qua ATtiny13A - protocol v4.
   // Trong me: EEPROM batch state cua Tiny arm bao mat dien nhu cu.
   // Ngoai me: activity arm neu OUTPUT THUC TE cua it nhat mot tai sau ON:
   // DAO trai/phai, QUAT TUAN HOAN, QUAT HUT, CONTACTOR NGUON NHIET (heatMaster).
@@ -7417,7 +7417,7 @@ class MachineController {
   uint32_t sirenSelfTestNextAt_ = 0U;
   uint32_t sirenSelfTestPulseUntil_ = 0U;
   bool sirenSelfTestActive_ = false;
-  // Bao mat dien qua ATtiny13A protocol v3. Batch + activity duoc Tiny
+  // Bao mat dien qua ATtiny13A protocol v4. Batch + activity duoc Tiny
   // luu EEPROM co verify; 9V sense/E502 van giu nguyen.
   bool attinySirenMirrorOn_ = false;
   bool attinyActivityMirrorOn_ = false;
