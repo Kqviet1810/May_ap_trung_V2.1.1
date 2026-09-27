@@ -35,7 +35,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.5";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "3.8.6";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
 constexpr char HMI_FIRMWARE_VERSION[] = "3.7.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
@@ -361,13 +361,13 @@ constexpr uint8_t ATTINY_STATUS_FLAG_BATCH = 1U;
 constexpr uint8_t ATTINY_STATUS_FLAG_9V_LOW = 2U;
 constexpr uint8_t ATTINY_STATUS_FLAG_SIREN = 4U;
 constexpr uint8_t ATTINY_STATUS_FLAG_ACTIVITY = 8U;
-// Khi dang arm (co me hoac co tai quan trong ngoai me), kiem tra hai chieu moi 1 h.
-// Khi idle van hoi 6 h/lan de E502 (9V LOW) khong bi mat vo thoi han, nhung
-// giu duty-cycle cua Tiny rat thap de CR2032 co the song nhieu nam.
-constexpr uint32_t ATTINY_STATUS_ARMED_INTERVAL_MS = 1UL * 3600UL * 1000UL;
-constexpr uint32_t ATTINY_STATUS_IDLE_INTERVAL_MS = 6UL * 3600UL * 1000UL;
+// One-wire open drain cannot detect a disconnected peer between transactions.
+// Bound E501 detection with periodic STATUS probes. These intervals trade
+// CR2032 life for fault-detection latency; measure actual PCB current.
+constexpr uint32_t ATTINY_STATUS_ARMED_INTERVAL_MS = 10000UL;
+constexpr uint32_t ATTINY_STATUS_IDLE_INTERVAL_MS = 30000UL;
 constexpr uint32_t ATTINY_STATUS_RESPONSE_TIMEOUT_MS = 2500UL;
-constexpr uint32_t ATTINY_RESYNC_RETRY_MS = 30000UL;
+constexpr uint32_t ATTINY_RESYNC_RETRY_MS = 10000UL;
 constexpr uint32_t ATTINY_SIREN_REASSERT_MS = 15000UL;
 // ON duoc arm ngay. OFF phai on dinh 30 s moi ghi lai Tiny EEPROM, de gop
 // cac dao dong ngan va giam so chu ky ghi EEPROM.

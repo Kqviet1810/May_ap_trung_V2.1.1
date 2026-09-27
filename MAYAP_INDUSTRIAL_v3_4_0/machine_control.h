@@ -6526,6 +6526,11 @@ class MachineController {
       attinyLinkHealthy_ = false;
       mayapAttinyBusHoldTxUntil(now);
     }
+    // Fail safe even if the low-level bus driver never yields a result.
+    if (!attinyLinkChecked_ && elapsedMs(now, bootAt_) >= 10000UL) {
+      attinyLinkChecked_ = true;
+      attinyLinkHealthy_ = false;
+    }
     if (attinyStatusKnown_) attinyBatchSynced_ = (attinyTinyBatch_ == expectedBatch);
 
     if (desiredSiren != attinySirenMirrorOn_ ||

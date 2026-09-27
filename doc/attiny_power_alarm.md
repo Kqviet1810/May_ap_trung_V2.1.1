@@ -59,7 +59,8 @@ bit 1 LOW 30 ms, cac xung cach nhau HIGH 15 ms. Thu tu bit status la
 batch, 9V-low, emergency siren, critical activity; parity la XOR cua bon bit.
 Khung status hop le chinh la ACK; Tiny khong phat ACK rieng. ESP loai khung
 sai do rong, sai so xung hoac sai parity, thu lai toi da 3 lan voi khoang nghi
-200 ms. E501 chi bat sau khi ca 3 lan deu that bai. Moi lenh deu la SET,
+200 ms. E501 bat sau 3 lan khong nhan duoc frame hop le; neu bus ket LOW
+hoac RMT khong khoi tao duoc, loi duoc tra ve som hon. Moi lenh deu la SET,
 khong co TOGGLE; gui lai cung lenh khong dao trang thai. `eeprom_update_byte()`
 tranh ghi lai cell neu gia tri khong doi. Frame hop le cho ESP biet trang thai
 thuc te de phat hien E503 neu hai ben khong dong bo.
@@ -72,13 +73,16 @@ UNO R3 chi la bo mo phong de thu bus, khong thay the Tiny trong may that.
 ## Dong bo va tu phuc hoi
 - Bat dau me: BATCH_START duoc xep truoc khi activity ngoai me bi bo.
 - Ket thuc me: neu tai quan trong van ON, ACTIVITY_ON duoc xep **truoc** BATCH_END de khong tao khoang mu.
-- ESP hoi STATUS ngay sau boot. Khi dang arm, hoi 1 h/lan; khi idle, 6 h/lan.
+- ESP hoi STATUS ngay sau boot, moi 10 s khi dang arm va 30 s khi idle.
+- Day open-drain khong the tu phat hien bi rut giua hai giao dich neu pull-up
+  van nam phia ESP. E501 se bat sau lan hoi ke tiep va toi da 3 lan retry;
+  neu bus ket LOW, timeout idle 500 ms se tra ket qua loi thay vi cho vo han.
 - STATUS co activity bit, nen Tiny reset rieng van duoc kiem tra hai chieu va sua mismatch.
 - Khong con ACTIVITY_ON moi 5 s.
 
 ## Bao 9 V / E502
 PB3 va E502 duoc giu nguyen. Khi Tiny bao 9V LOW, ESP32 phat `SIREN BATTERY LOW` (E502).
-Ngay ca khi may idle, STATUS 6 h/lan dam bao 9V-low khong bi bo quen vo thoi han.
+Ngay ca khi may idle, STATUS 30 s/lan dam bao 9V-low khong bi bo quen vo thoi han.
 
 ## Hieu chinh nguong 3.3 V va 9 V
 PB2/PB3 hien dung DIGITAL + PCINT. Nguong thuc te do divider + VIH/VIL/hysteresis + VCC Tiny.
@@ -100,7 +104,9 @@ Trong `ATTINY13A_POWER_ALARM.ino` co 4 placeholder (mV, do tai nguon truoc divid
   sei -> sleep_cpu` de khong bo lo xung dau tien.
 - Sau wake do bus, Tiny xu ly ngay xung dau tien; khong debounce 50 ms tren
   duong bus vi nhu vay se cat mat dau khung.
-- Khong co polling nhanh; status 1 h khi arm, 6 h khi idle.
+- STATUS 10 s khi arm, 30 s khi idle de phat hien rut day trong thoi gian huu han.
+  Tan suat nay tieu thu pin CR2032 nhieu hon ban v4 ban dau; can do dong tren
+  PCB that va chot tuoi pin truoc khi dung lau dai.
 - Emergency siren reassert 15 s chi xay ra trong tinh huong khan cap, khong anh huong tuoi pin binh thuong.
 
 Dong ngu toan mach Tiny phai do tren PCB that sau khi chot divider, MOSFET,

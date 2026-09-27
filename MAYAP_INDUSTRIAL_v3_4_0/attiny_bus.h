@@ -15,6 +15,9 @@ constexpr uint32_t RESPONSE_TIMEOUT_MS = 500UL;
 constexpr uint32_t RETRY_GAP_MS = 200UL;
 constexpr uint32_t FRAME_END_GAP_US = 30000UL;
 constexpr uint32_t IDLE_GAP_US = 30000UL;
+// A missing pull-up or a stuck-low peer must not leave a queued command
+// pending forever: the controller needs a terminal result to raise E501.
+constexpr uint32_t BUS_IDLE_TIMEOUT_MS = 500UL;
 
 static uint8_t txQueue_[TX_QUEUE_SIZE]{};
 static uint8_t txHead_ = 0U, txTail_ = 0U, txCount_ = 0U;
@@ -23,6 +26,8 @@ static uint8_t resultCode_ = 0U, incomingCode_ = 0U;
 static bool resultReady_ = false, resultAcked_ = false, rmtReady_ = false;
 static uint32_t txHoldUntil_ = 0U, txStartedAt_ = 0U;
 static uint32_t responseStartedAt_ = 0U, retryAt_ = 0U;
+static uint32_t idleBlockedAt_ = 0U;
+static bool idleBlocked_ = false;
 static rmt_data_t txSymbol_[8]{};
 enum class Phase : uint8_t { Idle, Sending, WaitingReply, RetryGap };
 static Phase phase_ = Phase::Idle;
@@ -64,6 +69,7 @@ inline void finish(bool ok, uint8_t flags = 0U) {
   resultReady_ = true;
   incomingCode_ = ok ? static_cast<uint8_t>(ATTINY_MSG_STATUS_BASE + flags) : 0U;
   txCode_ = 0U;
+  idleBlocked_ = false;
   phase_ = Phase::Idle;
 }
 #if MAYAP_DIAGNOSTIC_SERIAL
@@ -142,9 +148,26 @@ inline void startAttempt(uint32_t now) {
   phase_ = Phase::Sending;
 }
 inline void startNext(uint32_t now) {
-  if (txCount_ == 0U || resultReady_ || !reached(now, txHoldUntil_)) return;
+  if (txCount_ == 0U || resultReady_ || !reached(now, txHoldUntil_)) {
+    idleBlocked_ = false;
+    return;
+  }
   if (digitalRead(PIN_ATTINY_BUS) == LOW ||
-      static_cast<uint32_t>(micros() - lastBusEdgeUs_) < IDLE_GAP_US) return;
+      static_cast<uint32_t>(micros() - lastBusEdgeUs_) < IDLE_GAP_US) {
+    if (!idleBlocked_) {
+      idleBlocked_ = true;
+      idleBlockedAt_ = now;
+    } else if (static_cast<uint32_t>(now - idleBlockedAt_) >= BUS_IDLE_TIMEOUT_MS) {
+      txCode_ = txQueue_[txHead_];
+      txHead_ = static_cast<uint8_t>((txHead_ + 1U) % TX_QUEUE_SIZE);
+      --txCount_;
+      txAttempt_ = 0U;
+      logFailure("BUS_NOT_IDLE");
+      finish(false);
+    }
+    return;
+  }
+  idleBlocked_ = false;
   txCode_ = txQueue_[txHead_];
   txHead_ = static_cast<uint8_t>((txHead_ + 1U) % TX_QUEUE_SIZE);
   --txCount_;
@@ -224,9 +247,14 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
       return;
     }
     case Phase::RetryGap:
-      if (reached(now, retryAt_) && digitalRead(PIN_ATTINY_BUS) == HIGH &&
-          static_cast<uint32_t>(micros() - lastBusEdgeUs_) >= IDLE_GAP_US)
+      if (!reached(now, retryAt_)) return;
+      if (digitalRead(PIN_ATTINY_BUS) == HIGH &&
+          static_cast<uint32_t>(micros() - lastBusEdgeUs_) >= IDLE_GAP_US) {
         startAttempt(now);
+      } else if (static_cast<uint32_t>(now - retryAt_) >= BUS_IDLE_TIMEOUT_MS) {
+        logFailure("RETRY_BUS_NOT_IDLE");
+        finish(false);
+      }
       return;
   }
 }
