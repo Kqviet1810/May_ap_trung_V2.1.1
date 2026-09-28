@@ -1,14 +1,14 @@
 # MAYAP — Máy ấp trứng thông minh
 
-> Baseline hiện hành: **MAYAP release 3.8.1** trên ESP32-S3-WROOM-1U-N8, Web PWA và Cloudflare Worker.
+> Baseline hiện hành: **MAYAP release 4.0.0** trên ESP32-S3-WROOM-1U-N8, Web PWA và Cloudflare Worker. Xem `doc/RELEASE_4_0_0.md` về giới hạn kiểm thử.
 
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
-| Release | 3.8.1 |
-| ESP32 firmware | 3.8.1 |
-| HMI firmware | 3.7.0 |
-| Web cache | 11.7.3 |
-| ATtiny protocol | 2 |
+| Release | 4.0.0 |
+| ESP32 firmware | 4.0.0 |
+| HMI firmware | 4.0.0 |
+| Web cache | 12.0.0 |
+| ATtiny protocol | 4 (LINKFIX) |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |
 | Node CI | 24 |
@@ -27,7 +27,7 @@ Cloudflare Worker + D1  ---------------->  Web Push
    |
    +--> GitHub Releases (metadata + firmware OTA)
 
-ESP32-S3 <---- pulse protocol v2 ----> ATtiny13A
+ESP32-S3 <---- pulse-width protocol v4 ----> ATtiny13A
 ```
 
 - **Điều khiển thời gian thực:** Web ↔ ESP32 qua MQTT. Network I/O không chạy trong `controlTask`.
@@ -88,10 +88,14 @@ esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,Flas
 Firmware ESP32 **không còn cho phép tạo `.bin` với MQTT username/password rỗng**.
 Khi build bằng Arduino IDE/CLI trên máy cá nhân:
 
-1. copy `MAYAP_INDUSTRIAL_v3_4_0/build_secrets.example.h` thành
-   `MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h`;
+1. mở file có sẵn `MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h`, không cần đổi tên;
 2. điền `MAYAP_MQTT_USERNAME` và `MAYAP_MQTT_PASSWORD` thật của HiveMQ;
-3. compile lại firmware. `build_secrets.h` đã nằm trong `.gitignore` và không được commit.
+3. compile lại firmware. **Không commit/push file sau khi nhập tài khoản thật.**
+
+Tên file `build_secrets.h` đã được đưa vào Git dưới dạng template rỗng theo yêu cầu.
+Vì vậy `.gitignore` không bảo vệ các sửa đổi của file đã được theo dõi. Luôn kiểm tra
+`git diff -- MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h` trước khi commit. CI kiểm tra
+template phải rỗng rồi mới tạo nội dung từ GitHub Repository Secrets khi build.
 
 Nếu file thiếu hoặc credential rỗng, compile phải fail. Đây là invariant có chủ ý để
 không thể phát sinh lại binary vẫn boot nhưng MQTT lặp `state=5 (UNAUTHORIZED)`.

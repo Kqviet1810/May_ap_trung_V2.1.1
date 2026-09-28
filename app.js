@@ -931,15 +931,21 @@
     if (hasUpdate) {
       summaryEl.textContent = `Có bản mới: v${latest.version}`;
       bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy v${escapeHtml(currentVersion)} · có bản v${escapeHtml(latest.version)} mới hơn.</p><button class="primary full" id="firmwareUpdateBtn" type="button">Cập nhật lên v${escapeHtml(latest.version)}</button>${rollbackButtonHtml}`;
-      $('firmwareUpdateBtn')?.addEventListener('click', () => sendCommand('firmware_check_now'));
+      $('firmwareUpdateBtn')?.addEventListener('click', () => {
+        sendCommand('firmware_check_now');
+        toast('Đã yêu cầu kiểm tra. Trên HMI: Cài đặt chung → Hệ thống → Cập nhật. Dừng mẻ và tắt công tắc nhiệt trước khi xác nhận cập nhật.', 8000);
+      });
       maybeNotifyFirmwareUpdate(device, latest.version);
-    } else {
+    } else if (latest) {
       summaryEl.textContent = `Phiên bản v${currentVersion} · đã mới nhất`;
       bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy phiên bản v${escapeHtml(currentVersion)} - đây đã là bản mới nhất.</p>${rollbackButtonHtml}`;
+    } else {
+      summaryEl.textContent = `Phiên bản v${currentVersion} · chưa xác định bản mới nhất`;
+      bodyEl.innerHTML = `<p class="settingFootnote">Chưa lấy được danh sách firmware. Kiểm tra lại trên HMI: Cài đặt chung → Hệ thống → Cập nhật.</p>${rollbackButtonHtml}`;
     }
     $('firmwareRollbackBtn')?.addEventListener('click', () => {
       // Rollback chi duoc xac nhan vat ly tren HMI; web khong gui MQTT.
-      toast('Quay lại firmware phải xác nhận trực tiếp trên màn hình máy: Cài đặt → Hệ thống → Quay lại bản cũ.', 6500);
+      toast('Quay lại firmware phải xác nhận trực tiếp trên HMI: Cài đặt chung → Hệ thống → Cập nhật → Quay lại bản cũ.', 6500);
     });
   }
 
@@ -2236,7 +2242,7 @@
     };
     if (known[code]) return known[code];
     if (code === 90) return `Trạng thái mạng: ${NET_STATE_TEXT[value] ?? `mã ${value}`}`;
-    if (code === 91) return 'Đã mở cổng cấu hình Wi‑Fi (giữ nút BOOT)';
+    if (code === 91) return 'Đã mở cổng đổi Wi‑Fi từ cài đặt HMI';
     if (code === 92) return 'Mở cổng cấu hình Wi‑Fi thất bại';
     if (code >= 1000) {
       const title = FAULT_TITLES[code - 1000] || `mã ${code - 1000}`;

@@ -1,8 +1,10 @@
 #pragma once
 
 #include "config.h"
+#include "firmware_update_guard.h"
 #include <Arduino.h>
 #include <ArduinoOTA.h>
+#include <Update.h>
 
 // Nap firmware qua Wi-Fi bang Arduino IDE (Sketch > Upload, chon cong mang
 // hien qua mDNS thay vi cong USB) - tien loi khi may da lap dat kin, kho thao
@@ -31,6 +33,12 @@ static bool started = false;
 static bool inProgress = false;
 
 inline void onStart() {
+  if (!mayapFirmwareMaintenanceReady()) {
+    Update.abort();
+    mayapSerialPrintf(false, "[OTA] MAY CHUA AN TOAN DE CAP NHAT - HUY\n");
+    return;
+  }
+  mayapSetFirmwareMaintenanceActive(true);
   inProgress = true;
   const char *type = (ArduinoOTA.getCommand() == U_FLASH) ? "chuong trinh" : "he thong tep";
   mayapSerialPrintf(false, "[OTA] Bat dau nap %s qua mang...\n", type);
@@ -38,6 +46,7 @@ inline void onStart() {
 
 inline void onEnd() {
   inProgress = false;
+  mayapSetFirmwareMaintenanceActive(false);
   mayapSerialPrintf(false, "[OTA] Nap xong, chuan bi khoi dong lai\n");
   // Danh dau day la khoi dong lai CO CHU DICH (xem config.h) - thu vien
   // ArduinoOTA tu goi ESP.restart() ngay sau callback nay khi nap thanh
@@ -57,6 +66,7 @@ inline void onProgress(unsigned int progress, unsigned int total) {
 
 inline void onError(ota_error_t error) {
   inProgress = false;
+  mayapSetFirmwareMaintenanceActive(false);
   const char *reason = "LOI KHONG XAC DINH";
   switch (error) {
     case OTA_AUTH_ERROR: reason = "SAI MAT KHAU"; break;
@@ -121,7 +131,8 @@ inline void mayapOtaUpdate(uint32_t now) {
 
   const NetworkStatus status = mayapGetNetworkStatus();
   const bool shouldRun =
-      status.requestedMode == ConnectivityMode::Online && status.connected;
+      status.requestedMode == ConnectivityMode::Online && status.connected &&
+      mayapFirmwareMaintenanceReady() && !mayapFirmwareMaintenanceActive();
 
   if (!shouldRun) {
     if (MayapOtaInternal::started) {

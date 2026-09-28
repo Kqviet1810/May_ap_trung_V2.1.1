@@ -3,6 +3,8 @@ name: Reliability regression checks
 on:
   push:
     branches:
+      - main
+      - feature/web-esp-transaction-v2
       - hardening/v3.8.1-reliability
   pull_request:
     branches:
@@ -47,11 +49,19 @@ jobs:
       - name: Release synchronization checks
         run: python3 tools/check_release_sync.py
 
+      - name: ATtiny LINKFIX protocol checks
+        run: python3 tools/check_attiny_protocol.py
+
       - name: Static reliability regression checks
         run: python3 tools/check_v381_reliability.py
 
       - name: Protocol V2 transaction and packet regression
         run: node --test tests/*.test.cjs
+
+      - name: Actual PID and autotune host tests
+        run: |
+          g++ -std=c++11 -Wall -Wextra -fsanitize=address,undefined tests/thermal-control.cpp -o /tmp/mayap-thermal-test
+          /tmp/mayap-thermal-test
 
       - name: Reject unsafe firmware shortcuts
         run: |

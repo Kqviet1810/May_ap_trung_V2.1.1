@@ -1643,9 +1643,8 @@ void openFirmwareWebConfirm() {
     return;
   }
   if (!mayapFirmwareWebStatus().available) {
-    char text[24];
-    snprintf(text, sizeof(text), "DANG CHAY v%s", MAYAP_FIRMWARE_VERSION);
-    showToast(text, true);
+    if (queueCommand(HmiCommandType::FirmwareWebCheckNow))
+      showToast("DANG KIEM TRA BAN MOI");
     return;
   }
   confirmAction = ConfirmAction::FirmwareWebApply;
@@ -4783,6 +4782,11 @@ void processCommandAcks() {
     if (!ack.ok && command.type == HmiCommandType::WifiPortalStart &&
         view == View::WifiChange) {
       goBack();
+    }
+    if (!ack.ok && command.type == HmiCommandType::FirmwareWebApply &&
+        view == View::FirmwareProgress) {
+      view = View::FirmwareMenu;
+      dirty = true;
     }
     if (!ack.ok && command.type == HmiCommandType::TestOutputPulse &&
         command.alarmMask == static_cast<uint32_t>(TestOutputId::HeaterSsr)) {

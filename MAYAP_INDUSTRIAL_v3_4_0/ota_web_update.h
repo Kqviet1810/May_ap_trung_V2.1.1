@@ -1,6 +1,8 @@
 #pragma once
 
 #include "config.h"
+#include "network_io_guard.h"
+#include "firmware_update_guard.h"
 #include <Arduino.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
@@ -9,6 +11,8 @@
 #include <mbedtls/sha256.h>
 #include <mbedtls/pk.h>
 #include <mbedtls/base64.h>
+#include <algorithm>
+#include <esp_ota_ops.h>
 
 // Cap nhat firmware TU XA qua Cloudflare Worker - KHAC HAN ota_update.h (do
 // la nap qua Arduino IDE, bat buoc CUNG mang LAN, dung ArduinoOTA). File nay
@@ -83,6 +87,8 @@ inline bool beginRequest(HTTPClient &http, WiFiClientSecure &client, const char 
     return false;
   }
   client.setCACert(TLS_ROOT_CA);
+  client.setConnectionTimeout(CLOUD_HTTP_CONNECT_TIMEOUT_MS);
+  client.setHandshakeTimeout(8);
   http.setConnectTimeout(CLOUD_HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(CLOUD_HTTP_TIMEOUT_MS);
   char url[192];
@@ -148,6 +154,27 @@ inline bool mayapFirmwareVersionNewer(const char *a, const char *b) {
   return false;
 }
 
+inline bool mayapFirmwareMetadataValid(const char *version, const char *hash,
+                                      const char *signature, uint32_t size) {
+  if (!version || !hash || !signature || strlen(version) >= 16U ||
+      strlen(hash) != 64U || strlen(signature) < 40U || strlen(signature) >= 128U)
+    return false;
+  uint8_t dots = 0U, digits = 0U;
+  for (const char *p = version; *p; ++p) {
+    if (*p >= '0' && *p <= '9') { if (++digits > 4U) return false; }
+    else if (*p == '.' && digits && dots < 2U) { ++dots; digits = 0U; }
+    else return false;
+  }
+  if (dots != 2U || !digits) return false;
+  for (uint8_t i = 0U; i < 64U; ++i) {
+    const char c = hash[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+          (c >= 'A' && c <= 'F'))) return false;
+  }
+  const esp_partition_t *target = esp_ota_get_next_update_partition(nullptr);
+  return target && size > 0U && size <= target->size;
+}
+
 // Chi HOI Worker "co ban moi khong" - KHONG tai ve. An toan goi thuong
 // xuyen (chi 1 request JSON nho).
 inline bool mayapFirmwareWebCheck() {
@@ -178,7 +205,7 @@ inline bool mayapFirmwareWebCheck() {
         const char *sha256 = respDoc["sha256"] | "";
         const char *signature = respDoc["signature"] | "";
         const uint32_t size = respDoc["size"] | 0U;
-        if (version[0] && sha256[0] && signature[0] && size > 0U &&
+        if (mayapFirmwareMetadataValid(version, sha256, signature, size) &&
             mayapFirmwareVersionNewer(version, MAYAP_FIRMWARE_VERSION)) {
           publishPending(true, version, sha256, signature, size);
           mayapSerialPrintf(false, "[FWWEB] Co ban moi: v%s (%lu bytes)\n",
@@ -201,6 +228,12 @@ inline bool mayapFirmwareWebCheck() {
 // rieng, khong anh huong controlTask/hmiTask) toi khi xong hoac loi.
 inline void mayapFirmwareWebApplyNow() {
   using namespace MayapFirmwareWebInternal;
+  if (!mayapFirmwareMaintenanceReady()) {
+    setError("DUNG ME/TEST VA TAT CONG TAC NHIET TRUOC");
+    __atomic_store_n(&applyPhase, 2U, __ATOMIC_RELEASE);
+    return;
+  }
+  MayapFirmwareMaintenance maintenance;
   const FirmwareWebStatus status = mayapFirmwareWebStatus();
   if (!status.available || status.size == 0U) {
     setError("KHONG CO BAN CAP NHAT DANG CHO");
@@ -270,7 +303,8 @@ inline void mayapFirmwareWebApplyNow() {
       delay(2);
       continue;
     }
-    const size_t toRead = (avail < sizeof(buf)) ? avail : sizeof(buf);
+    const size_t toRead = std::min<size_t>(static_cast<size_t>(remaining),
+        std::min<size_t>(avail, sizeof(buf)));
     const int readBytes = stream->readBytes(buf, toRead);
     if (readBytes <= 0) { ioError = true; break; }
     const size_t written = Update.write(buf, static_cast<size_t>(readBytes));
@@ -346,7 +380,7 @@ inline void mayapFirmwareWebApplyNow() {
     return;
   }
 
-  if (!Update.end(true)) {
+  if (!Update.end(false)) {
     mayapSerialPrintf(false, "[FWWEB] Update.end() THAT BAI: %s\n", Update.errorString());
     setError("GHI FLASH THAT BAI");
     __atomic_store_n(&applyPhase, 2U, __ATOMIC_RELEASE);
@@ -370,6 +404,8 @@ inline void mayapFirmwareWebApplyNow() {
 inline void mayapFirmwareWebUpdate(uint32_t now) {
   using namespace MayapFirmwareWebInternal;
   if (__atomic_load_n(&applyRequestFlag, __ATOMIC_ACQUIRE)) {
+    MayapTlsOperation tlsOperation;
+    if (!tlsOperation) return; // keep the accepted request pending, never lose it
     __atomic_store_n(&applyRequestFlag, 0U, __ATOMIC_RELEASE);
     mayapFirmwareWebApplyNow();
     return;
@@ -379,8 +415,10 @@ inline void mayapFirmwareWebUpdate(uint32_t now) {
   if (netStatus.requestedMode != ConnectivityMode::Online || !netStatus.connected) return;
 
   const bool checkNow = __atomic_load_n(&checkNowRequestFlag, __ATOMIC_ACQUIRE) != 0U;
-  if (checkNow) __atomic_store_n(&checkNowRequestFlag, 0U, __ATOMIC_RELEASE);
   if (!checkNow && lastCheckAt != 0U && (now - lastCheckAt) < FIRMWARE_CHECK_INTERVAL_MS) return;
+  MayapTlsOperation tlsOperation;
+  if (!tlsOperation) return; // retry next loop, not six hours later
+  if (checkNow) __atomic_store_n(&checkNowRequestFlag, 0U, __ATOMIC_RELEASE);
   lastCheckAt = now;
   mayapFirmwareWebCheck();
 }

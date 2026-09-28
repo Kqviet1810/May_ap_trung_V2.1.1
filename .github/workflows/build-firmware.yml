@@ -3,6 +3,8 @@ name: Build & release firmware
 on:
   push:
     branches:
+      - main
+      - feature/web-esp-transaction-v2
       - 'hardening/**'
     tags:
       - 'v*.*.*'
@@ -92,63 +94,9 @@ jobs:
           fi
 
       - name: Kiem tra hop dong protocol ESP32 ATtiny
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+        run: python3 tools/check_attiny_protocol.py
 
-          cfg = Path('MAYAP_INDUSTRIAL_v3_4_0/config.h').read_text(encoding='utf-8')
-          tiny = Path('ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino').read_text(encoding='utf-8')
-
-          def number(text, pattern, label):
-              m = re.search(pattern, text)
-              if not m:
-                  raise SystemExit(f'Thieu {label}')
-              return int(m.group(1))
-
-          esp_proto = number(cfg, r'ATTINY_PROTOCOL_VERSION\s*=\s*(\d+)U', 'ATTINY_PROTOCOL_VERSION')
-          tiny_proto = number(tiny, r'PROTOCOL_VERSION\s*=\s*(\d+)U', 'PROTOCOL_VERSION')
-          if esp_proto != tiny_proto:
-              raise SystemExit(f'Protocol mismatch ESP={esp_proto} Tiny={tiny_proto}')
-
-          pairs = [
-              ('BATCH_START', r'ATTINY_MSG_BATCH_START\s*=\s*(\d+)U', r'MSG_BATCH_START\s*=\s*(\d+)U'),
-              ('BATCH_END', r'ATTINY_MSG_BATCH_END\s*=\s*(\d+)U', r'MSG_BATCH_END\s*=\s*(\d+)U'),
-              ('SIREN_ON', r'ATTINY_MSG_SIREN_ON\s*=\s*(\d+)U', r'MSG_SIREN_ON\s*=\s*(\d+)U'),
-              ('SIREN_OFF', r'ATTINY_MSG_SIREN_OFF\s*=\s*(\d+)U', r'MSG_SIREN_OFF\s*=\s*(\d+)U'),
-              ('STATUS_QUERY', r'ATTINY_MSG_STATUS_QUERY\s*=\s*(\d+)U', r'MSG_STATUS_QUERY\s*=\s*(\d+)U'),
-              ('STATUS_BASE', r'ATTINY_MSG_STATUS_BASE\s*=\s*(\d+)U', r'MSG_STATUS_BASE\s*=\s*(\d+)U'),
-              ('STATUS_MAX', r'ATTINY_MSG_STATUS_MAX\s*=\s*(\d+)U', r'MSG_STATUS_MAX\s*=\s*(\d+)U'),
-          ]
-          for label, ep, tp in pairs:
-              ev = number(cfg, ep, 'ESP ' + label)
-              tv = number(tiny, tp, 'Tiny ' + label)
-              if ev != tv:
-                  raise SystemExit(f'{label} mismatch ESP={ev} Tiny={tv}')
-
-          widths_match = re.search(r'ATTINY_COMMAND_WIDTH_MS\[8\]\s*=\s*\{([^}]+)\}', cfg)
-          if not widths_match:
-              raise SystemExit('Thieu bang do rong lenh ESP')
-          widths = [int(x) for x in re.findall(r'(\d+)U', widths_match.group(1))]
-          if len(widths) != 8 or widths[0] != 0:
-              raise SystemExit('Bang do rong lenh ESP khong hop le')
-          windows = re.findall(
-              r'if \(width >= (\d+)U && width <= (\d+)U\) return MSG_([A-Z_]+);', tiny)
-          expected = ['BATCH_START', 'BATCH_END', 'SIREN_ON', 'SIREN_OFF',
-                      'STATUS_QUERY', 'ACTIVITY_ON', 'ACTIVITY_OFF']
-          if [name for _, _, name in windows] != expected:
-              raise SystemExit('Thu tu cua so lenh Tiny khong khop ESP')
-          for index, (lo, hi, name) in enumerate(windows, 1):
-              width = widths[index]
-              if not (int(lo) <= width * 0.9 and width * 1.1 <= int(hi)):
-                  raise SystemExit(f'Cua so {name} khong du dung sai +/-10%')
-              if index > 1 and int(windows[index - 2][1]) >= int(lo):
-                  raise SystemExit(f'Cua so {name} chong len lenh truoc')
-
-          print(f'ATtiny protocol v{esp_proto}: contract OK')
-          PY
-
-      - name: Kiem tra dong bo release v3.8.1
+      - name: Kiem tra dong bo release
         run: python3 tools/check_release_sync.py
 
       - name: Kiem tra reliability truoc build/release
@@ -156,6 +104,11 @@ jobs:
 
       - name: Protocol V2 transaction and packet regression
         run: node --test tests/*.test.cjs
+
+      - name: Actual PID and autotune host tests
+        run: |
+          g++ -std=c++11 -Wall -Wextra -fsanitize=address,undefined tests/thermal-control.cpp -o /tmp/mayap-thermal-test
+          /tmp/mayap-thermal-test
 
       - name: Tao MQTT credential cho compile
         env:
@@ -255,12 +208,14 @@ jobs:
           ls -la ./build-attiny/*.hex
 
       - name: Luu firmware test
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/hardening/')
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/hardening/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/web-esp-transaction-v2'
         uses: actions/upload-artifact@v6
         with:
           name: firmware-test-${{ github.sha }}
           path: |
             ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
+            ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.elf
+            ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.map
             ./build-attiny/ATTINY13A_POWER_ALARM.hex
           retention-days: 7
 
@@ -269,6 +224,8 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
+          cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.elf "./MAYAP-firmware-${VERSION}.elf"
+          cp ./build-attiny/ATTINY13A_POWER_ALARM.hex "./MAYAP-ATtiny13A-LINKFIX-${VERSION}.hex"
 
       - name: Ky so firmware
         if: startsWith(github.ref, 'refs/tags/')
@@ -288,4 +245,6 @@ jobs:
           files: |
             ./MAYAP-firmware-*.bin
             ./MAYAP-firmware-*.sig
+            ./MAYAP-firmware-*.elf
+            ./MAYAP-ATtiny13A-LINKFIX-*.hex
           generate_release_notes: true

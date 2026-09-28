@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "firmware_update_guard.h"
 #include <Arduino.h>
 #include <HardwareSerial.h>
 #include <Wire.h>
@@ -3198,86 +3199,7 @@ class SHT485Industrial {
 // ============================================================================
 // PID THEO Nhip MAU CAM BIEN + ANTI-WINDUP + DAO HAM TREN PV
 // ============================================================================
-class ThermalController {
- public:
-  void reset() {
-    initialized_ = false;
-    integral_ = 0.0f;
-    lastInput_ = 0.0f;
-    lastComputeAt_ = 0;
-    output_ = 0.0f;
-  }
-
-  // Ap dung cau hinh moi ma giu nguyen cong suat hien tai. Cach nay tranh
-  // nha contactor tong chi vi nguoi dung sua/lưu mot thong so tren HMI.
-  void applyConfigBumpless(uint32_t now, float setpoint, float input,
-                           const MachineConfig &cfg) {
-    if (!initialized_ || !isfinite(input)) return;
-    const float maxOut = static_cast<float>(cfg.maxHeaterPower);
-    output_ = clampFloat(output_, 0.0f, maxOut);
-    lastInput_ = input;
-    lastComputeAt_ = now;
-    if (cfg.controlMode == ControlMode::Pid) {
-      const float error = setpoint - input;
-      integral_ = clampFloat(output_ - cfg.kp * error, -maxOut, maxOut);
-    } else {
-      integral_ = 0.0f;
-    }
-  }
-
-  float updateOnNewSample(uint32_t now, float setpoint, float input,
-                          const MachineConfig &cfg, bool enabled) {
-    if (!enabled || !isfinite(input)) { reset(); return 0.0f; }
-    const float maxOut = static_cast<float>(cfg.maxHeaterPower);
-    if (cfg.controlMode == ControlMode::OnOff) {
-      const float half = cfg.tempHysteresis * 0.5f;
-      if (!initialized_) { output_ = input < setpoint ? maxOut : 0.0f; initialized_ = true; }
-      else if (input <= setpoint - half) output_ = maxOut;
-      else if (input >= setpoint + half) output_ = 0.0f;
-      lastInput_ = input; lastComputeAt_ = now;
-      return output_;
-    }
-
-    if (!initialized_) {
-      initialized_ = true;
-      lastInput_ = input;
-      lastComputeAt_ = now;
-      integral_ = 0.0f;
-      output_ = clampFloat(cfg.kp * (setpoint - input), 0.0f, maxOut);
-      return output_;
-    }
-
-    float dt = static_cast<float>(elapsedMs(now, lastComputeAt_)) * 0.001f;
-    dt = clampFloat(dt, 0.25f, 10.0f);
-    lastComputeAt_ = now;
-    const float error = setpoint - input;
-    const float dInput = (input - lastInput_) / dt;
-    lastInput_ = input;
-
-    const float p = cfg.kp * error;
-    const float d = -cfg.kd * dInput;
-    const float candidateIntegral = clampFloat(
-        integral_ + cfg.ki * error * dt, -maxOut, maxOut);
-    const float unsaturated = p + candidateIntegral + d;
-    // Tich phan co dieu kien: chi tich khi chua bao hoa hoac dang keo khoi bao hoa.
-    if ((unsaturated >= 0.0f && unsaturated <= maxOut) ||
-        (unsaturated > maxOut && error < 0.0f) ||
-        (unsaturated < 0.0f && error > 0.0f)) {
-      integral_ = candidateIntegral;
-    }
-    output_ = clampFloat(p + integral_ + d, 0.0f, maxOut);
-    return output_;
-  }
-
-  float output() const { return output_; }
-
- private:
-  bool initialized_ = false;
-  float integral_ = 0.0f;
-  float lastInput_ = 0.0f;
-  uint32_t lastComputeAt_ = 0;
-  float output_ = 0.0f;
-};
+#include "thermal_control.h"
 
 class ConditionTimer {
  public:
@@ -3688,123 +3610,6 @@ enum class TurnPhase : uint8_t {
 // ============================================================================
 // AUTO TUNE RELAY AN TOAN
 // ============================================================================
-class RelayAutoTune {
- public:
-  void start(uint32_t now, float input) {
-    state_ = AutoTuneState::Running;
-    startedAt_ = now;
-    phaseHeat_ = input < target_;
-    phaseStartedAt_ = now;
-    lastUpperCrossAt_ = 0;
-    currentLow_ = input;
-    currentHigh_ = input;
-    capturedHigh_ = NAN;
-    cycleCount_ = 0;
-    progress_ = 1;
-  }
-  void configure(float target) { target_ = target; }
-  void abort() { state_ = AutoTuneState::Failed; power_ = 0.0f; progress_ = 0; }
-
-  bool update(uint32_t now, float input, const MachineConfig &cfg,
-              MachineConfig &tunedOut) {
-    if (state_ != AutoTuneState::Running || !isfinite(input)) return false;
-    if (elapsedMs(now, startedAt_) >= AUTOTUNE_MAX_MS ||
-        elapsedMs(now, phaseStartedAt_) >= AUTOTUNE_PHASE_MAX_MS) {
-      abort();
-      return false;
-    }
-
-    if (phaseHeat_) {
-      if (input < currentLow_) currentLow_ = input;
-      power_ = static_cast<float>(std::min<uint8_t>(cfg.autotuneRelayPowerPercent,
-                                               cfg.maxHeaterPower));
-      if (input >= target_ + cfg.autotuneBandC) {
-        if (isfinite(capturedHigh_) && lastUpperCrossAt_ != 0U) {
-          const float amplitude = (capturedHigh_ - currentLow_) * 0.5f;
-          const uint32_t period = elapsedMs(now, lastUpperCrossAt_);
-          if (amplitude >= AUTOTUNE_MIN_AMPLITUDE_C &&
-              period >= AUTOTUNE_MIN_PERIOD_MS) {
-            amplitudes_[cycleCount_] = amplitude;
-            periodsMs_[cycleCount_] = period;
-            ++cycleCount_;
-            const uint16_t percent = static_cast<uint16_t>(
-                (static_cast<uint16_t>(cycleCount_) * 90U) /
-                AUTOTUNE_REQUIRED_CYCLES);
-            progress_ = static_cast<uint8_t>(
-                std::min<uint16_t>(95U, percent));
-          }
-        }
-        lastUpperCrossAt_ = now;
-        phaseHeat_ = false;
-        phaseStartedAt_ = now;
-        currentHigh_ = input;
-        power_ = 0.0f;
-      }
-    } else {
-      if (input > currentHigh_) currentHigh_ = input;
-      power_ = 0.0f;
-      if (input <= target_ - cfg.autotuneBandC) {
-        capturedHigh_ = currentHigh_;
-        phaseHeat_ = true;
-        phaseStartedAt_ = now;
-        currentLow_ = input;
-      }
-    }
-
-    if (cycleCount_ >= AUTOTUNE_REQUIRED_CYCLES) {
-      float amplitude = 0.0f;
-      float periodSec = 0.0f;
-      for (uint8_t i = 0; i < AUTOTUNE_REQUIRED_CYCLES; ++i) {
-        amplitude += amplitudes_[i];
-        periodSec += static_cast<float>(periodsMs_[i]) * 0.001f;
-      }
-      amplitude /= AUTOTUNE_REQUIRED_CYCLES;
-      periodSec /= AUTOTUNE_REQUIRED_CYCLES;
-      const float relayAmplitude = static_cast<float>(
-          std::min<uint8_t>(cfg.autotuneRelayPowerPercent, cfg.maxHeaterPower)) * 0.5f;
-      const float ku = (4.0f * relayAmplitude) /
-                       (static_cast<float>(PI) * amplitude);
-      if (!isfinite(ku) || ku <= 0.0f || periodSec <= 0.0f) {
-        abort(); return false;
-      }
-      tunedOut = cfg;
-      // Tyreus-Luyben PID: it gay vuot lo hon Ziegler-Nichols, hop he nhiet cham.
-      const float kp = ku / 2.2f;
-      const float ti = 2.2f * periodSec;
-      const float td = periodSec / 6.3f;
-      tunedOut.kp = clampFloat(kp, 0.1f, 100.0f);
-      tunedOut.ki = clampFloat(kp / ti, 0.0f, 20.0f);
-      tunedOut.kd = clampFloat(kp * td, 0.0f, 200.0f);
-      sanitizeMachineConfig(tunedOut);
-      state_ = AutoTuneState::Success;
-      power_ = 0.0f;
-      progress_ = 100;
-      return true;
-    }
-    return false;
-  }
-
-  AutoTuneState state() const { return state_; }
-  uint8_t progress() const { return progress_; }
-  float power() const { return power_; }
-  bool running() const { return state_ == AutoTuneState::Running; }
-
- private:
-  AutoTuneState state_ = AutoTuneState::Idle;
-  float target_ = 37.5f;
-  uint32_t startedAt_ = 0;
-  uint32_t phaseStartedAt_ = 0;
-  bool phaseHeat_ = false;
-  uint32_t lastUpperCrossAt_ = 0;
-  float currentLow_ = NAN;
-  float currentHigh_ = NAN;
-  float capturedHigh_ = NAN;
-  float amplitudes_[AUTOTUNE_REQUIRED_CYCLES]{};
-  uint32_t periodsMs_[AUTOTUNE_REQUIRED_CYCLES]{};
-  uint8_t cycleCount_ = 0;
-  uint8_t progress_ = 0;
-  float power_ = 0.0f;
-};
 
 // ============================================================================
 // BO DIEU KHIEN TONG
@@ -4007,6 +3812,12 @@ class MachineController {
     updateAttinyLink(now);
     updateBatchTime(now);
     serviceBatchLog(now);
+    const OutputState &maintenanceOut = outputs_.state();
+    mayapSetFirmwareMaintenanceReady(!batchRunning_ && !resumePending_ &&
+        !batchClearPending_ && !autotune_.running() && !testModeActive_ &&
+        !maintenanceOut.heaterSsr && !maintenanceOut.heatMaster &&
+        !maintenanceOut.turnLeft && !maintenanceOut.turnRight &&
+        !highTemperatureActive_ && !emergencyActive_);
     serviceHealthMonitor(now);
     // Lich su nhiet tach khoi Flash ESP32/Cloud: chi ghi AT24C32 moi 5 phut.
     // Ham tu bo qua neu RTC/cam bien khong hop le va tu tranh ghi lap sau reboot.
@@ -4754,6 +4565,9 @@ class MachineController {
           ok = true; message = "DA GUI YEU CAU DAT LAI PIN";
           break;
         case HmiCommandType::FirmwareWebApply:
+          if (!mayapFirmwareMaintenanceReady() || mayapFirmwareMaintenanceActive()) {
+            message = "DUNG ME/TEST VA TAT CONG TAC NHIET TRUOC"; break;
+          }
           // Chi dat co hieu cho otaTask (mayapFirmwareWebUpdate() trong
           // ota_web_update.h) - viec tai ve/flash thuc su co the mat vai
           // chuc giay, controlTask khong duoc phep block.
@@ -4769,6 +4583,9 @@ class MachineController {
           ok = true; message = "DANG KIEM TRA BAN MOI";
           break;
         case HmiCommandType::FirmwareRollback:
+          if (!mayapFirmwareMaintenanceReady() || mayapFirmwareMaintenanceActive()) {
+            message = "DUNG ME/TEST VA TAT CONG TAC NHIET TRUOC"; break;
+          }
           // Kiem tra NGAY tren controlTask (chi doc 1 byte flash, khong
           // ghi/block) de tra ve ket qua chinh xac ngay lap tuc thay vi bao
           // "dang xu ly" roi im lang neu khong con ban de quay lai - dung
@@ -4852,6 +4669,7 @@ class MachineController {
   }
 
   bool startBatch(uint32_t now, const char *&message) {
+    if (mayapFirmwareMaintenanceActive()) { message = "DANG CAP NHAT FIRMWARE"; return false; }
     const InputState &in = inputs_.state();
     if (testModeActive_) { message = "HAY THOAT TEST TRUOC"; return false; }
     if (batchRunning_) { message = "ME DANG CHAY"; return false; }
@@ -5005,6 +4823,7 @@ class MachineController {
   }
 
   bool startAutoTune(uint32_t now, const char *&message) {
+    if (mayapFirmwareMaintenanceActive()) { message = "DANG CAP NHAT FIRMWARE"; return false; }
     const InputState &in = inputs_.state();
     if (testModeActive_) { message = "HAY THOAT TEST TRUOC"; return false; }
     if (batchRunning_ || resumePending_) { message = "DUNG ME TRUOC"; return false; }
@@ -5552,7 +5371,9 @@ class MachineController {
     if (!autotune_.running()) return;
     const InputState &in = inputs_.state();
     if (!in.autoMode || !in.heaterEnable || !sensorUsable_ ||
-        highTemperatureActive_ || emergencyActive_ || batchRunning_) {
+        highTemperatureActive_ || emergencyActive_ || batchRunning_ ||
+        storageFaultLatched_ || storageDegraded_ || abnormalResetLatched_ ||
+        faults_.masterDropRequired() || faults_.ssrInhibited()) {
       autotune_.abort();
       pid_.reset();
       postCoolUntil_ = now + POST_COOL_MS;
@@ -5565,7 +5386,17 @@ class MachineController {
     }
     if (!newSensorSample_) return;
     MachineConfig tuned{};
-    if (autotune_.update(now, temperature_, config_, tuned)) {
+    const bool tunedReady = autotune_.update(now, temperature_, config_, tuned);
+    if (!tunedReady && autotune_.state() == AutoTuneState::Failed) {
+      pid_.reset();
+      postCoolUntil_ = now + POST_COOL_MS;
+      heatRestartNotBefore_ = now + HEAT_RESTART_LOCKOUT_MS;
+      eventLog_.push(now, EventType::AutoTuneEnd,
+                     static_cast<uint16_t>(EventCode::AutoTuneFailed), 0, 2U);
+      mayapSerialPrintf(false, "[TUNE] FAIL timeout/invalid oscillation\n");
+      return;
+    }
+    if (tunedReady) {
       MachineConfig readback{};
       if (store_.saveConfig(tuned, readback)) {
         config_ = readback;
@@ -6206,6 +6037,12 @@ class MachineController {
       }
     }
 
+    if (mayapFirmwareMaintenanceActive()) {
+      req.heaterSsr = req.heatMaster = req.turnLeft = req.turnRight = false;
+      req.immediateMasterDrop = true;
+      pid_.reset();
+      commandedPower = 0.0f;
+    }
     outputs_.update(now, req);
     runtime_.heaterPower = commandedPower;
   }
@@ -6232,6 +6069,7 @@ class MachineController {
   // toan khi dang co me/resume/auto-tune de khong the vo tinh dieu khien
   // thiet bi that trong luc dang ap trung.
   bool enterTestMode(uint32_t now, const char *&message) {
+    if (mayapFirmwareMaintenanceActive()) { message = "DANG CAP NHAT FIRMWARE"; return false; }
     if (batchRunning_ || resumePending_) {
       message = "DANG CO ME - KHONG TEST DUOC"; return false;
     }

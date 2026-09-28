@@ -37,7 +37,12 @@ Activity ON duoc arm ngay. Activity OFF chi ghi sau khi tat ca tai tren OFF lien
 Cach nay tranh ghi EEPROM theo cac dao dong relay/ngan han.
 
 ## Luu EEPROM va chong mat trang thai
-- Batch va critical-activity deu luu bang cap `state` + `~state`.
+- Ban LINKFIX v2.1 do nguoi dung cung cap: Batch/activity dong goi chung trong
+  mot byte `eeState`, kem byte nghich dao `eeInv`. PB4 khong dung duoc giu LOW.
+- Khong thay doi thuat toan cua ban da test; chi them metadata protocol va
+  `main()` co dieu kien cho CI avr-libc (Arduino/MicroCore van dung setup/loop).
+- Sau khi thay ban cu, ESP32 se dong bo lai Batch/activity qua status. Can thu
+  mat/hoi nguon khi dang co me va khi chi quat/contactor dang chay.
 - Dung `eeprom_update_byte()`: neu gia tri khong doi thi AVR khong ghi lai cell.
 - Chi ghi khi trang thai tong ON/OFF thuc su doi; khong con reassert 5 giay.
 - Record loi/rach -> fail-safe coi la **ARMED**.

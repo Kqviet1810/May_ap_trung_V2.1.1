@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "network_io_guard.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #if MQTT_USE_TLS
@@ -1419,6 +1420,9 @@ inline void subscribeAll() {
 inline void attemptConnect(uint32_t now) {
   if (!mqttTlsReady || !mqttBufferReady || !MQTT_BROKER_HOST[0]) return;
   if (!mqttBackoff.ready(now)) return;
+
+  MayapTlsOperation tlsOperation;
+  if (!tlsOperation) return; // do not consume reconnect backoff while HTTPS is busy
 
   char clientId[32];
   snprintf(clientId, sizeof(clientId), "esp-%s", deviceId);

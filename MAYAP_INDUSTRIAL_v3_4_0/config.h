@@ -35,9 +35,9 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "3.9.0";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "4.0.0";
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
-constexpr char HMI_FIRMWARE_VERSION[] = "3.8.0";
+constexpr char HMI_FIRMWARE_VERSION[] = "4.0.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";
 
 // ----------------------------- BUILD -----------------------------------------
@@ -84,7 +84,7 @@ static_assert(sizeof(OTA_PASSWORD) <= 64U, "Mat khau OTA toi da 63 ky tu");
 
 // ------------------------- Web realtime (MQTT) --------------------------------
 // Host/port/CA cong khai nam trong build_public.h. Username/password MQTT la
-// BUILD SECRET: local build phai tao build_secrets.h; CI branch/tag tu tao file
+// BUILD SECRET: local build dien build_secrets.h co san; CI branch/tag tao file
 // nay tu GitHub Secrets. Tuyet doi khong commit credential that vao repo.
 //
 // Fail-fast la chu dich: firmware co realtime Web nen mot binary deploy ma
@@ -122,9 +122,9 @@ static_assert(sizeof(MQTT_BROKER_HOST) > 1U,
 static_assert(MQTT_BROKER_PORT != 0U,
               "MAYAP_MQTT_PORT khong hop le");
 static_assert(sizeof(MQTT_USERNAME) > 1U,
-              "THIEU MAYAP_MQTT_USERNAME: tao build_secrets.h tu build_secrets.example.h");
+              "THIEU MAYAP_MQTT_USERNAME: dien build_secrets.h");
 static_assert(sizeof(MQTT_PASSWORD) > 1U,
-              "THIEU MAYAP_MQTT_PASSWORD: tao build_secrets.h tu build_secrets.example.h");
+              "THIEU MAYAP_MQTT_PASSWORD: dien build_secrets.h");
 
 // Reconnect MQTT dung BackoffTimer dung chung (xem phia duoi file) thay vi
 // chu ky co dinh - khong con hang so rieng o day.
@@ -889,6 +889,8 @@ constexpr uint32_t SSR_MIN_OFF_MS = 300UL;
 // nguoi dung tu chinh "nhe tay" hon khi Auto Tune tren dan nhiet cong suat
 // lon ma khong can nap lai firmware. Gia tri mac dinh giu nguyen y het.
 constexpr uint8_t AUTOTUNE_REQUIRED_CYCLES = 3;
+constexpr float AUTOTUNE_STABILITY_FRACTION = 0.20f;
+constexpr float PID_D_FILTER_TAU_SEC = 5.0f;
 constexpr uint32_t AUTOTUNE_MAX_MS = 2700000UL; // 45 phut
 constexpr uint32_t AUTOTUNE_PHASE_MAX_MS = 900000UL; // moi pha toi da 15 phut
 constexpr uint32_t AUTOTUNE_MIN_PERIOD_MS = 10000UL;

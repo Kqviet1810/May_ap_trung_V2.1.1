@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "firmware_update_guard.h"
 #include <Arduino.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
@@ -73,6 +74,12 @@ inline void mayapFirmwareRollbackUpdate(uint32_t now) {
   (void)now;
   if (!__atomic_load_n(&MayapOtaRollbackInternal::requestFlag, __ATOMIC_ACQUIRE)) return;
   __atomic_store_n(&MayapOtaRollbackInternal::requestFlag, 0U, __ATOMIC_RELEASE);
+
+  if (!mayapFirmwareMaintenanceReady() || mayapFirmwareMaintenanceActive()) {
+    mayapSerialPrintf(false, "[ROLLBACK] MAY CHUA AN TOAN DE CAP NHAT - HUY\n");
+    return;
+  }
+  MayapFirmwareMaintenance maintenance;
 
   if (!mayapRollbackTargetValidUncached()) {
     mayapSerialPrintf(false, "[ROLLBACK] KHONG CON ban truoc do hop le - HUY\n");

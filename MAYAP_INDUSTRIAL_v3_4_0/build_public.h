@@ -4,7 +4,8 @@
 // MAYAP v3.8.0 - PUBLIC BUILD CONFIG
 //
 // Tat ca gia tri trong file nay KHONG PHAI BI MAT va duoc phep commit public.
-// Chi MQTT username/password that nam trong build_secrets.h local (.gitignore).
+// Chi MQTT username/password that nam trong build_secrets.h khi build local.
+// Ban tren Git chi duoc chua template rong; KHONG push file da dien mat khau.
 // ============================================================================
 
 #define MAYAP_WIFI_SSID ""

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "network_io_guard.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -587,6 +588,8 @@ inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const 
     return false;
   }
   client.setCACert(TLS_ROOT_CA);
+  client.setConnectionTimeout(CLOUD_HTTP_CONNECT_TIMEOUT_MS);
+  client.setHandshakeTimeout(8);
   http.setConnectTimeout(CLOUD_HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(CLOUD_HTTP_TIMEOUT_MS);
   char url[160];
@@ -598,6 +601,11 @@ inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const 
 
 inline bool postJson(const char *path, const JsonDocument &doc, const char *logTag,
                      String *responseBody = nullptr, int *responseCode = nullptr) {
+  MayapTlsOperation tlsOperation;
+  if (!tlsOperation) {
+    if (responseCode) *responseCode = 0;
+    return false; // defer through the existing bounded Cloud retry queue
+  }
   WiFiClientSecure client;
   HTTPClient http;
   if (!beginCloudRequest(http, client, path)) {

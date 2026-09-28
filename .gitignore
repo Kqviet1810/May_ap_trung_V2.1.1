@@ -1,5 +1,7 @@
-# Local firmware secrets - NEVER commit real credentials/keys
-MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h
+# Optional private override; tracked build_secrets.h must remain an EMPTY template.
+MAYAP_INDUSTRIAL_v3_4_0/build_secrets.local.h
+build-attiny-v4/
+build-v4/
 
 # Local key/certificate material
 *.pem
