@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "boot_diagnostic.h"
 #include "network_io_guard.h"
 #include "firmware_update_guard.h"
 #include <Arduino.h>
@@ -395,7 +396,7 @@ inline void mayapFirmwareWebApplyNow() {
   // bat thuong", tranh bao gia "ABNORMAL RESET"/mat dien sau khi nap ban moi.
   mayapMarkIntentionalRestart();
   delay(300);
-  ESP.restart();
+  mayapRestart(MayapBoot::RestartReason::InternetOta, "verified Internet OTA complete");
 }
 
 // Goi moi chu ky tu otaTask (xem .ino). Uu tien xu ly yeu cau ap dung dang

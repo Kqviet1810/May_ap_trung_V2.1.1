@@ -1,4 +1,5 @@
 #include "config.h"
+#include "boot_diagnostic.h"
 #include <esp_timer.h>
 
 static volatile bool gMayapSystemTripLatched = false;
@@ -98,6 +99,25 @@ static volatile uint8_t controlTripCycleCount = 0U;
 static volatile uint32_t hmiLastCycleUs = 0U;
 static volatile uint32_t hmiMaxCycleUs = 0U;
 static volatile uint8_t hmiTripCycleCount = 0U;
+static volatile uint32_t supervisorHeartbeatMs = 0U;
+static volatile uint8_t controlStarted = 0U;
+static volatile uint8_t hmiStarted = 0U;
+static volatile uint8_t sensorHealthy = 0U;
+static volatile uint8_t displayHealthy = 0U;
+static volatile uint8_t networkReady = 0U;
+static volatile uint8_t mqttReady = 0U;
+static volatile uint8_t mqttConnected = 0U;
+static volatile uint8_t cloudReady = 0U;
+static volatile uint8_t otaReady = 0U;
+static MayapBoot::Sequencer bootSequence;
+static MayapBoot::Stability localTaskStability;
+static MayapBoot::Stability localSuccessStability;
+static bool bootStageEntered = false;
+static bool bootSuccessMarked = false;
+static bool bootFailuresCleared = false;
+static bool bootCoordinatorWdt = false;
+static bool bootReadyShown = false;
+static uint32_t bootReadyAt = 0U;
 
 static_assert(sizeof(controlTaskStack) >= CONTROL_TASK_STACK_BYTES,
               "Control stack buffer qua nho");
@@ -114,19 +134,19 @@ static_assert(sizeof(cloudTaskStack) >= CLOUD_TASK_STACK_BYTES,
 static_assert(sizeof(otaTaskStack) >= OTA_TASK_STACK_BYTES,
               "OTA stack buffer qua nho");
 
-static void fatalRestart(const char *stage, esp_err_t error) {
+static void fatalRestart(const char *stage, esp_err_t error,
+                         MayapBoot::RestartReason reason = MayapBoot::RestartReason::FatalInit) {
   mayapLatchSystemTrip();
   mayapSafeOutputsEarly();
   mayapSerialPrintf(false, "[FATAL] %s err=%d -> RESTART\n",
                     stage ? stage : "SYSTEM", static_cast<int>(error));
-  esp_restart();
-  abort();
+  mayapRestart(reason, stage);
 }
 
 static void subscribeCurrentTaskToWdt(const char *name) {
   const esp_err_t result = esp_task_wdt_add(nullptr);
   if (result != ESP_OK && result != ESP_ERR_INVALID_STATE) {
-    fatalRestart(name, result);
+    fatalRestart(name, result, MayapBoot::RestartReason::WdtApi);
   }
 }
 
@@ -142,6 +162,10 @@ void controlTask(void *parameter) {
     const uint32_t now = millis();
     const int64_t cycleStartedUs = esp_timer_get_time();
     Machine.update(now);
+    const MachineRuntime &runtime = Machine.runtime();
+    __atomic_store_n(&sensorHealthy,
+        runtime.sensorOnline && !runtime.sensorStartupGrace && isfinite(runtime.temperature) ? 1U : 0U,
+        __ATOMIC_RELEASE);
     const uint32_t cycleUs = static_cast<uint32_t>(
         std::min<int64_t>(UINT32_MAX, esp_timer_get_time() - cycleStartedUs));
     __atomic_store_n(&controlLastCycleUs, cycleUs, __ATOMIC_RELEASE);
@@ -166,7 +190,7 @@ void controlTask(void *parameter) {
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(controlTaskHandle)),
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(hmiTaskHandle)),
           static_cast<unsigned>(uxTaskGetStackHighWaterMark(supervisorTaskHandle)),
-          static_cast<unsigned>(uxTaskGetStackHighWaterMark(networkTaskHandle)),
+          networkTaskHandle ? static_cast<unsigned>(uxTaskGetStackHighWaterMark(networkTaskHandle)) : 0U,
           mqttTaskHandle ? static_cast<unsigned>(uxTaskGetStackHighWaterMark(mqttTaskHandle)) : 0U,
           cloudTaskHandle ? static_cast<unsigned>(uxTaskGetStackHighWaterMark(cloudTaskHandle)) : 0U,
           otaTaskHandle ? static_cast<unsigned>(uxTaskGetStackHighWaterMark(otaTaskHandle)) : 0U,
@@ -178,7 +202,7 @@ void controlTask(void *parameter) {
 #endif
 
     const esp_err_t result = esp_task_wdt_reset();
-    if (result != ESP_OK) fatalRestart("CTRL WDT RESET", result);
+    if (result != ESP_OK) fatalRestart("CTRL WDT RESET", result, MayapBoot::RestartReason::WdtApi);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(CONTROL_TASK_PERIOD_MS));
   }
 }
@@ -190,6 +214,7 @@ void hmiTask(void *parameter) {
     const uint32_t now = millis();
     const int64_t cycleStartedUs = esp_timer_get_time();
     hmiUpdate(now);
+    __atomic_store_n(&displayHealthy, lcdReady ? 1U : 0U, __ATOMIC_RELEASE);
     const uint32_t cycleUs = static_cast<uint32_t>(
         std::min<int64_t>(UINT32_MAX, esp_timer_get_time() - cycleStartedUs));
     __atomic_store_n(&hmiLastCycleUs, cycleUs, __ATOMIC_RELEASE);
@@ -254,10 +279,18 @@ static void promoteMqttWriteSubscriptionsToQos1() {
 // thay request portal va tu dong quiesce, sau do networkTask moi cho portal di.
 void networkTask(void *parameter) {
   (void)parameter;
+  mayapNetworkBegin();
+  mayapPrintNetworkConfig();
+  __atomic_store_n(&networkReady, 1U, __ATOMIC_RELEASE);
   TickType_t lastWake = xTaskGetTickCount();
   for (;;) {
     const uint32_t now = millis();
     const bool portalRequested = mayapWifiPortalExclusiveRequested();
+    // A deferred OTA task has no sockets to quiesce. Keep the portal usable
+    // during admission without touching the runtime OTA handshake/interlock.
+    if (portalRequested && mayapBootStage() < MayapBoot::Stage::Ota) {
+      mayapSetWifiPortalOtaQuiesced(true);
+    }
     const bool externalIoBusy =
         __atomic_load_n(&mqttIoBusy, __ATOMIC_ACQUIRE) != 0U ||
         __atomic_load_n(&cloudIoBusy, __ATOMIC_ACQUIRE) != 0U;
@@ -273,6 +306,15 @@ void networkTask(void *parameter) {
 // task nay, khong co truy cap dong thoi tu task khac.
 void mqttTask(void *parameter) {
   (void)parameter;
+  mayapWebLinkBegin();
+  // Preserve the existing transport configuration and protocol contract.
+  MayapRealtimeInternal::mqtt.setKeepAlive(30);
+  MayapRealtimeInternal::mqtt.setSocketTimeout(5);
+#if MAYAP_MQTT_USE_TLS
+  MayapRealtimeInternal::netClient.setConnectionTimeout(5000);
+  MayapRealtimeInternal::netClient.setHandshakeTimeout(8);
+#endif
+  __atomic_store_n(&mqttReady, 1U, __ATOMIC_RELEASE);
   TickType_t lastWake = xTaskGetTickCount();
 #if MAYAP_DIAGNOSTIC_SERIAL
   uint32_t lastMqttDiagAt = 0U;
@@ -285,6 +327,7 @@ void mqttTask(void *parameter) {
       if (MayapRealtimeInternal::mqtt.connected()) MayapRealtimeInternal::mqtt.disconnect();
       MayapRealtimeInternal::netClient.stop();
       mqttWriteQos1Promoted = false;
+      __atomic_store_n(&mqttConnected, 0U, __ATOMIC_RELEASE);
       __atomic_store_n(&mqttIoBusy, 0U, __ATOMIC_RELEASE);
       vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(MQTT_TASK_PERIOD_MS));
       continue;
@@ -323,6 +366,7 @@ void mqttTask(void *parameter) {
 #endif
     }
     __atomic_store_n(&mqttIoBusy, 0U, __ATOMIC_RELEASE);
+    __atomic_store_n(&mqttConnected, MayapRealtimeInternal::mqtt.connected() ? 1U : 0U, __ATOMIC_RELEASE);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(MQTT_TASK_PERIOD_MS));
   }
 }
@@ -331,6 +375,8 @@ void mqttTask(void *parameter) {
 // rieng de canh bao van hoat dong day du nhung realtime MQTT khong bi dong bang.
 void cloudTask(void *parameter) {
   (void)parameter;
+  mayapCloudAlertBegin();
+  __atomic_store_n(&cloudReady, 1U, __ATOMIC_RELEASE);
   TickType_t lastWake = xTaskGetTickCount();
   for (;;) {
     const uint32_t now = millis();
@@ -351,6 +397,8 @@ void cloudTask(void *parameter) {
 
 void otaTask(void *parameter) {
   (void)parameter;
+  mayapOtaBegin();
+  __atomic_store_n(&otaReady, 1U, __ATOMIC_RELEASE);
   TickType_t lastWake = xTaskGetTickCount();
   for (;;) {
     const uint32_t now = millis();
@@ -380,17 +428,22 @@ void supervisorTask(void *parameter) {
     const uint32_t ctrlBeat = __atomic_load_n(&controlHeartbeatMs, __ATOMIC_ACQUIRE);
     const uint32_t hmiBeat = __atomic_load_n(&hmiHeartbeatMs, __ATOMIC_ACQUIRE);
 
-    const bool controlHealthy = ctrlBeat != 0U &&
-        elapsedMs(now, ctrlBeat) <= CONTROL_HEARTBEAT_TIMEOUT_MS;
-    const bool hmiHealthy = hmiBeat != 0U &&
-        elapsedMs(now, hmiBeat) <= HMI_HEARTBEAT_TIMEOUT_MS;
+    // Do not supervise a task before staged startup has admitted it. Once
+    // admitted, retain EVERY original heartbeat/deadline trip threshold.
+    const bool localAdmitted = mayapBootStage() >= MayapBoot::Stage::ControlSafety;
+    const bool controlExpected = localAdmitted && __atomic_load_n(&controlStarted, __ATOMIC_ACQUIRE);
+    const bool hmiExpected = localAdmitted && __atomic_load_n(&hmiStarted, __ATOMIC_ACQUIRE);
+    const bool controlHealthy = !controlExpected || (ctrlBeat != 0U &&
+        elapsedMs(now, ctrlBeat) <= CONTROL_HEARTBEAT_TIMEOUT_MS);
+    const bool hmiHealthy = !hmiExpected || (hmiBeat != 0U &&
+        elapsedMs(now, hmiBeat) <= HMI_HEARTBEAT_TIMEOUT_MS);
     const uint8_t hmiSlowCycles = __atomic_load_n(&hmiTripCycleCount, __ATOMIC_ACQUIRE);
-    const bool hmiFatal = hmiBeat != 0U &&
-        (elapsedMs(now, hmiBeat) >= HMI_FATAL_HEARTBEAT_TIMEOUT_MS ||
+    const bool hmiFatal = hmiExpected &&
+        (hmiBeat == 0U || elapsedMs(now, hmiBeat) >= HMI_FATAL_HEARTBEAT_TIMEOUT_MS ||
          hmiSlowCycles >= HMI_CYCLE_TRIP_COUNT);
 
     const uint8_t slowCycles = __atomic_load_n(&controlTripCycleCount, __ATOMIC_ACQUIRE);
-    const bool deadlineTrip = slowCycles >= CONTROL_CYCLE_TRIP_COUNT;
+    const bool deadlineTrip = controlExpected && slowCycles >= CONTROL_CYCLE_TRIP_COUNT;
 
     if (!controlHealthy || deadlineTrip) {
       mayapLatchSystemTrip();
@@ -402,12 +455,15 @@ void supervisorTask(void *parameter) {
           static_cast<unsigned long>(__atomic_load_n(&controlLastCycleUs, __ATOMIC_ACQUIRE)),
           static_cast<unsigned>(slowCycles));
       const uint32_t tripAt = now;
+      // Save before the fallback wait: TWDT may reset us before esp_restart.
+      mayapBootPlanRestart(!controlHealthy ? MayapBoot::RestartReason::ControlHeartbeat :
+          MayapBoot::RestartReason::ControlDeadline, "Supervisor control trip");
       while (elapsedMs(millis(), tripAt) < SUPERVISOR_RESTART_FALLBACK_MS) {
         mayapSafeOutputsEarly();
         vTaskDelay(pdMS_TO_TICKS(20));
       }
-      esp_restart();
-      abort();
+      mayapRestart(!controlHealthy ? MayapBoot::RestartReason::ControlHeartbeat :
+          MayapBoot::RestartReason::ControlDeadline, "Supervisor fallback");
     }
 
     if (hmiBeat != 0U && hmiHealthy != previousHmiHealthy) {
@@ -428,28 +484,202 @@ void supervisorTask(void *parameter) {
           static_cast<unsigned long>(elapsedMs(now, hmiBeat)),
           static_cast<unsigned long>(__atomic_load_n(&hmiLastCycleUs, __ATOMIC_ACQUIRE)),
           static_cast<unsigned>(hmiSlowCycles));
-      esp_restart();
-      abort();
+      mayapRestart(MayapBoot::RestartReason::HmiFatal, "Supervisor HMI fatal");
     }
 
-    if (Machine.healthRestartRequested()) {
+    if (controlExpected && Machine.healthRestartRequested()) {
       mayapLatchSystemTrip();
       if (controlTaskHandle) vTaskSuspend(controlTaskHandle);
       mayapSafeOutputsEarly();
       mayapSerialPrintf(false, "[SUPERVISOR] Health-monitor xin khoi dong lai co kiem soat\n");
-      esp_restart();
-      abort();
+      mayapRestart(MayapBoot::RestartReason::HealthMonitor, "Machine health monitor");
     }
 
     const esp_err_t result = esp_task_wdt_reset();
-    if (result != ESP_OK) fatalRestart("SUP WDT RESET", result);
+    if (result != ESP_OK) fatalRestart("SUP WDT RESET", result, MayapBoot::RestartReason::WdtApi);
+    __atomic_store_n(&supervisorHeartbeatMs, millis(), __ATOMIC_RELEASE);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(SUPERVISOR_TASK_PERIOD_MS));
+  }
+}
+
+static void advanceBootStage() {
+  bootSequence.advance(millis());
+  bootStageEntered = false;
+  mayapBootSetStage(bootSequence.stage());
+}
+
+static bool localTasksHealthy(uint32_t now) {
+  const uint32_t ctrl = __atomic_load_n(&controlHeartbeatMs, __ATOMIC_ACQUIRE);
+  const uint32_t hmi = __atomic_load_n(&hmiHeartbeatMs, __ATOMIC_ACQUIRE);
+  const uint32_t sup = __atomic_load_n(&supervisorHeartbeatMs, __ATOMIC_ACQUIRE);
+  return __atomic_load_n(&controlStarted, __ATOMIC_ACQUIRE) &&
+      __atomic_load_n(&hmiStarted, __ATOMIC_ACQUIRE) && ctrl && hmi && sup &&
+      elapsedMs(now, ctrl) <= CONTROL_HEARTBEAT_TIMEOUT_MS &&
+      elapsedMs(now, hmi) <= HMI_HEARTBEAT_TIMEOUT_MS &&
+      elapsedMs(now, sup) <= CONTROL_HEARTBEAT_TIMEOUT_MS &&
+      __atomic_load_n(&controlTripCycleCount, __ATOMIC_ACQUIRE) == 0U &&
+      __atomic_load_n(&hmiTripCycleCount, __ATOMIC_ACQUIRE) == 0U &&
+      !mayapSystemTripLatched();
+}
+
+static void updateBootStability(uint32_t now) {
+  const bool tasksHealthy = localTasksHealthy(now);
+  // Task stability permits networking even while the operator diagnoses a
+  // sensor/display fault. Such a fault still prevents BOOT_SUCCESS/level clear.
+  localTaskStability.update(now, tasksHealthy);
+  localSuccessStability.update(now, tasksHealthy &&
+      __atomic_load_n(&sensorHealthy, __ATOMIC_ACQUIRE) &&
+      __atomic_load_n(&displayHealthy, __ATOMIC_ACQUIRE));
+  if (!bootSuccessMarked && localSuccessStability.held(now, MayapBoot::SUCCESS_STABLE_MS)) {
+    mayapBootMarkSuccess();
+    bootSuccessMarked = true;
+  }
+  if (!bootFailuresCleared && bootSequence.stage() == MayapBoot::Stage::Running &&
+      localSuccessStability.held(now, MayapBoot::FAILURES_CLEAR_MS)) {
+    mayapBootClearFailures();
+    bootFailuresCleared = true;
+  }
+  // Home has its own LOCAL deadline. Connection success/timeouts do not enter
+  // this decision. Levels 2/3 release Home before any network task exists.
+  const uint32_t homeDelay = bootSequence.homeBeforeNetwork()
+      ? MayapBoot::LOCAL_SETTLE_MS : MayapBoot::LOCAL_SETTLE_MS + 1500U;
+  if (!bootReadyShown && localTaskStability.held(now, homeDelay)) {
+    mayapBootShowReady();
+    bootReadyShown = true;
+    bootReadyAt = now;
+  }
+  if (bootReadyShown && elapsedMs(now, bootReadyAt) >= MayapBoot::READY_DISPLAY_MS) {
+    mayapBootReleaseHome();
+  }
+}
+
+static void stagedStartupUpdate(uint32_t now) {
+  using MayapBoot::Stage;
+  updateBootStability(now);
+  const Stage stage = bootSequence.stage();
+  if (!bootStageEntered) {
+    // Set before calls that may fail, so retained breadcrumbs name the operation.
+    bootStageEntered = true;
+    switch (stage) {
+      case Stage::SafeOutputs: break;  // Already applied before all startup I/O.
+      case Stage::Storage:
+        mayapDeviceIdentityBegin();
+        Machine.beginStorage();
+        break;
+      case Stage::SensorMachine:
+        Machine.begin();
+        break;
+      case Stage::Hmi:
+        hmiSetConfig(Machine.config());
+        hmiSetRuntime(Machine.runtime());
+        mayapWebSetConfig(Machine.config());
+        mayapWebSetRuntime(Machine.runtime());
+        mayapCloudSetRuntime(Machine.runtime());
+        hmiBegin();
+        __atomic_store_n(&hmiHeartbeatMs, millis(), __ATOMIC_RELEASE);
+        __atomic_store_n(&hmiStarted, 1U, __ATOMIC_RELEASE);
+        hmiTaskHandle = xTaskCreateStaticPinnedToCore(
+            hmiTask, "mayap_hmi", sizeof(hmiTaskStack), nullptr, 2,
+            hmiTaskStack, &hmiTaskTcb, 0);
+        if (!hmiTaskHandle) fatalRestart("HMI TASK CREATE", ESP_ERR_NO_MEM);
+        break;
+      case Stage::ControlSafety:
+        // Rollback capability is local flash metadata; keep the existing HMI
+        // recovery action available even while Internet OTA is deferred.
+        mayapOtaRollbackBegin();
+        __atomic_store_n(&controlHeartbeatMs, millis(), __ATOMIC_RELEASE);
+        __atomic_store_n(&controlStarted, 1U, __ATOMIC_RELEASE);
+        controlTaskHandle = xTaskCreateStaticPinnedToCore(
+            controlTask, "mayap_ctrl", sizeof(controlTaskStack), nullptr, 5,
+            controlTaskStack, &controlTaskTcb, 1);
+        if (!controlTaskHandle) fatalRestart("CTRL TASK CREATE", ESP_ERR_NO_MEM);
+        supervisorTaskHandle = xTaskCreateStaticPinnedToCore(
+            supervisorTask, "mayap_supervisor", sizeof(supervisorTaskStack), nullptr, 6,
+            supervisorTaskStack, &supervisorTaskTcb, 1);
+        if (!supervisorTaskHandle) fatalRestart("SUP TASK CREATE", ESP_ERR_NO_MEM);
+        break;
+      case Stage::LocalSettle: break;
+      case Stage::Wifi:
+        networkTaskHandle = xTaskCreateStaticPinnedToCore(
+            networkTask, "mayap_network", sizeof(networkTaskStack), nullptr, 1,
+            networkTaskStack, &networkTaskTcb, 0);
+        if (!networkTaskHandle) fatalRestart("WIFI TASK CREATE", ESP_ERR_NO_MEM);
+        break;
+      case Stage::Mqtt:
+        mqttTaskHandle = xTaskCreateStaticPinnedToCore(
+            mqttTask, "mayap_mqtt", sizeof(mqttTaskStack), nullptr, 2,
+            mqttTaskStack, &mqttTaskTcb, 0);
+        if (!mqttTaskHandle) fatalRestart("MQTT TASK CREATE", ESP_ERR_NO_MEM);
+        break;
+      case Stage::Cloud:
+        cloudTaskHandle = xTaskCreateStaticPinnedToCore(
+            cloudTask, "mayap_cloud", sizeof(cloudTaskStack), nullptr, 1,
+            cloudTaskStack, &cloudTaskTcb, 0);
+        if (!cloudTaskHandle) fatalRestart("CLOUD TASK CREATE", ESP_ERR_NO_MEM);
+        break;
+      case Stage::Ota:
+        otaTaskHandle = xTaskCreateStaticPinnedToCore(
+            otaTask, "mayap_ota", sizeof(otaTaskStack), nullptr, 1,
+            otaTaskStack, &otaTaskTcb, 0);
+        if (!otaTaskHandle) fatalRestart("OTA TASK CREATE", ESP_ERR_NO_MEM);
+        break;
+      case Stage::Running:
+        // Preserve the runtime WDT membership (control + Supervisor). The
+        // coordinator is watched only while staged startup is still in flight.
+        if (bootCoordinatorWdt) {
+          const esp_err_t result = esp_task_wdt_delete(nullptr);
+          if (result != ESP_OK) fatalRestart("BOOT WDT DELETE", result, MayapBoot::RestartReason::WdtApi);
+          bootCoordinatorWdt = false;
+        }
+        break;
+    }
+  }
+  // Short cooperative dwell lets the LCD show every local step. No blocking
+  // delay and no network calls execute on the boot/control/HMI coordinator.
+  if (stage <= Stage::ControlSafety) {
+    if (bootSequence.age(millis()) >= 150U) advanceBootStage();
+    return;
+  }
+  switch (stage) {
+    case Stage::LocalSettle:
+      if (bootSequence.releaseNetwork(now, localTaskStability)) advanceBootStage();
+      break;
+    case Stage::Wifi:
+      if (bootSequence.wifiDone(now, __atomic_load_n(&networkReady, __ATOMIC_ACQUIRE),
+          mayapGetNetworkStatus().connected)) advanceBootStage();
+      break;
+    case Stage::Mqtt:
+      if (bootSequence.mqttDone(now, __atomic_load_n(&mqttReady, __ATOMIC_ACQUIRE),
+          __atomic_load_n(&mqttConnected, __ATOMIC_ACQUIRE))) advanceBootStage();
+      break;
+    case Stage::Cloud:
+      if (__atomic_load_n(&cloudReady, __ATOMIC_ACQUIRE) && bootSequence.age(now) >= bootSequence.serviceGap())
+        advanceBootStage();
+      break;
+    case Stage::Ota:
+      if (__atomic_load_n(&otaReady, __ATOMIC_ACQUIRE) && bootSequence.age(now) >= bootSequence.serviceGap())
+        advanceBootStage();
+      break;
+    default: break;
   }
 }
 
 void setup() {
   mayapSafeOutputsEarly();
+  mayapBootDiagnosticBegin();
   Serial.begin(115200);
+
+  const MayapBoot::Diagnostic diagnostic = mayapBootDiagnosticSnapshot();
+  mayapSerialPrintf(false,
+      "[BOOT-DIAG] reset=%lu previousReset=%lu previousStage=%s planned=%s detail=%s failed=%lu level=%lu\n",
+      static_cast<unsigned long>(diagnostic.resetReason),
+      static_cast<unsigned long>(diagnostic.previousResetReason),
+      MayapBoot::stageText(diagnostic.previousBootStage),
+      MayapBoot::restartText(diagnostic.previousPlannedRestartReason), diagnostic.previousRestartDetail,
+      static_cast<unsigned long>(diagnostic.consecutiveFailedBoots),
+      static_cast<unsigned long>(diagnostic.recoveryLevel));
+  bootSequence.begin(diagnostic.recoveryLevel, millis());
+  mayapBootSetStage(MayapBoot::Stage::SafeOutputs);
 
   i2cMutex = xSemaphoreCreateMutexStatic(&i2cMutexBuffer);
   if (!i2cMutex) fatalRestart("I2C MUTEX", ESP_ERR_NO_MEM);
@@ -460,23 +690,6 @@ void setup() {
   Wire.setTimeOut(I2C_TIMEOUT_MS);
   hmiSetI2cLockCallbacks(mayapI2cLock, mayapI2cUnlock);
 
-  mayapDeviceIdentityBegin();
-  mayapNetworkBegin();
-  mayapOtaBegin();
-  mayapOtaRollbackBegin();
-  mayapWebLinkBegin();
-  // PubSubClient mac dinh keepalive/socket timeout 15s. Realtime task rieng
-  // cho phep dat keepalive 30s de du bien mang, nhung timeout I/O ngan 5s de
-  // ket noi chet tu phuc hoi som. TLS handshake cung chan 8s thay vi 120s mac
-  // dinh cua NetworkClientSecure.
-  MayapRealtimeInternal::mqtt.setKeepAlive(30);
-  MayapRealtimeInternal::mqtt.setSocketTimeout(5);
-#if MAYAP_MQTT_USE_TLS
-  MayapRealtimeInternal::netClient.setConnectionTimeout(5000);
-  MayapRealtimeInternal::netClient.setHandshakeTimeout(8);
-#endif
-  mayapCloudAlertBegin();
-
   esp_task_wdt_config_t wdtConfig{};
   wdtConfig.timeout_ms = CONTROL_WDT_TIMEOUT_MS;
   wdtConfig.idle_core_mask = 0U;
@@ -485,53 +698,18 @@ void setup() {
   if (result == ESP_ERR_INVALID_STATE) result = esp_task_wdt_init(&wdtConfig);
   if (result != ESP_OK) fatalRestart("WDT INIT", result);
 
-  Machine.begin();
-  mayapPrintNetworkConfig();
-  hmiSetConfig(Machine.config());
-  hmiSetRuntime(Machine.runtime());
-  mayapWebSetConfig(Machine.config());
-  mayapWebSetRuntime(Machine.runtime());
-  mayapCloudSetRuntime(Machine.runtime());
-  hmiBegin();
-
-  const uint32_t now = millis();
-  __atomic_store_n(&controlHeartbeatMs, now, __ATOMIC_RELEASE);
-  __atomic_store_n(&hmiHeartbeatMs, now, __ATOMIC_RELEASE);
-
-  controlTaskHandle = xTaskCreateStaticPinnedToCore(
-      controlTask, "mayap_ctrl", sizeof(controlTaskStack), nullptr, 5,
-      controlTaskStack, &controlTaskTcb, 1);
-
-  supervisorTaskHandle = xTaskCreateStaticPinnedToCore(
-      supervisorTask, "mayap_supervisor", sizeof(supervisorTaskStack), nullptr, 6,
-      supervisorTaskStack, &supervisorTaskTcb, 1);
-
-  hmiTaskHandle = xTaskCreateStaticPinnedToCore(
-      hmiTask, "mayap_hmi", sizeof(hmiTaskStack), nullptr, 2,
-      hmiTaskStack, &hmiTaskTcb, 0);
-
-  networkTaskHandle = xTaskCreateStaticPinnedToCore(
-      networkTask, "mayap_network", sizeof(networkTaskStack), nullptr, 1,
-      networkTaskStack, &networkTaskTcb, 0);
-
-  mqttTaskHandle = xTaskCreateStaticPinnedToCore(
-      mqttTask, "mayap_mqtt", sizeof(mqttTaskStack), nullptr, 2,
-      mqttTaskStack, &mqttTaskTcb, 0);
-
-  cloudTaskHandle = xTaskCreateStaticPinnedToCore(
-      cloudTask, "mayap_cloud", sizeof(cloudTaskStack), nullptr, 1,
-      cloudTaskStack, &cloudTaskTcb, 0);
-
-  otaTaskHandle = xTaskCreateStaticPinnedToCore(
-      otaTask, "mayap_ota", sizeof(otaTaskStack), nullptr, 1,
-      otaTaskStack, &otaTaskTcb, 0);
-
-  if (!controlTaskHandle || !hmiTaskHandle || !supervisorTaskHandle ||
-      !networkTaskHandle || !mqttTaskHandle || !cloudTaskHandle || !otaTaskHandle) {
-    fatalRestart("TASK CREATE", ESP_ERR_NO_MEM);
-  }
+  subscribeCurrentTaskToWdt("BOOT WDT ADD");
+  bootCoordinatorWdt = true;
+  hmiBootDisplayBegin();
 }
 
 void loop() {
-  vTaskDelay(pdMS_TO_TICKS(1000));
+  if (bootCoordinatorWdt) {
+    const esp_err_t result = esp_task_wdt_reset();
+    if (result != ESP_OK) fatalRestart("BOOT WDT RESET", result, MayapBoot::RestartReason::WdtApi);
+  }
+  // Before hmiTask creation this loop is the sole LCD owner.
+  if (!hmiTaskHandle) hmiBootDisplayUpdate(millis());
+  stagedStartupUpdate(millis());
+  vTaskDelay(pdMS_TO_TICKS(10));
 }

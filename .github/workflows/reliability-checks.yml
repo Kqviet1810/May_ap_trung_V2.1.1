@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/web-esp-transaction-v2
+      - feat/adaptive-staged-boot
       - hardening/v3.8.1-reliability
   pull_request:
     branches:
@@ -62,6 +63,11 @@ jobs:
         run: |
           g++ -std=c++11 -Wall -Wextra -fsanitize=address,undefined tests/thermal-control.cpp -o /tmp/mayap-thermal-test
           /tmp/mayap-thermal-test
+
+      - name: Adaptive staged boot policy host tests
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/boot-policy.cpp -o /tmp/mayap-boot-test
+          /tmp/mayap-boot-test
 
       - name: Reject unsafe firmware shortcuts
         run: |

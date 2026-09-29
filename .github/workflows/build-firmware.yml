@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/web-esp-transaction-v2
+      - feat/adaptive-staged-boot
       - 'hardening/**'
     tags:
       - 'v*.*.*'
@@ -110,6 +111,11 @@ jobs:
           g++ -std=c++11 -Wall -Wextra -fsanitize=address,undefined tests/thermal-control.cpp -o /tmp/mayap-thermal-test
           /tmp/mayap-thermal-test
 
+      - name: Adaptive staged boot policy host tests
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/boot-policy.cpp -o /tmp/mayap-boot-test
+          /tmp/mayap-boot-test
+
       - name: Tao MQTT credential cho compile
         env:
           MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
@@ -208,7 +214,7 @@ jobs:
           ls -la ./build-attiny/*.hex
 
       - name: Luu firmware test
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/hardening/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/web-esp-transaction-v2'
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/hardening/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/web-esp-transaction-v2' || github.ref == 'refs/heads/feat/adaptive-staged-boot'
         uses: actions/upload-artifact@v6
         with:
           name: firmware-test-${{ github.sha }}

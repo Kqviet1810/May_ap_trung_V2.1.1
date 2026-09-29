@@ -8,6 +8,8 @@
 */
 
 #include "config.h"
+#include "boot_diagnostic.h"
+#include "boot_assets.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <U8g2lib.h>
@@ -2999,20 +3001,14 @@ void drawCenteredText(int16_t y, const char *text) {
   lcd.drawStr(max(0, (128 - width) / 2), y, text);
 }
 
-// Man hinh khoi dong - chu nho, 3 dong can giua theo chieu doc, khong khung
-// vien de nhin gon gang. Hien tu luc bat may den khi da co du so lieu that
-// (xem splashActive trong render()).
+// Supplied logo plus exactly one Vietnamese status line. Bitmaps preserve
+// diacritics without adding a large Unicode font to the 128x64 firmware.
 void drawSplash() {
-  char line[24];
   lcd.setDrawColor(1);
-  lcd.setFont(u8g2_font_6x12_tf);
-  drawCenteredText(22, "DIEU KHIEN MAY AP");
-
-  lcd.setFont(u8g2_font_5x8_tf);
-  snprintf(line, sizeof(line), "V%s", MAYAP_FIRMWARE_VERSION);
-  drawCenteredText(38, line);
-
-  drawCenteredText(54, "Dang khoi dong...");
+  lcd.drawXBMP((128 - BOOT_LOGO_WIDTH) / 2, 3,
+               BOOT_LOGO_WIDTH, BOOT_LOGO_HEIGHT, bootLogoBits);
+  lcd.drawXBMP(0, 49, 128, 14,
+      bootStatusBits[static_cast<uint8_t>(mayapBootStatus())]);
 }
 
 void drawHomeMain() {
@@ -4103,18 +4099,9 @@ void render(uint32_t now) {
   if (splashActive) {
     if (splashStartedAt == 0U) splashStartedAt = now;
     const uint32_t elapsed = now - splashStartedAt;
-    // Truoc day dataReady chi doi CO snapshot runtime/config (co the la
-    // snapshot dau tien luc cam bien CHUA doc xong - man chinh vua vao da
-    // hien "--.-" cho nhiet do/do am, giong nhu con "loading" lo ra sau
-    // man khoi dong). Man khoi dong la noi setup, nen phai doi luon ca cam
-    // bien that su da co so lieu (currentRuntime.sensorOnline) truoc khi
-    // thoat - man chinh hien ra la co du lieu ngay, khong con khoang trong
-    // "--.-" nao nua. SPLASH_MAX_MS (6 s) van la tran an toan neu cam bien
-    // that su cham/mat: khong bao gio giu man khoi dong vo han.
-    const bool sensorReady = currentRuntime.sensorOnline &&
-                             isfinite(currentRuntime.temperature);
-    const bool dataReady = splashHadRuntime && splashHadConfig && sensorReady;
-    if ((dataReady && elapsed >= SPLASH_MIN_MS) || elapsed >= SPLASH_MAX_MS) {
+    // Home is a local startup decision; neither Internet nor sensor faults
+    // may hide local alarms/controls indefinitely. Max remains a failsafe.
+    if (mayapBootHomeReleased() || elapsed >= SPLASH_MAX_MS) {
       splashActive = false;
       dirty = true;
     }
@@ -4347,11 +4334,24 @@ void serviceLcd(uint32_t now) {
   }
 }
 
+// Early display-only preview after safe outputs and I2C. No rotary/buzzer or
+// runtime task is started until the formal HMI stage; ownership is then handed
+// to hmiTask once, with no simultaneous LCD callers.
+void hmiBootDisplayBegin() {
+  lcdReady = beginLcd();
+  splashStartedAt = millis();
+  dirty = true;
+}
+
+void hmiBootDisplayUpdate(uint32_t now) {
+  if (lcdReady) render(now);
+}
+
 void hmiBegin() {
   buzzerBegin();
   buzzerPlayStartupChime();
   beginRotary();
-  lcdReady = beginLcd();
+  if (!lcdReady) lcdReady = beginLcd();
   const uint32_t now = millis();
   lastInteractionAt = now;
   lastCommandPollAt = now;

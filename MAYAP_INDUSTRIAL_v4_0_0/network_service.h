@@ -711,9 +711,8 @@ inline void mayapNetworkBegin() {
   }
   portalCrashClear();
   loadCredentialsOnce();
-  __atomic_store_n(&requestedMode,
-                   static_cast<uint8_t>(ConnectivityMode::Offline),
-                   __ATOMIC_RELEASE);
+  // Staged boot loads the machine's requested mode before this task starts.
+  // Preserve it; requestedMode is already initialized Offline at cold startup.
   stopRadio();
   publish(NetworkStateCode::Offline, false);
 }

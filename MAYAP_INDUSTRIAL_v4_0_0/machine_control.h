@@ -3616,7 +3616,17 @@ enum class TurnPhase : uint8_t {
 // ============================================================================
 class MachineController {
  public:
+  // Bounded local initialization before sensor/batch recovery. No network I/O.
+  // Runtime store, RTC, batch and safety algorithms remain the same.
+  void beginStorage() {
+    if (startupStorageInitialized_) return;
+    rtc_.begin(millis());
+    startupStoreReady_ = store_.begin();
+    startupStorageInitialized_ = true;
+  }
+
   void begin() {
+    if (!startupStorageInitialized_) beginStorage();
     bootAt_ = millis();
     eventLog_.begin(bootAt_);
     (void)batchLogger_.begin();
@@ -3652,10 +3662,9 @@ class MachineController {
     mayapAttinyBusBegin();
     inputs_.begin();
     sensor_.begin();
-    rtc_.begin(bootAt_);
     sensorStartupGraceUntil_ = bootAt_ + SENSOR_STARTUP_GRACE_MS;
 
-    const bool storeReady = store_.begin();
+    const bool storeReady = startupStoreReady_;
     MachineConfig loaded{};
     if (storeReady && store_.loadConfig(loaded)) {
       config_ = loaded;
@@ -7523,6 +7532,8 @@ class MachineController {
   PeriodicGate healthHeapSampleGate_{HEALTH_HEAP_SAMPLE_INTERVAL_MS};
   bool healthBaselineCaptured_ = false;
   bool healthWarmupWindowStarted_ = false;
+  bool startupStorageInitialized_ = false;
+  bool startupStoreReady_ = false;
   uint32_t healthHeapBaseline_ = 0U;
   uint32_t healthHeapWindowBest_ = 0U;
   uint32_t healthHeapWindowWorst_ = UINT32_MAX;

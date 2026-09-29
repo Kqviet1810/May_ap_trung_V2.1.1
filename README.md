@@ -2,6 +2,8 @@
 
 > Baseline hiện hành: **MAYAP release 4.0.0** trên ESP32-S3-WROOM-1U-N8, Web PWA và Cloudflare Worker. Xem `doc/RELEASE_4_0_0.md` về giới hạn kiểm thử.
 
+Nhánh `feat/adaptive-staged-boot` bổ sung staged startup, chẩn đoán RTC và adaptive recovery Level 0–3. Boot flow, thời gian, file thay đổi và giới hạn phần cứng: [Adaptive Staged Boot](doc/ADAPTIVE_STAGED_BOOT.md).
+
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
 | Release | 4.0.0 |

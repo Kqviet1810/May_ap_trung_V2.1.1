@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "boot_diagnostic.h"
 #include "firmware_update_guard.h"
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -53,6 +54,7 @@ inline void onEnd() {
   // cong; khong danh dau se bi PowerManager tinh nham vao bo dem "reset bat
   // thuong" giong het cach ota_web_update.h/ota_rollback.h da xu ly.
   mayapMarkIntentionalRestart();
+  mayapBootPlanRestart(MayapBoot::RestartReason::ArduinoOta, "ArduinoOTA complete");
 }
 
 inline void onProgress(unsigned int progress, unsigned int total) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "boot_diagnostic.h"
 #include "firmware_update_guard.h"
 #include <Arduino.h>
 #include <esp_ota_ops.h>
@@ -100,5 +101,5 @@ inline void mayapFirmwareRollbackUpdate(uint32_t now) {
   // thuong", tranh bao gia "ABNORMAL RESET"/mat dien sau khi quay lai ban cu.
   mayapMarkIntentionalRestart();
   delay(300);
-  ESP.restart();
+  mayapRestart(MayapBoot::RestartReason::Rollback, "operator rollback complete");
 }
