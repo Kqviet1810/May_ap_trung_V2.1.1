@@ -148,42 +148,24 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .sideState small{margin-top:2px;color:#a8c5c0;font-size:var(--fs-2xs)}
 
 .main{grid-column:2;padding:0 28px 44px;max-width:1320px;width:100%;min-width:0;margin:0 auto}
-.topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:minmax(218px,1fr) repeat(2,minmax(0,148px)) minmax(0,170px);gap:12px;align-items:center;padding:calc(20px + env(safe-area-inset-top)) 0 16px;background:var(--topbarBg);backdrop-filter:blur(12px);transition:background var(--ease)}
-/* Trang cai dat chi rong 960px; gioi han header cung bang do rong nay de
-   ba o truc tiep thang hang voi mep phai cua day the cai dat ben duoi. */
+.topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:minmax(180px,1fr) minmax(360px,510px);gap:24px;align-items:center;padding:calc(20px + env(safe-area-inset-top)) 0 16px;background:var(--topbarBg);backdrop-filter:blur(12px);transition:background var(--ease)}
+/* Giữ dải thông số thẳng hàng với nội dung cài đặt. */
 body[data-page="settings"] .topbar{max-width:960px}
-/* Tieu de + chu thich xep doc va can giua theo chieu doc trong thanh dau
-   trang, ngang hang voi 3 o Nhiet do/Do am/Trang thai. */
 .title{display:flex;flex-direction:column;justify-content:center;min-width:0}
 .title h1{margin:0;font-size:var(--fs-3xl);font-weight:800;letter-spacing:-.9px}
-/* Chu thich BUOC phai gon 1 dong (yeu cau nguoi dung): nowrap chan xuong
-   dong, ellipsis lam luoi an toan neu cot bi hep bat thuong. Chuoi trong
-   app.js (pageMeta) da giu ngan ~30 ky tu nen thuc te khong bao gio cat. */
 .title p{margin:5px 0 0;color:var(--muted);font-size:var(--fs-sm);line-height:1.4;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.live{padding:13px 15px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadowSm);min-width:0}
-/* nowrap/ellipsis khai bao CHUNG cho ca nhan ("NHIET DO"/"DO AM"/"TRANG
-   THAI") LAN gia tri - truoc day chi gia tri co, rieng nhan khong co gi ca.
-   "TRANG THAI" dai hon han 2 nhan ben canh nen la nhan DUY NHAT du xuong
-   dong tren o dien thoai hep (~80px), lam rieng o nay cao hon, "phinh" ra.
-   BAT BUOC dung dau ">" (con TRUC TIEP), khong dung bo chon hau due
-   ".live span": ben trong o Trang thai con co cac span KHAC do JS/HTML sinh
-   ra - dau "!" canh bao (.faultMark, nam trong chinh <strong id=liveState>)
-   va 2 span trong bang thong tin loi (.faultPopup). Bo chon hau due bat
-   trung ca chung, ep .faultMark thanh display:block khien dau "!" nhay
-   xuong dong rieng va lam o Trang thai cao vong len (loi da tung xay ra). */
+.headerReadings{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.85fr) minmax(110px,1.15fr);min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+.live{position:relative;display:flex;flex-direction:column;justify-content:center;min-width:0;min-height:76px;padding:13px 18px}
+.live:first-child{border-radius:15px 0 0 15px}
+.live:last-child{border-radius:0 15px 15px 0}
+.live+.live::before{content:"";position:absolute;left:0;top:18px;bottom:18px;width:1px;background:var(--lineSoft);pointer-events:none}
+/* Chỉ định dạng con trực tiếp để không ảnh hưởng dấu cảnh báo và popup lỗi.
+   Dải thông số không cắt overflow: popup phải mở được bên ngoài dải. */
 .live>span,.live>strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.live>span{color:var(--muted);font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:.7px;font-weight:700}
-.live>strong{font-size:22px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums}
-/* JS (renderLiveState) chi tra ve cum ngan: "Dang ap"/"San sang"/"Offline",
-   co the them " !" (loi nhe, may van ap duoc) hoac thay hoan toan bang
-   "Loi E<ma>" (loi nang - khong con ap duoc). KHONG tu dat font-size hay
-   line-height rieng o day (truoc day dat font-size:12px co dinh VA
-   line-height:1.3 rieng, lam o nay vua nho hon vua THAP hon han 2 o ben
-   canh - .live strong dung line-height mac dinh 1.4 ke thua tu body, lech
-   nho nhung du de 3 o khong cao bang nhau, ro nhat khi thu nho tren dien
-   thoai) - de ke thua dung tu .live strong, cao bang tuyet doi 2 o ben
-   canh o MOI breakpoint. */
+.live>span{color:var(--muted);font-size:var(--fs-2xs);line-height:1.25;font-weight:600}
+.live>strong{font-size:22px;line-height:28px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums}
+#liveState{font-size:18px;letter-spacing:-.2px}
 #liveStateTile{position:relative;transition:background var(--ease),border-color var(--ease)}
 #liveStateTile.tile-clickable{cursor:pointer}
 #liveStateTile.tile-warn{background:var(--warningSoft);border-color:var(--warningBorder)}
@@ -542,17 +524,14 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
 .deviceListItem button:hover{filter:brightness(.95)}
 
 /* =============================== Responsive =================================== */
-/* Tablet dọc: thu sidebar và cho ba ô trạng thái co giãn. */
+/* Tablet dọc: tiêu đề và dải thông số nằm ở hai hàng thoáng hơn. */
 @media(max-width:1024px) and (min-width:801px){
   .appShell{grid-template-columns:208px minmax(0,1fr)}
   .sidebar{width:208px;padding:20px 15px}
   .main{padding:0 20px 38px}
-  .topbar{grid-template-columns:minmax(170px,1fr) repeat(3,minmax(0,1fr));gap:8px}
-  .live{padding:11px}
-  .live>strong{font-size:18px}
+  .topbar{grid-template-columns:minmax(0,1fr);gap:12px}
+  .live{padding:12px 16px;min-height:70px}
   .title h1{font-size:29px}
-  /* Cot tieu de o khoang nay chi ~170px: giam 1 bac co chu de cau dai nhat
-     ("Thong so van hanh va ket noi.", can 174px o 13px) van du 1 dong. */
   .title p{font-size:var(--fs-xs)}
 }
 /* Dien thoai xoay ngang (vd 844x390, 926x428...) thuong RONG hon 800px nen
@@ -570,15 +549,17 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .nav button span{width:auto;font-size:20px;line-height:1}
   .nav button b{font-size:var(--fs-2xs)}
   .main{width:100%;max-width:100%;min-height:100dvh;padding:0 10px calc(var(--navH) + env(safe-area-inset-bottom) + 10px);overflow-x:clip}
-  .topbar{grid-template-columns:minmax(80px,1fr) repeat(2,minmax(0,72px)) minmax(92px,108px);gap:6px;align-items:stretch;padding:calc(10px + env(safe-area-inset-top)) 0 10px;min-height:86px}
-  .title{align-self:start;padding-top:1px}
-  .title h1{font-size:24px;line-height:1.08;white-space:nowrap}
-  .title p{display:block;margin-top:4px;font-size:9px;line-height:1.25;white-space:normal;overflow:visible;text-overflow:clip}
-  .live{min-height:64px;padding:9px 8px;border-radius:11px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center}
-  .live>span{font-size:9px;line-height:1.1;letter-spacing:.2px}
-  .live>strong{font-size:15px;line-height:1.15;margin-top:7px}
-  #liveStateTile{padding-inline:6px}
-  #liveState{font-size:13px;letter-spacing:-.2px}
+  .topbar{grid-template-columns:minmax(0,1fr);gap:9px;align-items:stretch;padding:calc(10px + env(safe-area-inset-top)) 0 12px}
+  .title h1{font-size:24px;line-height:1.15;white-space:nowrap}
+  .title p{margin-top:3px;font-size:11px;line-height:1.35}
+  .headerReadings{border-radius:15px}
+  .live{min-height:62px;padding:10px 13px}
+  .live:first-child{border-radius:14px 0 0 14px}
+  .live:last-child{border-radius:0 14px 14px 0}
+  .live+.live::before{top:14px;bottom:14px}
+  .live>span{font-size:10px}
+  .live>strong{font-size:20px;line-height:25px;margin-top:4px}
+  #liveState{font-size:14px}
   .panel{padding:18px;border-radius:16px}
   .deviceHeading{font-size:clamp(18px,5.5vw,22px)!important;line-height:29px}
   .devicePickerRow{margin-top:14px}
@@ -624,9 +605,9 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .quickField input{font-size:17px}
   .quickField b{font-size:14px}
   .batchActions button{font-size:var(--fs-2xs)}
-  .topbar{grid-template-columns:minmax(72px,1fr) repeat(2,minmax(0,56px)) minmax(88px,98px)}
   .title h1{font-size:22px}
-  .live>strong{font-size:13px}
+  .live{padding-inline:11px}
+  .live>strong{font-size:18px;line-height:23px}
   .deviceTop{gap:8px}
   .statusBlock{max-width:58%}
   .devicePickerRow{gap:7px}
@@ -634,6 +615,10 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   .panel{padding:15px}
   .actions{grid-template-columns:1fr}
   .actions .dark{grid-column:auto}
+}
+/* Điện thoại ngang: giữ một hàng để chừa chiều cao cho điều khiển. */
+@media(min-width:801px) and (max-height:500px){
+  .topbar{grid-template-columns:minmax(180px,1fr) minmax(360px,510px);gap:20px}
 }
 @media(prefers-reduced-motion:reduce){
   *{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
@@ -662,7 +647,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   }
   body[data-page="batch"] .topbar{flex:0 0 auto}
   body[data-page="batch"] #page-batch.active{
-    flex:1 1 auto;min-height:0;width:100%;
+    flex:1 0 auto;min-height:0;width:100%;
     display:flex;flex-direction:column;gap:10px;
   }
   /* .batchPanel flex:0 0 auto (khong tu co) nen cang GON thi Nhat ky (flex:1,
@@ -703,7 +688,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
   }
   body[data-page="device"] .topbar{flex:0 0 auto}
   body[data-page="device"] #page-device.active{
-    flex:1 1 auto;min-height:0;width:100%;
+    flex:1 0 auto;min-height:0;width:100%;
     display:flex;flex-direction:column;gap:12px;
     /* KHONG dung justify-content:center: khi 2 khoi con (deviceCompact +
        quickForm) cao hon vung chua (de xay ra tren man hep nhu iPhone X -
@@ -715,12 +700,12 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
     justify-content:flex-start;
   }
   body[data-page="device"] .deviceCompact,
-  body[data-page="device"] .quickForm{flex:0 0 auto}
+  body[data-page="device"] #quickForm{flex:0 0 auto}
 }
 @media(max-height:760px){
-  body[data-page="device"] .topbar{min-height:74px;padding:calc(6px + env(safe-area-inset-top)) 0 6px}
+  body[data-page="device"] .topbar{padding:calc(6px + env(safe-area-inset-top)) 0 6px}
   body[data-page="device"] .deviceCompact{padding:14px}
-  body[data-page="device"] .quickForm{padding:14px}
+  body[data-page="device"] #quickForm{padding:14px}
   body[data-page="device"] .devicePickerRow{margin-top:11px}
   body[data-page="device"] .quickGrid{margin-top:11px}
   body[data-page="device"] .outputStrip{margin:11px 0}
@@ -729,17 +714,17 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
 @media(max-height:600px){
   body[data-page="device"] #page-device.active{gap:9px}
   body[data-page="device"] .deviceCompact{padding:12px}
-  body[data-page="device"] .quickForm{padding:12px}
+  body[data-page="device"] #quickForm{padding:12px}
   body[data-page="device"] .devicePickerRow{margin-top:9px}
   body[data-page="device"] .quickField{padding:9px}
   body[data-page="device"] .quickGrid{margin-top:9px;gap:8px}
   body[data-page="device"] .outputStrip{margin:9px 0;gap:8px}
   body[data-page="device"] .outputStrip>div,body[data-page="device"] .outputStrip>button{min-height:60px;padding:8px 9px}
   body[data-page="device"] .outputStrip strong{margin-top:4px}
-  body[data-page="device"] .quickForm .primary{min-height:42px}
+  body[data-page="device"] #quickForm .primary{min-height:42px}
 }
 @media(max-height:760px){
-  body[data-page="batch"] .topbar{min-height:74px;padding:calc(6px + env(safe-area-inset-top)) 0 6px}
+  body[data-page="batch"] .topbar{padding:calc(6px + env(safe-area-inset-top)) 0 6px}
   body[data-page="batch"] .batchPanel{padding:13px}
   body[data-page="batch"] .batchGrid{margin-top:10px;gap:7px}
   body[data-page="batch"] .compactTile{min-height:66px;padding:8px 9px}

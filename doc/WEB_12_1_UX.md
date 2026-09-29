@@ -93,6 +93,29 @@ Cache tăng lên `12.1.3`. Browser QA đo thumb ở cả hai trạng thái, icon
 vùng bấm, viền dùng chung và không còn vòng tròn trợ giúp ở năm kích thước,
 cả hai theme; kiểm tra label click, phím Space và mở hướng dẫn bằng dòng chữ.
 
+### Web 12.1.4 — dải thông số đầu trang
+
+Gom nhiệt độ, độ ẩm và trạng thái vào một dải trắng/xanh xám chung, chỉ có
+viền ngoài nhẹ và hai đường chia ngắn. Bỏ viền, bóng và chữ in hoa của từng
+ô; giá trị đo nổi bật hơn nhãn. Giữ nguyên màu thương hiệu và ý nghĩa màu lỗi.
+
+Trên điện thoại và tablet dọc, tiêu đề và mô tả nằm trên dải thông số,
+không bị ép vào cột nhỏ. Desktop và điện thoại ngang giữ một hàng để chừa
+chiều cao cho nội dung. Các nhãn và giá trị căn cùng hàng, trạng thái không
+làm đổi chiều cao khi xuất hiện cảnh báo. Popup chi tiết lỗi vẫn mở ngoài
+dải thông số, không bị cắt bởi góc bo.
+
+Nội dung Thiết bị/Mẻ ấp không co thấp hơn các thẻ bên trong rồi tràn vào
+khoảng dành cho thanh điều hướng. Khi màn hình nhỏ, cuộn nội dung sẽ đưa
+được toàn bộ nút lưu/bắt đầu lên vùng bấm; sửa selector `#quickForm` để
+các quy tắc rút gọn hiện có thật sự áp dụng vào form.
+
+Cache tăng lên `12.1.4`. Browser QA kiểm tra cả ba tab tại tám cấu hình
+viewport, hai theme, năm trạng thái: đang ấp, ngoại tuyến, cảnh báo, lỗi dừng
+và khẩn cấp. Kiểm tra chữ không bị cắt, vị trí nhãn, chiều cao dải và việc
+mở/đóng popup có đủ mọi lỗi đang hoạt động. Không sửa `app.js`, firmware,
+Adaptive Boot, Runtime Recovery hoặc giao dịch điều khiển.
+
 Trên mobile, vuốt ngang sang tab bên cạnh theo thứ tự Thiết bị → Mẻ ấp →
 Cài đặt, vuốt ngược để quay lại. Không vòng từ tab cuối sang tab đầu.
 Vuốt dọc, vuốt tại ô nhập/nút/summary, thao tác nhiều ngón, mép màn hình

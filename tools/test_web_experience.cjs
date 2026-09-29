@@ -9,7 +9,7 @@ const out = path.resolve(process.argv[2] || path.join(root, 'work', 'web-qa'));
 fs.mkdirSync(out, { recursive: true });
 const source = fs.readFileSync(path.join(root, 'app.js'), 'utf8').replace('  init();', `
   window.__qa = { state, REQUIRED_CONFIG_KEYS, VENT_PROFILE_KEYS, handleConfigReport,
-    handleSnapshot, showPage, buildConfig, createDevice, renderSelector, connectionStatus };
+    handleSnapshot, showPage, buildConfig, createDevice, renderSelector, renderDevice, connectionStatus };
   init();`);
 const firmware = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v4_0_0/config.h'), 'utf8');
 const defaults = {};
@@ -40,7 +40,7 @@ window.mqtt = { connect() {
 
 async function setup(browser, options = {}) {
   let authFailures = options.authFailures || 0;
-  const context = await browser.newContext({ viewport: { width: options.width || 390, height: 844 },
+  const context = await browser.newContext({ viewport: { width: options.width || 390, height: options.height || 844 },
     isMobile: Boolean(options.mobile), hasTouch: Boolean(options.mobile), serviceWorkers: 'block', colorScheme: options.scheme || 'light' });
   await context.addInitScript(({ theme, paired, defaults, dropFirst }) => {
     window.__nativeStorageGet = Storage.prototype.getItem;
@@ -155,23 +155,107 @@ async function inspectControlLayout(page) {
   });
 }
 
+async function inspectHeader(page) {
+  return page.evaluate(() => {
+    const title = document.querySelector('.title').getBoundingClientRect();
+    const readings = document.querySelector('.headerReadings').getBoundingClientRect();
+    const fields = [...document.querySelectorAll('.live')].map(el => {
+      const rect = el.getBoundingClientRect();
+      return {x:rect.x,y:rect.y,width:rect.width,height:rect.height,
+        labelY:el.firstElementChild.getBoundingClientRect().y};
+    });
+    return {titleBottom:title.bottom,readingsTop:readings.top,readingsHeight:readings.height,fields,
+      clipped:[...document.querySelectorAll('.title h1,.title p,.live>span,.live>strong')]
+        .filter(el => el.scrollWidth>el.clientWidth+1).map(el => el.id || el.textContent),
+      rows:getComputedStyle(document.querySelector('.topbar')).gridTemplateRows.split(' ').length};
+  });
+}
+
+async function checkHeaderStates(page, {width,height,theme}) {
+  await page.evaluate(() => window.__qa.showPage('device'));
+  const baseline = await inspectHeader(page), result = [];
+  for (const scenario of ['running','offline','warning','stop','emergency']) {
+    await page.evaluate(scenario => {
+      window.__deliver();
+      const h=window.__qa,d=h.state.devices[0];
+      if (scenario==='offline') { d.presence.online=false; h.renderDevice(); return; }
+      const fault = {warning:{code:502,severity:1},stop:{code:301,severity:2},emergency:{code:112,severity:3}}[scenario];
+      if (fault) h.handleSnapshot(d,{...d.snapshot,runtime:{...d.snapshot.runtime,
+        activeFaults:[fault,{code:306,severity:1}]}});
+    },scenario);
+    const layout = await inspectHeader(page);
+    assert.deepEqual(layout.clipped,[],`${width}x${height}/${theme}/${scenario}: header text fits`);
+    assert.ok(Math.abs(layout.readingsHeight-baseline.readingsHeight)<=.5,'Fault states must not change strip height');
+    if (scenario==='offline') assert.equal(await page.locator('#liveState').innerText(),'Ngoại tuyến');
+    if (scenario==='running') assert.equal(await page.locator('#liveState').innerText(),'Đang ấp');
+    if (width===390) await page.locator('.topbar').screenshot({path:path.join(out,`MAYAP-header-${scenario}-${theme}.png`)});
+    if (['warning','stop','emergency'].includes(scenario)) {
+      await page.locator('#liveStateTile').click();
+      await page.locator('#faultPopup').waitFor({state:'visible'});
+      assert.equal(await page.locator('.faultPopupItem').count(),2,'Every active fault is still shown');
+      const popup = await page.locator('#faultPopup').evaluate(el => {
+        const box=el.getBoundingClientRect();
+        const point=document.elementFromPoint(box.x+8,box.y+box.height-8);
+        return {inViewport:box.x>=0 && box.right<=innerWidth && box.y>=0 && box.bottom<=innerHeight,
+          unobscured:point===el || el.contains(point)};
+      });
+      assert.ok(popup.inViewport && popup.unobscured,`${width}x${height}/${theme}/${scenario}: fault popup is accessible outside strip`);
+      if (width===390 && scenario==='emergency') await page.screenshot({path:path.join(out,`MAYAP-fault-popup-${theme}.png`)});
+      await page.locator('.title').click();
+      assert.equal(await page.locator('#faultPopup').isVisible(),false);
+    }
+    result.push(scenario);
+  }
+  await page.evaluate(() => window.__deliver());
+  return result;
+}
+
 async function main() {
   const executablePath = process.env.MAYAP_CHROME || (process.platform==='win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : undefined);
   const browser = await chromium.launch({ executablePath, headless: true });
-  const results = [], palettes = [], controls = [];
+  const results = [], palettes = [], controls = [], headers = [];
   try {
-    for (const width of [320, 390, 430, 768, 1440]) for (const theme of ['light', 'dark']) {
-      const { context, page, errors } = await setup(browser, { width, mobile: width < 800, theme });
+    const viewports = [320,390,430,768,850,1440].map(width=>({width,height:844})).concat([{width:844,height:390},{width:320,height:568}]);
+    for (const {width,height} of viewports) for (const theme of ['light', 'dark']) {
+      const { context, page, errors } = await setup(browser, { width, height, mobile: width < 800 || height<500, theme });
       for (const tab of ['device', 'batch', 'settings']) {
         await page.evaluate(tab => window.__qa.showPage(tab), tab);
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
         assert.equal(overflow, false, `${width}/${theme}/${tab} horizontal overflow`);
+        const header = await inspectHeader(page);
+        const stacked = width<=800 || (width<=1024 && height>500);
+        assert.equal(header.rows,stacked ? 2 : 1,`${width}x${height}/${tab}: responsive header rows`);
+        if (stacked) assert.ok(header.readingsTop>=header.titleBottom+8,'Title clears the readings on small screens');
+        assert.deepEqual(header.clipped,[],`${width}x${height}/${theme}/${tab}: title and readings fit`);
+        assert.ok(Math.max(...header.fields.map(f=>f.labelY))-Math.min(...header.fields.map(f=>f.labelY))<=.5,'Reading labels align');
+        if ((width<=800 || height<=500) && tab!=='settings') {
+          const action=page.locator(tab==='device' ? '#quickForm button[type="submit"]' : '#batchAction');
+          await action.evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));
+          const accessible=await action.evaluate(el=>{
+            const box=el.getBoundingClientRect();
+            const points=[box.y+4,box.y+box.height/2,box.bottom-4].map(y=>{
+              const hit=document.elementFromPoint(box.x+box.width/2,y);
+              return {y,visible:hit===el || el.contains(hit),hit:hit?.className};
+            });
+            const main=document.querySelector('.main');
+            return {ok:points.every(point=>point.visible),points,top:main.scrollTop,scroll:main.scrollHeight,height:main.clientHeight};
+          });
+          assert.ok(accessible.ok,`${width}x${height}/${theme}/${tab}: action remains reachable below taller header ${JSON.stringify(accessible)}`);
+          await page.evaluate(()=>{document.querySelector('.main').scrollTop=0;window.scrollTo({top:0,behavior:'instant'});});
+          await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+          assert.ok(await page.locator('.headerReadings').evaluate(el=>{
+            const box=el.getBoundingClientRect(),hit=document.elementFromPoint(box.x+20,box.y+box.height/2);
+            return hit===el || el.contains(hit);
+          }),'Readings remain visible after scrolling back to the top');
+        }
         const gradientElements = await page.evaluate(() => [...document.querySelectorAll('*')]
           .filter(el => /gradient\(/i.test(getComputedStyle(el).backgroundImage))
           .map(el => el.id || el.className || el.tagName));
         assert.deepEqual(gradientElements, [], `${width}/${theme}/${tab}: backgrounds must be solid`);
         if ((width === 390 || width === 1440) && tab !== 'settings')
-          await page.screenshot({path:path.join(out, `MAYAP-${tab}-${width}-${theme}.png`),fullPage:true});
+          // Mobile pages scroll inside .main. Capture its actual viewport:
+          // Chrome full-document capture can mispaint nested sticky headers.
+          await page.screenshot({path:path.join(out, `MAYAP-${tab}-${width}-${theme}.png`),fullPage:width>800 && height>500});
       }
       assert.equal(await page.title(), 'MAYAP · Máy ấp trứng');
       const contrast = await page.evaluate(() => {
@@ -200,7 +284,8 @@ async function main() {
         await page.screenshot({ path: path.join(out, `MAYAP-Quạt-hút-${width}-${theme}.png`), fullPage: true });
         if (width === 390) {
           await page.evaluate(() => { const box=document.getElementById('ventSettingCard').getBoundingClientRect();
-            window.scrollTo({top:window.scrollY+box.top-96,behavior:'instant'}); });
+            const header=document.querySelector('.topbar').getBoundingClientRect();
+            window.scrollTo({top:window.scrollY+box.top-header.height-10,behavior:'instant'}); });
           await page.screenshot({ path:path.join(out,`MAYAP-Quạt-hút-mobile-${theme}.png`) });
         }
       }
@@ -229,8 +314,9 @@ async function main() {
       assert.equal(await page.locator('#ventProfileFields').evaluate(el => el.disabled), true);
       assert.equal(await page.locator('#ventSettingCard').isVisible(), true);
       assert.match(await page.locator('#ventSummary').textContent(), /ngưỡng nhiệt độ/);
+      headers.push({width,height,theme,states:await checkHeaderStates(page,{width,height,theme})});
       assert.deepEqual(errors, []);
-      results.push(`${width}/${theme}: three tabs, no overflow, centered toggles/gear, shared borders, no settings help circles`);
+      results.push(`${width}x${height}/${theme}: three tabs, no overflow, centered controls, readable header and five states, fault popup accessible`);
       await context.close();
     }
     const { context, page } = await setup(browser, { width:390, mobile:true, theme:'light', dropFirst:true });
@@ -248,7 +334,10 @@ async function main() {
     await swipe(page, 200, 300, 0, -120);
     assert.equal(await page.evaluate(() => document.body.dataset.page), 'batch');
     await page.locator('#batchName').fill('Mẻ đang sửa');
+    await page.locator('#batchName').evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));
     const box = await page.locator('#batchName').boundingBox();
+    assert.equal(await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.id,
+      {x:box.x+box.width-20,y:box.y+box.height/2}),'batchName','Input gesture must start on the visible input');
     await swipe(page, box.x+box.width-20, box.y+box.height/2, -100);
     assert.equal(await page.evaluate(() => document.body.dataset.page), 'batch');
     await page.evaluate(() => { window.__qa.showPage('settings'); window.__qa.showPage('batch'); });
@@ -300,7 +389,7 @@ async function main() {
     assert.equal(await system.page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--surface').trim()), '#2b414c');
     results.push('System theme follows dark OS preference.');
     await system.context.close();
-    fs.writeFileSync(path.join(out,'web-browser-qa.json'),JSON.stringify({ passed:true, results, palettes, controls },null,2));
+    fs.writeFileSync(path.join(out,'web-browser-qa.json'),JSON.stringify({ passed:true, results, palettes, controls, headers },null,2));
     console.log(results.join('\n'));
   } finally { await browser.close(); }
 }

@@ -22,11 +22,13 @@
 <main class="main">
 <header class="topbar">
 <div class="title"><h1 aria-live="polite" id="pageTitle">Thiết bị</h1><p id="pageSubtitle">Theo dõi và điều khiển máy.</p></div>
-<div class="live"><span>Nhiệt độ:</span><strong id="liveTemp">—</strong></div>
-<div class="live"><span>Độ ẩm:</span><strong id="liveHumidity">—</strong></div>
-<div class="live" id="liveStateTile"><span>Trạng thái:</span><strong id="liveState">Chưa kết nối</strong>
+<div class="headerReadings" role="group" aria-label="Thông số máy">
+<div class="live"><span>Nhiệt độ</span><strong id="liveTemp">—</strong></div>
+<div class="live"><span>Độ ẩm</span><strong id="liveHumidity">—</strong></div>
+<div class="live" id="liveStateTile"><span>Trạng thái</span><strong id="liveState">Chưa kết nối</strong>
 <div class="faultPopup" hidden id="faultPopup" role="dialog">
 <div id="faultPopupList"></div>
+</div>
 </div>
 </div>
 </header>
