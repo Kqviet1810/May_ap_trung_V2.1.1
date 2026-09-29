@@ -141,6 +141,15 @@ nguon pin va BOD fuse; khong suy dien tuoi pin chi tu dong datasheet cua MCU.
 - E501: mat giao tiep ATtiny.
 - E502: nguon 9V coi low.
 - E503: batch **hoac activity** ESP/Tiny khong dong bo.
+  Khi trang thai mong muon doi, ESP theo doi rieng tung nhanh voi han 8 s:
+  khung tu heartbeat/lenh cu trong luc lenh moi cho xu ly khong phai loi.
+  Chi xac nhan chuyen trang thai bang cac bit Tiny tra ve sau lenh hien tai,
+  va khong con lenh nguoc trang thai dang cho trong queue. Lenh cu do bam
+  START/STOP lien tiep duoc theo sau boi lenh cua trang thai mong muon cuoi.
+  Phan hoi sau lenh van sai, lenh that bai, hoac qua han -> E503; retry khong
+  gia han va loi da xac nhan khong bi xoa boi mot thao tac moi. Sai lech trong
+  trang thai on dinh van bao ngay. E501/E502 va thu tu arm activity truoc khi
+  stop batch giu nguyen. Chi can nap lai ESP32; code Tiny LINKFIX khong doi.
 - Loi ATtiny chi la diagnostic cho ESP32; Tiny khong duoc quyen cat/ep output dieu khien chinh.
 
 ## Build gate

@@ -89,6 +89,9 @@ if "physicalOut.heaterSsr" in machine[machine.find("void updateAttinyLink"):mach
 if "ATTINY_ACTIVITY_REASSERT_MS" in config or "ATTINY_ACTIVITY_REASSERT_MS" in machine:
     raise SystemExit("FAIL: 5-second ATtiny activity reassert reintroduced")
 require(machine, "attinyActivitySynced_", "ATtiny two-way activity sync")
+require(machine, "attinyBatchSync_.fault() || attinyActivitySync_.fault()", "ATtiny per-state E503 tracking")
+require(machine, "!mayapAttinyBusCommandPending(oppositeBatchCommand)", "ATtiny stale queued batch command guard")
+require(read("MAYAP_INDUSTRIAL_v4_0_0/attiny_state_sync.h"), "TRANSITION_TIMEOUT_MS = 8000UL", "ATtiny bounded state transition")
 require(machine, "keepPowerLossArmed", "batch-stop no-gap handoff")
 require(machine, "refreshPendingResumeElapsedFromRtc();", "pending resume elapsed follows RTC")
 require(machine, "savedElapsedAtCheckpoint_) + delta", "pending resume elapsed uses checkpoint anchor")

@@ -142,8 +142,10 @@ int main() {
       // A stale loop sample must not backdate physical TX/deadlines.
       mayapAttinyBusUpdate(0);
       assert(MayapAttinyBusInternal::txStartedAt_ == millis());
+      assert(mayapAttinyBusCommandPending(command));
       advance(clockUs + stallMs * 1000ULL);
-      pollUntilResult(); assert(result(command));
+      pollUntilResult(); assert(!mayapAttinyBusCommandPending(command));
+      assert(result(command));
       assert(measuredLowUs == ATTINY_COMMAND_WIDTH_MS[command] * 1000U);
       assert(mayapAttinyBusPollIncoming() == ATTINY_MSG_STATUS_BASE + flags);
       assert(busLevel == HIGH); ++transfers;
@@ -160,11 +162,15 @@ int main() {
   reset(); initFailure = true; mayapAttinyBusBegin(); assert(mayapAttinyBusRequest(5));
   pollUntilResult(); assert(!result(5));
   reset(); for (uint8_t c = 1; c <= 7; ++c) assert(mayapAttinyBusRequest(c));
+  assert(mayapAttinyBusCommandPending(1) && mayapAttinyBusCommandPending(7));
+  assert(!mayapAttinyBusCommandPending(0) && !mayapAttinyBusCommandPending(8));
   assert(mayapAttinyBusRequest(7)); assert(!mayapAttinyBusRequest(0)); assert(!mayapAttinyBusRequest(8));
   pollUntilResult();
   const uint8_t queued = MayapAttinyBusInternal::txCount_;
   advance(clockUs + 100000); mayapAttinyBusUpdate(0);
-  assert(MayapAttinyBusInternal::txCount_ == queued); assert(result(1));
+  assert(MayapAttinyBusInternal::txCount_ == queued);
+  assert(!mayapAttinyBusCommandPending(1) && mayapAttinyBusCommandPending(2));
+  assert(result(1));
   for (uint8_t c = 2; c <= 7; ++c) { pollUntilResult(); assert(result(c)); }
   reset(); clockUs = (1ULL << 32) - 50000; // capture timestamp wraps during reply
   assert(mayapAttinyBusRequest(5)); pollUntilResult(); assert(result(5));

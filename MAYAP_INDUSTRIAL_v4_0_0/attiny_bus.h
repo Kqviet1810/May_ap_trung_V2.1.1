@@ -257,6 +257,10 @@ inline bool mayapAttinyBusRequest(uint8_t code) {
 inline void mayapAttinyBusHoldTxUntil(uint32_t deadline) {
   MayapAttinyBusInternal::txHoldUntil_ = deadline;
 }
+inline bool mayapAttinyBusCommandPending(uint8_t code) {
+  return code != 0U && code <= ATTINY_MSG_MAX_COMMAND &&
+      MayapAttinyBusInternal::queuedOrActive(code);
+}
 inline void mayapAttinyBusUpdate(uint32_t now) {
   using namespace MayapAttinyBusInternal;
   now = millis(); // Caller timestamp may precede EEPROM/NVS/I2C work.

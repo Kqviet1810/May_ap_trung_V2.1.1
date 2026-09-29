@@ -4,6 +4,7 @@
 #include "firmware_update_guard.h"
 #include "boot_diagnostic.h"
 #include "startup_output_policy.h"
+#include "attiny_state_sync.h"
 #include <Arduino.h>
 #include <HardwareSerial.h>
 #include <Wire.h>
@@ -4818,6 +4819,7 @@ class MachineController {
     // khong phan hoi (mach dinh khong nen tri hoan ca me ap chi vi 1 mach
     // phu), chi canh bao ro rang de nguoi dung tu kiem tra pin CR2032/day
     // noi som, truoc khi mat lop bao ve du phong suot ca me.
+    attinyBatchSync_.expect(true, millis());
     (void)mayapAttinyBusRequest(ATTINY_MSG_BATCH_START);
     (void)mayapAttinyBusRequest(ATTINY_MSG_STATUS_QUERY);
     attinyLastStatusQueryAt_ = now;
@@ -4879,6 +4881,7 @@ class MachineController {
     const OutputState &stopOut = outputs_.state();
     const bool keepPowerLossArmed = stopOut.turnLeft || stopOut.turnRight ||
         stopOut.circulationFan || stopOut.ventFan || stopOut.heatMaster;
+    attinyBatchSync_.expect(false, millis());
     if (keepPowerLossArmed) (void)mayapAttinyBusRequest(ATTINY_MSG_ACTIVITY_ON);
     (void)mayapAttinyBusRequest(ATTINY_MSG_BATCH_END);
     return true;
@@ -6505,6 +6508,12 @@ class MachineController {
     }
     const bool expectedActivity = attinyActivityDesired_;
     const bool desiredSiren = emergencyActive_ && timeReached(now, sirenMutedUntil_);
+    attinyBatchSync_.expect(expectedBatch, now);
+    attinyActivitySync_.expect(expectedActivity, now);
+    const uint8_t batchCommand = expectedBatch ? ATTINY_MSG_BATCH_START : ATTINY_MSG_BATCH_END;
+    const uint8_t activityCommand = expectedActivity ? ATTINY_MSG_ACTIVITY_ON : ATTINY_MSG_ACTIVITY_OFF;
+    const uint8_t oppositeBatchCommand = expectedBatch ? ATTINY_MSG_BATCH_END : ATTINY_MSG_BATCH_START;
+    const uint8_t oppositeActivityCommand = expectedActivity ? ATTINY_MSG_ACTIVITY_OFF : ATTINY_MSG_ACTIVITY_ON;
 
     uint8_t completedCode = 0U;
     bool completedOk = false;
@@ -6531,6 +6540,8 @@ class MachineController {
         }
       } else {
         attinyLinkHealthy_ = false;
+        if (completedCode == batchCommand) attinyBatchSync_.commandFailed();
+        if (completedCode == activityCommand) attinyActivitySync_.commandFailed();
         if (completedCode == ATTINY_MSG_BATCH_START || completedCode == ATTINY_MSG_BATCH_END) {
           attinyBatchSynced_ = false;
         }
@@ -6573,6 +6584,12 @@ class MachineController {
 
       attinyBatchSynced_ = (attinyTinyBatch_ == expectedBatch);
       attinyActivitySynced_ = (attinyTinyActivity_ == expectedActivity);
+      attinyBatchSync_.observe(attinyTinyBatch_,
+          completedOk && completedCode == batchCommand &&
+          !mayapAttinyBusCommandPending(oppositeBatchCommand), now);
+      attinyActivitySync_.observe(attinyTinyActivity_,
+          completedOk && completedCode == activityCommand &&
+          !mayapAttinyBusCommandPending(oppositeActivityCommand), now);
       // Status Tiny la nguon su that sau reset rieng le; cap nhat mirror de
       // block thay-doi-ben-duoi tu dong gui lai neu co mismatch.
       attinyActivityMirrorOn_ = attinyTinyActivity_;
@@ -6597,6 +6614,9 @@ class MachineController {
       attinyLinkHealthy_ = false;
     }
     if (attinyStatusKnown_) attinyBatchSynced_ = (attinyTinyBatch_ == expectedBatch);
+    if (attinyStatusKnown_) attinyActivitySynced_ = (attinyTinyActivity_ == expectedActivity);
+    attinyBatchSync_.update(now);
+    attinyActivitySync_.update(now);
 
     if (desiredSiren != attinySirenMirrorOn_ ||
         (desiredSiren && elapsedMs(now, attinyLastSirenAssertAt_) >= ATTINY_SIREN_REASSERT_MS)) {
@@ -6615,6 +6635,13 @@ class MachineController {
       (void)mayapAttinyBusRequest(
           expectedActivity ? ATTINY_MSG_ACTIVITY_ON : ATTINY_MSG_ACTIVITY_OFF);
     }
+
+    // Preserve siren/activity priority above; pending transitions must have
+    // their latest desired command queued. Rapid START/STOP/START can leave an
+    // opposite command behind an active matching command; enqueue the final
+    // desired state after that old command, without extending the deadline.
+    if (attinyBatchSync_.pending()) (void)mayapAttinyBusRequest(batchCommand);
+    if (attinyActivitySync_.pending()) (void)mayapAttinyBusRequest(activityCommand);
 
     if (attinyStartupProbePending_) {
       if (mayapAttinyBusRequest(ATTINY_MSG_STATUS_QUERY)) {
@@ -6647,7 +6674,7 @@ class MachineController {
     faults_.set(FaultCode::SirenBatteryLow,
                 attinyStatusKnown_ && attiny9vLow_, now);
     faults_.set(FaultCode::AttinyStateUnsynced,
-                attinyStatusKnown_ && (!attinyBatchSynced_ || !attinyActivitySynced_), now);
+                attinyStatusKnown_ && (attinyBatchSync_.fault() || attinyActivitySync_.fault()), now);
 
     runtime_.attinyLinkHealthy = attinyLinkChecked_ && attinyLinkHealthy_;
     runtime_.attinyBatchSynced = attinyStatusKnown_ && attinyBatchSynced_;
@@ -7502,6 +7529,8 @@ class MachineController {
   bool attinyActivityMirrorOn_ = false;
   bool attinyActivityDesired_ = false;
   bool attinyActivitySynced_ = false;
+  AttinyStateSync attinyBatchSync_;
+  AttinyStateSync attinyActivitySync_;
   bool attinyTinyActivity_ = false;
   bool attinyStartupProbePending_ = true;
   bool attinyLinkChecked_ = false;

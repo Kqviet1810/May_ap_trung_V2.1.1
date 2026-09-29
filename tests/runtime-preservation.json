@@ -31,7 +31,11 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/attiny_bus.h",
-      "sha256": "c7d3d9e8e6dd9b09d4aa0f0207cb45bb5d035850937ad1270cee7b66526fd91a"
+      "sha256": "b98c1e76867cb8c6e49504dcdede0f66742c0db255a392c48650e45c3f3b6086"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/attiny_state_sync.h",
+      "sha256": "5d077fe73be08378505c6659320e412108ef9bed420ea976595bfca73a186df4"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/gpio_interrupts.h",
@@ -60,7 +64,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
-      "sha256": "e7425a49297a954cdc55bcd05c0b9239dff9de9c9b072f7836c6bc2e0e09b2bd",
+      "sha256": "d4387411571a66573fc6346deccba110990e1caa76648fe1891f6018378a30dd",
       "signature": "class MachineController {"
     },
     {
