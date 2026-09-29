@@ -1,17 +1,14 @@
-"""Convert the supplied transparent logo and Vietnamese labels to LCD XBM.
+"""Convert the supplied transparent logo to the minimal LCD splash.
 
-Usage: python tools/generate_boot_assets.py --font /path/to/arial.ttf
-Requires Pillow; generated firmware does not depend on fonts or Pillow.
+Usage: python tools/generate_boot_assets.py --preview /path/to/preview.png
+Requires Pillow; generated firmware has no font/Pillow dependency.
 """
 import argparse
 import hashlib
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
-LABELS = ["Kiểm tra phần cứng", "Khởi tạo bộ nhớ", "Khởi tạo cảm biến",
-          "Khởi tạo điều khiển", "Khởi tạo an toàn", "Kết nối mạng",
-          "Kết nối máy chủ", "Hệ thống sẵn sàng"]
 
 
 def xbm(image):
@@ -28,7 +25,7 @@ def xbm(image):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--font", required=True)
+    parser.add_argument("--font", help="Legacy argument; minimal splash needs no font")
     parser.add_argument("--preview")
     args = parser.parse_args()
     source = ROOT / "doc/boot-logo-source.png"
@@ -42,35 +39,15 @@ def main():
               "#include <Arduino.h>", f"constexpr uint8_t BOOT_LOGO_WIDTH = {logo.width}U;",
               f"constexpr uint8_t BOOT_LOGO_HEIGHT = {logo.height}U;",
               "constexpr uint8_t BOOT_LOGO_TOP = 16U;",
-              "constexpr uint8_t BOOT_STATUS_TOP = 52U;",
-              "constexpr uint8_t BOOT_STATUS_HEIGHT = 12U;",
               "static const uint8_t bootLogoBits[] PROGMEM = {\n  " + xbm(logo) + "\n};"]
-    frames = []
-    for index, label in enumerate(LABELS):
-        size = 10
-        while True:
-            font = ImageFont.truetype(args.font, size)
-            bbox = font.getbbox(label)
-            if bbox[2] - bbox[0] <= 124 and bbox[3] - bbox[1] <= 12:
-                break
-            size -= 1
-            if size < 8:
-                raise ValueError("Font cannot fit Vietnamese label in one line")
-        bitmap = Image.new("L", (128, 12), 0)
-        draw = ImageDraw.Draw(bitmap)
-        draw.text(((128 - (bbox[2] - bbox[0])) // 2 - bbox[0], -bbox[1]), label, font=font, fill=255)
-        bitmap = bitmap.point(lambda p: 255 if p >= 80 else 0).convert("1")
-        result.append(f"// {label}\nstatic const uint8_t bootStatus{index}[] PROGMEM = {{\n  " + xbm(bitmap) + "\n};")
-        frame = Image.new("1", (128, 64), 1)
-        frame.paste(0, ((128 - logo.width) // 2, 16), logo)
-        frame.paste(0, (0, 52), bitmap)
-        frames.append(frame)
-    result.append("static const uint8_t *const bootStatusBits[] = {" + ", ".join(f"bootStatus{i}" for i in range(8)) + "};")
     (ROOT / "MAYAP_INDUSTRIAL_v4_0_0/boot_assets.h").write_text("\n".join(result) + "\n", encoding="utf-8")
     if args.preview:
-        preview = Image.new("RGB", (512, 128 * 4), "white")
-        for index, frame in enumerate(frames):
-            preview.paste(frame.resize((256, 128), Image.Resampling.NEAREST), ((index % 2) * 256, (index // 2) * 128))
+        frame = Image.new("1", (128, 64), 1)
+        frame.paste(0, ((128 - logo.width) // 2, 16), logo)
+        draw = ImageDraw.Draw(frame)
+        for x in (60, 64, 68):
+            draw.ellipse((x - 1, 56, x + 1, 58), fill=0)
+        preview = frame.resize((512, 256), Image.Resampling.NEAREST)
         preview.save(args.preview)
 
 

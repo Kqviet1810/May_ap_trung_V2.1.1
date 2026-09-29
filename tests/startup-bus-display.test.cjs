@@ -24,14 +24,14 @@ test('healthy static LCD menus are never periodically blanked/reinitialized or r
   assert.match(read(dir + 'hmi.h'), /if \(!ok\) \{\s*lcdReady = false;/);
   const assets = read(dir + 'boot_assets.h');
   assert.match(assets, /BOOT_LOGO_HEIGHT = 32U/);
-  assert.match(assets, /BOOT_STATUS_HEIGHT = 12U/);
+  assert.doesNotMatch(assets, /bootStatusBits/);
 });
-test('Tiny keeps v4 wire framing but uses whole-wave RMT and directly registered IRAM GPIO handlers', () => {
+test('Tiny restores proven GPIO/timer TX, direct IRAM capture and validates measured command width', () => {
   const source = read(dir + 'attiny_bus.h');
-  assert.doesNotMatch(source, /ESP_TIMER_TASK|esp_timer_start_once|attachInterrupt\(|noInterrupts\(/);
-  assert.match(source, /txConfig.flags.io_od_mode = 1U/);
-  assert.match(source, /txConfig.flags.eot_level = 1U/);
-  assert.match(source, /txSymbols_\[9\]/);
+  assert.doesNotMatch(source, /rmt_transmit|rmt_new_tx_channel|attachInterrupt\(|noInterrupts\(/);
+  assert.match(source, /esp_timer_start_once\(txReleaseTimer_/);
+  assert.match(source, /GPIO_MODE_INPUT_OUTPUT_OD/);
+  assert.match(source, /!commandPulseValid\(\)/);
   assert.match(source, /gpio_isr_handler_add\([^;]*busIsr, nullptr/);
   assert.match(source, /busIsr\(void \*\)[\s\S]*?esp_timer_get_time\(\)/);
   const encoder = read(dir + 'hmi.h');

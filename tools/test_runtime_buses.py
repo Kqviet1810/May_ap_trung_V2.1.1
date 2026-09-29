@@ -38,6 +38,9 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
              'ATTINY_MSG_MAX_COMMAND', 'ATTINY_MSG_STATUS_BASE')
     declarations = [re.search(r'constexpr [^;]*\b' + name + r'\b[^;]*;', cfg)[0] for name in names]
     (out / 'actual-attiny-config.inc').write_text('\n'.join(declarations), encoding='utf-8')
+    tiny = (root / 'ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino').read_text(encoding='utf-8')
+    decoder = re.search(r'static uint8_t decode\(uint16_t w\) \{[^}]*\}', tiny)[0]
+    (out / 'actual-tiny-decoder.inc').write_text(decoder, encoding='utf-8')
     boot = (root / 'MAYAP_INDUSTRIAL_v4_0_0/boot_diagnostic.h').read_text(encoding='utf-8')
     mailbox = 'namespace MayapBootInternal { static volatile uint8_t homeReleased=0, operationsReady=0; }\n'
     for name in ('mayapBootHomeReleased', 'mayapBootReleaseHome', 'mayapBootOperationsReady',

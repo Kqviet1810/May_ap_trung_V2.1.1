@@ -14,13 +14,13 @@ for line in symbols.splitlines():
     if match:
         entries.append((int(match[1], 16), match[2], match[3]))
 functions = ('MayapAttinyBusInternal::busIsr(void*)', 'rotaryEncoderIsr(void*)',
-             'MayapAttinyBusInternal::txDoneCallback(', 'esp_timer_get_time',
+             'esp_timer_get_time',
              'xPortEnterCriticalTimeout', 'vPortExitCritical')
 for prefix in functions:
     matches = [entry for entry in entries if entry[2].startswith(prefix)]
     assert matches and all('.iram' in entry[1] for entry in matches), (prefix, matches)
 for name in ('QUADRATURE_TABLE', 'MayapAttinyBusInternal::edgeAtUs_',
-             'MayapAttinyBusInternal::rxMux_', 'MayapAttinyBusInternal::txSymbols_'):
+             'MayapAttinyBusInternal::rxMux_'):
     matches = [entry for entry in entries if entry[2] == name]
     assert matches and all('.dram' in entry[1] for entry in matches), (name, matches)
 disassembly = subprocess.check_output([args.objdump, '-d', '-C', args.elf], text=True)

@@ -78,11 +78,12 @@ test('all explicit restarts are reasoned and ArduinoOTA automatic restart has a 
   assert.doesNotMatch(diagnostic, /EEPROM|Preferences/);
 });
 
-test('LCD splash renders supplied logo and exactly one status bitmap with eight Vietnamese labels', () => {
+test('LCD splash renders centered logo and only three dots as requested', () => {
   const splash = body(hmi, 'void drawSplash()');
-  assert.equal((splash.match(/drawXBMP\(/g) || []).length, 2);
+  assert.equal((splash.match(/drawXBMP\(/g) || []).length, 1);
+  assert.equal((splash.match(/drawDisc\(/g) || []).length, 3);
+  assert.doesNotMatch(splash, /bootStatusBits|mayapBootStatus/);
   assert.doesNotMatch(splash, /drawStr|drawCenteredText|drawHeader|drawToast/);
   const assets = read(dir + 'boot_assets.h');
-  for (const label of ['Kiểm tra phần cứng', 'Khởi tạo bộ nhớ', 'Khởi tạo cảm biến', 'Khởi tạo điều khiển',
-    'Khởi tạo an toàn', 'Kết nối mạng', 'Kết nối máy chủ', 'Hệ thống sẵn sàng']) assert.ok(assets.includes(label));
+  assert.doesNotMatch(assets, /bootStatusBits|bootStatus[0-7]/);
 });

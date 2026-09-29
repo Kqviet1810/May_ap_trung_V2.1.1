@@ -1,5 +1,31 @@
 # Boot / LCD / ATtiny hardening — 2026-09-29
 
+## Follow-up after hardware feedback (current implementation)
+
+The operator reported complete Tiny connection loss after cf664fa. Its RMT TX
+change is rolled back to the proven GPIO + independent esp_timer sender; no
+protocol or Tiny firmware replacement is made. The exact RMT failure on that
+board is not established without init/failure logs. The earlier host HAL modeled
+RMT API success and therefore did not establish peripheral compatibility.
+
+IRAM GPIO reception, fresh link timestamps and decode-before-timeout are kept.
+Response timeout now starts from measured GPIO release rather than a nominal
+command end. Actual LOW width is checked against the Tiny command windows:
+even a valid status frame cannot acknowledge a pulse that drifted into another
+command. New diagnostics report measured LOW microseconds when LOG is enabled.
+esp_timer uses a software task in this SDK; flash/cache delays of the sender
+are not eliminated by IRAM reception. Width validation detects that case; it
+does not prove the hardware timing is now fault-free.
+
+Tests now use a wired-AND GPIO model and the actual Tiny command decoder, and
+inject timer delays: 235 ms stays a query; 270 ms becomes ACTIVITY_ON and must
+not be reported as query success. All 448 control-stall transfers still run.
+The HMI splash is changed per explicit confirmation to logo + three dots only.
+Startup output interlock and removal of periodic LCD reinitialization remain.
+
+The RMT findings below describe the superseded cf664fa attempt, not the current
+sender. Physical verification is still required and no new OTA release is made.
+
 Based on main `29ad4a3`. Wire protocol v4, ATtiny LINKFIX source, pin mapping,
 EEPROM layouts, Web transactions, PID and recovery thresholds remain unchanged.
 

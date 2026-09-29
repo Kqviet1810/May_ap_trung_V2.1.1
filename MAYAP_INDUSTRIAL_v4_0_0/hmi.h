@@ -3012,14 +3012,14 @@ void drawCenteredText(int16_t y, const char *text) {
   lcd.drawStr(max(0, (128 - width) / 2), y, text);
 }
 
-// Supplied logo plus exactly one Vietnamese status line. Bitmaps preserve
-// diacritics without adding a large Unicode font to the 128x64 firmware.
+// Minimal splash requested by the operator: centered logo and three dots.
 void drawSplash() {
   lcd.setDrawColor(1);
   lcd.drawXBMP((128 - BOOT_LOGO_WIDTH) / 2, BOOT_LOGO_TOP,
                BOOT_LOGO_WIDTH, BOOT_LOGO_HEIGHT, bootLogoBits);
-  lcd.drawXBMP(0, BOOT_STATUS_TOP, 128, BOOT_STATUS_HEIGHT,
-      bootStatusBits[static_cast<uint8_t>(mayapBootStatus())]);
+  lcd.drawDisc(60, 57, 1);
+  lcd.drawDisc(64, 57, 1);
+  lcd.drawDisc(68, 57, 1);
 }
 
 void drawHomeMain() {

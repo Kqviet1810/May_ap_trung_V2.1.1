@@ -11,7 +11,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/boot_assets.h",
-      "sha256": "c3f737bc1cf526d704fd41cbc1cf3dedb978fb1ff111bb0ab478237a57ba0060"
+      "sha256": "8f1beb32ed9b15edabe1b5fe669d5cfadf3c50ed2d419e71e0a214e101edcc19"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/thermal_control.h",
@@ -31,7 +31,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/attiny_bus.h",
-      "sha256": "b0b36b68a8a8d84520a088736df15ea3f3072f93489ab3d3f2293621f64421fa"
+      "sha256": "c7d3d9e8e6dd9b09d4aa0f0207cb45bb5d035850937ad1270cee7b66526fd91a"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/gpio_interrupts.h",
@@ -55,7 +55,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/config.h",
-      "sha256": "ce5c6586eb801b444ea79782b1008e05d40b4d897524887a3f1bfe4214ff9c39",
+      "sha256": "4c7a54710072b731ba35c899ad0dadf71edc4553dbb590c1834493b14501586f",
       "filter": "config"
     },
     {
@@ -95,7 +95,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/hmi.h",
-      "sha256": "288b639698187f67ea49670eda287ad3e9013572c0d663c43de8077bbc4bf71c",
+      "sha256": "bae6f5049d527391660886977c344d2535b5382a45ccd9460d5d71105ec1e7d7",
       "signature": "void drawSplash()"
     },
     {

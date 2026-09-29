@@ -3,11 +3,10 @@
 #include <Arduino.h>
 #include <driver/gpio.h>
 #include <esp_timer.h>
-#include <driver/rmt_tx.h>
-#include <driver/rmt_encoder.h>
 #include "gpio_interrupts.h"
 
-// Protocol v4: one hardware-timed command pulse; Tiny replies with a
+// Protocol v4: the proven GPIO + independent esp_timer command pulse;
+// no RMT owns this bidirectional pad. Tiny replies with a
 // six-pulse status frame (preamble, four state bits, XOR parity).
 // GPIO41 and PB0 remain true GPIO open drain. The ESP internal 3.3 V pull-up
 // is enabled as a safe idle fallback; the PCB must still use the external R8.
@@ -32,11 +31,9 @@ static uint32_t txHoldUntil_ = 0U, txStartedAt_ = 0U;
 static uint32_t responseStartedAt_ = 0U, retryAt_ = 0U;
 static uint32_t idleBlockedAt_ = 0U;
 static bool idleBlocked_ = false;
-static rmt_channel_handle_t txChannel_ = nullptr;
-static rmt_encoder_handle_t txEncoder_ = nullptr;
-// Longest command = 450000 us: <=9 symbols, all in the 48-symbol RMT RAM.
-// No refill ISR is needed while NVS disables flash cache. Payload stays in RAM.
-static rmt_symbol_word_t txSymbols_[9]{};
+static esp_timer_handle_t txReleaseTimer_ = nullptr;
+static uint32_t txPulseStartedUs_ = 0U;
+static volatile uint32_t txPulseWidthUs_ = 0U;
 enum class Phase : uint8_t { Idle, Sending, WaitingReply, RetryGap };
 static Phase phase_ = Phase::Idle;
 
@@ -61,13 +58,21 @@ inline void releaseBus() {
   (void)gpio_set_level(static_cast<gpio_num_t>(PIN_ATTINY_BUS), 1U);
 }
 inline bool busHigh() {
-  // Use the IDF pad read, not Arduino periman's GPIO-only warning wrapper:
-  // this pad is deliberately shared by RMT output and GPIO edge input.
+  // The driver owns the pad directly; bypass Arduino's periman/log wrapper.
   return gpio_get_level(static_cast<gpio_num_t>(PIN_ATTINY_BUS)) != 0;
 }
-bool IRAM_ATTR txDoneCallback(rmt_channel_handle_t, const rmt_tx_done_event_data_t *, void *) {
+void txReleaseCallback(void *) {
+  releaseBus();
+  txPulseWidthUs_ = static_cast<uint32_t>(esp_timer_get_time()) - txPulseStartedUs_;
   __atomic_store_n(&txPulseDone_, true, __ATOMIC_RELEASE);
-  return false;
+}
+inline bool commandPulseValid() {
+  // Exact LINKFIX command windows; reject a valid-looking ACK if the actual
+  // emitted LOW could have been interpreted as a different command.
+  static const uint16_t minimumMs[] = {0U, 20U, 47U, 78U, 124U, 185U, 270U, 390U};
+  static const uint16_t maximumMs[] = {0U, 38U, 65U, 105U, 160U, 240U, 350U, 510U};
+  const uint32_t width = txPulseWidthUs_;
+  return width >= minimumMs[txCode_] * 1000UL && width <= maximumMs[txCode_] * 1000UL;
 }
 inline bool reached(uint32_t now, uint32_t deadline) {
   return static_cast<int32_t>(now - deadline) >= 0;
@@ -87,8 +92,15 @@ inline bool queuedOrActive(uint8_t code) {
   return false;
 }
 inline void finish(bool ok, uint8_t flags = 0U) {
-  // RMT releases the open-drain pin in hardware (EOT=HIGH). Never pretend
-  // its completion callback ran: a later request cannot reuse live payload.
+  if (txReleaseTimer_ != nullptr && esp_timer_is_active(txReleaseTimer_))
+    (void)esp_timer_stop(txReleaseTimer_);
+  releaseBus();
+  __atomic_store_n(&txPulseDone_, true, __ATOMIC_RELEASE);
+#if MAYAP_DIAGNOSTIC_SERIAL
+  if (ok) mayapSerialPrintf(false, "[ATTINY-BUS] ACK cmd=%u low=%luus edges=%u\n",
+      static_cast<unsigned>(txCode_), static_cast<unsigned long>(txPulseWidthUs_),
+      static_cast<unsigned>(edgeCount_));
+#endif
   rxEnabled_ = false;
   clearEdges();
   resultCode_ = txCode_;
@@ -101,10 +113,11 @@ inline void finish(bool ok, uint8_t flags = 0U) {
 }
 #if MAYAP_DIAGNOSTIC_SERIAL
 inline void logFailure(const char *reason) {
-  mayapSerialPrintf(false, "[ATTINY-BUS] FAIL reason=%s cmd=%u attempt=%u edges=%u overflow=%u\n",
+  mayapSerialPrintf(false, "[ATTINY-BUS] FAIL reason=%s cmd=%u attempt=%u edges=%u overflow=%u low=%luus\n",
                 reason, static_cast<unsigned>(txCode_),
                 static_cast<unsigned>(txAttempt_),
-                static_cast<unsigned>(edgeCount_), edgeOverflow_ ? 1U : 0U);
+                static_cast<unsigned>(edgeCount_), edgeOverflow_ ? 1U : 0U,
+                static_cast<unsigned long>(txPulseWidthUs_));
 }
 #else
 inline void logFailure(const char *) {}
@@ -145,8 +158,8 @@ inline bool decodeFrame(uint8_t &flags) {
   return true;
 }
 inline void startAttempt(uint32_t now) {
-  if (!driverReady_ || txChannel_ == nullptr || txEncoder_ == nullptr) {
-    logFailure("GPIO_RMT_INIT");
+  if (!driverReady_ || txReleaseTimer_ == nullptr) {
+    logFailure("GPIO_TIMER_IRAM_INIT");
     finish(false);
     return;
   }
@@ -154,32 +167,13 @@ inline void startAttempt(uint32_t now) {
   rxEnabled_ = true;
   __atomic_store_n(&txPulseDone_, false, __ATOMIC_RELEASE);
   ++txAttempt_;
-  uint32_t remaining = static_cast<uint32_t>(ATTINY_COMMAND_WIDTH_MS[txCode_]) * 1000UL;
-  size_t symbols = 0U;
-  while (remaining > 60000UL) {
-    rmt_symbol_word_t &s = txSymbols_[symbols++];
-    s.level0 = s.level1 = 0U;
-    s.duration0 = s.duration1 = 30000U;
-    remaining -= 60000UL;
-  }
-  rmt_symbol_word_t &tail = txSymbols_[symbols++];
-  tail.level0 = 0U;
-  tail.duration0 = remaining > 30000UL ? 30000U : remaining;
-  remaining -= tail.duration0;
-  tail.level1 = remaining ? 0U : 1U;
-  tail.duration1 = remaining ? remaining : 1U;
-  if (remaining) {
-    rmt_symbol_word_t &high = txSymbols_[symbols++];
-    high.level0 = high.level1 = 1U;
-    high.duration0 = high.duration1 = 1U;
-  }
-  rmt_transmit_config_t txConfig{};
-  txConfig.flags.eot_level = 1U;
-  txConfig.flags.queue_nonblocking = 1U;
-  // Stamp at the actual TX API, not the start of a possibly slow control loop.
+  txPulseWidthUs_ = 0U;
+  txPulseStartedUs_ = static_cast<uint32_t>(esp_timer_get_time());
   txStartedAt_ = millis();
-  if (rmt_transmit(txChannel_, txEncoder_, txSymbols_,
-          symbols * sizeof(txSymbols_[0]), &txConfig) != ESP_OK) {
+  if (gpio_set_level(static_cast<gpio_num_t>(PIN_ATTINY_BUS), 0U) != ESP_OK ||
+      esp_timer_start_once(txReleaseTimer_,
+          static_cast<uint64_t>(ATTINY_COMMAND_WIDTH_MS[txCode_]) * 1000ULL) != ESP_OK) {
+    releaseBus();
     __atomic_store_n(&txPulseDone_, true, __ATOMIC_RELEASE);
     retryOrFinish(now, "TX_START");
     return;
@@ -230,23 +224,12 @@ inline void mayapAttinyBusBegin() {
   driverReady_ = gpio_config(&busConfig) == ESP_OK;
   if (driverReady_) releaseBus();
 
-  rmt_tx_channel_config_t txConfig{};
-  txConfig.gpio_num = static_cast<gpio_num_t>(PIN_ATTINY_BUS);
-  txConfig.clk_src = RMT_CLK_SRC_DEFAULT;
-  txConfig.resolution_hz = 1000000UL;
-  txConfig.mem_block_symbols = 48U;
-  txConfig.trans_queue_depth = 1U;
-  txConfig.flags.io_od_mode = 1U;
-  txConfig.flags.io_loop_back = 1U;
-  txConfig.flags.init_level = 1U;
-  rmt_copy_encoder_config_t encoderConfig{};
-  rmt_tx_event_callbacks_t callbacks{};
-  callbacks.on_trans_done = txDoneCallback;
+  esp_timer_create_args_t timerArgs{};
+  timerArgs.callback = txReleaseCallback;
+  timerArgs.dispatch_method = ESP_TIMER_TASK;
+  timerArgs.name = "attiny-tx-release";
   if (driverReady_) {
-    driverReady_ = rmt_new_tx_channel(&txConfig, &txChannel_) == ESP_OK &&
-        rmt_new_copy_encoder(&encoderConfig, &txEncoder_) == ESP_OK &&
-        rmt_tx_register_event_callbacks(txChannel_, &callbacks, nullptr) == ESP_OK &&
-        rmt_enable(txChannel_) == ESP_OK;
+    driverReady_ = esp_timer_create(&timerArgs, &txReleaseTimer_) == ESP_OK;
   }
   if (driverReady_) {
     driverReady_ = mayapEnsureCacheSafeGpioService() &&
@@ -256,7 +239,7 @@ inline void mayapAttinyBusBegin() {
   lastBusEdgeUs_ = micros();
   __atomic_store_n(&txPulseDone_, true, __ATOMIC_RELEASE);
 #if MAYAP_DIAGNOSTIC_SERIAL
-  mayapSerialPrintf(false, "[ATTINY-BUS] init rmt/iram=%u idle=%u\n",
+  mayapSerialPrintf(false, "[ATTINY-BUS] init gpio/timer/iram=%u idle=%u\n",
                 driverReady_ ? 1U : 0U,
                 busHigh() ? 1U : 0U);
 #endif
@@ -288,6 +271,9 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
         }
         return;
       }
+      // Timestamp the response from actual GPIO release, not a nominal width
+      // or late foreground sample. Capture has remained enabled throughout.
+      responseStartedAt_ = txStartedAt_ + txPulseWidthUs_ / 1000UL;
       phase_ = Phase::WaitingReply;
       // Fall through: a whole response may have arrived while control saved.
       // Decode retained edges before applying the timeout.
@@ -305,12 +291,13 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
       if (count >= RESPONSE_EDGES && count <= CAPTURE_EDGES &&
           static_cast<uint32_t>(micros() - lastEdge) >= FRAME_END_GAP_US) {
         uint8_t flags = 0U;
-        if (decodeFrame(flags)) finish(true, flags);
+        if (!commandPulseValid()) retryOrFinish(now, "TX_PULSE_WIDTH");
+        else if (decodeFrame(flags)) finish(true, flags);
         else retryOrFinish(now, "FRAME_INVALID");
         return;
       }
       if (static_cast<uint32_t>(now - responseStartedAt_) >= RESPONSE_TIMEOUT_MS)
-        retryOrFinish(now, "RESPONSE_TIMEOUT");
+        retryOrFinish(now, commandPulseValid() ? "RESPONSE_TIMEOUT" : "TX_PULSE_WIDTH");
       return;
     }
     case Phase::RetryGap:
