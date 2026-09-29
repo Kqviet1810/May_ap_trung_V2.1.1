@@ -109,6 +109,9 @@ Nội dung Thiết bị/Mẻ ấp không co thấp hơn các thẻ bên trong r�
 khoảng dành cho thanh điều hướng. Khi màn hình nhỏ, cuộn nội dung sẽ đưa
 được toàn bộ nút lưu/bắt đầu lên vùng bấm; sửa selector `#quickForm` để
 các quy tắc rút gọn hiện có thật sự áp dụng vào form.
+Rà vận hành trên điện thoại phổ biến: giảm khoảng đệm/giãn cách trong thẻ
+Thiết bị, giữ nguyên cỡ chữ và vùng chạm. Toàn bộ thẻ điều khiển cách thanh
+điều hướng ít nhất 8px ở fixture 390/430×844; màn hình nhỏ hơn vẫn cuộn được.
 
 Cache tăng lên `12.1.4`. Browser QA kiểm tra cả ba tab tại tám cấu hình
 viewport, hai theme, năm trạng thái: đang ấp, ngoại tuyến, cảnh báo, lỗi dừng

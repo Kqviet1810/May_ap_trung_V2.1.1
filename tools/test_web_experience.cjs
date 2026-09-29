@@ -230,6 +230,11 @@ async function main() {
         assert.ok(Math.max(...header.fields.map(f=>f.labelY))-Math.min(...header.fields.map(f=>f.labelY))<=.5,'Reading labels align');
         if ((width<=800 || height<=500) && tab!=='settings') {
           const action=page.locator(tab==='device' ? '#quickForm button[type="submit"]' : '#batchAction');
+          if (tab==='device' && width>=390 && width<=430 && height>=844) {
+            assert.ok(await page.locator('#quickForm').evaluate(el=>
+              el.getBoundingClientRect().bottom<=document.querySelector('.nav').getBoundingClientRect().top-8),
+              'Typical mobile: the entire control card clears the bottom navigation before scrolling');
+          }
           await action.evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));
           const accessible=await action.evaluate(el=>{
             const box=el.getBoundingClientRect();
