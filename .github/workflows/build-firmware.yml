@@ -78,17 +78,17 @@ jobs:
 
       - name: Kiem tra version va ma nguon an toan
         run: |
-          VERSION=$(sed -n 's/.*MAYAP_FIRMWARE_VERSION\[\].*"\([^"]*\)".*/\1/p' MAYAP_INDUSTRIAL_v3_4_0/config.h)
+          VERSION=$(sed -n 's/.*MAYAP_FIRMWARE_VERSION\[\].*"\([^"]*\)".*/\1/p' MAYAP_INDUSTRIAL_v4_0_0/config.h)
           test -n "$VERSION"
           if [[ "$GITHUB_REF" == refs/tags/* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
             echo "::error::Tag $GITHUB_REF_NAME khong khop firmware $VERSION"
             exit 1
           fi
-          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
+          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
             echo "::error::Khong duoc bo qua xac thuc TLS"
             exit 1
           fi
-          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
+          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
             echo "::error::Private key khong duoc nam trong firmware"
             exit 1
           fi
@@ -130,7 +130,7 @@ jobs:
               if not username or not password:
                   raise SystemExit("Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD")
 
-          Path("MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h").write_text(
+          Path("MAYAP_INDUSTRIAL_v4_0_0/build_secrets.h").write_text(
               "#pragma once\n"
               + "#define MAYAP_MQTT_USERNAME " + json.dumps(username) + "\n"
               + "#define MAYAP_MQTT_PASSWORD " + json.dumps(password) + "\n",
@@ -200,7 +200,7 @@ jobs:
             --build-property "compiler.cpp.extra_flags=${MAYAP_CPP_FLAGS}" \
             --output-dir ./build \
             --verbose \
-            MAYAP_INDUSTRIAL_v3_4_0
+            MAYAP_INDUSTRIAL_v4_0_0
 
       - name: Bao cao kich thuoc
         run: |
@@ -213,9 +213,9 @@ jobs:
         with:
           name: firmware-test-${{ github.sha }}
           path: |
-            ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin
-            ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.elf
-            ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.map
+            ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.bin
+            ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.elf
+            ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.map
             ./build-attiny/ATTINY13A_POWER_ALARM.hex
           retention-days: 7
 
@@ -223,8 +223,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
-          cp ./build/MAYAP_INDUSTRIAL_v3_4_0.ino.elf "./MAYAP-firmware-${VERSION}.elf"
+          cp ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
+          cp ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.elf "./MAYAP-firmware-${VERSION}.elf"
           cp ./build-attiny/ATTINY13A_POWER_ALARM.hex "./MAYAP-ATtiny13A-LINKFIX-${VERSION}.hex"
 
       - name: Ky so firmware
