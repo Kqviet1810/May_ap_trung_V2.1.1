@@ -1299,27 +1299,25 @@
         return;
       }
       settling = true;
-      const savedInert = page.inert;
-      page.inert = true;
       try {
         const offset = start.offset || 0;
-        const end = next ? Math.sign(start.dx) * (Math.abs(offset) + 20) : 0;
-        await page.animate([
-          { transform: `translateX(${offset}px)`, opacity: 1 },
-          { transform: `translateX(${end}px)`, opacity: next ? .6 : 1 }
-        ], { duration: next ? 70 : 120, easing: 'cubic-bezier(.2,.75,.2,1)' }).finished;
         clearDrag(page);
-        page.inert = savedInert;
         if (next && canNavigate()) {
           showPage(next);
           const incoming = $(`page-${next}`);
+          const distance = Math.min(48, Math.max(24, Math.abs(offset)));
           await incoming.animate([
-            { transform: `translateX(${-Math.sign(start.dx) * 28}px)`, opacity: .7 },
-            { transform: 'translateX(0)', opacity: 1 }
-          ], { duration: 150, easing: 'cubic-bezier(.2,.75,.2,1)' }).finished;
+            { transform: `translateX(${-Math.sign(start.dx) * distance}px)` },
+            { transform: 'translateX(0)' }
+          ], { duration: 100, easing: 'cubic-bezier(.16,1,.3,1)' }).finished;
+        } else {
+          await page.animate([
+            { transform: `translateX(${offset}px)` },
+            { transform: 'translateX(0)' }
+          ], { duration: 80, easing: 'cubic-bezier(.16,1,.3,1)' }).finished;
         }
       } catch (e) { /* Cancelled animation leaves the current tab usable. */ }
-      finally { clearDrag(page); page.inert = savedInert; settling = false; }
+      finally { clearDrag(page); settling = false; }
     };
     const cancel = () => {
       const start = gesture; gesture = null;
@@ -1343,7 +1341,7 @@
       if (dx > 8 && dx > dy * 1.5) gesture.horizontal = true;
       if (!gesture.horizontal) return;
       if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return;
-      gesture.offset = Math.max(-72, Math.min(72, gesture.dx * .3));
+      gesture.offset = Math.max(-96, Math.min(96, gesture.dx * .6));
       if (!frame) frame = requestAnimationFrame(() => {
         frame = 0;
         if (!gesture?.horizontal) return;

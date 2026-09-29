@@ -51,6 +51,7 @@
 </section>
 <form class="panel" id="quickForm">
 <div class="panelHead"><h2>Trạng thái thiết bị</h2></div>
+<div class="deviceStatusGrid">
 <div class="quickGrid">
 <label class="quickField"><span>Nhiệt độ đặt</span><div><input id="quickTarget" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
 <label class="quickField"><span>Chu kỳ đảo</span><div><input id="quickTurn" max="720" min="15" type="number" value="120"/><b>Phút</b></div></label>
@@ -63,6 +64,7 @@
 <div><span>Đảo trứng</span><strong id="outputTurn">CHỜ</strong></div>
 <button aria-label="Bật/tắt đèn" id="outputLightBtn" type="button"><span>Đèn</span><strong id="outputLight">TẮT</strong></button>
 <button aria-label="Tạm tắt còi báo" id="outputSirenBtn" type="button"><span>Còi báo</span><strong id="outputSiren">TẮT</strong></button>
+</div>
 </div>
 <button class="primary full" type="submit">Lưu thông số</button>
 </form>

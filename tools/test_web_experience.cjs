@@ -91,6 +91,8 @@ async function swipe(page, x, y, dx, dy = 0) {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
   for (let i=1; i<=6; ++i) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x:x+dx*i/6, y:y+dy*i/6 }] });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  // Tab commitment must be immediate at release, before transition finishes.
+  // Tests below separately wait for animation completion before a new gesture.
   await page.waitForFunction(() => !document.querySelector('.page[inert]') &&
     !document.getAnimations().some(animation=>animation.playState==='running'));
   await cdp.detach();
@@ -218,7 +220,7 @@ async function main() {
   const results = [], palettes = [], controls = [], headers = [], layouts = [], safeAreas = [];
   try {
     const viewports = [320,390,430,768,850,1440].map(width=>({width,height:844})).concat([
-      {width:390,height:667},{width:1025,height:768},{width:1719,height:600},
+      {width:390,height:667},{width:1025,height:768},{width:1719,height:600},{width:1734,height:965},
       {width:844,height:390},{width:320,height:568}]);
     for (const {width,height} of viewports) for (const theme of ['light', 'dark']) {
       const { context, page, errors } = await setup(browser, { width, height, mobile: width < 800 || height<500, theme });
@@ -248,7 +250,29 @@ async function main() {
             assert.ok(Math.abs(layout.bitmapHeight-layout.canvasInnerHeight)<=1,'Chart bitmap matches available height, keeping labels readable');
             if (width>=1025 && height>500) {
               assert.ok(Math.abs(layout.chartLeft-header.readingsLeft)<=.5 && Math.abs(layout.chartWidth-header.readingsWidth)<=.5,'Desktop readings match chart column');
+              const batch=await page.evaluate(()=>{
+                const form=document.getElementById('batchForm').getBoundingClientRect(),buttons=document.querySelector('.batchActions').getBoundingClientRect();
+                const chart=document.querySelector('.telemetryPanel').getBoundingClientRect();
+                return {formBottom:form.bottom,buttonsBottom:buttons.bottom,chartBottom:chart.bottom};
+              });
+              assert.ok(batch.formBottom-batch.buttonsBottom<=25,'Batch form ends after its buttons without filling to screen bottom');
+              assert.ok(Math.abs(batch.formBottom-batch.chartBottom)<=.5,'Both desktop batch cards have the same bottom edge');
             }
+          }
+          if (tab==='device' && (width<=800 || height<=500)) {
+            const operating=await page.evaluate(()=>{
+              const cells=[...document.querySelectorAll('.quickField,.outputStrip>div,.outputStrip>button')]
+                .map(el=>el.getBoundingClientRect()).filter(r=>r.width>0 && r.height>0);
+              const note=document.getElementById('pageSubtitle'),form=document.getElementById('quickForm').getBoundingClientRect();
+              return {heights:cells.map(r=>r.height),noteVisible:getComputedStyle(note).display!=='none' && note.getBoundingClientRect().height>0,
+                note:note.textContent,navGap:document.querySelector('.nav').getBoundingClientRect().top-form.bottom,
+                hiddenHumidifier:document.getElementById('outputHumidifierTile').getBoundingClientRect().height};
+            });
+            assert.equal(operating.heights.length,8,'Eight standard operating cells, optional humidifier remains hidden');
+            assert.equal(operating.hiddenHumidifier,0);
+            assert.ok(Math.max(...operating.heights)-Math.min(...operating.heights)<=.5,'All eight operating cells have equal height');
+            assert.ok(operating.noteVisible && operating.note==='Theo dõi và điều khiển máy.','Mobile device subtitle is visible');
+            if (shouldFit) assert.ok(operating.navGap>=8 && operating.navGap<=12,'Operating card ends close to the tab bar with a safe gap');
           }
           layouts.push({width,height,theme,tab,shouldFit,...layout});
         }
@@ -281,10 +305,10 @@ async function main() {
           .filter(el => /gradient\(/i.test(getComputedStyle(el).backgroundImage))
           .map(el => el.id || el.className || el.tagName));
         assert.deepEqual(gradientElements, [], `${width}/${theme}/${tab}: backgrounds must be solid`);
-        if ((width === 390 || width === 1440 || width===1719) && tab !== 'settings')
+        if ((width === 390 || width === 1440 || width===1719 || width===1734) && tab !== 'settings')
           // Mobile pages scroll inside .main. Capture its actual viewport:
           // Chrome full-document capture can mispaint nested sticky headers.
-          await page.screenshot({path:path.join(out, `MAYAP-${tab}-${width}x${height}-${theme}.png`),fullPage:width>800 && height>500});
+          await page.screenshot({path:path.join(out, `MAYAP-${tab}-${width}x${height}-${theme}.png`),fullPage:width>800 && height>500,animations:'disabled'});
       }
       assert.equal(await page.title(), 'MAYAP · Máy ấp trứng');
       const contrast = await page.evaluate(() => {
@@ -348,6 +372,27 @@ async function main() {
       results.push(`${width}x${height}/${theme}: three tabs, no overflow, centered controls, readable header and five states, fault popup accessible`);
       await context.close();
     }
+    for (const theme of ['light','dark']) for (const scenario of ['unpaired','offline','humidifier']) {
+      const operating=await setup(browser,{width:390,height:scenario==='humidifier' ? 932 : 850,mobile:true,theme,paired:scenario!=='unpaired'});
+      await operating.page.evaluate(scenario=>{
+        const h=window.__qa,d=h.state.devices[0];
+        if (scenario==='offline') {d.presence.online=false;h.renderDevice();}
+        if (scenario==='humidifier') h.handleConfigReport(d,{config:{...d.config,humidifierInstalled:true},revision:2,bootId:123});
+      },scenario);
+      const card=await operating.page.evaluate(()=>{
+        const cells=[...document.querySelectorAll('.quickField,.outputStrip>div,.outputStrip>button')].map(el=>el.getBoundingClientRect()).filter(r=>r.height>0);
+        const main=document.querySelector('.main'),form=document.getElementById('quickForm').getBoundingClientRect();
+        return {count:cells.length,heights:cells.map(r=>r.height),scroll:main.scrollHeight-main.clientHeight,
+          gap:document.querySelector('.nav').getBoundingClientRect().top-form.bottom};
+      });
+      assert.equal(card.count,scenario==='humidifier' ? 9 : 8,`${scenario}: optional hardware visibility preserved`);
+      assert.ok(Math.max(...card.heights)-Math.min(...card.heights)<=.5,`${scenario}: equal cell heights`);
+      assert.ok(card.scroll<=1 && card.gap>=8 && card.gap<=12,`${scenario}: full operating card fits close to navigation`);
+      await operating.page.screenshot({path:path.join(out,`MAYAP-device-${scenario}-${theme}.png`),animations:'disabled'});
+      layouts.push({theme,scenario,...card});
+      await operating.context.close();
+    }
+    results.push('Operating layout: unpaired/offline eight cells and humidifier nine cells have equal heights; card fits within 8–12px of mobile navigation. Desktop batch cards end after the action row instead of stretching to the viewport bottom.');
     const { context, page } = await setup(browser, { width:390, mobile:true, theme:'light', dropFirst:true });
     const sessions = await page.evaluate(() => window.__transport.sessions);
     assert.ok(sessions.length >= 2);
@@ -370,14 +415,31 @@ async function main() {
     };
     await startDrag(-45);
     const feedback=await page.locator('.page.active').evaluate(el=>new DOMMatrixReadOnly(getComputedStyle(el).transform).m41);
-    assert.ok(feedback<0 && feedback>=-72,'Content follows the finger before release');
+    assert.ok(feedback<0 && feedback>=-96,'Content follows the finger before release');
     await touch.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
     await page.waitForFunction(()=>!document.querySelector('.page[inert]') && !document.getAnimations().length);
     assert.equal(await page.locator('.page.active').evaluate(el=>el.style.transform),'');
     assert.equal(await page.evaluate(()=>document.body.dataset.page),'batch');
-    await touch.detach();
     await swipe(page, 260, 35, -30);
     assert.equal(await page.evaluate(()=>document.body.dataset.page),'batch','Short swipe snaps back');
+    await page.evaluate(()=>{
+      window.__swipeResponse={released:0,committed:0};
+      document.addEventListener('pointerup',()=>{window.__swipeResponse.released=performance.now();},{once:true,capture:true});
+      const observer=new MutationObserver(()=>{
+        if (document.body.dataset.page==='settings') {window.__swipeResponse.committed=performance.now();observer.disconnect();}
+      });
+      observer.observe(document.body,{attributes:true,attributeFilter:['data-page']});
+    });
+    await startDrag(-140);
+    await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    assert.equal(await page.evaluate(()=>document.body.dataset.page),'settings','Valid swipe commits at release without an outgoing animation delay');
+    const transition=await page.locator('.page.active').evaluate(el=>el.getAnimations().map(a=>a.effect.getTiming().duration));
+    assert.ok(transition.every(duration=>duration<=100),'Swipe settles within 100ms');
+    const response=await page.evaluate(()=>window.__swipeResponse);
+    assert.ok(response.released>0 && response.committed>=response.released && response.committed-response.released<32,'Tab commitment responds within a frame budget at release');
+    await page.waitForFunction(()=>!document.getAnimations().length);
+    await touch.detach();
+    await page.evaluate(()=>window.__qa.showPage('batch'));
     await swipe(page, 200, 300, 0, -120);
     assert.equal(await page.evaluate(() => document.body.dataset.page), 'batch');
     await page.locator('#batchName').fill('Mẻ đang sửa');
@@ -414,7 +476,7 @@ async function main() {
     await swipe(page, 150, 35, 140);
     assert.equal(await page.evaluate(()=>document.body.dataset.page),'device');
     assert.equal(await page.locator('.page.active').evaluate(el=>el.getAnimations().length),0,'Reduced motion changes tab without animation');
-    results.push(`Touch swipe: finger feedback, cancellation, short swipe, adjacent tabs, vertical scroll, input drag, dirty values, modal guards and reduced motion. Lost first sync retry ${Math.round(retryMs)}ms.`);
+    results.push(`Touch swipe: release-to-commit ${(response.committed-response.released).toFixed(1)}ms in fixture, transition <=100ms, finger feedback, cancellation, short swipe, adjacent tabs, vertical scroll, input drag, dirty values, modal guards and reduced motion. Lost first sync retry ${Math.round(retryMs)}ms.`);
     results.push('Controls: label click and keyboard Space toggle once; help text still expands without an icon.');
     await context.close();
     const pairing = await setup(browser, { width:390, mobile:true, paired:false });

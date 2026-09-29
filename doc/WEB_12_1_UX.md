@@ -171,6 +171,43 @@ Lần này chỉ sửa UI trong `app.js`, CSS, HTML, manifest/cache/release,
 README, browser QA và tài liệu này. Firmware, Adaptive Boot, Runtime
 Recovery, safety và các hàm giao dịch bảo vệ bằng hash giữ nguyên.
 
+### Web 12.1.6 — chiều cao khung và tám ô trạng thái
+
+Ở PC (từ 1025px và cao hơn 500px), hàng Mẻ ấp lấy chiều cao từ nội
+dung form thay vì kéo tới đáy viewport. Hai khung cấu hình/biểu đồ vẫn
+cùng cao và cùng đáy; khung cấu hình kết thúc sau hai nút Lưu/Bắt đầu
+cùng khoảng đệm. Giữ dải thông số thẳng cột biểu đồ. Layout Mẻ ấp dọc
+trên mobile tiếp tục dùng phần chiều cao còn lại cho biểu đồ.
+
+Khôi phục mô tả dưới tiêu đề mobile, chữ 10px và xuống dòng tự nhiên,
+vẫn giữ tiêu đề cùng hàng với thông số. Tám ô Thiết bị dùng một wrapper
+`.deviceStatusGrid`; hai nhóm DOM cũ dùng display:contents trên mobile,
+giữ IDs, input/label và các nút thao tác hiện có. Các hàng có chiều cao
+bằng nhau, tính cả hai ô nhập Nhiệt độ đặt/Chu kỳ đảo. Thẻ trạng thái
+nhận chiều cao còn lại và cách thanh tab 10px khi đủ chỗ. Không kéo giãn
+thẻ đầu chọn máy, không che nội dung khi màn hình ngắn.
+
+Thông thường dùng hai cột; điện thoại rộng 361–800px và cao tối đa
+700px dùng ba cột gọn để tận dụng chiều ngang. Thiết bị không có tạo
+ẩm vẫn ẩn ô tùy chọn, không để CSS ghi đè hidden. Khi có tạo ẩm thì ô
+thứ chín vẫn xuất hiện, các ô cùng cao; màn hình ngắn có thể cần cuộn.
+Vùng chạm và bảo vệ lệnh máy giữ nguyên.
+
+Vuốt cập nhật tab ngay khi thả thay vì chờ chuyển cảnh đi ra 70ms.
+Chỉ giữ chuyển cảnh vào 100ms, không fade làm nội dung mờ/đứt đoạn;
+vuốt hụt trở về trong 80ms. Phản hồi theo ngón tay tăng từ hệ số 0,3
+lên 0,6, giới hạn 96px. Giữ ngưỡng đổi tab, guard nhập liệu/nút/modal
+và giảm chuyển động. Browser QA đo release-to-commit trong một frame
+budget ở fixture, kiểm tra animation không quá 100ms; chưa đo FPS
+hoặc cảm giác vuốt trên chính điện thoại của người dùng.
+
+Browser QA thêm màn PC 1734×965 tái hiện ảnh người dùng, kiểm tra đáy
+hai khung Mẻ ấp, khoảng cách từ nút tới đáy khung, tám ô có cùng chiều
+cao, subtitle nhìn thấy và thẻ trạng thái sát thanh tab với khoảng an
+toàn. Kiểm tra sáng/tối, online/offline/chưa ghép nối và thiết bị tạo ẩm.
+Cache/release web tăng lên 12.1.6. Chỉ sửa phần UI vuốt trong app.js;
+không sửa firmware, boot, runtime recovery hoặc giao dịch điều khiển.
+
 Trên mobile, vuốt ngang sang tab bên cạnh theo thứ tự Thiết bị → Mẻ ấp →
 Cài đặt, vuốt ngược để quay lại. Không vòng từ tab cuối sang tab đầu.
 Vuốt dọc, vuốt tại ô nhập/nút/summary, thao tác nhiều ngón, mép màn hình
