@@ -97,7 +97,7 @@ async function swipe(page, x, y, dx, dy = 0) {
 async function main() {
   const executablePath = process.env.MAYAP_CHROME || (process.platform==='win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : undefined);
   const browser = await chromium.launch({ executablePath, headless: true });
-  const results = [];
+  const results = [], palettes = [];
   try {
     for (const width of [320, 390, 430, 768, 1440]) for (const theme of ['light', 'dark']) {
       const { context, page, errors } = await setup(browser, { width, mobile: width < 800, theme });
@@ -109,6 +109,8 @@ async function main() {
           .filter(el => /gradient\(/i.test(getComputedStyle(el).backgroundImage))
           .map(el => el.id || el.className || el.tagName));
         assert.deepEqual(gradientElements, [], `${width}/${theme}/${tab}: backgrounds must be solid`);
+        if ((width === 390 || width === 1440) && tab !== 'settings')
+          await page.screenshot({path:path.join(out, `MAYAP-${tab}-${width}-${theme}.png`),fullPage:true});
       }
       assert.equal(await page.title(), 'MAYAP · Máy ấp trứng');
       const contrast = await page.evaluate(() => {
@@ -116,11 +118,13 @@ async function main() {
         function luminance(color) { ctx.fillStyle=color;ctx.fillRect(0,0,1,1);const rgb=ctx.getImageData(0,0,1,1).data;
           return Array.from(rgb).slice(0,3).map(x=>x/255).map(x=>x<=.04045 ? x/12.92 : ((x+.055)/1.055)**2.4)
             .reduce((sum,x,i)=>sum+x*[.2126,.7152,.0722][i],0); }
-        const value=name=>name==='white' ? '#fff' : style.getPropertyValue('--'+name).trim();
-        return [['ink','surface'],['muted','surface'],['label','tile'],['primary2','primarySoft'],['white','primary'],['white','dangerAction'],['white','attentionBg']]
+        const action = getComputedStyle(document.querySelector('.primary:not(.attention)'));
+        const value=name=>name==='white' ? '#fff' : name==='actionText' ? action.color : name==='actionBg' ? action.backgroundColor : style.getPropertyValue('--'+name).trim();
+        return [['ink','surface'],['muted','surface'],['label','tile'],['primary2','primarySoft'],['actionText','actionBg'],['navText','navBg'],['navActiveText','navActive'],['chartLine','surface'],['faint','tile'],['white','dangerAction'],['white','attentionBg']]
           .map(([fg,bg])=>{const a=luminance(value(fg)),b=luminance(value(bg));return {fg,bg,ratio:(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};});
       });
       for (const pair of contrast) assert.ok(pair.ratio>=4.5, `${theme}: ${pair.fg}/${pair.bg} contrast ${pair.ratio}`);
+      if (width===390) palettes.push({theme,contrast});
       assert.equal(await page.locator('#ventSettingCard').isVisible(), true);
       assert.equal(await page.locator('#ventProfileFields').evaluate(el => el.disabled), false);
       assert.equal(await page.locator('#sensorForm').evaluate(el => el.closest('.settingGroup').getAttribute('aria-labelledby')), 'settings-temperature');
@@ -195,10 +199,10 @@ async function main() {
     results.push('Transient startup authentication 503: retries in background and connects without reload. Text/action contrast >=4.5 in both themes.');
     await retry.context.close();
     const system = await setup(browser, {scheme:'dark', width:390, mobile:true});
-    assert.equal(await system.page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--surface').trim()), '#162431');
+    assert.equal(await system.page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--surface').trim()), '#2b414c');
     results.push('System theme follows dark OS preference.');
     await system.context.close();
-    fs.writeFileSync(path.join(out,'web-browser-qa.json'),JSON.stringify({ passed:true, results },null,2));
+    fs.writeFileSync(path.join(out,'web-browser-qa.json'),JSON.stringify({ passed:true, results, palettes },null,2));
     console.log(results.join('\n'));
   } finally { await browser.close(); }
 }

@@ -47,6 +47,32 @@ không có gradient, ở năm kích thước và hai theme. Kiểm tra tương p
 vẫn đạt ≥4,5:1. Bản sửa màu không thay đổi `app.js`, firmware, Boot Manager,
 Runtime Recovery, giao dịch ghi hoặc MQTT.
 
+### Web 12.1.2 — trắng và xanh #64C9D1
+
+Màu thương hiệu theo yêu cầu là `#64C9D1`. Nền sáng `#F3F8F9` và thẻ trắng
+`#FFFFFF`; điều hướng sáng cũng dùng trắng, trạng thái chọn xanh nhạt
+`#D9F1F3`. Nền tối tăng sáng lên `#20323C`, thẻ `#2B414C`, ô nhập `#324C57`
+để các lớp dễ phân biệt. Không dùng gradient.
+
+Phương án này là lựa chọn thiết kế riêng của MAYAP sau khi đối chiếu:
+
+- [Radix — composing a palette](https://www.radix-ui.com/colors/docs/palette-composition/composing-a-palette): phối nền trung tính pha cùng tông với màu chủ đạo; thêm bảng màu thương hiệu riêng.
+- [Radix — use cases](https://www.radix-ui.com/colors/docs/palette-composition/understanding-the-scale): tách màu nền, trạng thái chọn, viền và chữ theo vai trò.
+- [Atlassian — color](https://atlassian.design/foundations/color): tách brand với warning/danger; giá trị màu thay đổi theo theme và phải kiểm tra tương phản.
+- [IBM Carbon — color](https://carbondesignsystem.com/elements/color/overview/): nền sáng dùng các lớp trắng/xám nhẹ; trong theme tối, lớp phía trên sáng hơn nền.
+
+Đây không phải bảng màu sao chép từ các hệ thống trên. Nút dùng đúng
+`#64C9D1` với chữ `#173E45` (khoảng 5,97:1); chữ trắng trên cùng màu chỉ
+khoảng 1,94:1. Biểu tượng và chữ xanh ở theme sáng dùng `#286974`; theme tối
+dùng `#92DCE2`. Viền nút, focus và công tắc được chỉnh theo theme.
+
+Đường nhiệt độ và chú giải biểu đồ có màu riêng: xanh đậm khi sáng, màu
+thương hiệu khi tối để giữ độ tương phản. `app.js` chỉ đổi token màu vẽ
+đường nhiệt, không đổi dữ liệu, phép tính, kết nối hoặc giao dịch.
+
+Cache tăng lên `12.1.2`. Kiểm tra trình duyệt vẫn gồm năm kích thước, cả
+hai theme, nền đơn sắc, tương phản chữ/nút, điều hướng, biểu đồ và placeholder.
+
 Trên mobile, vuốt ngang sang tab bên cạnh theo thứ tự Thiết bị → Mẻ ấp →
 Cài đặt, vuốt ngược để quay lại. Không vòng từ tab cuối sang tab đầu.
 Vuốt dọc, vuốt tại ô nhập/nút/summary, thao tác nhiều ngón, mép màn hình

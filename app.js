@@ -2536,7 +2536,7 @@
     const color = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
     const gridColor = color('--lineSoft', '#dce7e3');
     const textColor = color('--muted', '#6a7d78');
-    const liveColor = color('--primary', '#0d9488');
+    const liveColor = color('--chartLine', '#286974');
     const setColor = color('--warning', '#e29b1d');
     const left = 42, right = 10, top = 12, bottom = 12;
     const plotW = Math.max(1, widthCss - left - right);
