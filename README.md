@@ -53,7 +53,7 @@ Nếu `REQUIRE_DEVICE_INVENTORY=0`, Worker v3.8.1 có thể auto-admit máy mớ
 ## Cấu trúc repo
 
 ```text
-MAYAP_INDUSTRIAL_v3_4_0/   ESP32 firmware
+MAYAP_INDUSTRIAL_v4_0_0/   ESP32 firmware 4.0.0
 ATTINY13A_POWER_ALARM/     firmware ATtiny13A
 cloudflare/                Worker + D1 migrations
 .github/workflows/         CI/build/release/deploy
@@ -64,7 +64,7 @@ doc/                       kiến trúc, deploy, commissioning, safety
 audit/                     audit lịch sử + delta audit
 ```
 
-Tên thư mục firmware `MAYAP_INDUSTRIAL_v3_4_0` là tên sketch lịch sử; **không đại diện phiên bản firmware hiện tại**. Phiên bản thật nằm ở `MAYAP_FIRMWARE_VERSION` và `release-manifest.json`.
+Tên sketch hiện hành được đồng bộ với release 4.0.0: `MAYAP_INDUSTRIAL_v4_0_0/MAYAP_INDUSTRIAL_v4_0_0.ino`. Phiên bản runtime vẫn lấy từ `MAYAP_FIRMWARE_VERSION` và `release-manifest.json`; tên thư mục không được dùng thay cho kiểm tra version trong CI.
 
 ## Build ESP32
 
@@ -88,13 +88,13 @@ esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,Flas
 Firmware ESP32 **không còn cho phép tạo `.bin` với MQTT username/password rỗng**.
 Khi build bằng Arduino IDE/CLI trên máy cá nhân:
 
-1. mở file có sẵn `MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h`, không cần đổi tên;
+1. mở file có sẵn `MAYAP_INDUSTRIAL_v4_0_0/build_secrets.h`, không cần đổi tên;
 2. điền `MAYAP_MQTT_USERNAME` và `MAYAP_MQTT_PASSWORD` thật của HiveMQ;
 3. compile lại firmware. **Không commit/push file sau khi nhập tài khoản thật.**
 
 Tên file `build_secrets.h` đã được đưa vào Git dưới dạng template rỗng theo yêu cầu.
 Vì vậy `.gitignore` không bảo vệ các sửa đổi của file đã được theo dõi. Luôn kiểm tra
-`git diff -- MAYAP_INDUSTRIAL_v3_4_0/build_secrets.h` trước khi commit. CI kiểm tra
+`git diff -- MAYAP_INDUSTRIAL_v4_0_0/build_secrets.h` trước khi commit. CI kiểm tra
 template phải rỗng rồi mới tạo nội dung từ GitHub Repository Secrets khi build.
 
 Nếu file thiếu hoặc credential rỗng, compile phải fail. Đây là invariant có chủ ý để
