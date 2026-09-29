@@ -19,15 +19,15 @@ def require_re(text: str, pattern: str, label: str) -> None:
         raise SystemExit(f"FAIL: {label}: pattern not found: {pattern}")
 
 
-config = read("MAYAP_INDUSTRIAL_v3_4_0/config.h")
+config = read("MAYAP_INDUSTRIAL_v4_0_0/config.h")
 app = read("app.js")
-identity = read("MAYAP_INDUSTRIAL_v3_4_0/device_identity.h")
-cloud = read("MAYAP_INDUSTRIAL_v3_4_0/cloud_alert_link.h")
-machine = read("MAYAP_INDUSTRIAL_v3_4_0/machine_control.h")
-network = read("MAYAP_INDUSTRIAL_v3_4_0/network_service.h")
-hmi = read("MAYAP_INDUSTRIAL_v3_4_0/hmi.h")
-ota = read("MAYAP_INDUSTRIAL_v3_4_0/ota_update.h")
-ino = read("MAYAP_INDUSTRIAL_v3_4_0/MAYAP_INDUSTRIAL_v3_4_0.ino")
+identity = read("MAYAP_INDUSTRIAL_v4_0_0/device_identity.h")
+cloud = read("MAYAP_INDUSTRIAL_v4_0_0/cloud_alert_link.h")
+machine = read("MAYAP_INDUSTRIAL_v4_0_0/machine_control.h")
+network = read("MAYAP_INDUSTRIAL_v4_0_0/network_service.h")
+hmi = read("MAYAP_INDUSTRIAL_v4_0_0/hmi.h")
+ota = read("MAYAP_INDUSTRIAL_v4_0_0/ota_update.h")
+ino = read("MAYAP_INDUSTRIAL_v4_0_0/MAYAP_INDUSTRIAL_v4_0_0.ino")
 wrangler = read("cloudflare/wrangler.toml")
 wrapper = read("cloudflare/src/reliability-wrapper.js")
 security = read("cloudflare/src/security-wrapper.js")
@@ -69,7 +69,7 @@ require(config, "WIFI_PORTAL_UI_IDLE_TIMEOUT_MS = 120000UL", "Wi-Fi portal 2 min
 
 # ATtiny v4: preserve power-loss protection with pulse-width bus framing.
 attiny = read("ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino")
-attiny_bus = read("MAYAP_INDUSTRIAL_v3_4_0/attiny_bus.h")
+attiny_bus = read("MAYAP_INDUSTRIAL_v4_0_0/attiny_bus.h")
 attiny_doc = read("doc/attiny_power_alarm.md")
 require(config, "ATTINY_PROTOCOL_VERSION = 4U", "ATtiny protocol v4")
 require(config, "ATTINY_MSG_ACTIVITY_ON = 6U", "ATtiny activity-on command")
@@ -165,13 +165,13 @@ require(safety, "fault ở mức STOP và cắt cả SSR lẫn contactor nhiệt
 # Security regression tripwires.
 firmware_text = "\n".join(
     p.read_text(encoding="utf-8", errors="ignore")
-    for p in (ROOT / "MAYAP_INDUSTRIAL_v3_4_0").glob("*")
+    for p in (ROOT / "MAYAP_INDUSTRIAL_v4_0_0").glob("*")
     if p.suffix in {".h", ".ino"}
 )
 # LOG/EXIT must silence every firmware-originated diagnostic. Keep the three
 # explicit toggle confirmations, but never let a module bypass that gate.
-firmware_sources = list((ROOT / "MAYAP_INDUSTRIAL_v3_4_0").glob("*.h")) + list(
-    (ROOT / "MAYAP_INDUSTRIAL_v3_4_0").glob("*.ino")
+firmware_sources = list((ROOT / "MAYAP_INDUSTRIAL_v4_0_0").glob("*.h")) + list(
+    (ROOT / "MAYAP_INDUSTRIAL_v4_0_0").glob("*.ino")
 )
 for source in firmware_sources:
     source_text = source.read_text(encoding="utf-8", errors="ignore")

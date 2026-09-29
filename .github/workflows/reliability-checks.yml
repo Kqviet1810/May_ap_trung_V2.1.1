@@ -65,11 +65,11 @@ jobs:
 
       - name: Reject unsafe firmware shortcuts
         run: |
-          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
+          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
             echo "::error::TLS verification bypass detected"
             exit 1
           fi
-          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v3_4_0 --include='*.h' --include='*.ino'; then
+          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
             echo "::error::Private key must not be embedded in firmware"
             exit 1
           fi
