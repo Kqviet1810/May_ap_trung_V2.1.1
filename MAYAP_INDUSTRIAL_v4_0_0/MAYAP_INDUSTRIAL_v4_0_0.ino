@@ -26,6 +26,8 @@ void mayapI2cUnlock() {
 }
 
 #include "device_identity.h"
+#include "i2c_supervisor.h"
+#include "service_recovery.h"
 #include "network_service.h"
 #include "ota_update.h"
 #include "ota_web_update.h"
@@ -279,6 +281,7 @@ static void promoteMqttWriteSubscriptionsToQos1() {
 // thay request portal va tu dong quiesce, sau do networkTask moi cho portal di.
 void networkTask(void *parameter) {
   (void)parameter;
+  mayapServiceAdmit(MayapRecovery::Service::Network);
   mayapNetworkBegin();
   mayapPrintNetworkConfig();
   __atomic_store_n(&networkReady, 1U, __ATOMIC_RELEASE);
@@ -294,9 +297,18 @@ void networkTask(void *parameter) {
     const bool externalIoBusy =
         __atomic_load_n(&mqttIoBusy, __ATOMIC_ACQUIRE) != 0U ||
         __atomic_load_n(&cloudIoBusy, __ATOMIC_ACQUIRE) != 0U;
-    if (!(portalRequested && externalIoBusy)) {
+    if (mayapServiceRecoveryRequested(MayapRecovery::Service::Network)) {
+      mayapRequestWifiDeepRecovery();
+    }
+    const bool recovering = mayapNetworkDeepRecoveryUpdate(now, externalIoBusy);
+    if (!recovering && !(portalRequested && externalIoBusy) &&
+        !mayapServiceIsolated(MayapRecovery::Service::Network, now)) {
       mayapNetworkUpdate(now);
     }
+    if (!recovering && !portalRequested && mayapServiceRecoveryRequested(MayapRecovery::Service::Network)) {
+      mayapServiceRecoveryComplete(MayapRecovery::Service::Network);
+    }
+    mayapServiceBeat(MayapRecovery::Service::Network);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(NETWORK_FAST_TASK_PERIOD_MS));
   }
 }
@@ -306,6 +318,7 @@ void networkTask(void *parameter) {
 // task nay, khong co truy cap dong thoi tu task khac.
 void mqttTask(void *parameter) {
   (void)parameter;
+  mayapServiceAdmit(MayapRecovery::Service::Mqtt);
   mayapWebLinkBegin();
   // Preserve the existing transport configuration and protocol contract.
   MayapRealtimeInternal::mqtt.setKeepAlive(30);
@@ -322,13 +335,23 @@ void mqttTask(void *parameter) {
   for (;;) {
     const uint32_t now = millis();
 
-    if (mayapWifiPortalExclusiveRequested()) {
+    if (mayapServiceRecoveryRequested(MayapRecovery::Service::Mqtt)) {
+      __atomic_store_n(&mqttIoBusy, 1U, __ATOMIC_RELEASE);
+      mayapMqttRecover(now);
+      mqttWriteQos1Promoted = false;
+      __atomic_store_n(&mqttConnected, 0U, __ATOMIC_RELEASE);
+      __atomic_store_n(&mqttIoBusy, 0U, __ATOMIC_RELEASE);
+      mayapServiceRecoveryComplete(MayapRecovery::Service::Mqtt);
+    }
+    if (mayapWifiPortalExclusiveRequested() || mayapRadioRecoveryRequested() ||
+        mayapServiceIsolated(MayapRecovery::Service::Mqtt, now)) {
       __atomic_store_n(&mqttIoBusy, 1U, __ATOMIC_RELEASE);
       if (MayapRealtimeInternal::mqtt.connected()) MayapRealtimeInternal::mqtt.disconnect();
       MayapRealtimeInternal::netClient.stop();
       mqttWriteQos1Promoted = false;
       __atomic_store_n(&mqttConnected, 0U, __ATOMIC_RELEASE);
       __atomic_store_n(&mqttIoBusy, 0U, __ATOMIC_RELEASE);
+      mayapServiceBeat(MayapRecovery::Service::Mqtt);
       vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(MQTT_TASK_PERIOD_MS));
       continue;
     }
@@ -336,7 +359,7 @@ void mqttTask(void *parameter) {
     __atomic_store_n(&mqttIoBusy, 1U, __ATOMIC_RELEASE);
     // Dong cua so race: portal co the vua duoc controlTask yeu cau sau phep
     // kiem tra o tren nhung truoc khi ta danh dau busy.
-    if (!mayapWifiPortalExclusiveRequested()) {
+    if (!mayapWifiPortalExclusiveRequested() && !mayapRadioRecoveryRequested()) {
       mayapWebLinkUpdate(now);
       promoteMqttWriteSubscriptionsToQos1();
 #if MAYAP_DIAGNOSTIC_SERIAL
@@ -367,6 +390,7 @@ void mqttTask(void *parameter) {
     }
     __atomic_store_n(&mqttIoBusy, 0U, __ATOMIC_RELEASE);
     __atomic_store_n(&mqttConnected, MayapRealtimeInternal::mqtt.connected() ? 1U : 0U, __ATOMIC_RELEASE);
+    mayapServiceBeat(MayapRecovery::Service::Mqtt);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(MQTT_TASK_PERIOD_MS));
   }
 }
@@ -375,44 +399,63 @@ void mqttTask(void *parameter) {
 // rieng de canh bao van hoat dong day du nhung realtime MQTT khong bi dong bang.
 void cloudTask(void *parameter) {
   (void)parameter;
+  mayapServiceAdmit(MayapRecovery::Service::Cloud);
   mayapCloudAlertBegin();
   __atomic_store_n(&cloudReady, 1U, __ATOMIC_RELEASE);
   TickType_t lastWake = xTaskGetTickCount();
   for (;;) {
     const uint32_t now = millis();
-    if (mayapWifiPortalExclusiveRequested()) {
+    if (mayapServiceRecoveryRequested(MayapRecovery::Service::Cloud)) {
+      // HTTP/TLS sessions are scoped and closed before update returns here.
+      mayapCloudRecover(now);
+      mayapServiceRecoveryComplete(MayapRecovery::Service::Cloud);
+    }
+    if (mayapWifiPortalExclusiveRequested() || mayapRadioRecoveryRequested() ||
+        mayapServiceIsolated(MayapRecovery::Service::Cloud, now)) {
       __atomic_store_n(&cloudIoBusy, 0U, __ATOMIC_RELEASE);
+      mayapServiceBeat(MayapRecovery::Service::Cloud);
       vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(CLOUD_TASK_PERIOD_MS));
       continue;
     }
 
     __atomic_store_n(&cloudIoBusy, 1U, __ATOMIC_RELEASE);
-    if (!mayapWifiPortalExclusiveRequested()) {
+    if (!mayapWifiPortalExclusiveRequested() && !mayapRadioRecoveryRequested()) {
       mayapCloudAlertUpdate(now);
     }
     __atomic_store_n(&cloudIoBusy, 0U, __ATOMIC_RELEASE);
+    mayapServiceBeat(MayapRecovery::Service::Cloud);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(CLOUD_TASK_PERIOD_MS));
   }
 }
 
 void otaTask(void *parameter) {
   (void)parameter;
+  mayapSetRadioOtaQuiesced(false);
+  mayapServiceAdmit(MayapRecovery::Service::Ota);
   mayapOtaBegin();
   __atomic_store_n(&otaReady, 1U, __ATOMIC_RELEASE);
   TickType_t lastWake = xTaskGetTickCount();
   for (;;) {
     const uint32_t now = millis();
-    if (mayapWifiPortalExclusiveRequested()) {
+    if (mayapServiceRecoveryRequested(MayapRecovery::Service::Ota) && mayapOtaRuntimeRecover(now)) {
+      mayapServiceRecoveryComplete(MayapRecovery::Service::Ota);
+    }
+    if (mayapWifiPortalExclusiveRequested() || mayapRadioRecoveryRequested() ||
+        mayapServiceIsolated(MayapRecovery::Service::Ota, now)) {
       const bool quiesced = mayapOtaQuiesceForWifiPortal();
       mayapSetWifiPortalOtaQuiesced(quiesced);
+      mayapSetRadioOtaQuiesced(quiesced);
       if (!quiesced) mayapOtaUpdate(now);
+      mayapServiceBeat(MayapRecovery::Service::Ota);
       vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
       continue;
     }
+    mayapSetRadioOtaQuiesced(false);
     mayapSetWifiPortalOtaQuiesced(false);
     mayapOtaUpdate(now);
     mayapFirmwareWebUpdate(now);
     mayapFirmwareRollbackUpdate(now);
+    mayapServiceBeat(MayapRecovery::Service::Ota);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }
 }
@@ -495,6 +538,18 @@ void supervisorTask(void *parameter) {
       mayapRestart(MayapBoot::RestartReason::HealthMonitor, "Machine health monitor");
     }
 
+    MayapRecovery::Service failedService = MayapRecovery::Service::Network;
+    if (mayapServiceSupervisorUpdate(now, failedService) && mayapFirmwareMaintenanceReady()) {
+      // A hung owner cannot safely be deleted: it may own a TLS/I2C lock.
+      // Use the existing safe shutdown and retained Adaptive Boot reason.
+      mayapLatchSystemTrip();
+      if (controlTaskHandle) vTaskSuspend(controlTaskHandle);
+      mayapSafeOutputsEarly();
+      char reason[40];
+      snprintf(reason, sizeof(reason), "%s runtime unresponsive",
+          MayapServiceInternal::names[static_cast<uint8_t>(failedService)]);
+      mayapRestart(MayapBoot::RestartReason::HealthMonitor, reason);
+    }
     const esp_err_t result = esp_task_wdt_reset();
     if (result != ESP_OK) fatalRestart("SUP WDT RESET", result, MayapBoot::RestartReason::WdtApi);
     __atomic_store_n(&supervisorHeartbeatMs, millis(), __ATOMIC_RELEASE);
@@ -711,5 +766,6 @@ void loop() {
   // Before hmiTask creation this loop is the sole LCD owner.
   if (!hmiTaskHandle) hmiBootDisplayUpdate(millis());
   stagedStartupUpdate(millis());
+  if (mayapBootStage() >= MayapBoot::Stage::LocalSettle) mayapI2cSupervisorUpdate(millis());
   vTaskDelay(pdMS_TO_TICKS(10));
 }

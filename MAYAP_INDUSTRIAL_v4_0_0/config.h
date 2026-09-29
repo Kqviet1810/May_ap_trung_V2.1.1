@@ -1421,6 +1421,8 @@ using HmiI2cUnlockFn = void (*)();
 // Dung chung giua HMI, EEPROM va firmware tong.
 bool mayapI2cLock(uint32_t timeoutMs);
 void mayapI2cUnlock();
+void mayapI2cReport(uint8_t address, bool ok);
+uint32_t mayapI2cRecoveryEpoch();
 bool mayapSerialDebugEnabled();
 void mayapSetSerialDebugEnabled(bool enabled);
 void mayapSerialPrintf(bool force, const char *format, ...);

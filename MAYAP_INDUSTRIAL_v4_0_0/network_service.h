@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "service_recovery.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
@@ -54,6 +55,11 @@ static uint32_t connectionStartedAt = 0U;
 // dinh nhu truoc: moi that bai lien tiep se tu keo gian khoang cho ra thay vi
 // dap WiFi.begin() moi 30s vinh vien khi mat mang keo dai.
 static BackoffTimer staBackoff{};
+static MayapRecovery::WifiRecovery deepPolicy;
+enum class DeepPhase : uint8_t { Idle, Quiesce, OffWait, Isolated };
+static DeepPhase deepPhase = DeepPhase::Idle;
+static uint32_t deepPhaseAt = 0U;
+static bool deepRequested = false;
 
 // ------------------------- Thong tin dang nhap Wi-Fi ------------------------
 // Doc/ghi tu networkTask. SSID/mat khau nap tu NVS (Preferences); neu chua
@@ -780,6 +786,66 @@ inline bool mayapWifiPortalExclusiveRequested() {
           static_cast<uint8_t>(WifiPortalState::Idle);
 }
 
+// Owner networkTask only. Other tasks cooperate through radioQuiesce; no
+// socket is forcibly stopped from this task while another owner is in TLS I/O.
+inline void mayapRequestWifiDeepRecovery() {
+  if (MayapNetworkInternal::deepPhase == MayapNetworkInternal::DeepPhase::Idle) {
+    MayapNetworkInternal::deepRequested = true;
+  }
+}
+inline bool mayapNetworkDeepRecoveryUpdate(uint32_t now, bool externalIoBusy) {
+  using namespace MayapNetworkInternal;
+  const bool portal = mayapWifiPortalExclusiveRequested();
+  const bool online = __atomic_load_n(&requestedMode, __ATOMIC_ACQUIRE) ==
+      static_cast<uint8_t>(ConnectivityMode::Online);
+  if (deepPhase == DeepPhase::Idle) {
+    if (!online || !credentialsConfigured()) { deepRequested = false; return false; }
+    if (portal) return false;
+    if (!deepPolicy.cooldownReady(now)) { deepRequested = false; return false; }
+    if (!deepRequested && !deepPolicy.wanted(now)) return false;
+    deepRequested = false;
+    deepPhase = DeepPhase::Quiesce;
+    __atomic_store_n(&MayapServiceInternal::radioQuiesce, 1U, __ATOMIC_RELEASE);
+    publish(NetworkStateCode::Connecting, false);
+    mayapSerialPrintf(false, "[WIFI-RECOVERY] quiesce owners before radio reset\n");
+    // Observe busy flags on the NEXT cycle, after publishing quiescence.
+    // A pre-request snapshot cannot authorize changing the shared radio.
+    return true;
+  }
+  if (deepPhase == DeepPhase::Quiesce) {
+    if (portal || !online) {
+      deepPhase = DeepPhase::Idle;
+      __atomic_store_n(&MayapServiceInternal::radioQuiesce, 0U, __ATOMIC_RELEASE);
+      return false;
+    }
+    if (externalIoBusy || !mayapRadioOtaQuiesced()) return true;
+    (void)WiFi.setAutoReconnect(false);
+    (void)WiFi.disconnect(false, false);
+    const bool off = WiFi.mode(WIFI_OFF);
+    radioActive = false;
+    deepPolicy.started(millis());
+    deepPhaseAt = millis();
+    deepPhase = DeepPhase::OffWait;
+    mayapSerialPrintf(false, "[WIFI-RECOVERY] WIFI_OFF=%u\n", off);
+    return true;
+  }
+  if (deepPhase == DeepPhase::OffWait) {
+    if (MayapRecovery::age(now, deepPhaseAt) < MayapRecovery::WIFI_OFF_MS) return true;
+    (void)WiFi.setHostname(NETWORK_WIFI_HOSTNAME);
+    const bool sta = WiFi.mode(WIFI_STA);
+    staBackoff.reset(now);
+    deepPhaseAt = now;
+    deepPhase = deepPolicy.isolate() && !portal ? DeepPhase::Isolated : DeepPhase::Idle;
+    __atomic_store_n(&MayapServiceInternal::radioQuiesce, 0U, __ATOMIC_RELEASE);
+    mayapSerialPrintf(false, "[WIFI-RECOVERY] WIFI_STA=%u isolate=%u\n", sta, deepPhase == DeepPhase::Isolated);
+  }
+  if (deepPhase == DeepPhase::Isolated) {
+    if (!portal && online && MayapRecovery::age(now, deepPhaseAt) < MayapRecovery::WIFI_ISOLATE_MS) return true;
+    deepPhase = DeepPhase::Idle;
+  }
+  return false;
+}
+
 inline void mayapSetWifiPortalOtaQuiesced(bool quiesced) {
   __atomic_store_n(&MayapNetworkInternal::portalOtaQuiescedFlag,
                    quiesced ? 1U : 0U, __ATOMIC_RELEASE);
@@ -872,6 +938,7 @@ inline void mayapNetworkUpdate(uint32_t now) {
     }
     const bool started = startStation(now);
     if (!started) {
+      deepPolicy.failure(now);
       // setHostname()/mode() that bai (rat hiem - loi driver): lui backoff
       // truoc khi thu lai, khong dap lien tuc gay xoay vong CPU vo ich.
       staBackoff.onFailure(now);
@@ -882,6 +949,7 @@ inline void mayapNetworkUpdate(uint32_t now) {
   }
 
   if (WiFi.isConnected()) {
+    deepPolicy.success(now);
     staBackoff.onSuccess();  // dat lai retry counter dung yeu cau
     int32_t rssi = WiFi.RSSI();
     if (rssi < -127) rssi = -127;
@@ -895,12 +963,14 @@ inline void mayapNetworkUpdate(uint32_t now) {
   }
 
   publish(NetworkStateCode::Connecting, false);
+  deepPolicy.offline(now);
   if (elapsedMs(now, connectionStartedAt) < NETWORK_CONNECT_TIMEOUT_MS) {
     return;  // van con trong thoi gian cho hop ly cho lan thu hien tai
   }
   if (!staBackoff.ready(now)) return;  // dang trong thoi gian lui backoff
 
   staBackoff.onFailure(now);
+  deepPolicy.failure(now);
   connectionStartedAt = now;
   if (!WiFi.reconnect()) {
     const char *password = activePassword[0] == '\0' ? nullptr : activePassword;

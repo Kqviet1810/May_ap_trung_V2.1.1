@@ -1262,24 +1262,28 @@ class RtcDs3231 {
     Wire.write(reg);
     const uint8_t err = Wire.endTransmission(false);
     if (err != 0U) {
+      mayapI2cReport(RTC_I2C_ADDRESS, false);
       mayapI2cUnlock();
       return false;
     }
     const size_t got = Wire.requestFrom(
         RTC_I2C_ADDRESS, static_cast<uint8_t>(length), true);
     if (got != length) {
+      mayapI2cReport(RTC_I2C_ADDRESS, false);
       while (Wire.available()) (void)Wire.read();
       mayapI2cUnlock();
       return false;
     }
     for (size_t i = 0; i < length; ++i) {
       if (!Wire.available()) {
+        mayapI2cReport(RTC_I2C_ADDRESS, false);
         mayapI2cUnlock();
         return false;
       }
       data[i] = static_cast<uint8_t>(Wire.read());
     }
     mayapI2cUnlock();
+    mayapI2cReport(RTC_I2C_ADDRESS, true);
     return true;
   }
   static bool writeRegisters(uint8_t reg, const uint8_t *data, size_t length) {
@@ -1290,6 +1294,7 @@ class RtcDs3231 {
     const size_t written = Wire.write(data, length);
     const uint8_t err = Wire.endTransmission(true);
     mayapI2cUnlock();
+    mayapI2cReport(RTC_I2C_ADDRESS, written == length && err == 0U);
     return written == length && err == 0U;
   }
 
@@ -2015,6 +2020,7 @@ class ExternalEeprom24xx {
       out += chunk;
       length -= chunk;
     }
+    mayapI2cReport(EEPROM_I2C_ADDRESS, ok);
     return ok;
   }
 
@@ -2052,17 +2058,19 @@ class ExternalEeprom24xx {
       in += chunk;
       length -= chunk;
     }
+    mayapI2cReport(EEPROM_I2C_ADDRESS, ok);
     return ok;
   }
 
   static bool probeLocked() {
     Wire.beginTransmission(EEPROM_I2C_ADDRESS);
-    return Wire.endTransmission(true) == 0U;
+    return Wire.endTransmission(true) == 0U; // EEPROM write-busy NACK is normal.
   }
 
   static bool probe() {
     if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) return false;
     const bool ok = probeLocked();
+    mayapI2cReport(EEPROM_I2C_ADDRESS, ok);
     mayapI2cUnlock();
     return ok;
   }
@@ -3017,6 +3025,9 @@ class SHT485Industrial {
   bool frameComplete_ = false;
   uint8_t attempt_ = 0;
   uint8_t failedCycles_ = 0;
+  uint8_t uartRecoveryCount_ = 0U;
+  bool uartRecoveredBefore_ = false;
+  uint32_t uartRecoveryAt_ = 0U;
   uint32_t bootMs_ = 0;
   uint32_t nextPollMs_ = 0;
   uint32_t retryAtMs_ = 0;
@@ -3148,10 +3159,31 @@ class SHT485Industrial {
   void completeCycleSuccess(uint32_t now) {
     const bool wasOnline = online_;
     online_ = true; failedCycles_ = 0;
+    uartRecoveryCount_ = 0U;
     if (!startupResolved_) { startupResolved_ = true; setEvent(EventStartupPresent); }
     else if (!wasOnline) setEvent(EventRestored);
     nextPollMs_ = now + SHT485Config::POLL_PERIOD_MS;
     state_ = State::Idle;
+  }
+  void recoverUart(uint32_t now) {
+    // Owner-only, after a fully failed cycle. Preserve counters/filter and
+    // every plausibility/freshness/three-good-sample gate in processSensor().
+    purgeRxBounded(128U);
+    resetParser();
+    digitalWrite(SHT485Config::PIN_DE_RE, LOW);
+    online_ = false;
+    newData_ = false;
+    serial_.end();
+    serial_.begin(SHT485Config::BAUD, SERIAL_8N1, SHT485Config::PIN_RX, SHT485Config::PIN_TX);
+    purgeRxBounded(SHT485Config::RX_PURGE_BYTES_PER_ATTEMPT);
+    uartRecoveredBefore_ = true;
+    uartRecoveryAt_ = now;
+    if (uartRecoveryCount_ < 255U) ++uartRecoveryCount_;
+    failedCycles_ = 0U;
+    attempt_ = 0U;
+    nextPollMs_ = now + (uartRecoveryCount_ >= 3U ? 30000U : SHT485Config::FIRST_POLL_DELAY_MS);
+    state_ = State::Idle;
+    mayapSerialPrintf(false, "[UART-RECOVERY] RS485 reinit=%u isolate=%u\n", uartRecoveryCount_, uartRecoveryCount_ >= 3U);
   }
   void failAttempt(uint32_t now) {
     digitalWrite(SHT485Config::PIN_DE_RE, LOW);
@@ -3163,6 +3195,10 @@ class SHT485Industrial {
     if (failedCycles_ < 255U) ++failedCycles_;
     if (online_ && failedCycles_ >= SHT485Config::OFFLINE_AFTER_FAILED_CYCLES) {
       online_ = false; setEvent(EventLost);
+    }
+    if (failedCycles_ >= 6U && (!uartRecoveredBefore_ || elapsedMs(now, uartRecoveryAt_) >= 30000U)) {
+      recoverUart(now);
+      return;
     }
     nextPollMs_ = now + SHT485Config::POLL_PERIOD_MS;
     state_ = State::Idle;

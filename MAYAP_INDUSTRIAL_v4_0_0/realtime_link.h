@@ -1436,6 +1436,7 @@ inline void attemptConnect(uint32_t now) {
   const bool ok = mqtt.connect(clientId, user, pass, willTopic, 0, true,
                                willMessage, true);
   if (!ok) {
+    netClient.stop(); // Release a failed TCP/TLS session before the existing backoff retry.
     mqttBackoff.onFailure(now);
     mayapSerialPrintf(false, "[WEBLINK] MQTT connect that bai state=%d, thu lai sau %lums\n",
                       mqtt.state(),
@@ -1658,6 +1659,16 @@ inline void mayapWebLinkBegin() {
   }
 #endif
   applyWifiPowerMode(false);
+}
+
+// Owner mqttTask only. Preserve all mailboxes, transactions, ACK outboxes,
+// boot identity and subscriptions; normal reconnect resubscribes as before.
+inline void mayapMqttRecover(uint32_t now) {
+  using namespace MayapRealtimeInternal;
+  netClient.stop();
+  mqtt.disconnect();
+  if (!mqttBufferReady) mqttBufferReady = mqtt.setBufferSize(MayapProtocol::MQTT_HARD_CAP);
+  mqttBackoff.onFailure(now);
 }
 
 // Chi duoc goi tu networkTask (vong lap khong blocking, giong het

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "service_recovery.h"
 #include "network_io_guard.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -609,6 +610,8 @@ inline bool postJson(const char *path, const JsonDocument &doc, const char *logT
   WiFiClientSecure client;
   HTTPClient http;
   if (!beginCloudRequest(http, client, path)) {
+    http.end();
+    client.stop();
     if (responseCode) *responseCode = 0;
     mayapSerialPrintf(false, "[CLOUD] %s -> http.begin() THAT BAI (URL/TLS)\n", logTag);
     return false;
@@ -629,6 +632,8 @@ inline bool postJson(const char *path, const JsonDocument &doc, const char *logT
         resp.length() ? " resp=" : "", resp.c_str());
   }
   http.end();
+  client.stop();
+  mayapServiceBeat(MayapRecovery::Service::Cloud);
   return ok;
 }
 
@@ -795,6 +800,14 @@ inline void serviceRegister(uint32_t now) {
 
 inline void mayapCloudAlertBegin() {
   // Khong can khoi tao gi truoc: moi client HTTPS la ngan han, tao khi can goi.
+}
+
+// Called after an owner I/O operation has unwound its local HTTP/TLS session.
+// Keep identity, PIN, event outbox and transaction data; retry registration
+// through the existing backoff rather than wiping provisioning state.
+inline void mayapCloudRecover(uint32_t now) {
+  MayapCloudInternal::registered = false;
+  MayapCloudInternal::cloudBackoff.onFailure(now);
 }
 
 // Goi tu controlTask (qua HmiCommandType::CloudPinReset, xem

@@ -4,6 +4,8 @@
 
 Nhánh `feat/adaptive-staged-boot` bổ sung staged startup, chẩn đoán RTC và adaptive recovery Level 0–3. Boot flow, thời gian, file thay đổi và giới hạn phần cứng: [Adaptive Staged Boot](doc/ADAPTIVE_STAGED_BOOT.md).
 
+Runtime recovery cho shared I2C, RS485, service task và Wi-Fi deep recovery tiếp nối trên cùng nhánh: [Runtime Self-Recovery](doc/RUNTIME_SELF_RECOVERY.md). Tài liệu nêu ladder, owner/mutex, điều kiện restart và giới hạn kiểm thử.
+
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
 | Release | 4.0.0 |

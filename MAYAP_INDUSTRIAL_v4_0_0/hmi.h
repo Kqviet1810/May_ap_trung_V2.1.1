@@ -4191,32 +4191,9 @@ void render(uint32_t now) {
 // ============================================================
 bool probeLcdUnlocked() {
   Wire.beginTransmission(LCD_I2C_ADDRESS);
-  return Wire.endTransmission(true) == 0;
-}
-
-void recoverI2cBusUnlocked() {
-#if MAYAP_HMI_OWNS_I2C_BUS
-  Wire.end();
-  pinMode(PIN_I2C_SDA, INPUT_PULLUP);
-  pinMode(PIN_I2C_SCL, OUTPUT_OPEN_DRAIN);
-  digitalWrite(PIN_I2C_SCL, HIGH);
-  if (digitalRead(PIN_I2C_SDA) == LOW) {
-    for (uint8_t i = 0; i < 9 && digitalRead(PIN_I2C_SDA) == LOW; ++i) {
-      digitalWrite(PIN_I2C_SCL, LOW);
-      delayMicroseconds(5);
-      digitalWrite(PIN_I2C_SCL, HIGH);
-      delayMicroseconds(5);
-    }
-  }
-  pinMode(PIN_I2C_SDA, OUTPUT_OPEN_DRAIN);
-  digitalWrite(PIN_I2C_SDA, LOW);
-  delayMicroseconds(5);
-  digitalWrite(PIN_I2C_SCL, HIGH);
-  delayMicroseconds(5);
-  digitalWrite(PIN_I2C_SDA, HIGH);
-  pinMode(PIN_I2C_SDA, INPUT_PULLUP);
-  pinMode(PIN_I2C_SCL, INPUT_PULLUP);
-#endif
+  const bool ok = Wire.endTransmission(true) == 0;
+  mayapI2cReport(LCD_I2C_ADDRESS, ok);
+  return ok;
 }
 
 // fullClear=true (mac dinh) dung lcd.begin() nguyen ban (initDisplay +
@@ -4234,10 +4211,6 @@ void recoverI2cBusUnlocked() {
 // binh thuong deu co the trung luc health-check/tu lam moi dinh ky chay).
 bool beginLcd(bool fullClear = true) {
   if (i2cLockCallback && !i2cLockCallback(I2C_TIMEOUT_MS)) return false;
-#if MAYAP_HMI_OWNS_I2C_BUS
-  recoverI2cBusUnlocked();
-  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, I2C_CLOCK_HZ);
-#endif
   Wire.setTimeOut(I2C_TIMEOUT_MS);
   if (!probeLcdUnlocked()) {
     if (i2cUnlockCallback) i2cUnlockCallback();
@@ -4257,6 +4230,14 @@ bool beginLcd(bool fullClear = true) {
 }
 
 void serviceLcd(uint32_t now) {
+  static uint32_t seenBusEpoch = 0U;
+  const uint32_t busEpoch = mayapI2cRecoveryEpoch();
+  if (busEpoch != seenBusEpoch) {
+    seenBusEpoch = busEpoch;
+    lcdReady = false;
+    lastLcdRetryAt = now - LCD_RETRY_INTERVAL_MS;
+    dirty = true;
+  }
   if (!lcdReady) {
     if (now - lastLcdRetryAt < LCD_RETRY_INTERVAL_MS) return;
     lastLcdRetryAt = now;

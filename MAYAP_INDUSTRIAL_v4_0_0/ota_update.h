@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "boot_diagnostic.h"
+#include "service_recovery.h"
 #include "firmware_update_guard.h"
 #include <Arduino.h>
 #include <ArduinoOTA.h>
@@ -32,6 +33,7 @@ namespace MayapOtaInternal {
 
 static bool started = false;
 static bool inProgress = false;
+static uint32_t lastProgressAt = 0U;
 
 inline void onStart() {
   if (!mayapFirmwareMaintenanceReady()) {
@@ -41,6 +43,7 @@ inline void onStart() {
   }
   mayapSetFirmwareMaintenanceActive(true);
   inProgress = true;
+  lastProgressAt = millis();
   const char *type = (ArduinoOTA.getCommand() == U_FLASH) ? "chuong trinh" : "he thong tep";
   mayapSerialPrintf(false, "[OTA] Bat dau nap %s qua mang...\n", type);
 }
@@ -60,6 +63,8 @@ inline void onEnd() {
 inline void onProgress(unsigned int progress, unsigned int total) {
   static uint32_t lastLogAt = 0U;
   const uint32_t now = millis();
+  lastProgressAt = now;
+  mayapServiceBeat(MayapRecovery::Service::Ota);
   if (lastLogAt != 0U && (now - lastLogAt) < 1000U) return;
   lastLogAt = now;
   const unsigned percent = total ? (progress * 100U) / total : 0U;
@@ -115,6 +120,24 @@ inline void mayapOtaBegin() {
   ArduinoOTA.onEnd(MayapOtaInternal::onEnd);
   ArduinoOTA.onProgress(MayapOtaInternal::onProgress);
   ArduinoOTA.onError(MayapOtaInternal::onError);
+}
+
+// Only the OTA owner may abort/reset its service, never the supervisor task.
+// A progressing upload keeps its maintenance interlocks and is not interrupted.
+inline bool mayapOtaRuntimeRecover(uint32_t now) {
+  using namespace MayapOtaInternal;
+  if (inProgress && MayapRecovery::age(now, lastProgressAt) < 60000U) return false;
+  if (inProgress) {
+    Update.abort();
+    inProgress = false;
+    mayapSetFirmwareMaintenanceActive(false);
+  }
+  if (started) ArduinoOTA.end();
+  started = false;
+  mayapOtaBegin();
+  // Internet OTA uses scoped HTTP sessions and an existing 120 s deadline.
+  // Its accepted requests, signed metadata and failure UI remain intact.
+  return true;
 }
 
 // Goi moi chu ky tu networkTask. Chi thuc su bat dich vu OTA (mo UDP/mDNS)

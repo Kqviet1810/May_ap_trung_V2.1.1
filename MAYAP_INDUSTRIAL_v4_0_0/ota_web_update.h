@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "boot_diagnostic.h"
+#include "service_recovery.h"
 #include "network_io_guard.h"
 #include "firmware_update_guard.h"
 #include <Arduino.h>
@@ -310,6 +311,7 @@ inline void mayapFirmwareWebApplyNow() {
     if (readBytes <= 0) { ioError = true; break; }
     const size_t written = Update.write(buf, static_cast<size_t>(readBytes));
     if (written != static_cast<size_t>(readBytes)) { ioError = true; break; }
+    mayapServiceBeat(MayapRecovery::Service::Ota);
     mbedtls_sha256_update(&sha, buf, static_cast<size_t>(readBytes));
     remaining -= readBytes;
     __atomic_store_n(&downloadPercent,
