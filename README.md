@@ -8,7 +8,7 @@
 | ESP32 firmware | 4.0.0 |
 | HMI firmware | 4.0.0 |
 | Web cache | 12.0.0 |
-| ATtiny protocol | 4 (LINKFIX) |
+| ATtiny protocol | 1.0.0 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |
 | Node CI | 24 |
