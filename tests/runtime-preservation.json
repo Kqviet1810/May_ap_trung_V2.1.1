@@ -7,11 +7,11 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/boot_diagnostic.h",
-      "sha256": "aeb50df2cec3f77fe89adec84965d9ac6eb53d9e415d0baf213d9abb01057fe1"
+      "sha256": "facd0a11822eaf76db2adc4281775690bf63b6d71af9b2437ed88d8cfcdb16e1"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/boot_assets.h",
-      "sha256": "81cfd96471f7cab322d42ce049e30c66587440f96fc6c9b2d968ef7afca21f02"
+      "sha256": "c3f737bc1cf526d704fd41cbc1cf3dedb978fb1ff111bb0ab478237a57ba0060"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/thermal_control.h",
@@ -31,7 +31,15 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/attiny_bus.h",
-      "sha256": "21c7dc25f1b332b682d279e38c57d17249196b2053e8a5eaa8995cac4c9f77c2"
+      "sha256": "b0b36b68a8a8d84520a088736df15ea3f3072f93489ab3d3f2293621f64421fa"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/gpio_interrupts.h",
+      "sha256": "751401b0d1b29ef573bf3addb3209a4438740cfd196ecb326787cc4b7c18962d"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/startup_output_policy.h",
+      "sha256": "0d8a5048e921347146dfc3ecc5f1a90b170339f727135e328288ae2ecf5c3348"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/history_store.h",
@@ -47,12 +55,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/config.h",
-      "sha256": "7c4b5e959f072ca6c91d0f38bf07891c57d117018ee66535a9c93a09b8690be5",
+      "sha256": "ce5c6586eb801b444ea79782b1008e05d40b4d897524887a3f1bfe4214ff9c39",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
-      "sha256": "c1ce3a147db9343786c2db04c9423ee4caeb239c4e4c6ec0cd19d1bebfbea83d",
+      "sha256": "e7425a49297a954cdc55bcd05c0b9239dff9de9c9b072f7836c6bc2e0e09b2bd",
       "signature": "class MachineController {"
     },
     {
@@ -62,7 +70,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
-      "sha256": "c94553aa70507647999e38e63ee4180dd3a43ddff7f79a35a0c1f4193615fa22",
+      "sha256": "eb5ce93e37b747cdccc93d338e422989892fec9bf59efafa3cb9ac7a4be4e564",
       "signature": "class OutputArbiter {"
     },
     {
@@ -87,7 +95,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/hmi.h",
-      "sha256": "727fd7860b301ecebca28a0d37835cb1ca232b2f07d82fa26191ed2486d8c0da",
+      "sha256": "288b639698187f67ea49670eda287ad3e9013572c0d663c43de8077bbc4bf71c",
       "signature": "void drawSplash()"
     },
     {
@@ -102,7 +110,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/hmi.h",
-      "sha256": "71e4f7bf1c0d4376e5717352e42e0990c0623e8a91a922e62923cf9890f859b8",
+      "sha256": "96c773e2ea20cac861968ffadf176a8161197cb8f4011da880afec2356e16138",
       "signature": "void hmiBegin()"
     },
     {

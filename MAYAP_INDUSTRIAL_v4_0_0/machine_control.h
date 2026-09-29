@@ -2,6 +2,8 @@
 
 #include "config.h"
 #include "firmware_update_guard.h"
+#include "boot_diagnostic.h"
+#include "startup_output_policy.h"
 #include <Arduino.h>
 #include <HardwareSerial.h>
 #include <Wire.h>
@@ -3339,6 +3341,8 @@ class OutputArbiter {
   void update(uint32_t now, const OutputRequest &input) {
     const bool forceSafe = input.forceAllSafe || mayapSystemTripLatched();
     OutputRequest request = input;
+    mayapApplyStartupOutputPolicy(request, mayapBootOperationsReady(),
+        input.ventFanForceOn, input.siren);
     if (forceSafe) {
       request = OutputRequest{};
       request.forceAllSafe = true;
@@ -3841,16 +3845,28 @@ class MachineController {
     faults_.set(FaultCode::RtcFailure, !rtc_.valid(), now,
                 rtc_.online() ? (rtc_.oscillatorStopped() ? 1 : 3) : 2);
     adjustResumeElapsedFromRtc(now);
-    processInputModeTransition(now);
+    const bool operationsReady = mayapBootOperationsReady();
+    if (operationsReady) processInputModeTransition(now);
     processHmiTransactions(now);
-    updateTestMode(now);
-    processResume(now);
+    if (operationsReady) {
+      updateTestMode(now);
+      processResume(now);
+    }
     updateAlarms(now);
-    updateBatchOverdue(now);
-    updateSirenSelfTest(now);
-    updateAutoTune(now);
-    updateTurning(now);
-    updateHeatingAndOutputs(now);
+    if (operationsReady) {
+      updateBatchOverdue(now);
+      updateSirenSelfTest(now);
+      updateAutoTune(now);
+      updateTurning(now);
+      updateHeatingAndOutputs(now);
+    } else {
+      OutputRequest startup{};
+      mayapApplyStartupOutputPolicy(startup, false,
+          emergencyActive_ || highTemperatureActive_,
+          emergencyActive_ && timeReached(now, sirenMutedUntil_));
+      outputs_.update(now, startup);
+      pid_.reset();
+    }
     processOutputEvents(now);
     syncOutputFaults(now);
     // ATtiny activity phai doc OUTPUT THUC TE cua chinh chu ky nay.
@@ -4714,6 +4730,7 @@ class MachineController {
   }
 
   bool startBatch(uint32_t now, const char *&message) {
+    if (!mayapBootOperationsReady()) { message = "DANG KHOI DONG"; return false; }
     if (mayapFirmwareMaintenanceActive()) { message = "DANG CAP NHAT FIRMWARE"; return false; }
     const InputState &in = inputs_.state();
     if (testModeActive_) { message = "HAY THOAT TEST TRUOC"; return false; }
@@ -4868,6 +4885,7 @@ class MachineController {
   }
 
   bool startAutoTune(uint32_t now, const char *&message) {
+    if (!mayapBootOperationsReady()) { message = "DANG KHOI DONG"; return false; }
     if (mayapFirmwareMaintenanceActive()) { message = "DANG CAP NHAT FIRMWARE"; return false; }
     const InputState &in = inputs_.state();
     if (testModeActive_) { message = "HAY THOAT TEST TRUOC"; return false; }
@@ -6114,6 +6132,7 @@ class MachineController {
   // toan khi dang co me/resume/auto-tune de khong the vo tinh dieu khien
   // thiet bi that trong luc dang ap trung.
   bool enterTestMode(uint32_t now, const char *&message) {
+    if (!mayapBootOperationsReady()) { message = "DANG KHOI DONG"; return false; }
     if (mayapFirmwareMaintenanceActive()) { message = "DANG CAP NHAT FIRMWARE"; return false; }
     if (batchRunning_ || resumePending_) {
       message = "DANG CO ME - KHONG TEST DUOC"; return false;
@@ -6458,6 +6477,7 @@ class MachineController {
   // Lay contactor tong vi day la dieu kien cap nguon chinh cho cum SSR; KHONG
   // bam theo xung PID SSR. DEN, coi va relay spare KHONG duoc tinh.
   void updateAttinyLink(uint32_t now) {
+    now = millis(); // Storage may have blocked earlier in this control cycle.
     mayapAttinyBusUpdate(now);
     const bool expectedBatch = batchRunning_ || resumePending_;
     const OutputState &physicalOut = outputs_.state();

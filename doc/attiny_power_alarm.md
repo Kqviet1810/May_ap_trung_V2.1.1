@@ -53,8 +53,13 @@ EEPROM khong bi bam theo chu ky PID.
 
 ## Protocol v4
 ESP32 luon khoi tao giao dich. GPIO41/PB0 la open-drain, can dien tro keo len 3.3 V
-va GND chung. ESP32 dung GPIO open-drain that va `esp_timer` chi de tha bus dung
-han; cach nay tranh xung dot giua peripheral RMT va GPIO interrupt tren cung chan.
+va GND chung. ESP32 phat bang RMT open-drain, bat input loopback de GPIO ISR doc
+duoc ca lenh va phan hoi tren cung chan. RMT chua tron xung (<=9 symbols trong
+48-symbol hardware RAM), EOT=HIGH tha bus dung han, khong can task/timer hay
+refill ISR giua xung. GPIO ISR dang ky truc tiep voi service IRAM va lay timestamp
+bang `esp_timer_get_time()` trong IRAM, van thu duoc khung khi ghi NVS tat cache.
+Encoder cung dung handler IRAM truc tiep/doc thanh ghi; khong dung wrapper
+`attachInterrupt()` cua Arduino core 3.3.11 (wrapper nam trong flash).
 Mot lenh la **mot xung LOW**, khong dem so xung nhu v3:
 
 | LOW | Lenh |
@@ -75,7 +80,7 @@ batch, 9V-low, emergency siren, critical activity; parity la XOR cua bon bit.
 Khung status hop le chinh la ACK; Tiny khong phat ACK rieng. ESP loai khung
 sai do rong, sai so xung hoac sai parity, thu lai toi da 3 lan voi khoang nghi
 200 ms. E501 bat sau 3 lan khong nhan duoc frame hop le; neu bus ket LOW
-hoac GPIO/timer khong khoi tao duoc, loi duoc tra ve som hon. Moi lenh deu la SET,
+hoac GPIO/RMT khong khoi tao duoc, loi duoc tra ve som hon. Moi lenh deu la SET,
 khong co TOGGLE; gui lai cung lenh khong dao trang thai. `eeprom_update_byte()`
 tranh ghi lai cell neu gia tri khong doi. Frame hop le cho ESP biet trang thai
 thuc te de phat hien E503 neu hai ben khong dong bo.

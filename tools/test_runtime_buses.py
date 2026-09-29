@@ -2,6 +2,7 @@
 import argparse
 import subprocess
 import tempfile
+import re
 from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
@@ -28,7 +29,22 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     ota = (root / 'MAYAP_INDUSTRIAL_v4_0_0/ota_update.h').read_text(encoding='utf-8')
     ota = '\n'.join(line for line in ota.splitlines() if not line.startswith('#include'))
     (out / 'actual-ota.inc').write_text(ota, encoding='utf-8')
-    for test in ('runtime-buses', 'runtime-network', 'runtime-ota'):
+    for name in ('attiny_bus', 'gpio_interrupts'):
+        source = (root / ('MAYAP_INDUSTRIAL_v4_0_0/' + name + '.h')).read_text(encoding='utf-8')
+        source = '\n'.join(line for line in source.splitlines() if not line.startswith('#include'))
+        (out / ('actual-' + name + '.inc')).write_text(source, encoding='utf-8')
+    cfg = (root / 'MAYAP_INDUSTRIAL_v4_0_0/config.h').read_text(encoding='utf-8')
+    names = ('PIN_ATTINY_BUS', 'ATTINY_COMMAND_WIDTH_MS', 'ATTINY_BUS_MAX_RETRY',
+             'ATTINY_MSG_MAX_COMMAND', 'ATTINY_MSG_STATUS_BASE')
+    declarations = [re.search(r'constexpr [^;]*\b' + name + r'\b[^;]*;', cfg)[0] for name in names]
+    (out / 'actual-attiny-config.inc').write_text('\n'.join(declarations), encoding='utf-8')
+    boot = (root / 'MAYAP_INDUSTRIAL_v4_0_0/boot_diagnostic.h').read_text(encoding='utf-8')
+    mailbox = 'namespace MayapBootInternal { static volatile uint8_t homeReleased=0, operationsReady=0; }\n'
+    for name in ('mayapBootHomeReleased', 'mayapBootReleaseHome', 'mayapBootOperationsReady',
+                 'mayapBootAcknowledgeHomeFrame'):
+        mailbox += re.search(r'inline (?:bool|void) ' + name + r'\(\) \{[^}]*\}', boot)[0] + '\n'
+    (out / 'actual-boot-mailbox.inc').write_text(mailbox, encoding='utf-8')
+    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny'):
         executable = out / (test + ('.exe' if __import__('os').name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
                    str(root / ('tests/' + test + '.cpp')), '-o', str(executable)]

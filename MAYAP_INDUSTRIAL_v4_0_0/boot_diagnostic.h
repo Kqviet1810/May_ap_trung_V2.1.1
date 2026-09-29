@@ -14,6 +14,7 @@ static uint8_t retainedSlot = 0U;
 static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile uint32_t currentStage = 0U;
 static volatile uint8_t homeReleased = 0U;
+static volatile uint8_t operationsReady = 0U;
 static volatile uint8_t readyStatus = 0U;
 
 inline void persistUnlocked() {
@@ -35,6 +36,9 @@ inline MayapBoot::Diagnostic mayapBootDiagnosticSnapshot() {
   return copy;
 }
 inline void mayapBootDiagnosticBegin() {
+  __atomic_store_n(&MayapBootInternal::homeReleased, 0U, __ATOMIC_RELEASE);
+  __atomic_store_n(&MayapBootInternal::operationsReady, 0U, __ATOMIC_RELEASE);
+  __atomic_store_n(&MayapBootInternal::readyStatus, 0U, __ATOMIC_RELEASE);
   using namespace MayapBoot;
   const esp_reset_reason_t reason = esp_reset_reason();
   const ResetKind kind = reason == ESP_RST_POWERON ? ResetKind::PowerOn :
@@ -97,6 +101,14 @@ inline bool mayapBootHomeReleased() {
 }
 inline void mayapBootReleaseHome() {
   __atomic_store_n(&MayapBootInternal::homeReleased, 1U, __ATOMIC_RELEASE);
+}
+// Coordinator release only requests the UI transition. Outputs are permitted
+// AFTER HMI has sent a non-splash frame, never while a busy I2C bus delays it.
+inline bool mayapBootOperationsReady() {
+  return __atomic_load_n(&MayapBootInternal::operationsReady, __ATOMIC_ACQUIRE) != 0U;
+}
+inline void mayapBootAcknowledgeHomeFrame() {
+  __atomic_store_n(&MayapBootInternal::operationsReady, 1U, __ATOMIC_RELEASE);
 }
 inline void mayapBootShowReady() {
   __atomic_store_n(&MayapBootInternal::readyStatus, 1U, __ATOMIC_RELEASE);

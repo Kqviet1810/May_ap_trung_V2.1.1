@@ -21,6 +21,9 @@
 #include <stdlib.h>
 #if MAYAP_HMI_ENCODER_INTERRUPT
 #include <driver/gpio.h>
+#include "gpio_interrupts.h"
+#include <hal/gpio_ll.h>
+#include <soc/gpio_struct.h>
 #endif
 
 #if LCD_PROFILE == 1
@@ -315,11 +318,12 @@ uint8_t readAB() {
 portMUX_TYPE rotaryIsrMux = portMUX_INITIALIZER_UNLOCKED;
 volatile int16_t rotaryPendingTransitions = 0;
 volatile uint8_t rotaryIsrPreviousAB = 0;
+bool rotaryInterruptReady = false;
 
-void IRAM_ATTR rotaryEncoderIsr() {
+void IRAM_ATTR rotaryEncoderIsr(void *) {
   const uint8_t ab = static_cast<uint8_t>(
-      (gpio_get_level(static_cast<gpio_num_t>(PIN_ENCODER_CLK)) << 1) |
-       gpio_get_level(static_cast<gpio_num_t>(PIN_ENCODER_DT)));
+      (gpio_ll_get_level(&GPIO, PIN_ENCODER_CLK) << 1) |
+       gpio_ll_get_level(&GPIO, PIN_ENCODER_DT));
 
   portENTER_CRITICAL_ISR(&rotaryIsrMux);
   const uint8_t previous = rotaryIsrPreviousAB;
@@ -343,8 +347,18 @@ void beginRotary() {
   rotary.previousAB = readAB();
 #if MAYAP_HMI_ENCODER_INTERRUPT
   rotaryIsrPreviousAB = rotary.previousAB;
-  attachInterrupt(digitalPinToInterrupt(PIN_ENCODER_CLK), rotaryEncoderIsr, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(PIN_ENCODER_DT), rotaryEncoderIsr, CHANGE);
+  if (mayapEnsureCacheSafeGpioService()) {
+    const gpio_num_t clk = static_cast<gpio_num_t>(PIN_ENCODER_CLK);
+    const gpio_num_t dt = static_cast<gpio_num_t>(PIN_ENCODER_DT);
+    rotaryInterruptReady = gpio_set_intr_type(clk, GPIO_INTR_ANYEDGE) == ESP_OK &&
+        gpio_set_intr_type(dt, GPIO_INTR_ANYEDGE) == ESP_OK &&
+        gpio_isr_handler_add(clk, rotaryEncoderIsr, nullptr) == ESP_OK &&
+        gpio_isr_handler_add(dt, rotaryEncoderIsr, nullptr) == ESP_OK;
+    if (!rotaryInterruptReady) {
+      (void)gpio_isr_handler_remove(clk);
+      (void)gpio_isr_handler_remove(dt);
+    }
+  }
 #endif
   rotary.lastRawButton = digitalRead(PIN_ENCODER_SW);
   rotary.stableButton = rotary.lastRawButton;
@@ -358,17 +372,20 @@ void updateRotary(uint32_t now) {
 
   int16_t transitionDelta = 0;
 #if MAYAP_HMI_ENCODER_INTERRUPT
-  portENTER_CRITICAL(&rotaryIsrMux);
-  transitionDelta = rotaryPendingTransitions;
-  rotaryPendingTransitions = 0;
-  portEXIT_CRITICAL(&rotaryIsrMux);
-#else
-  const uint8_t ab = readAB();
-  if (ab != rotary.previousAB) {
-    transitionDelta = QUADRATURE_TABLE[(rotary.previousAB << 2) | ab];
-    rotary.previousAB = ab;
-  }
+  if (rotaryInterruptReady) {
+    portENTER_CRITICAL(&rotaryIsrMux);
+    transitionDelta = rotaryPendingTransitions;
+    rotaryPendingTransitions = 0;
+    portEXIT_CRITICAL(&rotaryIsrMux);
+  } else
 #endif
+  {
+    const uint8_t ab = readAB();
+    if (ab != rotary.previousAB) {
+      transitionDelta = QUADRATURE_TABLE[(rotary.previousAB << 2) | ab];
+      rotary.previousAB = ab;
+    }
+  }
 
   rotary.accumulator = static_cast<int16_t>(rotary.accumulator + transitionDelta);
   int16_t detents = rotary.accumulator / ENCODER_STEPS_PER_DETENT;
@@ -961,14 +978,11 @@ uint32_t lastInteractionAt = 0;
 uint32_t lastLcdRetryAt = 0;
 uint32_t lastLcdHealthCheckAt = 0;
 uint32_t lastLcdFaultLogAt = 0;
-uint32_t lastLcdFullReinitAt = 0;
 char toastLine[27] = "";
 bool toastError = false;
 uint32_t toastUntil = 0;
 uint32_t lastCommandPollAt = 0;
 uint32_t inputGuardUntil = 0;
-uint32_t uiNextVerifyDrawAt = 0;
-uint8_t uiVerifyFramesRemaining = 0;
 
 HmiCommand commandQueue[COMMAND_QUEUE_SIZE];
 uint8_t commandHead = 0, commandTail = 0, commandCount = 0;
@@ -1181,10 +1195,7 @@ void resetRotaryPending(bool rearmSwallowedLongPress = false) {
 void armInputGuard(uint32_t durationMs = HMI_INPUT_GUARD_MS) {
   const uint32_t now = millis();
   inputGuardUntil = now + durationMs;
-  // Hai frame giong nhau: frame dau chuyen trang, frame hai xac minh lai.
-  // Khong tat/bat LCD nen khong tao nhay den.
-  uiVerifyFramesRemaining = 2U;
-  uiNextVerifyDrawAt = now;
+  // Debounce navigation only; do not schedule duplicate display frames.
   resetRotaryPending();
 }
 
@@ -3005,9 +3016,9 @@ void drawCenteredText(int16_t y, const char *text) {
 // diacritics without adding a large Unicode font to the 128x64 firmware.
 void drawSplash() {
   lcd.setDrawColor(1);
-  lcd.drawXBMP((128 - BOOT_LOGO_WIDTH) / 2, 3,
+  lcd.drawXBMP((128 - BOOT_LOGO_WIDTH) / 2, BOOT_LOGO_TOP,
                BOOT_LOGO_WIDTH, BOOT_LOGO_HEIGHT, bootLogoBits);
-  lcd.drawXBMP(0, 49, 128, 14,
+  lcd.drawXBMP(0, BOOT_STATUS_TOP, 128, BOOT_STATUS_HEIGHT,
       bootStatusBits[static_cast<uint8_t>(mayapBootStatus())]);
 }
 
@@ -4080,6 +4091,8 @@ void drawToast(uint32_t now) {
   lcd.setDrawColor(1);
 }
 
+bool probeLcdUnlocked();
+
 void render(uint32_t now) {
   if (!lcdReady) return;
   const bool periodicHome = view == View::Home &&
@@ -4088,10 +4101,6 @@ void render(uint32_t now) {
                              now - lastAlarmDrawAt >= ALARM_REFRESH_MS;
   const bool periodicFirmwareProgress = view == View::FirmwareProgress &&
       now - lastFirmwareProgressDrawAt >= FIRMWARE_PROGRESS_REFRESH_MS;
-  const bool verificationFrame = uiVerifyFramesRemaining != 0U &&
-                                 timeReached(now, uiNextVerifyDrawAt);
-  const bool consumeVerifyFrame = uiVerifyFramesRemaining == 2U ||
-                                  verificationFrame;
 
   // Man khoi dong: tu ve lai deu (khong ai set dirty ho) va tu thoat khi da
   // co du du lieu that. Xu ly TRUOC moi thu khac de khong bi cac view khac
@@ -4107,17 +4116,10 @@ void render(uint32_t now) {
     }
   }
   const bool periodicSplash = splashActive;
-  // Tu "lam lanh" dinh ky CHO MOI man hinh (khong chi rieng Home/Alarm/
-  // FirmwareProgress da co san o tren) - neu 1 khung hinh bi nhieu I2C lam
-  // rach/sai ngay luc man dang DUNG YEN (vd dang xem menu, khong bam gi),
-  // truoc day no se o nguyen tren man VO THOI HAN toi khi nguoi dung tuong
-  // tac lai (dirty chi bat khi co thay doi that). Dung lai lastDrawAt (da
-  // duoc cap nhat sau MOI lan gui khung thanh cong, khong rieng gi Home) de
-  // gioi han thoi gian 1 khung loi con hien tren man o muc vai giay.
-  const bool periodicIdleSelfHeal = now - lastDrawAt >= HMI_IDLE_SELFHEAL_MS;
-  const bool periodic = periodicHome || periodicAlarm || verificationFrame ||
-                        periodicSplash || periodicFirmwareProgress ||
-                        periodicIdleSelfHeal;
+  // No prophylactic reinitialization or duplicate page draws. Static menus
+  // stay still; only actual changes/dynamic data and real I2C faults redraw.
+  const bool periodic = periodicHome || periodicAlarm ||
+                        periodicSplash || periodicFirmwareProgress;
   if (!dirty && !periodic) return;
   if (now - lastDrawAt < DISPLAY_MIN_DRAW_MS) return;
 
@@ -4172,15 +4174,20 @@ void render(uint32_t now) {
     return;
   }
   lcd.sendBuffer();
+  // A missing panel cannot grant operational permission merely because the
+  // void U8g2 sendBuffer() returned. Verify presence while holding the bus.
+  const bool startupFrameOk = splashActive || mayapBootOperationsReady() ||
+                              probeLcdUnlocked();
   if (i2cUnlockCallback) i2cUnlockCallback();
+  if (!startupFrameOk) {
+    lcdReady = false;
+    lastLcdRetryAt = now;
+    dirty = true;
+    return;
+  }
+  if (!splashActive) mayapBootAcknowledgeHomeFrame();
   dirty = false;
   lastDrawAt = now;
-  if (consumeVerifyFrame && uiVerifyFramesRemaining != 0U) {
-    --uiVerifyFramesRemaining;
-    if (uiVerifyFramesRemaining != 0U) {
-      uiNextVerifyDrawAt = now + HMI_VERIFY_REDRAW_DELAY_MS;
-    }
-  }
   if (view == View::Home) lastHomeDrawAt = now;
   if (view == View::Alarm) lastAlarmDrawAt = now;
   if (view == View::FirmwareProgress) lastFirmwareProgressDrawAt = now;
@@ -4261,32 +4268,6 @@ void serviceLcd(uint32_t now) {
     return;
   }
 
-  // Tu lam moi sau dinh ky (xem giai thich tai LCD_FULL_REINIT_MS trong
-  // config.h) - CHU DONG nap lai toan bo chuoi khoi tao ST7567 ke ca khi
-  // ACK van binh thuong, phong truong hop nhieu lam sai 1 thanh ghi noi bo
-  // (vd dao mau, lech dia chi) ma probe ACK don gian khong the phat hien.
-  // Kiem tra TRUOC health-check thuong (cung nhip lock/unlock, khong ton
-  // them chi phi dang ke) - neu vua lam moi xong thi khong can probe lai
-  // ngay trong cung 1 chu ky.
-  if (now - lastLcdFullReinitAt >= LCD_FULL_REINIT_MS) {
-    lastLcdFullReinitAt = now;
-    lastLcdHealthCheckAt = now;
-    // fullClear=false: man dang hien khung hinh DUNG (day la tu lam moi
-    // PHONG NGUA dinh ky, khong phai phuc hoi loi that) - khong co ly do gi
-    // lam den man ngay ca trong chop mat.
-    if (beginLcd(false)) {
-      dirty = true;
-    } else {
-      lcdReady = false;
-      lastLcdRetryAt = now;
-      dirty = true;
-#if MAYAP_DIAGNOSTIC_SERIAL
-      mayapSerialPrintf(false, "[HMI] LCD/I2C lost during scheduled reinit\n");
-#endif
-    }
-    return;
-  }
-
   if (now - lastLcdHealthCheckAt < LCD_HEALTH_CHECK_MS) return;
   lastLcdHealthCheckAt = now;
   if (i2cLockCallback && !i2cLockCallback(I2C_TIMEOUT_MS)) return;
@@ -4338,7 +4319,6 @@ void hmiBegin() {
   lastCommandPollAt = now;
   lastLcdRetryAt = now;
   lastLcdHealthCheckAt = now;
-  lastLcdFullReinitAt = now;
   // Moc thoi gian man khoi dong tinh tu luc BAT MAY, khong phai tu frame ve
   // dau tien: neu LCD chua nhan duoc luc khoi dong (dang tu do tim lai), den
   // khi no phuc hoi thi SPLASH_MAX_MS da qua tu lau va may vao thang man

@@ -214,6 +214,13 @@ jobs:
             --verbose \
             MAYAP_INDUSTRIAL_v4_0_0
 
+      - name: Verify linked GPIO ISR cache safety
+        shell: bash
+        run: |
+          OBJDUMP=$(find "$HOME/.arduino15/packages/esp32/tools/esp-x32" -type f -name 'xtensa-esp32s3-elf-objdump' -print -quit)
+          test -n "$OBJDUMP"
+          python3 tools/check_bus_iram.py --objdump "$OBJDUMP" --elf build/MAYAP_INDUSTRIAL_v4_0_0.ino.elf
+
       - name: Bao cao kich thuoc
         run: |
           ls -la ./build/*.bin

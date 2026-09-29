@@ -338,7 +338,7 @@ constexpr uint8_t PIN_STATUS_RGB       = 42;  // SK6812MINI-C
 // Bus giao tiep 2 chieu voi ATtiny13A (mach bao mat dien doc lap dung pin
 // CR2032, xem doc/attiny_power_alarm.md). La bus "ho tro" (open-drain) dung
 // chung 1 day: ca 2 ben CHI duoc keo LOW hoac tha noi de nghi len HIGH qua
-// dien tro keo len R8. ESP phat lenh bang GPIO open-drain + esp_timer; Tiny tra
+// dien tro keo len R8. ESP phat lenh bang RMT open-drain + IRAM GPIO RX; Tiny tra
 // trang thai. Pull-up noi 3.3 V cua ESP chi la du phong idle, khong thay R8.
 constexpr uint8_t PIN_ATTINY_BUS = 41;
 
@@ -478,28 +478,7 @@ constexpr uint32_t LCD_RETRY_INTERVAL_MS = 3000UL;
 // han o tren.
 constexpr uint32_t LCD_HEALTH_CHECK_MS = 2000UL;
 constexpr uint32_t LCD_FAULT_LOG_INTERVAL_MS = 30000UL;
-// Tu "lam moi sau" dinh ky: ke ca khi khong phat hien loi ro rang (ACK van
-// tra loi binh thuong), van chu dong nap lai TOAN BO chuoi khoi tao ST7567
-// (bias/power control/contrast...) moi 60s 1 lan. Ly do: 1 xung nhieu trung
-// dung luc dang gui LENH DIEU KHIEN (khac voi du lieu diem anh) co the lam
-// sai 1 thanh ghi noi bo cua chip LCD (vd dao nguoc mau, lech dia chi cot/
-// trang) ma health-check kieu ACK khong the phat hien duoc (chip van tra
-// loi ACK binh thuong, chi noi dung hien sai) - phai NAP LAI TU DAU moi het
-// hoan toan. 60s du thua (~1 lan/phut) de khong tao lag deu dan nhu bien
-// duoi day tung bi (chi 1 lan block dai hon moi 60s, thay vi 20 lan/phut).
-constexpr uint32_t LCD_FULL_REINIT_MS = 60000UL;
-// Man dang dung (menu/cai dat...) truoc day CHI ve lai khi co thay doi that
-// (dirty=true) - neu 1 khung hinh bi nhieu lam rach/sai NGAY GIUA luc dung
-// yen (vd dang xem menu, khong bam gi), no se o nguyen tren man VO THOI HAN
-// toi khi nguoi dung tuong tac lai. Hang so nay bat MOI man hinh (khong chi
-// rieng Home/Alarm/FirmwareProgress da co san) tu gui lai dinh ky, gioi han
-// thoi gian 1 khung bi loi con hien tren man o muc vai giay thay vi vo han.
-// TANG tu 3000 len 8000ms: 3s qua day (~20 lan sendBuffer()/phut CHI DE tu
-// kiem tra, cong voi cac lan ve that su khi tuong tac) la nguyen nhan
-// chinh gay lag nguoi dung bao - moi lan trung dung luc dang xoay nut la
-// cam thay "khuc". 8s van du nhanh de 1 khung loi khong "dinh" qua lau
-// tren man, nhung giam tan suat block xuong con ~7-8 lan/phut.
-constexpr uint32_t HMI_IDLE_SELFHEAL_MS = 8000UL;
+// Reinitialize only after real I2C failure/recovery, never on a healthy timer.
 #ifndef LCD_PROFILE
 #define LCD_PROFILE 1
 #endif
@@ -536,9 +515,6 @@ constexpr uint32_t TOAST_ERROR_MS = 2500UL;
 // Thong bao HMI chi chiem thanh trang thai 9 px o day, khong che noi dung.
 constexpr uint8_t HMI_STATUS_TEXT_MAX_CHARS = 22U;
 constexpr uint32_t HMI_INPUT_GUARD_MS = 140UL;
-// Gui lai cung mot framebuffer them mot lan sau khi doi trang. Khong blank,
-// giup tu sua neu mot frame I2C bi nhieu/khong tron ven.
-constexpr uint32_t HMI_VERIFY_REDRAW_DELAY_MS = 220UL;
 // Coi dao: hai bip ngan moi chu ky, khong keu lien tuc.
 constexpr uint32_t TURN_BUZZER_ON1_MS = 90UL;
 constexpr uint32_t TURN_BUZZER_GAP_MS = 120UL;
