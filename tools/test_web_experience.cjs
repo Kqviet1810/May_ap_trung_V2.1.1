@@ -105,6 +105,10 @@ async function main() {
         await page.evaluate(tab => window.__qa.showPage(tab), tab);
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
         assert.equal(overflow, false, `${width}/${theme}/${tab} horizontal overflow`);
+        const gradientElements = await page.evaluate(() => [...document.querySelectorAll('*')]
+          .filter(el => /gradient\(/i.test(getComputedStyle(el).backgroundImage))
+          .map(el => el.id || el.className || el.tagName));
+        assert.deepEqual(gradientElements, [], `${width}/${theme}/${tab}: backgrounds must be solid`);
       }
       assert.equal(await page.title(), 'MAYAP · Máy ấp trứng');
       const contrast = await page.evaluate(() => {

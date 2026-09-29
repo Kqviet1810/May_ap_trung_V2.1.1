@@ -2,18 +2,18 @@
 
 > Baseline hiện hành: **MAYAP release 4.0.0** trên ESP32-S3-WROOM-1U-N8, Web PWA và Cloudflare Worker. Xem `doc/RELEASE_4_0_0.md` về giới hạn kiểm thử.
 
-Nhánh `feat/adaptive-staged-boot` bổ sung staged startup, chẩn đoán RTC và adaptive recovery Level 0–3. Boot flow, thời gian, file thay đổi và giới hạn phần cứng: [Adaptive Staged Boot](doc/ADAPTIVE_STAGED_BOOT.md).
+Firmware bổ sung staged startup, chẩn đoán RTC và adaptive recovery Level 0–3. Boot flow, thời gian, file thay đổi và giới hạn phần cứng: [Adaptive Staged Boot](doc/ADAPTIVE_STAGED_BOOT.md).
 
-Runtime recovery cho shared I2C, RS485, service task và Wi-Fi deep recovery tiếp nối trên cùng nhánh: [Runtime Self-Recovery](doc/RUNTIME_SELF_RECOVERY.md). Tài liệu nêu ladder, owner/mutex, điều kiện restart và giới hạn kiểm thử.
+Runtime recovery cho shared I2C, RS485, service task và Wi-Fi deep recovery: [Runtime Self-Recovery](doc/RUNTIME_SELF_RECOVERY.md). Tài liệu nêu ladder, owner/mutex, điều kiện restart và giới hạn kiểm thử.
 
-Web 12.1 bổ sung nhóm quạt hút theo HMI, giao diện sáng/tối, vuốt mobile và giảm các bước chờ khi ghép nối/mở trang: [Giao diện và kết nối](doc/WEB_12_1_UX.md).
+Web 12.1.1 dùng bảng màu xanh lam ngọc đơn sắc ở cả chế độ sáng/tối, nhóm quạt hút theo HMI, vuốt mobile và giảm các bước chờ khi ghép nối/mở trang: [Giao diện và kết nối](doc/WEB_12_1_UX.md).
 
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
 | Release | 4.0.0 |
 | ESP32 firmware | 4.0.0 |
 | HMI firmware | 4.0.0 |
-| Web cache | 12.1.0 |
+| Web cache | 12.1.1 |
 | ATtiny protocol | 1.0.0 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |

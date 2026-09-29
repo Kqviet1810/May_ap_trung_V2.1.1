@@ -28,11 +28,24 @@ nhật, bộ nhớ và kết nối dùng từ “máy”, “màn hình máy”,
 PIN ghép nối/PIN hiện tại tiếp tục nhận 4–8 số để tương thích máy đã có;
 PIN mới phải 6–8 số, khớp backend. Không đổi quy tắc xác thực backend.
 
-Giao diện sáng dùng nền xám xanh, thẻ trắng và teal; giao diện tối dùng
-nền graphite và điểm nhấn teal. Màu chữ và màu nền nút tách riêng để giữ
+Giao diện sáng dùng nền xám xanh, thẻ trắng và xanh lam ngọc; giao diện tối dùng
+nền xanh than và điểm nhấn xanh lam ngọc. Màu chữ và màu nền nút tách riêng để giữ
 tương phản. Biểu tượng trợ giúp/cảnh báo dùng SVG mask thay ký tự font.
 Các nút trợ giúp có vùng chạm 44px; trạng thái đang gửi/chờ xác nhận hiển
 thị tại form. Chế độ theo hệ thống, giảm chuyển động và zoom vẫn hoạt động.
+
+### Web 12.1.1 — màu đơn sắc
+
+Bỏ toàn bộ gradient trên nền trang, thẻ, nút, công tắc, tiến trình và màn
+quét QR. Điểm nhấn chính `#087f8c`; nền sáng `#f3f7f9`, nền tối `#0e1b24`.
+Giảm bóng đổ, bỏ hiệu ứng phát sáng màu để giao diện dịu hơn. Màu cảnh báo,
+lỗi và an toàn giữ nguyên ý nghĩa. Theme PWA và trang bật thông báo đồng bộ
+với bảng màu; cache tăng lên `12.1.1` để nhận CSS mới.
+
+Browser QA kiểm tra background được render của mọi phần tử trên cả ba tab
+không có gradient, ở năm kích thước và hai theme. Kiểm tra tương phản chữ/nút
+vẫn đạt ≥4,5:1. Bản sửa màu không thay đổi `app.js`, firmware, Boot Manager,
+Runtime Recovery, giao dịch ghi hoặc MQTT.
 
 Trên mobile, vuốt ngang sang tab bên cạnh theo thứ tự Thiết bị → Mẻ ấp →
 Cài đặt, vuốt ngược để quay lại. Không vòng từ tab cuối sang tab đầu.

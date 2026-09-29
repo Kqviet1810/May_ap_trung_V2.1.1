@@ -4,31 +4,31 @@
   --ink:#172c38;--muted:#586b78;--label:#405765;
   --line:#d3dfe5;--lineSoft:#e7eef2;--tile:#f7f9fb;
   --surface:#fff;--wash:#f1f5f8;
-  --primary:#0f766e;--primary2:#0a615a;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#e1f3ef;
-  --primaryGradient:linear-gradient(135deg,#0f766e,#0a615a);--primaryGlow:rgba(13,148,136,.32);
+  --primary:#087f8c;--primary2:#086b75;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#e5f3f5;
+
   --danger:#be4147;--dangerSoft:#fff0f1;
   --warning:#e29b1d;--warningDark:#8a5a0a;--warningSoft:#fdf1de;
   --emergency:#7a1f1f;--emergencySoft:#f6dede;
   --faint:#647772;
-  --ring:#2f8f82;
-  --shadow:0 10px 28px rgba(9,46,40,.08);--shadowSm:0 3px 10px rgba(9,46,40,.06);
+  --ring:#087f8c;
+  --shadow:0 4px 12px rgba(21,44,57,.06);--shadowSm:0 2px 6px rgba(21,44,57,.04);
   --radius:18px;--radius-md:14px;--radius-sm:10px;--navH:86px;
   --ease:.16s ease;
   /* Thang chu gioi han ~9 muc (thay vi hon 30 gia tri le te truoc do) de
      giao dien nhat quan, du lon de doc thoai mai tren man hinh lon. */
   --fs-2xs:11px;--fs-xs:12px;--fs-sm:13px;--fs-base:14px;--fs-md:16px;
   --fs-lg:18px;--fs-xl:22px;--fs-2xl:26px;--fs-3xl:34px;
-  /* Nen trang (gradient) + cac mau chu/vien gan chet trong markup (trang
+  /* Nen trang don sac + cac mau chu/vien gan chet trong markup (trang
      thai bat/tat, chip nhe...) - tach thanh token de giao dien toi (xem
      [data-theme="dark"] o cuoi file) doi duoc dong bo, khong phai do lai
      tung noi. Gia tri mac dinh giu y het mau cu truoc khi co dark mode. */
-  --bodyBg1:#f7f9fb;--bodyBg2:#edf2f6;--topbarBg:#f7f9fbee;
-  --softBg:#eef4f2;--softText:#596c68;
+  --bodyBg:#f3f7f9;--topbarBg:#f3f7f9;
+  --softBg:#edf3f6;--softText:#576a76;
   --successText:#187746;--successTextStrong:#087b51;--successTextSoft:#0f6b52;
   --dangerTextStrong:#9c3b40;
-  --onBorder:#8fd3c4;--dangerBorder:#eeb3b6;--warningBorder:#eecf9e;--emergencyBorder:#d59a9a;
+  --onBorder:#9ecdd2;--dangerBorder:#eeb3b6;--warningBorder:#eecf9e;--emergencyBorder:#d59a9a;
   --invalidBorder:#d95d62;--invalidBg:#fff8f8;--invalidRing:#d95d6218;
-  --chipBg:#edf5f3;
+  --chipBg:#eef5f7;
   color-scheme:light
 }
 /* Giao dien toi: bam nut trong "Cai dat > Giao dien" ghi data-theme len
@@ -43,19 +43,19 @@
     --ink:#eef5f9;--muted:#a2b3c2;--label:#c4d1dc;
     --line:#324353;--lineSoft:#253545;--tile:#101c28;
     --surface:#162431;--wash:#192b39;
-    --primary:#0f766e;--primary2:#72e2cf;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#173c3a;
-    --primaryGradient:linear-gradient(135deg,#0f766e,#0a615a);--primaryGlow:rgba(45,212,191,.35);
+    --primary:#087f8c;--primary2:#79d8e0;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#17363c;
+
     --danger:#ff7a7a;--dangerSoft:#2a151a;
     --warning:#f5a742;--warningDark:#f5a742;--warningSoft:#332512;
     --emergency:#ff8a8a;--emergencySoft:#331515;
     --faint:#92a7b9;
-    --ring:#72e2cf;
-    --shadow:0 10px 28px rgba(0,0,0,.45);--shadowSm:0 3px 10px rgba(0,0,0,.35);
-    --bodyBg1:#0d1721;--bodyBg2:#101c28;--topbarBg:#0d1721ee;
+    --ring:#79d8e0;
+    --shadow:0 4px 14px rgba(0,0,0,.20);--shadowSm:0 2px 6px rgba(0,0,0,.14);
+    --bodyBg:#0e1b24;--topbarBg:#0e1b24;
     --softBg:#1b2b3a;--softText:#b2c3d0;
     --successText:#4ade80;--successTextStrong:#34d399;--successTextSoft:#2dd4a0;
     --dangerTextStrong:#ff9a9a;
-    --onBorder:#1f4a44;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
+    --onBorder:#2b4e53;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
     --invalidBorder:#ff7a7a;--invalidBg:#2a151a;--invalidRing:#ff7a7a33;
     --chipBg:#1b2b3a
   }
@@ -63,7 +63,7 @@
      sang net sang de con thay ro tren nen input toi. */
   :root:not([data-theme="light"]) select,
   :root:not([data-theme="light"]) .customSelectTrigger{
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235eead4' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2379d8e0' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")
   }
 }
 :root[data-theme="dark"]{
@@ -71,25 +71,25 @@
   --ink:#eef5f9;--muted:#a2b3c2;--label:#c4d1dc;
   --line:#324353;--lineSoft:#253545;--tile:#101c28;
   --surface:#162431;--wash:#192b39;
-  --primary:#0f766e;--primary2:#72e2cf;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#173c3a;
-  --primaryGradient:linear-gradient(135deg,#0f766e,#0a615a);--primaryGlow:rgba(45,212,191,.35);
+  --primary:#087f8c;--primary2:#79d8e0;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#17363c;
+
   --danger:#ff7a7a;--dangerSoft:#2a151a;
   --warning:#f5a742;--warningDark:#f5a742;--warningSoft:#332512;
   --emergency:#ff8a8a;--emergencySoft:#331515;
   --faint:#92a7b9;
-  --ring:#72e2cf;
-  --shadow:0 10px 28px rgba(0,0,0,.45);--shadowSm:0 3px 10px rgba(0,0,0,.35);
-  --bodyBg1:#0d1721;--bodyBg2:#101c28;--topbarBg:#0d1721ee;
+  --ring:#79d8e0;
+  --shadow:0 4px 14px rgba(0,0,0,.20);--shadowSm:0 2px 6px rgba(0,0,0,.14);
+  --bodyBg:#0e1b24;--topbarBg:#0e1b24;
   --softBg:#1b2b3a;--softText:#b2c3d0;
   --successText:#4ade80;--successTextStrong:#34d399;--successTextSoft:#2dd4a0;
   --dangerTextStrong:#ff9a9a;
-  --onBorder:#1f4a44;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
+  --onBorder:#2b4e53;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
   --invalidBorder:#ff7a7a;--invalidBg:#2a151a;--invalidRing:#ff7a7a33;
   --chipBg:#1b2b3a
 }
 :root[data-theme="dark"] select,
 :root[data-theme="dark"] .customSelectTrigger{
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235eead4' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2379d8e0' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")
 }
 /* text-size-adjust khai bao tren html{} khong du: Chrome/Safari dien thoai
    "font boosting" (TextAutosizer) danh gia RIENG tung khoi/cum chu hep (vd
@@ -103,7 +103,7 @@ body{width:100%;max-width:100%;overflow-x:clip}
 /* Cam bam giu/sao chep chu de tao cam giac ung dung, khong phai trang wed - giu lai cho o nhap lieu de con go/dan duoc. */
 html,body{-webkit-user-select:none;-moz-user-select:none;user-select:none;-webkit-touch-callout:none}
 input,textarea,[contenteditable]{-webkit-user-select:text;-moz-user-select:text;user-select:text;-webkit-touch-callout:default}
-body{margin:0;color:var(--ink);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;font-size:var(--fs-base);line-height:1.4;background:radial-gradient(120% 60% at 15% -10%,var(--primarySoft),transparent 55%),linear-gradient(160deg,var(--bodyBg1),var(--bodyBg2));background-attachment:fixed;min-height:100vh;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transition:background var(--ease),color var(--ease)}
+body{margin:0;color:var(--ink);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;font-size:var(--fs-base);line-height:1.4;background:var(--bodyBg);min-height:100vh;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transition:background var(--ease),color var(--ease)}
 /* Khóa chiều ngang: mọi khối co theo viewport, không sinh thanh cuộn ngang. */
 .appShell,.main,.topbar,.page,.panel,.batchPanel,.batchGrid,.batchGrid>*,
 .compactTile,.compactTile input,.batchActions,.batchActions>*{min-width:0;max-width:100%}
@@ -123,7 +123,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .appShell{min-height:100vh;display:grid;grid-template-columns:240px minmax(0,1fr)}
 .sidebar{position:fixed;inset:0 auto 0 0;width:240px;padding:24px 20px;background:#103a33;color:#fff;display:flex;flex-direction:column;z-index:40}
 .brand{display:flex;align-items:center;gap:12px}
-.brandMark{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:#49cfbc;color:#073b34;font-weight:950;font-size:21px}
+.brandMark{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:#84d4dc;color:#14343a;font-weight:950;font-size:21px}
 .brand strong,.brand small{display:block}
 .brand strong{font-size:var(--fs-md);letter-spacing:.2px}
 .brand small{margin-top:3px;color:#a9c8c2;font-size:var(--fs-xs)}
@@ -203,7 +203,7 @@ body[data-page="settings"] .topbar{max-width:960px}
 .page{display:none;min-width:0;width:100%}
 .page.active{display:grid;gap:20px;min-width:0;width:100%}
 .page#page-batch.active{display:block}
-.panel{background:linear-gradient(165deg,var(--surface),var(--wash));border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow)}
 
 .panelHead,.deviceTop,.dialogHead{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
 .panel h2,.dialogHead h2,.confirmBody h2{margin:2px 0 0;font-size:var(--fs-xl);font-weight:700;letter-spacing:-.3px}
@@ -222,7 +222,7 @@ body[data-page="settings"] .topbar{max-width:960px}
 .devicePickerRow{display:flex;align-items:end;gap:10px;margin-top:18px}
 .devicePickerRow .customSelect{gap:0}
 .grow{flex:1}
-.addDevice{flex:0 0 54px;height:54px;border:0;border-radius:var(--radius-md);background:var(--primary);color:#fff;font-size:26px;line-height:1;cursor:pointer;box-shadow:0 9px 20px #0d827526;display:grid;place-items:center;transition:filter var(--ease),transform var(--ease)}
+.addDevice{flex:0 0 54px;height:54px;border:0;border-radius:var(--radius-md);background:var(--primary);color:#fff;font-size:26px;line-height:1;cursor:pointer;box-shadow:var(--shadowSm);display:grid;place-items:center;transition:filter var(--ease),transform var(--ease)}
 .addDevice:hover{filter:brightness(1.06)}
 .addDevice:active{transform:translateY(1px);filter:brightness(.92)}
 
@@ -230,10 +230,10 @@ body[data-page="settings"] .topbar{max-width:960px}
 .field{display:grid;gap:8px}
 .field>span{font-size:var(--fs-sm);font-weight:700;color:var(--label)}
 input,select,textarea,.customSelectTrigger{width:100%;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);color:var(--ink);font-size:var(--fs-md);padding:0 14px;outline:0;transition:border-color var(--ease),box-shadow var(--ease),background var(--ease),color var(--ease)}
-select,.customSelectTrigger{appearance:none;-webkit-appearance:none;padding-right:44px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%232c5d56' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center;background-size:16px}
+select,.customSelectTrigger{appearance:none;-webkit-appearance:none;padding-right:44px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23086b75' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center;background-size:16px}
 textarea{padding:12px 14px;font-family:inherit;resize:vertical}
 input:hover,select:hover,textarea:hover,.customSelectTrigger:hover{border-color:#a9c2bc}
-input:focus,select:focus,textarea:focus,.customSelectTrigger:focus-visible{border-color:var(--ring);box-shadow:0 0 0 3px #2f8f8220}
+input:focus,select:focus,textarea:focus,.customSelectTrigger:focus-visible{border-color:var(--ring);box-shadow:0 0 0 3px #087f8c20}
 input::placeholder,textarea::placeholder{color:var(--faint)}
 input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:not-allowed;background-color:var(--tile)}
 
@@ -244,7 +244,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
    "khung vo hinh" trong cac muc nay truoc do. */
 .field>.unit{border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);padding:0 14px;min-height:52px;transition:border-color var(--ease),box-shadow var(--ease),background var(--ease)}
 .field>.unit:hover{border-color:#a9c2bc}
-.field>.unit:focus-within{border-color:var(--ring);box-shadow:0 0 0 3px #2f8f8220}
+.field>.unit:focus-within{border-color:var(--ring);box-shadow:0 0 0 3px #087f8c20}
 .field>.unit input{font-size:var(--fs-md);font-weight:700;min-height:50px}
 .field>.unit b{font-size:var(--fs-sm)}
 
@@ -275,14 +275,14 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
    doc/ngang; 4 goc bo (giong may quet chuyen nghiep) thay vi 1 khung vien
    lien tuc - de mat nguoi dung tu nhien don vao vung giua khung. */
 .qrViewfinder{position:relative;z-index:2;flex:1;margin:0 auto;width:min(72vw,72vh,320px);aspect-ratio:1;align-self:center}
-.qrCorner{position:absolute;width:34px;height:34px;border:3px solid #4be3c8}
+.qrCorner{position:absolute;width:34px;height:34px;border:3px solid #79d8e0}
 .qrCornerTl{top:0;left:0;border-right:0;border-bottom:0;border-top-left-radius:10px}
 .qrCornerTr{top:0;right:0;border-left:0;border-bottom:0;border-top-right-radius:10px}
 .qrCornerBl{bottom:0;left:0;border-right:0;border-top:0;border-bottom-left-radius:10px}
 .qrCornerBr{bottom:0;right:0;border-left:0;border-top:0;border-bottom-right-radius:10px}
-.qrScanLine{position:absolute;left:6%;right:6%;top:0;height:2px;background:linear-gradient(90deg,transparent,#4be3c8,transparent);box-shadow:0 0 8px #4be3c8;animation:qrScanMove 2.2s ease-in-out infinite}
+.qrScanLine{position:absolute;left:6%;right:6%;top:0;height:2px;background:var(--primary2);box-shadow:none;animation:qrScanMove 2.2s ease-in-out infinite}
 @keyframes qrScanMove{0%,100%{top:4%}50%{top:94%}}
-.qrScanFooter{position:relative;z-index:2;padding:18px 24px calc(28px + env(safe-area-inset-bottom));text-align:center;background:linear-gradient(180deg,transparent,#0a1815cc 40%)}
+.qrScanFooter{position:relative;z-index:2;padding:18px 24px calc(28px + env(safe-area-inset-bottom));text-align:center;background:#10232d}
 .qrScanFooter p{margin:0;color:#fff;font-size:var(--fs-sm);font-weight:700}
 .qrScanFooter small{display:block;margin-top:6px;color:#b7ccc6;font-size:var(--fs-xs)}
 @media(prefers-reduced-motion:reduce){.qrScanLine{animation:none;top:50%}}
@@ -339,8 +339,8 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .outputStrip.hasHumidifier>button:last-child{grid-column:1/-1;width:calc((100% - 20px)/3);justify-self:center}
 
 .primary,.ghost{min-height:50px;border-radius:var(--radius-md);padding:0 18px;font-weight:700;font-size:var(--fs-sm);cursor:pointer;transition:filter var(--ease),transform var(--ease),background var(--ease),border-color var(--ease),box-shadow var(--ease)}
-.primary{border:0;background:var(--primaryGradient);color:#fff;box-shadow:0 8px 18px var(--primaryGlow)}
-.primary.dark{background:#103a33;box-shadow:0 8px 18px #0a201c33}
+.primary{border:0;background:var(--primary);color:#fff;box-shadow:var(--shadowSm)}
+.primary.dark{background:var(--primary);box-shadow:var(--shadowSm)}
 .ghost{border:1px solid var(--line);background:var(--surface);color:var(--label)}
 .primary:hover{filter:brightness(1.05)}
 .primary:active{filter:brightness(.92);transform:translateY(1px)}
@@ -356,7 +356,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .switchRow input,.toggle input{position:absolute;opacity:0;pointer-events:none}
 .switchRow i,.toggle i{display:block;width:48px;height:28px;border-radius:999px;background:#cbd8d5;position:relative;cursor:pointer;transition:background var(--ease)}
 .switchRow i:after,.toggle i:after{content:"";position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 2px 6px #0002;transition:transform var(--ease)}
-.switchRow input:checked+i,.toggle input:checked+i{background:var(--primaryGradient)}
+.switchRow input:checked+i,.toggle input:checked+i{background:var(--primary)}
 .switchRow input:checked+i:after,.toggle input:checked+i:after{transform:translateX(20px)}
 .switchRow input:focus-visible+i,.toggle input:focus-visible+i{outline:2px solid var(--primary2);outline-offset:2px}
 .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
@@ -456,8 +456,8 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 
 .tuneState{display:grid;gap:8px}
 .tuneState span{font-size:var(--fs-sm);font-weight:700;color:var(--label)}
-.tuneState>div{height:8px;border-radius:999px;background:#e2eeeb;overflow:hidden}
-.tuneState i{display:block;width:0;height:100%;background:var(--primaryGradient);transition:width .25s ease}
+.tuneState>div{height:8px;border-radius:999px;background:var(--lineSoft);overflow:hidden}
+.tuneState i{display:block;width:0;height:100%;background:var(--primary);transition:width .25s ease}
 
 /* Wi-Fi (một số class dưới đây không còn được dùng trong markup hiện tại,
    giữ lại đồng bộ token cho an toàn nếu được tái sử dụng sau này) */
@@ -832,7 +832,7 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
 .brand small,.sideState small{color:#b4c8d1}
 .nav button{color:#c3d4dc}
 .nav button:hover{background:#254a55}
-.nav button.active,.nav button.active:hover{background:#24625f}
+.nav button.active,.nav button.active:hover{background:#245963}
 .sideState{border-color:#3a5661}
 @media(max-width:800px), (max-width:1024px) and (orientation:landscape) and (max-height:600px){.sidebar{background:transparent}.nav{background:#142f3b;border-color:#3a5661}}
 @media(max-width:800px){.main{touch-action:pan-y pinch-zoom}}
