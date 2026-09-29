@@ -730,7 +730,8 @@
     $('pageSubtitle').textContent = pageMeta[name][1];
     if (name === 'batch') { loadTelemetryHistory(); requestTemperatureChartRender(); }
     if (name === 'settings') renderBatchLogs();
-    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    document.querySelector('.main')?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }
 
   function connectionStatus(device) {
@@ -1281,29 +1282,86 @@
 
   function bindMobileSwipe() {
     const root = document.querySelector('.main');
-    let gesture = null;
+    let gesture = null, frame = 0, settling = false;
+    const clearDrag = (page) => {
+      page?.style.removeProperty('transform');
+      page?.style.removeProperty('will-change');
+    };
+    const settle = async (start, next = null) => {
+      if (!start) return;
+      cancelAnimationFrame(frame); frame = 0;
+      const page = start.element, from = start.page;
+      const canNavigate = () => document.body.dataset.page === from && !document.querySelector('dialog[open]');
+      const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+      if (!start.horizontal || reduced || !page.animate) {
+        clearDrag(page);
+        if (next && canNavigate()) showPage(next);
+        return;
+      }
+      settling = true;
+      const savedInert = page.inert;
+      page.inert = true;
+      try {
+        const offset = start.offset || 0;
+        const end = next ? Math.sign(start.dx) * (Math.abs(offset) + 20) : 0;
+        await page.animate([
+          { transform: `translateX(${offset}px)`, opacity: 1 },
+          { transform: `translateX(${end}px)`, opacity: next ? .6 : 1 }
+        ], { duration: next ? 70 : 120, easing: 'cubic-bezier(.2,.75,.2,1)' }).finished;
+        clearDrag(page);
+        page.inert = savedInert;
+        if (next && canNavigate()) {
+          showPage(next);
+          const incoming = $(`page-${next}`);
+          await incoming.animate([
+            { transform: `translateX(${-Math.sign(start.dx) * 28}px)`, opacity: .7 },
+            { transform: 'translateX(0)', opacity: 1 }
+          ], { duration: 150, easing: 'cubic-bezier(.2,.75,.2,1)' }).finished;
+        }
+      } catch (e) { /* Cancelled animation leaves the current tab usable. */ }
+      finally { clearDrag(page); page.inert = savedInert; settling = false; }
+    };
+    const cancel = () => {
+      const start = gesture; gesture = null;
+      settle(start);
+    };
     root.addEventListener('pointerdown', (event) => {
-      if (gesture) { gesture = null; return; }
-      if (event.pointerType !== 'touch' || !event.isPrimary || innerWidth > 800 ||
+      if (gesture) { cancel(); return; }
+      if (settling || event.pointerType !== 'touch' || !event.isPrimary ||
+          !window.matchMedia('(max-width:800px), (max-height:500px)').matches ||
           event.clientX < 24 || event.clientX > innerWidth - 24 ||
           document.querySelector('dialog[open]') ||
-          event.target.closest('input, textarea, select, button, a, label, summary, canvas, [contenteditable], [role="listbox"]')) return;
-      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, at: performance.now() };
+          event.target.closest('input, textarea, select, button, a, label, summary, canvas, .tile-clickable, [contenteditable], [role="listbox"], [role="dialog"]')) return;
+      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, at: performance.now(),
+        page: document.body.dataset.page, element: document.querySelector('.page.active'), dx: 0, offset: 0, horizontal: false };
     }, { passive: true });
     root.addEventListener('pointermove', (event) => {
       if (!gesture || event.pointerId !== gesture.id) return;
-      const dx = Math.abs(event.clientX - gesture.x), dy = Math.abs(event.clientY - gesture.y);
-      if (dy > 12 && dy > dx) gesture = null;
+      gesture.dx = event.clientX - gesture.x;
+      const dx = Math.abs(gesture.dx), dy = Math.abs(event.clientY - gesture.y);
+      if (dy > 12 && dy > dx) { cancel(); return; }
+      if (dx > 8 && dx > dy * 1.5) gesture.horizontal = true;
+      if (!gesture.horizontal) return;
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return;
+      gesture.offset = Math.max(-72, Math.min(72, gesture.dx * .3));
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!gesture?.horizontal) return;
+        gesture.element.style.willChange = 'transform';
+        gesture.element.style.transform = `translateX(${gesture.offset}px)`;
+      });
     }, { passive: true });
     root.addEventListener('pointerup', (event) => {
       const start = gesture;
       gesture = null;
-      if (!start || start.id !== event.pointerId || document.querySelector('dialog[open]')) return;
+      if (!start || start.id !== event.pointerId) { clearDrag(start?.element); return; }
       const next = swipeDestination(document.body.dataset.page, event.clientX - start.x,
         event.clientY - start.y, performance.now() - start.at);
-      if (next) showPage(next);
+      settle(start, next);
     }, { passive: true });
-    root.addEventListener('pointercancel', () => { gesture = null; }, { passive: true });
+    root.addEventListener('pointercancel', cancel, { passive: true });
+    window.addEventListener('blur', cancel);
+    window.addEventListener('resize', cancel, { passive: true });
   }
 
   function hasDirtyForm(formId) {
@@ -2515,8 +2573,8 @@
     const canvas = $('temperatureChartCanvas');
     if (!canvas) return;
     const wrap = canvas.parentElement;
-    const widthCss = Math.max(280, Math.floor(wrap?.clientWidth || canvas.clientWidth || 280));
-    const heightCss = Math.max(190, Math.floor(wrap?.clientHeight || canvas.clientHeight || 240));
+    const widthCss = Math.max(1, Math.floor(wrap?.clientWidth || canvas.clientWidth || 280));
+    const heightCss = Math.max(1, Math.floor(wrap?.clientHeight || canvas.clientHeight || 240));
     const dpr = Math.max(1, Math.min(2, Number(window.devicePixelRatio) || 1));
     const width = Math.floor(widthCss * dpr);
     const height = Math.floor(heightCss * dpr);
@@ -2556,8 +2614,9 @@
 
     ctx.font = '11px Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.lineWidth = 1;
-    for (let i = 0; i < 4; i += 1) {
-      const ratio = i / 3, y = top + ratio * plotH, value = yMax - ratio * (yMax - yMin);
+    const intervals = heightCss < 110 ? 2 : 3;
+    for (let i = 0; i <= intervals; i += 1) {
+      const ratio = i / intervals, y = top + ratio * plotH, value = yMax - ratio * (yMax - yMin);
       ctx.strokeStyle = gridColor; ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(widthCss - right, y); ctx.stroke();
       ctx.fillStyle = textColor; ctx.fillText(`${numberVi(value)}°`, left - 7, y);
     }
@@ -3053,6 +3112,15 @@
     if (summary) {
       summary.textContent = choice === 'light' ? 'Sáng' : choice === 'dark' ? 'Tối' : 'Theo hệ thống';
     }
+    syncBrowserTheme();
+  }
+
+  function syncBrowserTheme() {
+    const css = getComputedStyle(document.documentElement);
+    const background = css.getPropertyValue('--bodyBg').trim();
+    if (background) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', background);
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', css.colorScheme);
+    requestTemperatureChartRender();
   }
 
   function bindUi() {
@@ -3706,6 +3774,9 @@
   // (WEB.sessionTtlMs) la luoi an toan du phong khi trinh duyet bi dong dot
   // ngot ma khong kip bat 'visibilitychange' (mat dien, crash...).
   window.addEventListener('resize', requestTemperatureChartRender, { passive: true });
+  window.matchMedia?.('(prefers-color-scheme: dark)')?.addEventListener('change', () => {
+    if (getThemePreference() === 'system') syncBrowserTheme();
+  });
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {

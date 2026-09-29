@@ -91,6 +91,8 @@ async function swipe(page, x, y, dx, dy = 0) {
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
   for (let i=1; i<=6; ++i) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x:x+dx*i/6, y:y+dy*i/6 }] });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.waitForFunction(() => !document.querySelector('.page[inert]') &&
+    !document.getAnimations().some(animation=>animation.playState==='running'));
   await cdp.detach();
 }
 
@@ -164,7 +166,7 @@ async function inspectHeader(page) {
       return {x:rect.x,y:rect.y,width:rect.width,height:rect.height,
         labelY:el.firstElementChild.getBoundingClientRect().y};
     });
-    return {titleBottom:title.bottom,readingsTop:readings.top,readingsHeight:readings.height,fields,
+    return {titleTop:title.top,titleBottom:title.bottom,readingsLeft:readings.left,readingsWidth:readings.width,readingsTop:readings.top,readingsHeight:readings.height,fields,
       clipped:[...document.querySelectorAll('.title h1,.title p,.live>span,.live>strong')]
         .filter(el => el.scrollWidth>el.clientWidth+1).map(el => el.id || el.textContent),
       rows:getComputedStyle(document.querySelector('.topbar')).gridTemplateRows.split(' ').length};
@@ -213,21 +215,43 @@ async function checkHeaderStates(page, {width,height,theme}) {
 async function main() {
   const executablePath = process.env.MAYAP_CHROME || (process.platform==='win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : undefined);
   const browser = await chromium.launch({ executablePath, headless: true });
-  const results = [], palettes = [], controls = [], headers = [];
+  const results = [], palettes = [], controls = [], headers = [], layouts = [], safeAreas = [];
   try {
-    const viewports = [320,390,430,768,850,1440].map(width=>({width,height:844})).concat([{width:844,height:390},{width:320,height:568}]);
+    const viewports = [320,390,430,768,850,1440].map(width=>({width,height:844})).concat([
+      {width:390,height:667},{width:1025,height:768},{width:1719,height:600},
+      {width:844,height:390},{width:320,height:568}]);
     for (const {width,height} of viewports) for (const theme of ['light', 'dark']) {
       const { context, page, errors } = await setup(browser, { width, height, mobile: width < 800 || height<500, theme });
       for (const tab of ['device', 'batch', 'settings']) {
         await page.evaluate(tab => window.__qa.showPage(tab), tab);
+        await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
         assert.equal(overflow, false, `${width}/${theme}/${tab} horizontal overflow`);
         const header = await inspectHeader(page);
-        const stacked = width<=800 || (width<=1024 && height>500);
-        assert.equal(header.rows,stacked ? 2 : 1,`${width}x${height}/${tab}: responsive header rows`);
-        if (stacked) assert.ok(header.readingsTop>=header.titleBottom+8,'Title clears the readings on small screens');
+        assert.equal(header.rows,1,`${width}x${height}/${tab}: title and readings share one row`);
+        assert.ok(header.titleTop<header.readingsTop+header.readingsHeight && header.titleBottom>header.readingsTop,'Title aligns beside readings');
         assert.deepEqual(header.clipped,[],`${width}x${height}/${theme}/${tab}: title and readings fit`);
         assert.ok(Math.max(...header.fields.map(f=>f.labelY))-Math.min(...header.fields.map(f=>f.labelY))<=.5,'Reading labels align');
+        if (tab!=='settings') {
+          const layout = await page.evaluate(() => {
+            const main=document.querySelector('.main'), chart=document.querySelector('.telemetryPanel').getBoundingClientRect();
+            const canvas=document.querySelector('.telemetryCanvasWrap').getBoundingClientRect();
+            const wrap=document.querySelector('.telemetryCanvasWrap'), bitmap=document.querySelector('#temperatureChartCanvas'),dpr=Math.max(1,Math.min(2,devicePixelRatio));
+            return {scroll:main.scrollHeight-main.clientHeight,documentScroll:document.documentElement.scrollHeight-innerHeight,
+              bitmapHeight:bitmap.height/dpr,canvasInnerHeight:wrap.clientHeight,
+              chartLeft:chart.left,chartWidth:chart.width,canvasHeight:canvas.height};
+          });
+          const shouldFit = height>=667;
+          if (shouldFit) assert.ok(layout.scroll<=1 && layout.documentScroll<=1,`${width}x${height}/${theme}/${tab}: available screen fits without scrolling ${JSON.stringify(layout)}`);
+          if (tab==='batch') {
+            assert.ok(layout.canvasHeight>=60,'Temperature chart remains visible');
+            assert.ok(Math.abs(layout.bitmapHeight-layout.canvasInnerHeight)<=1,'Chart bitmap matches available height, keeping labels readable');
+            if (width>=1025 && height>500) {
+              assert.ok(Math.abs(layout.chartLeft-header.readingsLeft)<=.5 && Math.abs(layout.chartWidth-header.readingsWidth)<=.5,'Desktop readings match chart column');
+            }
+          }
+          layouts.push({width,height,theme,tab,shouldFit,...layout});
+        }
         if ((width<=800 || height<=500) && tab!=='settings') {
           const action=page.locator(tab==='device' ? '#quickForm button[type="submit"]' : '#batchAction');
           if (tab==='device' && width>=390 && width<=430 && height>=844) {
@@ -245,7 +269,7 @@ async function main() {
             const main=document.querySelector('.main');
             return {ok:points.every(point=>point.visible),points,top:main.scrollTop,scroll:main.scrollHeight,height:main.clientHeight};
           });
-          assert.ok(accessible.ok,`${width}x${height}/${theme}/${tab}: action remains reachable below taller header ${JSON.stringify(accessible)}`);
+          assert.ok(accessible.ok,`${width}x${height}/${theme}/${tab}: action remains reachable ${JSON.stringify(accessible)}`);
           await page.evaluate(()=>{document.querySelector('.main').scrollTop=0;window.scrollTo({top:0,behavior:'instant'});});
           await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
           assert.ok(await page.locator('.headerReadings').evaluate(el=>{
@@ -257,10 +281,10 @@ async function main() {
           .filter(el => /gradient\(/i.test(getComputedStyle(el).backgroundImage))
           .map(el => el.id || el.className || el.tagName));
         assert.deepEqual(gradientElements, [], `${width}/${theme}/${tab}: backgrounds must be solid`);
-        if ((width === 390 || width === 1440) && tab !== 'settings')
+        if ((width === 390 || width === 1440 || width===1719) && tab !== 'settings')
           // Mobile pages scroll inside .main. Capture its actual viewport:
           // Chrome full-document capture can mispaint nested sticky headers.
-          await page.screenshot({path:path.join(out, `MAYAP-${tab}-${width}-${theme}.png`),fullPage:width>800 && height>500});
+          await page.screenshot({path:path.join(out, `MAYAP-${tab}-${width}x${height}-${theme}.png`),fullPage:width>800 && height>500});
       }
       assert.equal(await page.title(), 'MAYAP · Máy ấp trứng');
       const contrast = await page.evaluate(() => {
@@ -336,6 +360,24 @@ async function main() {
     assert.equal(await page.evaluate(() => document.body.dataset.page), 'settings');
     await swipe(page, 150, 35, 140);
     assert.equal(await page.evaluate(() => document.body.dataset.page), 'batch');
+    // Actual touch move must paint before release; cancellation must return
+    // the tab to its origin and leave controls available.
+    const touch = await context.newCDPSession(page);
+    const startDrag = async dx => {
+      await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:260,y:35}]});
+      await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:260+dx,y:35}]});
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    };
+    await startDrag(-45);
+    const feedback=await page.locator('.page.active').evaluate(el=>new DOMMatrixReadOnly(getComputedStyle(el).transform).m41);
+    assert.ok(feedback<0 && feedback>=-72,'Content follows the finger before release');
+    await touch.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
+    await page.waitForFunction(()=>!document.querySelector('.page[inert]') && !document.getAnimations().length);
+    assert.equal(await page.locator('.page.active').evaluate(el=>el.style.transform),'');
+    assert.equal(await page.evaluate(()=>document.body.dataset.page),'batch');
+    await touch.detach();
+    await swipe(page, 260, 35, -30);
+    assert.equal(await page.evaluate(()=>document.body.dataset.page),'batch','Short swipe snaps back');
     await swipe(page, 200, 300, 0, -120);
     assert.equal(await page.evaluate(() => document.body.dataset.page), 'batch');
     await page.locator('#batchName').fill('Mẻ đang sửa');
@@ -367,7 +409,12 @@ async function main() {
     assert.equal(await hint.getAttribute('aria-expanded'),'true','Help remains reachable from text');
     const noteId = await hint.getAttribute('aria-controls');
     assert.equal(await page.locator('#'+noteId).isVisible(),true);
-    results.push(`Touch swipe: adjacent tabs, vertical scroll, input drag, dirty values, modal guards. Lost first sync retry ${Math.round(retryMs)}ms.`);
+    await page.emulateMedia({reducedMotion:'reduce'});
+    await page.evaluate(()=>window.__qa.showPage('batch'));
+    await swipe(page, 150, 35, 140);
+    assert.equal(await page.evaluate(()=>document.body.dataset.page),'device');
+    assert.equal(await page.locator('.page.active').evaluate(el=>el.getAnimations().length),0,'Reduced motion changes tab without animation');
+    results.push(`Touch swipe: finger feedback, cancellation, short swipe, adjacent tabs, vertical scroll, input drag, dirty values, modal guards and reduced motion. Lost first sync retry ${Math.round(retryMs)}ms.`);
     results.push('Controls: label click and keyboard Space toggle once; help text still expands without an icon.');
     await context.close();
     const pairing = await setup(browser, { width:390, mobile:true, paired:false });
@@ -376,7 +423,13 @@ async function main() {
     await pairing.page.locator('#newDeviceId').fill('MAP-1234567890AB');
     await pairing.page.locator('#newDevicePin').fill('1234');
     await pairing.page.locator('#addDeviceForm button[type="submit"]').click();
-    await pairing.page.waitForFunction(() => window.__qa.state.devices[0]?.snapshotAt);
+    try { await pairing.page.waitForFunction(() => window.__qa.state.devices[0]?.snapshotAt); }
+    catch (error) {
+      console.error('Pairing diagnostics',await pairing.page.evaluate(()=>({
+        transport:window.__transport,devices:window.__qa.state.devices.map(d=>({id:d.id,snapshotAt:d.snapshotAt})),
+        form:document.getElementById('addDeviceForm').innerText,visible:document.getElementById('deviceDialog').open})),pairing.errors);
+      throw error;
+    }
     await pairing.page.waitForTimeout(650);
     assert.equal(navigations, 0, 'Pairing must not reload the document');
     assert.equal(await pairing.page.evaluate(() => window.__transport.connects), 1);
@@ -391,10 +444,52 @@ async function main() {
     results.push('Transient startup authentication 503: retries in background and connects without reload. Text/action contrast >=4.5 in both themes.');
     await retry.context.close();
     const system = await setup(browser, {scheme:'dark', width:390, mobile:true});
-    assert.equal(await system.page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--surface').trim()), '#2b414c');
-    results.push('System theme follows dark OS preference.');
+    assert.equal(await system.page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--surface').trim()), '#243944');
+    assert.equal(await system.page.locator('meta[name="theme-color"]').getAttribute('content'),'#17272f');
+    await system.page.emulateMedia({colorScheme:'light'});
+    await system.page.waitForFunction(()=>document.querySelector('meta[name="theme-color"]').content==='#f3f8f9');
+    assert.equal(await system.page.locator('meta[name="color-scheme"]').getAttribute('content'),'light');
+    results.push('System theme updates palette, chart and browser theme color when OS preference changes.');
     await system.context.close();
-    fs.writeFileSync(path.join(out,'web-browser-qa.json'),JSON.stringify({ passed:true, results, palettes, controls, headers },null,2));
+    for (const theme of ['light','dark']) {
+      const safe=await setup(browser,{width:390,height:844,mobile:true,theme});
+      const emulation=await safe.context.newCDPSession(safe.page);
+      for (const bottom of [34,0,34]) {
+        await emulation.send('Emulation.setSafeAreaInsetsOverride',{insets:{top:24,topMax:24,bottom,bottomMax:34,left:0,leftMax:0,right:0,rightMax:0}});
+        await safe.page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+        const layout=await safe.page.evaluate(()=>{
+          const html=getComputedStyle(document.documentElement),body=getComputedStyle(document.body);
+          const nav=document.querySelector('.nav').getBoundingClientRect(), sidebar=document.querySelector('.sidebar');
+          const main=document.querySelector('.main'),bg=document.querySelector('meta[name="theme-color"]').content;
+          const swatch=document.createElement('div');swatch.style.background=bg;document.body.append(swatch);
+          const expected=getComputedStyle(swatch).backgroundColor;swatch.remove();
+          return {navTop:nav.top,navBottom:nav.bottom,mainPadding:getComputedStyle(main).paddingBottom,
+            sidebarColor:getComputedStyle(sidebar).backgroundColor,htmlColor:html.backgroundColor,bodyColor:body.backgroundColor,
+            expected,scroll:main.scrollHeight-main.clientHeight,headerTop:document.querySelector('.headerReadings').getBoundingClientRect().top};
+        });
+        assert.equal(layout.htmlColor,layout.expected,'Root paints the system inset background');
+        assert.equal(layout.bodyColor,layout.expected);
+        assert.equal(layout.sidebarColor,layout.expected,'Bottom inset matches page background');
+        assert.ok(layout.navBottom<=844-bottom-8+.5,'Navigation clears system controls');
+        assert.ok(layout.headerTop>=24,'Readings clear status/notch inset');
+        assert.ok(layout.scroll<=1,'Standard mobile viewport still fits with safe insets');
+        if (bottom===34) await safe.page.screenshot({path:path.join(out,`MAYAP-safe-area-${theme}.png`)});
+        safeAreas.push({theme,bottom,...layout});
+      }
+      assert.equal(new Set(safeAreas.filter(x=>x.theme===theme).map(x=>x.mainPadding)).size,1,'Changing browser chin does not reflow the content padding');
+      await safe.page.evaluate(()=>window.__qa.showPage('batch'));
+      assert.ok(await safe.page.locator('.main').evaluate(el=>el.scrollHeight-el.clientHeight)<=1,'Batch fits with safe areas');
+      await emulation.detach();await safe.context.close();
+    }
+    const landscape=await setup(browser,{width:844,height:390,mobile:true,theme:'dark'});
+    await swipe(landscape.page,600,35,-140);
+    assert.equal(await landscape.page.evaluate(()=>document.body.dataset.page),'batch','Landscape touch supports tab switching');
+    await landscape.page.locator('.main').evaluate(el=>{el.scrollTop=el.scrollHeight;});
+    await landscape.page.evaluate(()=>window.__qa.showPage('device'));
+    assert.equal(await landscape.page.locator('.main').evaluate(el=>el.scrollTop),0,'Tab change restores the start of the operating page');
+    await landscape.context.close();
+    results.push('Safe areas 24px top / 34px bottom: matching root/footer color, protected controls, stable padding when browser chin hides; landscape swipe and scroll restoration pass. Native OS bars require device verification.');
+    fs.writeFileSync(path.join(out,'web-browser-qa.json'),JSON.stringify({ passed:true, results, palettes, controls, headers, layouts, safeAreas },null,2));
     console.log(results.join('\n'));
   } finally { await browser.close(); }
 }

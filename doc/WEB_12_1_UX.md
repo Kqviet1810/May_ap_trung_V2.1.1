@@ -119,6 +119,58 @@ và khẩn cấp. Kiểm tra chữ không bị cắt, vị trí nhãn, chiều c
 mở/đóng popup có đủ mọi lỗi đang hoạt động. Không sửa `app.js`, firmware,
 Adaptive Boot, Runtime Recovery hoặc giao dịch điều khiển.
 
+### Web 12.1.5 — khung vận hành, theme tối và vuốt
+
+Tiêu đề Thiết bị/Mẻ ấp/Cài đặt cùng hàng với thông số trên điện thoại.
+Ẩn mô tả phụ ở màn hình nhỏ để dành chỗ cho nội dung vận hành. Trên PC,
+đầu trang và Mẻ ấp dùng chung hai cột: dải thông số có đúng chiều rộng và
+vị trí ngang của biểu đồ nhiệt độ. Cột trạng thái dành đủ chỗ cho cả
+“Ngoại tuyến”, không phụ thuộc việc máy có đang kết nối hay không.
+
+Hai trang Thiết bị/Mẻ ấp nhận chiều cao viewport. Các thẻ giữ chiều cao
+nội dung; biểu đồ nhận phần còn lại, canvas không làm bố cục tự nở khi
+đổi kích thước. Màn hình thấp dùng khoảng đệm gọn hơn; ở 390×667 dùng
+ba cột trạng thái đầu ra. Vẫn giữ nhãn, đơn vị và vùng chạm ít nhất 44px.
+Browser QA yêu cầu không cuộn ở fixture vận hành tại 320×844, 390×667,
+390/430/768/850/1440×844, 1025×768 và 1719×600. 320×568 và điện thoại
+ngang 844×390 được cuộn vì nội dung thực sự cao hơn vùng hiển thị.
+Thêm thiết bị tùy chọn, chữ lớn hoặc bàn phím mở có thể cần cuộn;
+không cắt nội dung để giả tạo một trang vừa màn hình.
+
+Theme tối dùng nền `#17272F`, thẻ `#243944`, ô `#304B58`, chữ chính
+`#F4FAFC` và chữ phụ `#C4D5DC`. Bỏ bóng và blur đầu trang; nền/thẻ/chữ
+phân biệt rõ hơn, giữ `#64C9D1` cho nút chính. Màu cảnh báo và ý nghĩa
+lỗi giữ nguyên. Các cặp chữ/nền được QA có tương phản ít nhất 4,5:1.
+
+Vuốt hiển thị dịch chuyển theo ngón tay qua requestAnimationFrame,
+giới hạn 72px, chỉ dùng transform. Thả một vuốt hợp lệ chuyển cảnh
+70ms + 150ms bằng Web Animations; vuốt ngắn/hủy trả về 120ms. Giữ
+ngưỡng đổi tab hiện có, bảo vệ nhập liệu/nút/hộp thoại và hỗ trợ màn
+hình ngang. Không gửi lệnh máy khi vuốt. Thiết lập giảm chuyển động
+của hệ thống bỏ chuyển cảnh. Đổi tab đưa cả khung cuộn nội bộ và trang
+về đầu, giữ dữ liệu form đang sửa.
+
+`html`, `body` và vùng dưới thanh tab cùng màu nền. `theme-color` được
+cập nhật theo theme trước khi vẽ và khi đổi lựa chọn/hệ thống; manifest
+dùng nền sáng làm màu khởi chạy mặc định. `viewport-fit=cover` giữ nguyên.
+Padding đáy dùng safe-area-max-inset-bottom với fallback; vị trí thanh
+tab theo safe-area-inset-bottom, để biến động thanh trình duyệt không
+làm đổi chiều cao nội dung. QA giả lập inset trên 24px, dưới 34px và
+ẩn/hiện vùng dưới, kiểm tra nền/điểm chạm/chiều cao nội dung.
+
+Theo [Chrome edge-to-edge](https://developer.chrome.com/docs/css-ui/edge-to-edge),
+khả năng web phủ vùng điều hướng Android phụ thuộc chế độ điều hướng
+và phiên bản trình duyệt. Đặt theme-color và màu gốc là phần web kiểm
+soát được; không thể bảo đảm màu thanh ba nút của mọi ROM bằng CSS.
+[WebKit](https://webkit.org/blog/7929/designing-websites-for-iphone-x/)
+hướng dẫn nền html/body phủ vùng inset và bảo vệ thao tác bằng safe-area.
+Chưa xác minh trên chính điện thoại Android trong ảnh hoặc Safari thật.
+
+Cache tăng lên `12.1.5`; kiểm tra nâng cache từ `12.1.4` và xóa cache cũ.
+Lần này chỉ sửa UI trong `app.js`, CSS, HTML, manifest/cache/release,
+README, browser QA và tài liệu này. Firmware, Adaptive Boot, Runtime
+Recovery, safety và các hàm giao dịch bảo vệ bằng hash giữ nguyên.
+
 Trên mobile, vuốt ngang sang tab bên cạnh theo thứ tự Thiết bị → Mẻ ấp →
 Cài đặt, vuốt ngược để quay lại. Không vòng từ tab cuối sang tab đầu.
 Vuốt dọc, vuốt tại ô nhập/nút/summary, thao tác nhiều ngón, mép màn hình
