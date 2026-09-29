@@ -73,6 +73,26 @@ thương hiệu khi tối để giữ độ tương phản. `app.js` chỉ đổ
 Cache tăng lên `12.1.2`. Kiểm tra trình duyệt vẫn gồm năm kích thước, cả
 hai theme, nền đơn sắc, tương phản chữ/nút, điều hướng, biểu đồ và placeholder.
 
+### Web 12.1.3 — căn chỉnh công tắc, icon và viền
+
+Chấm tròn công tắc trước đây dùng kích thước content-box nên viền cộng thêm
+vào đường kính, làm lệch tâm và sát mép khi bật. Thumb nay không có viền đậm,
+được tính kích thước đầy đủ và căn theo tâm track; trạng thái bật/tắt đều cách
+mép 3px, cho cả công tắc thường lẫn loại nhỏ. Label có vùng bấm cao 44px;
+bỏ hit-area mở rộng tràn ra ngoài hàng. `switchRow` giữ bố cục flex của hàng.
+
+Icon Cài đặt thay bằng đường vẽ đối xứng quanh `(12,12)`, nằm hoàn toàn trong
+viewBox; ô icon điều hướng và icon trong thẻ được căn giữa thống nhất.
+
+Bỏ pseudo-element hình tròn trợ giúp ở toàn bộ cài đặt. Dòng chữ vẫn bấm được
+để xem hướng dẫn. Viền nút chính, nút thêm máy, ô nhập và các thẻ dùng chung
+token nhẹ hơn: sáng `#DFECEF`, tối `#405966`; bóng đổ cũng giảm. Màu thương
+hiệu `#64C9D1`, thông tin cảnh báo và logic vận hành giữ nguyên.
+
+Cache tăng lên `12.1.3`. Browser QA đo thumb ở cả hai trạng thái, icon Cài đặt,
+vùng bấm, viền dùng chung và không còn vòng tròn trợ giúp ở năm kích thước,
+cả hai theme; kiểm tra label click, phím Space và mở hướng dẫn bằng dòng chữ.
+
 Trên mobile, vuốt ngang sang tab bên cạnh theo thứ tự Thiết bị → Mẻ ấp →
 Cài đặt, vuốt ngược để quay lại. Không vòng từ tab cuối sang tab đầu.
 Vuốt dọc, vuốt tại ô nhập/nút/summary, thao tác nhiều ngón, mép màn hình

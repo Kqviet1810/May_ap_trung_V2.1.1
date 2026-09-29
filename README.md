@@ -6,14 +6,14 @@ Firmware bổ sung staged startup, chẩn đoán RTC và adaptive recovery Level
 
 Runtime recovery cho shared I2C, RS485, service task và Wi-Fi deep recovery: [Runtime Self-Recovery](doc/RUNTIME_SELF_RECOVERY.md). Tài liệu nêu ladder, owner/mutex, điều kiện restart và giới hạn kiểm thử.
 
-Web 12.1.2 dùng màu chủ đạo `#64C9D1`, nền trắng pha xanh dịu và giao diện tối xanh xám sáng hơn; nhóm quạt hút theo HMI, vuốt mobile và giảm các bước chờ khi ghép nối/mở trang: [Giao diện và kết nối](doc/WEB_12_1_UX.md).
+Web 12.1.3 dùng màu chủ đạo `#64C9D1`, nền trắng pha xanh dịu và giao diện tối xanh xám sáng hơn; nhóm quạt hút theo HMI, vuốt mobile và giảm các bước chờ khi ghép nối/mở trang: [Giao diện và kết nối](doc/WEB_12_1_UX.md).
 
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
 | Release | 4.0.0 |
 | ESP32 firmware | 4.0.0 |
 | HMI firmware | 4.0.0 |
-| Web cache | 12.1.2 |
+| Web cache | 12.1.3 |
 | ATtiny protocol | 1.0.0 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |

@@ -2,16 +2,16 @@
 /* ============================== Design tokens ============================== */
 :root{
   --ink:#203a43;--muted:#526c76;--label:#36565f;
-  --line:#cddfe3;--lineSoft:#e3eef0;--tile:#f5fafb;
+  --line:#dfecef;--lineSoft:#eaf2f4;--tile:#f5fafb;
   --surface:#fff;--wash:#f0f8f9;
-  --primary:#64c9d1;--onPrimary:#173e45;--primaryBorder:#397a84;--primary2:#286974;--chartLine:#286974;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#e5f6f7;
+  --primary:#64c9d1;--onPrimary:#173e45;--primary2:#286974;--chartLine:#286974;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#e5f6f7;
 
   --danger:#be4147;--dangerSoft:#fff0f1;
   --warning:#e29b1d;--warningDark:#8a5a0a;--warningSoft:#fdf1de;
   --emergency:#7a1f1f;--emergencySoft:#f6dede;
   --faint:#5e767e;
   --ring:#286974;
-  --shadow:0 4px 12px rgba(21,44,57,.06);--shadowSm:0 2px 6px rgba(21,44,57,.04);
+  --shadow:0 2px 8px rgba(21,44,57,.035);--shadowSm:0 1px 3px rgba(21,44,57,.025);
   --radius:18px;--radius-md:14px;--radius-sm:10px;--navH:86px;
   --ease:.16s ease;
   /* Thang chu gioi han ~9 muc (thay vi hon 30 gia tri le te truoc do) de
@@ -26,11 +26,11 @@
   --softBg:#edf6f7;--softText:#526c76;
   --successText:#187746;--successTextStrong:#087b51;--successTextSoft:#0f6b52;
   --dangerTextStrong:#9c3b40;
-  --onBorder:#9dcfd5;--dangerBorder:#eeb3b6;--warningBorder:#eecf9e;--emergencyBorder:#d59a9a;
+  --onBorder:#b7dfe4;--dangerBorder:#eeb3b6;--warningBorder:#eecf9e;--emergencyBorder:#d59a9a;
   --invalidBorder:#d95d62;--invalidBg:#fff8f8;--invalidRing:#d95d6218;
   --chipBg:#edf7f8;
-  --navBg:#fff;--navText:#4b6872;--navHover:#edf8f9;--navActive:#d9f1f3;--navActiveText:#235760;--navBorder:#cddfe3;
-  --switchOff:#c5d7db;--switchBorder:#78939b;
+  --navBg:#fff;--navText:#4b6872;--navHover:#edf8f9;--navActive:#d9f1f3;--navActiveText:#235760;--navBorder:#dfecef;
+  --switchOff:#d4e4e8;
   color-scheme:light
 }
 /* Giao dien toi: bam nut trong "Cai dat > Giao dien" ghi data-theme len
@@ -42,25 +42,25 @@
   :root:not([data-theme="light"]){
     color-scheme:dark;
     --ink:#edf6f7;--muted:#bbced3;--label:#d2e3e7;
-    --line:#506a76;--lineSoft:#3e5864;--tile:#324c57;
+    --line:#405966;--lineSoft:#354e5a;--tile:#324c57;
     --surface:#2b414c;--wash:#334d58;
-    --primary:#64c9d1;--onPrimary:#173e45;--primaryBorder:#64c9d1;--primary2:#92dce2;--chartLine:#64c9d1;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#345961;
+    --primary:#64c9d1;--onPrimary:#173e45;--primary2:#92dce2;--chartLine:#64c9d1;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#345961;
 
     --danger:#ff7a7a;--dangerSoft:#2a151a;
     --warning:#f5a742;--warningDark:#f5a742;--warningSoft:#332512;
     --emergency:#ff8a8a;--emergencySoft:#331515;
     --faint:#b0c6cd;
     --ring:#92dce2;
-    --shadow:0 4px 14px rgba(0,0,0,.20);--shadowSm:0 2px 6px rgba(0,0,0,.14);
+    --shadow:0 3px 10px rgba(0,0,0,.12);--shadowSm:0 1px 4px rgba(0,0,0,.09);
     --bodyBg:#20323c;--topbarBg:#20323c;
     --softBg:#344d58;--softText:#c2d8dd;
     --successText:#4ade80;--successTextStrong:#34d399;--successTextSoft:#2dd4a0;
     --dangerTextStrong:#ff9a9a;
-    --onBorder:#608e97;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
+    --onBorder:#4b737c;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
     --invalidBorder:#ff7a7a;--invalidBg:#2a151a;--invalidRing:#ff7a7a33;
     --chipBg:#344d58;
-    --navBg:#293f4a;--navText:#bfd2d8;--navHover:#38545f;--navActive:#3f616b;--navActiveText:#e7f4f6;--navBorder:#58727e;
-    --switchOff:#506c78;--switchBorder:#95b4bf
+    --navBg:#293f4a;--navText:#bfd2d8;--navHover:#38545f;--navActive:#3f616b;--navActiveText:#e7f4f6;--navBorder:#405966;
+    --switchOff:#46616e
   }
   /* Mui ten <select> la SVG data-URI (khong doi mau qua var duoc) - doi rieng
      sang net sang de con thay ro tren nen input toi. */
@@ -72,25 +72,25 @@
 :root[data-theme="dark"]{
   color-scheme:dark;
   --ink:#edf6f7;--muted:#bbced3;--label:#d2e3e7;
-  --line:#506a76;--lineSoft:#3e5864;--tile:#324c57;
+  --line:#405966;--lineSoft:#354e5a;--tile:#324c57;
   --surface:#2b414c;--wash:#334d58;
-  --primary:#64c9d1;--onPrimary:#173e45;--primaryBorder:#64c9d1;--primary2:#92dce2;--chartLine:#64c9d1;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#345961;
+  --primary:#64c9d1;--onPrimary:#173e45;--primary2:#92dce2;--chartLine:#64c9d1;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#345961;
 
   --danger:#ff7a7a;--dangerSoft:#2a151a;
   --warning:#f5a742;--warningDark:#f5a742;--warningSoft:#332512;
   --emergency:#ff8a8a;--emergencySoft:#331515;
   --faint:#b0c6cd;
   --ring:#92dce2;
-  --shadow:0 4px 14px rgba(0,0,0,.20);--shadowSm:0 2px 6px rgba(0,0,0,.14);
+  --shadow:0 3px 10px rgba(0,0,0,.12);--shadowSm:0 1px 4px rgba(0,0,0,.09);
   --bodyBg:#20323c;--topbarBg:#20323c;
   --softBg:#344d58;--softText:#c2d8dd;
   --successText:#4ade80;--successTextStrong:#34d399;--successTextSoft:#2dd4a0;
   --dangerTextStrong:#ff9a9a;
-  --onBorder:#608e97;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
+  --onBorder:#4b737c;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
   --invalidBorder:#ff7a7a;--invalidBg:#2a151a;--invalidRing:#ff7a7a33;
   --chipBg:#344d58;
-  --navBg:#293f4a;--navText:#bfd2d8;--navHover:#38545f;--navActive:#3f616b;--navActiveText:#e7f4f6;--navBorder:#58727e;
-  --switchOff:#506c78;--switchBorder:#95b4bf
+  --navBg:#293f4a;--navText:#bfd2d8;--navHover:#38545f;--navActive:#3f616b;--navActiveText:#e7f4f6;--navBorder:#405966;
+  --switchOff:#46616e
 }
 :root[data-theme="dark"] select,
 :root[data-theme="dark"] .customSelectTrigger{
@@ -134,9 +134,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 
 .nav{display:grid;gap:6px;margin-top:36px}
 .nav button{border:0;border-radius:14px;background:transparent;color:#bfd4d0;min-height:52px;padding:8px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;transition:background var(--ease),color var(--ease)}
-.nav button span{width:24px;font-size:20px;text-align:center}
+.nav button span{display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;font-size:20px;line-height:1;text-align:center}
 .nav button span svg{display:block;width:22px;height:22px;margin:auto}
-.nav button b{font-size:var(--fs-sm);font-weight:700}
+.nav button b{font-size:var(--fs-sm);font-weight:700;line-height:1.25}
 .nav button:hover{background:#1a4941;color:#fff}
 .nav button.active{background:#205b51;color:#fff}
 .nav button.active:hover{background:#205b51}
@@ -226,7 +226,7 @@ body[data-page="settings"] .topbar{max-width:960px}
 .devicePickerRow{display:flex;align-items:end;gap:10px;margin-top:18px}
 .devicePickerRow .customSelect{gap:0}
 .grow{flex:1}
-.addDevice{flex:0 0 54px;height:54px;border:1px solid var(--primaryBorder);border-radius:var(--radius-md);background:var(--primary);color:var(--onPrimary);font-size:26px;line-height:1;cursor:pointer;box-shadow:var(--shadowSm);display:grid;place-items:center;transition:filter var(--ease),transform var(--ease)}
+.addDevice{flex:0 0 54px;height:54px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--primary);color:var(--onPrimary);font-size:26px;line-height:1;cursor:pointer;box-shadow:var(--shadowSm);display:grid;place-items:center;transition:filter var(--ease),transform var(--ease)}
 .addDevice:hover{filter:brightness(1.06)}
 .addDevice:active{transform:translateY(1px);filter:brightness(.92)}
 
@@ -343,7 +343,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .outputStrip.hasHumidifier>button:last-child{grid-column:1/-1;width:calc((100% - 20px)/3);justify-self:center}
 
 .primary,.ghost{min-height:50px;border-radius:var(--radius-md);padding:0 18px;font-weight:700;font-size:var(--fs-sm);cursor:pointer;transition:filter var(--ease),transform var(--ease),background var(--ease),border-color var(--ease),box-shadow var(--ease)}
-.primary{border:1px solid var(--primaryBorder);background:var(--primary);color:var(--onPrimary);box-shadow:var(--shadowSm)}
+.primary{border:1px solid var(--line);background:var(--primary);color:var(--onPrimary);box-shadow:var(--shadowSm)}
 .primary.dark{background:var(--primary);box-shadow:var(--shadowSm)}
 .ghost{border:1px solid var(--line);background:var(--surface);color:var(--label)}
 .primary:hover{filter:brightness(1.05)}
@@ -358,10 +358,10 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .switchRow strong{font-size:var(--fs-base);font-weight:700}
 .switchRow small{margin-top:4px;color:var(--muted);font-size:var(--fs-xs);line-height:1.45}
 .switchRow input,.toggle input{position:absolute;opacity:0;pointer-events:none}
-.switchRow i,.toggle i{display:block;width:48px;height:28px;border-radius:999px;background:var(--switchOff);border:1px solid var(--switchBorder);position:relative;cursor:pointer;transition:background var(--ease)}
-.switchRow i:after,.toggle i:after{content:"";position:absolute;left:2px;top:2px;width:22px;height:22px;border-radius:50%;background:#fff;border:1px solid var(--onPrimary);box-shadow:0 2px 6px #0002;transition:transform var(--ease)}
-.switchRow input:checked+i,.toggle input:checked+i{background:var(--primary);border-color:var(--primaryBorder)}
-.switchRow input:checked+i:after,.toggle input:checked+i:after{transform:translateX(20px)}
+.switchRow i,.toggle i{--switchWidth:48px;--switchHeight:28px;--thumbSize:22px;display:block;flex-shrink:0;width:var(--switchWidth);height:var(--switchHeight);border-radius:999px;background:var(--switchOff);border:1px solid var(--line);position:relative;cursor:pointer;transition:background var(--ease)}
+.switchRow i:after,.toggle i:after{content:"";box-sizing:border-box;position:absolute;left:2px;top:50%;width:var(--thumbSize);height:var(--thumbSize);border-radius:50%;background:#fff;border:0;box-shadow:0 1px 3px rgba(32,58,67,.12);transform:translateY(-50%);transition:transform var(--ease)}
+.switchRow input:checked+i,.toggle input:checked+i{background:var(--primary)}
+.switchRow input:checked+i:after,.toggle input:checked+i:after{transform:translate(calc(var(--switchWidth) - var(--thumbSize) - 6px),-50%)}
 .switchRow input:focus-visible+i,.toggle input:focus-visible+i{outline:2px solid var(--primary2);outline-offset:2px}
 .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
 
@@ -393,9 +393,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
    .customSelectTrigger:disabled o tren tung bi loi tuong tu), chi bo vien rieng. */
 .compactTile select{border:0;border-radius:0;background-color:transparent;padding:0 22px 0 0;min-height:36px;color:var(--ink);font-size:var(--fs-base);font-weight:700}
 .compactToggle{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.compactToggle .toggle i{width:42px;height:24px}
-.compactToggle .toggle i:after{width:18px;height:18px}
-.compactToggle .toggle input:checked+i:after{transform:translateX(18px)}
+.compactToggle .toggle i{--switchWidth:42px;--switchHeight:24px;--thumbSize:18px}
 .compactToggle small{display:block;color:var(--muted);font-size:var(--fs-2xs);line-height:1.35;margin-top:3px}
 .batchActions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
 .batchActions button{min-height:46px;padding:0 8px;font-size:var(--fs-sm)}
@@ -415,6 +413,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
    height thang tren the <svg> nen o day chi can can giua, khong con phai lo
    font-size/letter-spacing rieng tung icon nhu khi con la text. */
 .settingIcon{position:relative;width:44px;height:44px;border-radius:13px;background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center}
+.settingIcon svg{display:block;width:22px;height:22px}
 /* Cham xanh bao "co ban firmware moi" tren icon muc Cap nhat firmware -
    don gian, khong choan cho, chi bat/tat qua thuoc tinh [hidden] tu JS (xem
    renderFirmwareCard() trong app.js). */
@@ -450,7 +449,6 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .settingHintContent[hidden],.settingCard[hidden]{display:none!important}
 .settingHintNote{color:var(--muted);font-size:var(--fs-sm)}
 .settingHintNote summary{display:block;min-height:0;padding:4px 0;cursor:pointer;color:var(--label);font-weight:700;background:transparent!important;border:0!important}
-.settingHintNote summary:before,.settingHintTrigger:before{content:"";display:inline-block;flex:0 0 18px;width:18px;height:18px;margin-right:8px;background:var(--primary2);mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v6M12 7v.2'/%3E%3C/svg%3E") center/contain no-repeat}
 .settingHintNote .settingFootnote{margin:7px 0 0}
 
 .themeToggle{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:5px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--tile)}
@@ -780,16 +778,14 @@ dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
 }
 
 /* Checkbox ẩn không được kế thừa width:100% của input thường. */
-.toggle,.switchRow{position:relative;display:inline-block}
+.toggle{position:relative;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-width:48px;min-height:44px;vertical-align:middle}
+.switchRow{position:relative}
 .toggle input,.switchRow input{
   width:1px!important;height:1px!important;min-height:0!important;
   margin:0!important;padding:0!important;clip-path:inset(50%);overflow:hidden;
 }
-/* Vung cong tac (switch) chi 28px cao - nho hon muc toi thieu cho ngon tay
-   (~44px). Mo rong vung bam bang pseudo-element vo hinh, khong doi kich
-   thuoc/vi tri hien thi cua cong tac (position:absolute nen khong chiem
-   layout, click van duoc <label> chuyen tiep toi input ben trong). */
-.toggle:before,.switchRow:before{content:"";position:absolute;inset:-10px}
+/* Label toggle co vung bam 44px; track va thumb can giua, khong mo rong
+   hit-area sang hang ben canh. switchRow giu display:flex cua hang day du. */
 
 .batchLogList.empty{display:flex!important;align-items:center!important;justify-content:center!important}
 .batchLogList.empty .batchLogEmpty{height:auto;max-width:250px;line-height:1.5}

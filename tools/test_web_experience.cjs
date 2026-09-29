@@ -94,10 +94,71 @@ async function swipe(page, x, y, dx, dy = 0) {
   await cdp.detach();
 }
 
+async function inspectControlLayout(page) {
+  return page.evaluate(() => {
+    const savedPage = document.body.dataset.page;
+    const details = [...document.querySelectorAll('#page-settings details.settingCard')];
+    const savedOpen = details.map(el => el.open);
+    const style = document.createElement('style');
+    style.textContent = '.toggle i,.toggle i::after,.switchRow i,.switchRow i::after{transition:none!important}';
+    document.head.append(style);
+    const toggles = [];
+    try {
+      details.forEach(el => { el.open = true; });
+      for (const tab of ['batch', 'settings']) {
+        window.__qa.showPage(tab);
+        for (const input of document.querySelectorAll(`#page-${tab} .toggle input`)) {
+          const track = input.nextElementSibling, box = track.getBoundingClientRect();
+          if (!box.width || !box.height) continue;
+          const savedChecked = input.checked;
+          try {
+            for (const checked of [false, true]) {
+              input.checked = checked;
+              const outer = getComputedStyle(track), thumb = getComputedStyle(track, '::after');
+              const matrix = new DOMMatrixReadOnly(thumb.transform);
+              const n = value => parseFloat(value) || 0;
+              const thumbWidth = n(thumb.width) + (thumb.boxSizing==='border-box' ? 0 : n(thumb.borderLeftWidth)+n(thumb.borderRightWidth));
+              const thumbHeight = n(thumb.height) + (thumb.boxSizing==='border-box' ? 0 : n(thumb.borderTopWidth)+n(thumb.borderBottomWidth));
+              const left = n(outer.borderLeftWidth)+n(thumb.left)+matrix.m41;
+              const top = n(outer.borderTopWidth)+n(thumb.top)+matrix.m42;
+              const labelBox = input.parentElement.getBoundingClientRect();
+              toggles.push({id:input.id,checked,width:box.width,height:box.height,
+                verticalError:Math.abs(top+thumbHeight/2-box.height/2),
+                edgeGap:checked ? box.width-left-thumbWidth : left,
+                labelHeight:labelBox.height, thumbBorder:n(thumb.borderLeftWidth)});
+            }
+          } finally { input.checked = savedChecked; }
+        }
+      }
+      const svg = document.querySelector('.nav button[data-page="settings"] svg');
+      const gear = svg.getBBox(), view = svg.viewBox.baseVal;
+      const gearBox = svg.getBoundingClientRect(), buttonBox = svg.closest('button').getBoundingClientRect();
+      const gearReport = {centerErrorX:Math.abs(gear.x+gear.width/2-(view.x+view.width/2)),
+        centerErrorY:Math.abs(gear.y+gear.height/2-(view.y+view.height/2)),
+        inside:gear.x>=view.x+1 && gear.y>=view.y+1 && gear.x+gear.width<=view.x+view.width-1 && gear.y+gear.height<=view.y+view.height-1,
+        mobileCenterError:Math.abs(gearBox.x+gearBox.width/2-buttonBox.x-buttonBox.width/2)};
+      const hintIcons = [...document.querySelectorAll('#page-settings .settingHintTrigger,#page-settings .settingHintNote summary')]
+        .filter(el => !['none','normal'].includes(getComputedStyle(el,'::before').content)).length;
+      const line = getComputedStyle(document.documentElement).getPropertyValue('--line').trim();
+      const swatch = document.createElement('div'); swatch.style.borderColor=line; document.body.append(swatch);
+      const expectedBorder = getComputedStyle(swatch).borderTopColor; swatch.remove();
+      const mismatchedBorders = [...document.querySelectorAll('.primary:not(.attention),.addDevice,.ghost,input:not([type="checkbox"]):not([type="radio"]):not(.customSelectNative)')]
+        .filter(el => { const css=getComputedStyle(el); return nBorder(css.borderTopWidth)>0 && css.borderTopColor!==expectedBorder; })
+        .map(el => el.id || el.className);
+      function nBorder(value) { return parseFloat(value) || 0; }
+      return {toggles,gear:gearReport,hintIcons,mismatchedBorders};
+    } finally {
+      details.forEach((el,i) => { el.open=savedOpen[i]; });
+      window.__qa.showPage(savedPage);
+      style.remove();
+    }
+  });
+}
+
 async function main() {
   const executablePath = process.env.MAYAP_CHROME || (process.platform==='win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : undefined);
   const browser = await chromium.launch({ executablePath, headless: true });
-  const results = [], palettes = [];
+  const results = [], palettes = [], controls = [];
   try {
     for (const width of [320, 390, 430, 768, 1440]) for (const theme of ['light', 'dark']) {
       const { context, page, errors } = await setup(browser, { width, mobile: width < 800, theme });
@@ -143,6 +204,25 @@ async function main() {
           await page.screenshot({ path:path.join(out,`MAYAP-Quạt-hút-mobile-${theme}.png`) });
         }
       }
+      const controlLayout = await inspectControlLayout(page);
+      assert.ok(controlLayout.toggles.length>=8, `${width}/${theme}: inspect both toggle sizes`);
+      for (const toggle of controlLayout.toggles) {
+        assert.ok(toggle.verticalError<=.5, `${width}/${theme}/${toggle.id}/${toggle.checked}: thumb must be centered`);
+        assert.ok(toggle.edgeGap>=2 && toggle.edgeGap<=4, `${width}/${theme}/${toggle.id}/${toggle.checked}: equal end inset`);
+        assert.ok(toggle.labelHeight>=44, `${toggle.id}: touch target must be at least 44px`);
+        assert.equal(toggle.thumbBorder,0, `${toggle.id}: no dark thumb outline`);
+      }
+      assert.ok(controlLayout.gear.inside && controlLayout.gear.centerErrorX<=.01 && controlLayout.gear.centerErrorY<=.01, 'Settings gear must be centered inside its viewBox');
+      if (width<800) assert.ok(controlLayout.gear.mobileCenterError<=.5,'Settings gear must be centered in mobile tab');
+      assert.equal(controlLayout.hintIcons,0,'Settings help circles must be absent');
+      assert.deepEqual(controlLayout.mismatchedBorders,[],'Standard button/input borders must match the shared line');
+      if (width===390) {
+        controls.push({theme,...controlLayout});
+        const alarmCard = page.locator('#lightAlarmForm').locator('..').locator('..');
+        await alarmCard.evaluate(el => { el.open=true; el.scrollIntoView({block:'center',behavior:'instant'}); });
+        await alarmCard.screenshot({path:path.join(out,`MAYAP-controls-${theme}.png`)});
+        await page.locator('.nav').screenshot({path:path.join(out,`MAYAP-nav-${theme}.png`)});
+      }
       // Legacy config preserves thermal fan controls and disables unsupported stage profiles.
       await page.evaluate(() => { const h=window.__qa,d=h.state.devices[0]; const config={...d.config};
         h.VENT_PROFILE_KEYS.forEach(key=>delete config[key]); h.handleConfigReport(d,{config,revision:2,bootId:123}); });
@@ -150,7 +230,7 @@ async function main() {
       assert.equal(await page.locator('#ventSettingCard').isVisible(), true);
       assert.match(await page.locator('#ventSummary').textContent(), /ngưỡng nhiệt độ/);
       assert.deepEqual(errors, []);
-      results.push(`${width}/${theme}: three tabs, grouping, fan capability, no overflow`);
+      results.push(`${width}/${theme}: three tabs, no overflow, centered toggles/gear, shared borders, no settings help circles`);
       await context.close();
     }
     const { context, page } = await setup(browser, { width:390, mobile:true, theme:'light', dropFirst:true });
@@ -176,7 +256,25 @@ async function main() {
     await page.evaluate(() => document.getElementById('deviceDialog').showModal());
     await swipe(page, 260, 200, -140);
     assert.equal(await page.evaluate(() => document.body.dataset.page), 'batch');
+    await page.evaluate(() => {
+      document.getElementById('deviceDialog').close();
+      window.__qa.showPage('settings');
+      document.getElementById('lightAlarmForm').closest('details').open=true;
+    });
+    const alarmToggle = page.locator('#lightAfterBatchAlarmEnabled');
+    const originalChecked = await alarmToggle.isChecked();
+    await page.locator('#lightAfterBatchAlarmEnabled').locator('..').click();
+    assert.equal(await alarmToggle.isChecked(),!originalChecked,'Native label click must toggle once');
+    await alarmToggle.focus();
+    await page.keyboard.press('Space');
+    assert.equal(await alarmToggle.isChecked(),originalChecked,'Keyboard Space must still toggle');
+    const hint = page.locator('#lightAlarmForm .settingHintTrigger').first();
+    await hint.click();
+    assert.equal(await hint.getAttribute('aria-expanded'),'true','Help remains reachable from text');
+    const noteId = await hint.getAttribute('aria-controls');
+    assert.equal(await page.locator('#'+noteId).isVisible(),true);
     results.push(`Touch swipe: adjacent tabs, vertical scroll, input drag, dirty values, modal guards. Lost first sync retry ${Math.round(retryMs)}ms.`);
+    results.push('Controls: label click and keyboard Space toggle once; help text still expands without an icon.');
     await context.close();
     const pairing = await setup(browser, { width:390, mobile:true, paired:false });
     let navigations = 0; pairing.page.on('framenavigated', frame => { if (frame===pairing.page.mainFrame()) navigations++; });
@@ -202,7 +300,7 @@ async function main() {
     assert.equal(await system.page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--surface').trim()), '#2b414c');
     results.push('System theme follows dark OS preference.');
     await system.context.close();
-    fs.writeFileSync(path.join(out,'web-browser-qa.json'),JSON.stringify({ passed:true, results, palettes },null,2));
+    fs.writeFileSync(path.join(out,'web-browser-qa.json'),JSON.stringify({ passed:true, results, palettes, controls },null,2));
     console.log(results.join('\n'));
   } finally { await browser.close(); }
 }
