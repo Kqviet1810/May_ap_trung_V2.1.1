@@ -49,7 +49,13 @@ class WifiRecovery {
     return (failures_ >= 6U || (outageActive_ && age(now, outageAt_) >= WIFI_OFFLINE_MS)) &&
         cooldownReady(now);
   }
-  void started(uint32_t now) { attempted_ = true; lastRecoveryAt_ = now; failures_ = 0U; if (cycles_ < 255U) ++cycles_; }
+  void started(uint32_t now) {
+    attempted_ = true; lastRecoveryAt_ = now; failures_ = 0U;
+    // Give STA a fresh retry window after radio isolation. Retaining the old
+    // outage age would reset it again before an asynchronous join can finish.
+    outageAt_ = now; outageActive_ = false;
+    if (cycles_ < 255U) ++cycles_;
+  }
   bool isolate() const { return cycles_ >= 3U; }
  private:
   uint8_t failures_ = 0U, cycles_ = 0U;

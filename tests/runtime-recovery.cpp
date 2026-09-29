@@ -28,6 +28,7 @@ int main() {
   wifi.failure(100);
   assert(wifi.wanted(100));
   wifi.started(100);
+  assert(!wifi.wanted(100 + WIFI_OFFLINE_MS)); // old outage cannot preempt a new join
   for (unsigned i = 0; i < 6; ++i) wifi.failure(101);
   assert(!wifi.wanted(120099));
   assert(wifi.wanted(120100));

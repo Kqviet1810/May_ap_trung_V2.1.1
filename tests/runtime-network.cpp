@@ -66,8 +66,8 @@ int main() {
   mayapRequestWifiDeepRecovery();
   assert(!mayapNetworkDeepRecoveryUpdate(++clockMs,false) && WiFi.off==1); // Forced request respects cooldown too.
   // No Internet leaves the task alive; radio attempts are spaced and isolated.
-  MayapNetworkInternal::deepPolicy.offline(clockMs);
   for (unsigned cycle=0; cycle<2; ++cycle) {
+    MayapNetworkInternal::deepPolicy.offline(clockMs);
     clockMs+=WIFI_OFFLINE_MS;
     assert(mayapNetworkDeepRecoveryUpdate(clockMs,false));
     assert(mayapNetworkDeepRecoveryUpdate(++clockMs,false));
@@ -79,6 +79,11 @@ int main() {
   clockMs+=WIFI_ISOLATE_MS-1;
   assert(mayapNetworkDeepRecoveryUpdate(clockMs,false));
   assert(!mayapNetworkDeepRecoveryUpdate(++clockMs,false));
+  // STA needs time to join asynchronously after isolation, before another off.
+  assert(!mayapNetworkDeepRecoveryUpdate(++clockMs,false) && WiFi.off==3);
+  MayapNetworkInternal::deepPolicy.offline(clockMs);
+  clockMs+=30000;
+  assert(!mayapNetworkDeepRecoveryUpdate(clockMs,false) && WiFi.off==3);
   MayapNetworkInternal::deepPolicy.success(clockMs);
   portal=true; mayapRequestWifiDeepRecovery();
   assert(!mayapNetworkDeepRecoveryUpdate(++clockMs,false) && WiFi.off==3);
