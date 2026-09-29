@@ -25,7 +25,7 @@ def capture(text: str, pattern: str, label: str) -> str:
 
 
 manifest = json.loads(read("release-manifest.json"))
-config = read("MAYAP_INDUSTRIAL_v3_4_0/config.h")
+config = read("MAYAP_INDUSTRIAL_v4_0_0/config.h")
 tiny = read("ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino")
 sw = read("sw.js")
 build = read(".github/workflows/build-firmware.yml")
