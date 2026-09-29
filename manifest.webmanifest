@@ -1,15 +1,25 @@
 {
   "name": "MAYAP - Điều khiển máy ấp trứng",
   "short_name": "MAYAP",
-  "description": "MAYAP - Điều khiển và theo dõi máy ấp trứng qua MQTT, nhận thông báo qua Web Push.",
+  "description": "Theo dõi máy ấp, quản lý mẻ ấp và nhận cảnh báo ở mọi nơi.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#103a33",
-  "theme_color": "#103a33",
+  "background_color": "#f5f7fa",
+  "theme_color": "#0f766e",
   "lang": "vi",
   "icons": [
-    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
   ]
 }

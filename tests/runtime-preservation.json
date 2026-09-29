@@ -42,10 +42,6 @@
       "sha256": "6f5a6a337a344290c7eb5f1d76cb7d857709d8ba645ca2e134eb1e7610fba3be"
     },
     {
-      "file": "app.js",
-      "sha256": "58359e6c871c6475e8154b2ca026d2ae12aebf9c6b689aae7b1f0b29b279847e"
-    },
-    {
       "file": "protocol_v2.js",
       "sha256": "5d1680d292023aab4ea71995030b140587a42c3f0e7d7c598301d0491840d815"
     },
@@ -145,6 +141,216 @@
       "file": "MAYAP_INDUSTRIAL_v4_0_0/ota_web_update.h",
       "sha256": "da7b4135c4aa9a783443d05e052e4e94bf2f9c6e6e193e2b84e885a7441eed09",
       "signature": "inline void mayapFirmwareWebUpdate("
+    },
+    {
+      "file": "app.js",
+      "signature": "async function signMqttWrite(",
+      "sha256": "56d19b1731bfc75dc316e74ce6d5a8a1197cd0e241a80a5cd637f265fa7ab2e4",
+      "copyReplacements": [
+        [
+          "'Đang nhận dữ liệu từ máy; vui lòng chờ một chút'",
+          "'Chưa nhận bootId từ ESP32; hãy chờ đồng bộ'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "async function verifyDeviceAck(",
+      "sha256": "40630910535470e11cdbb93555afe9f563f61bb950eb83a2fd39ee18e67bc9cd"
+    },
+    {
+      "file": "app.js",
+      "signature": "function retrySameRequest(",
+      "sha256": "d1449f0ee8a0fb7c9f0699f81652c98fbcb9571b3b05e2c0631575c6ded0c49e"
+    },
+    {
+      "file": "app.js",
+      "signature": "function clearPending(",
+      "sha256": "7189b83b486c9ddf0341cb83082fec4a29f0ef2b9cfa9c22c630e0bd9d38f72d"
+    },
+    {
+      "file": "app.js",
+      "signature": "function moveToUncertain(",
+      "sha256": "a5498c03112b2a3f8bd8578d61fe8baa575fa8dfd30f8667b05e4ffaca4f0668"
+    },
+    {
+      "file": "app.js",
+      "signature": "function rememberOutcome(",
+      "sha256": "42f694fef8f2f1239a6ae59a0b839957db021e45cf3180e4d2fd3b7972e83f7c"
+    },
+    {
+      "file": "app.js",
+      "signature": "function nextRevision(",
+      "sha256": "1563ed22cf1ae13b383954191b841bae898888938c3a21b7a62de77f86cbefb9"
+    },
+    {
+      "file": "app.js",
+      "signature": "function startTransaction(id, pending, timeoutMs) {",
+      "sha256": "9e332214a56382226a79df657167403371819419a9879373e8576a3eb58cfc23",
+      "copyReplacements": [
+        [
+          "'Chưa nhận xác nhận cuối từ máy · đang đồng bộ trạng thái'",
+          "'Chưa nhận xác nhận cuối từ ESP32 · đang đồng bộ trạng thái'"
+        ],
+        [
+          "'Máy chưa xác nhận đọc lịch sử · kết quả chưa chắc chắn'",
+          "'Chưa nhận xác nhận cuối từ EEPROM · kết quả chưa chắc chắn'"
+        ],
+        [
+          "'Chưa nhận xác nhận cuối từ máy; kết quả chưa chắc chắn'",
+          "'Chưa nhận xác nhận cuối từ ESP32; kết quả chưa chắc chắn'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "function sweepUncertain() {",
+      "sha256": "7c60ce714d8bda92dc9abc81ed896ef848e16f32c7f3b6e6ab575e377cb17e52",
+      "copyReplacements": [
+        [
+          "'Đã nhận lịch sử trong bộ nhớ máy; không nhận được ACK cuối'",
+          "'Đã nhận lịch sử EEPROM; không nhận được ACK cuối'"
+        ],
+        [
+          "'Chưa xác nhận được lịch sử trong bộ nhớ máy · có thể thử đọc lại'",
+          "'Chưa xác nhận được lịch sử EEPROM · có thể thử đọc lại'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "function armTransaction(id) {",
+      "sha256": "653a9a3d674585628c38dbf1ea8ac5780ee79a7f8d86ae1100535fa459e84564"
+    },
+    {
+      "file": "app.js",
+      "signature": "function transactionPublished(id) {",
+      "sha256": "7ea66de7af1b4a1f2ced64f527d6a62a18bb2675ae3b2856acd8f73b8dc9b3e5"
+    },
+    {
+      "file": "app.js",
+      "signature": "async function sendConfig(formId, group) {",
+      "sha256": "225b37508447d98cdbeff30bc2ee94d7496fc93746054566a57585dc009d7430",
+      "copyReplacements": [
+        [
+          "'Hãy thêm máy trước'",
+          "'Hãy thêm thiết bị trước'"
+        ],
+        [
+          "'Máy đang ngoại tuyến · chưa gửi'",
+          "'Thiết bị đang offline · chưa gửi'"
+        ],
+        [
+          "'Máy đang ngoại tuyến · chưa gửi'",
+          "'Thiết bị đang offline · chưa gửi'"
+        ],
+        [
+          "'Đang gửi tới máy…'",
+          "'Đang gửi tới ESP32…'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "async function sendCommand(action, options = {}) {",
+      "sha256": "374ca812c576586950be7012e7b62da724e1cf62d90ca0707fd553c463ee63a6",
+      "copyReplacements": [
+        [
+          "'Máy đang ngoại tuyến'",
+          "'Thiết bị đang offline'"
+        ],
+        [
+          "'Đang nhận dữ liệu từ máy. Vui lòng chờ một chút.'",
+          "'Chưa nhận bootId. Hãy chờ ESP32 đồng bộ.'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "function handleAck(device, ack) {",
+      "sha256": "6aa5743ce346e2b4bc22b5ec5272e3978c9a0f8c5899ff0c56a03b0e60e781a9",
+      "copyReplacements": [
+        [
+          "'Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.'",
+          "'PROTOCOL_ERROR: ACK từ máy không hợp lệ'"
+        ],
+        [
+          "'Máy đã nhận · đang lưu vào bộ nhớ máy…'",
+          "'Máy đã nhận · đang lưu EEPROM…'"
+        ],
+        [
+          "'Máy chưa xác nhận lưu vào bộ nhớ máy · đang đồng bộ'",
+          "'Máy chưa xác nhận lưu EEPROM · đang đồng bộ'"
+        ],
+        [
+          "'Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.'",
+          "'PROTOCOL_ERROR: ACK từ máy không hợp lệ'"
+        ],
+        [
+          "'Máy đã lưu và xác nhận cài đặt'",
+          "'ESP32 đã lưu và kiểm tra EEPROM'"
+        ],
+        [
+          "'Đã lưu cấu hình trên máy'",
+          "'Đã lưu cấu hình vào ESP32'"
+        ],
+        [
+          "`Máy từ chối: ${message}`",
+          "`ESP32 từ chối: ${message}`"
+        ],
+        [
+          "`Máy từ chối: ${message}`",
+          "`ESP32 từ chối: ${message}`"
+        ],
+        [
+          "'Lỗi đọc bộ nhớ lịch sử'",
+          "'Lỗi đọc EEPROM lịch sử'"
+        ],
+        [
+          "'Bộ nhớ máy chưa có dữ liệu · cập nhật trực tiếp'",
+          "'EEPROM chưa có dữ liệu · cập nhật trực tiếp'"
+        ],
+        [
+          "'Đã đọc lịch sử trong bộ nhớ máy'",
+          "'Đã đọc lịch sử EEPROM'"
+        ],
+        [
+          "`Máy từ chối: ${message}`",
+          "`ESP32 từ chối: ${message}`"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "function handleConfigReport(device, report) {",
+      "sha256": "b144f05f0a9dd1bbd9c3d1684f1ab15a6e58f2eff15c15f2518da7d410130570",
+      "copyReplacements": [
+        [
+          "'Máy đã lưu và xác nhận cài đặt'",
+          "'ESP32 đã lưu và đọc lại cấu hình'"
+        ],
+        [
+          "'Đã lưu cấu hình trên máy'",
+          "'Đã lưu cấu hình vào ESP32'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "function handleReminderReport(device, report) {",
+      "sha256": "2c32caf2934d26b8e822f3204e9399fe84b89a88995e4119704ce365c8fbe486"
+    },
+    {
+      "file": "app.js",
+      "signature": "function publish(topic, payload, options = {}) {",
+      "sha256": "bcdc25170cba1dff1bdcf145624d2d2a553cd20491cffe39f82bcd65db932944",
+      "copyReplacements": [
+        [
+          "'Chưa kết nối với máy chủ'",
+          "'MQTT chưa kết nối'"
+        ]
+      ]
     }
-  ]
+  ],
+  "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged."
 }

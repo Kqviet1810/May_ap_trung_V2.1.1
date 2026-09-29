@@ -8,7 +8,7 @@ const dir = 'MAYAP_INDUSTRIAL_v4_0_0/';
 function body(source, signature) {
   const start = source.indexOf(signature);
   assert.notEqual(start, -1, signature);
-  const open = source.indexOf('{', start);
+  const open = signature.endsWith('{') ? start + signature.length - 1 : source.indexOf('{', start);
   let depth = 0;
   for (let i = open; i < source.length; ++i) {
     if (source[i] === '{') ++depth;
@@ -21,6 +21,8 @@ test('runtime recovery preserves Adaptive Boot, local safety, schemas, protocol 
   for (const entry of manifest.entries) {
     let source = read(entry.file);
     if (entry.signature) source = body(source, entry.signature);
+    // Only explicitly reviewed user-facing copy can differ inside protected Web functions.
+    for (const [current, baseline] of entry.copyReplacements || []) source = source.replace(current, baseline);
     // The only additions allowed inside these protected functions are health instrumentation.
     if (entry.filter === 'webBeat') source = source.replace(/^\s*mayapServiceBeat\(MayapRecovery::Service::Ota\);\n/gm, '');
     if (entry.filter === 'supervisor') source = source.replace(/    MayapRecovery::Service failedService[\s\S]*?(?=    const esp_err_t result = esp_task_wdt_reset\(\);)/, '');

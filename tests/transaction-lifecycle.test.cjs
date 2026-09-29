@@ -22,7 +22,7 @@ function browser() {
     TransactionLedger: class extends TransactionLedger { constructor() { super(() => time); } },
     PacketPolicy },
     MAYAP_WEB_CONFIG: { cloudApiBase: 'https://test.invalid' }, hooks: {} };
-  const context = { window, crypto: webcrypto, TextEncoder, URL, URLSearchParams,
+  const context = { window, crypto: webcrypto, TextEncoder, URL, URLSearchParams, AbortController,
     console: { info() {}, warn() {}, error() {} },
     performance: { now: () => time },
     localStorage: { getItem: () => null, setItem() {} },

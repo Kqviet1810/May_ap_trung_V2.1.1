@@ -233,10 +233,10 @@
   document.addEventListener('DOMContentLoaded', () => {
     const pinInput = document.getElementById('newDevicePin');
     if (pinInput) {
-      pinInput.minLength = 6;
+      pinInput.minLength = 4;
       pinInput.maxLength = 8;
-      pinInput.pattern = '[0-9]{6,8}';
-      pinInput.placeholder = 'PIN 6–8 số';
+      pinInput.pattern = '[0-9]{4,8}';
+      pinInput.placeholder = 'PIN 4–8 số';
     }
   });
 })();

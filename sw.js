@@ -1,8 +1,8 @@
 'use strict';
-const CACHE = 'mayap-web-v12.0.0';
+const CACHE = 'mayap-web-v12.1.0';
 const APP_SHELL = [
   './', './index.html', './styles.css', './app.js', './protocol_v2.js', './push.js', './manifest.webmanifest',
-  './vendor/jsQR.min.js',
+  './vendor/jsQR.min.js', './vendor/mqtt.min.js',
   './docs/MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf',
   './icons/icon-192.png', './icons/icon-512.png', './icons/badge-72.png'
 ];
@@ -33,6 +33,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (url.origin !== self.location.origin) return;
+  // Pinned bundles use this release's cache; app code remains network-first.
+  if (/\/vendor\/(?:mqtt|jsQR)\.min\.js$/.test(url.pathname)) {
+    event.respondWith(caches.open(CACHE).then(async (cache) => {
+      const cached = await cache.match(event.request);
+      if (cached) return cached;
+      const response = await fetch(event.request);
+      if (response.ok) await cache.put(event.request, response.clone());
+      return response;
+    }));
+    return;
+  }
   // Network-first cho HTML/JS/CSS: luon co gang lay ban moi nhat tu mang
   // truoc, chi dung cache khi mat mang. Cache-first (cu) tung khien trang
   // "khong bao gio tu cap nhat" cho nguoi dung da tung mo qua 1 lan, vi no

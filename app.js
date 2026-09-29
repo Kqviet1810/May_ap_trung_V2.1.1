@@ -127,10 +127,16 @@
     selectedId: localStorage.getItem(`${STORAGE}.selected`) || '',
     mqtt: null,
     mqttConnected: false,
-    mqttMessage: 'Chưa kết nối MQTT',
+    mqttMessage: 'Chưa kết nối với máy',
     mqttSessionState: 'idle',
     subscriptions: new Set(),
-    subscriptionPromise: null,
+    subscriptionEpoch: 0,
+    subscriptionRequests: new Map(),
+    mqttCredentials: null,
+    syncRetryTimers: [],
+    subscriptionRetryTimer: 0,
+    authRetryAt: 0,
+    authRetryDelay: 5000,
     sessionTimer: 0,
     staleTimer: 0,
     formFlags: new Map(),
@@ -166,7 +172,7 @@
     const result = await postCloudJson('/api/device/mqtt-session', {
       device_id: device.id, pairing_token: device.pairingToken,
       control_client_id: controlClientId
-    });
+    }, 10000);
     if (!result.success || !result.control) {
       const error = new Error(result.error || 'Phiên điều khiển hết hạn');
       error.code = [401, 403].includes(result.status) ? 'AUTH_ERROR' : 'TRANSPORT_ERROR';
@@ -342,20 +348,25 @@
     return base ? `${base}${path}` : null;
   }
 
-  async function postCloudJson(path, payload) {
+  async function postCloudJson(path, payload, timeoutMs = 0) {
     const url = cloudApiUrl(path);
     if (!url) return { success: false, error: 'Trang web chưa cấu hình máy chủ (cloudApiBase)' };
+    const controller = timeoutMs ? new AbortController() : null;
+    const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : 0;
     try {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        ...(controller ? { signal: controller.signal } : {}),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.success) return { success: false, status: res.status, error: body.error || `Máy chủ từ chối (HTTP ${res.status})` };
       return body;
     } catch (error) {
       return { success: false, status: 0, error: String(error?.message || error) };
+    } finally {
+      if (timeout) clearTimeout(timeout);
     }
   }
 
@@ -393,7 +404,7 @@
     if (Number(device.presence?.proto || 0) >= 2) {
       const session = await controlSession(device);
       if (!device.bootId) {
-        const error = new Error('Chưa nhận bootId từ ESP32; hãy chờ đồng bộ');
+        const error = new Error('Đang nhận dữ liệu từ máy; vui lòng chờ một chút');
         error.code = 'PROTOCOL_ERROR';
         throw error;
       }
@@ -543,7 +554,8 @@
       el.append(document.createTextNode(base + ' '));
       const mark = document.createElement('span');
       mark.className = 'faultMark';
-      mark.textContent = '!';
+      mark.setAttribute('aria-hidden', 'true');
+      mark.title = 'Có cảnh báo · chạm để xem chi tiết';
       el.append(mark);
     }
     // Neu popup dang mo cho dung loi nay, cap nhat lai noi dung (vd severity
@@ -654,6 +666,7 @@
   function setFormState(formId, mode, text) {
     const element = ensureFormState(formId);
     if (!element) return;
+    element.hidden = !['dirty', 'pending', 'unconfirmed', 'error'].includes(mode);
     element.dataset.mode = mode;
     element.textContent = text;
     const old = state.formFlags.get(formId) || {};
@@ -710,6 +723,8 @@
     });
     document.querySelectorAll('.nav button').forEach((element) => {
       element.classList.toggle('active', element.dataset.page === name);
+      if (element.dataset.page === name) element.setAttribute('aria-current', 'page');
+      else element.removeAttribute('aria-current');
     });
     $('pageTitle').textContent = pageMeta[name][0];
     $('pageSubtitle').textContent = pageMeta[name][1];
@@ -726,6 +741,7 @@
     }
     if (!device.presence) return 'connecting';
     if (!device.presence.online) return 'offline';
+    if (!device.snapshot || !device.snapshotAt) return 'connecting';
     const lastAt = Math.max(device.presenceAt || 0, device.snapshotAt || 0, device.configAt || 0);
     if (!lastAt || Date.now() - lastAt > WEB.staleAfterMs) return 'offline';
     return 'online';
@@ -809,6 +825,7 @@
   function renderDevice() {
     const device = currentDevice();
     syncHumidifierFeatureUi(device?.config);
+    syncVentilationFeatureUi(device?.config);
     const connection = connectionStatus(device);
     const pill = $('onlinePill');
 
@@ -832,14 +849,17 @@
     } else {
       pill.textContent = 'NGOẠI TUYẾN';
       pill.className = 'pill offline';
-      $('wifiConnectionText').textContent = 'Chưa nhận dữ liệu từ máy';
+      $('wifiConnectionText').textContent = state.mqttSessionState === 'auth-required' && device
+        ? 'Ghép nối lại máy bằng mã PIN'
+        : state.mqttSessionState === 'error' && !state.mqtt
+          ? 'Chưa kết nối máy chủ · đang thử lại' : 'Chưa nhận dữ liệu từ máy';
       $('sideStatus').textContent = 'Đang ngoại tuyến';
     }
 
     const ssid = device?.presence?.ssid || '';
     $('wifiSettingSummary').textContent = connection === 'online'
       ? (ssid ? `Đang kết nối: ${ssid}` : 'Wi‑Fi đã kết nối')
-      : 'Đổi bằng trang cài đặt ESP32';
+      : 'Đổi mạng Wi‑Fi trên màn hình máy';
 
     applySnapshotToUi(device);
     renderBatchLogs();
@@ -888,7 +908,7 @@
       const last = Number(localStorage.getItem(key) || 0);
       if (last && (Date.now() - last) < FIRMWARE_NOTICE_INTERVAL_MS) return;
       localStorage.setItem(key, String(Date.now()));
-      toast(`🔔 Có bản firmware mới v${latestVersion} cho ${device.name || device.id}`, 6000);
+      toast(`🔔 Có bản phần mềm mới v${latestVersion} cho ${device.name || device.id}`, 6000);
     } catch (error) {
       // localStorage co the bi chan (che do rieng tu, cai dat trinh duyet...)
       // - khong lam gi them, chi la mat tinh nang nhac dinh ky, khong loi.
@@ -927,13 +947,13 @@
     // quay lai khong (chi co the kiem tra tren chinh ESP32) nen cu hien nut,
     // neu khong co gi de quay lai thi ACK se bao ro "KHONG CO BAN CU DE
     // QUAY LAI" (xem RAW_ACK_MESSAGES) thay vi an nut di truoc.
-    const rollbackButtonHtml = '<button class="dangerButton full" id="firmwareRollbackBtn" type="button">Quay lại firmware trước đó</button>';
+    const rollbackButtonHtml = '<button class="dangerButton full" id="firmwareRollbackBtn" type="button">Quay lại phần mềm trước đó</button>';
     if (hasUpdate) {
       summaryEl.textContent = `Có bản mới: v${latest.version}`;
       bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy v${escapeHtml(currentVersion)} · có bản v${escapeHtml(latest.version)} mới hơn.</p><button class="primary full" id="firmwareUpdateBtn" type="button">Cập nhật lên v${escapeHtml(latest.version)}</button>${rollbackButtonHtml}`;
       $('firmwareUpdateBtn')?.addEventListener('click', () => {
         sendCommand('firmware_check_now');
-        toast('Đã yêu cầu kiểm tra. Trên HMI: Cài đặt chung → Hệ thống → Cập nhật. Dừng mẻ và tắt công tắc nhiệt trước khi xác nhận cập nhật.', 8000);
+        toast('Đã yêu cầu kiểm tra. Trên màn hình máy: Cài đặt chung → Hệ thống → Cập nhật. Dừng mẻ và tắt công tắc nhiệt trước khi xác nhận cập nhật.', 8000);
       });
       maybeNotifyFirmwareUpdate(device, latest.version);
     } else if (latest) {
@@ -941,11 +961,11 @@
       bodyEl.innerHTML = `<p class="settingFootnote">Đang chạy phiên bản v${escapeHtml(currentVersion)} - đây đã là bản mới nhất.</p>${rollbackButtonHtml}`;
     } else {
       summaryEl.textContent = `Phiên bản v${currentVersion} · chưa xác định bản mới nhất`;
-      bodyEl.innerHTML = `<p class="settingFootnote">Chưa lấy được danh sách firmware. Kiểm tra lại trên HMI: Cài đặt chung → Hệ thống → Cập nhật.</p>${rollbackButtonHtml}`;
+      bodyEl.innerHTML = `<p class="settingFootnote">Chưa lấy được danh sách phiên bản. Kiểm tra lại trên màn hình máy: Cài đặt chung → Hệ thống → Cập nhật.</p>${rollbackButtonHtml}`;
     }
     $('firmwareRollbackBtn')?.addEventListener('click', () => {
       // Rollback chi duoc xac nhan vat ly tren HMI; web khong gui MQTT.
-      toast('Quay lại firmware phải xác nhận trực tiếp trên HMI: Cài đặt chung → Hệ thống → Cập nhật → Quay lại bản cũ.', 6500);
+      toast('Quay lại phần mềm phải xác nhận trực tiếp trên màn hình máy: Cài đặt chung → Hệ thống → Cập nhật → Quay lại bản cũ.', 6500);
     });
   }
 
@@ -963,7 +983,7 @@
       remove.addEventListener('click', async () => {
         const ok = await confirmAction({
           title: 'Xóa thiết bị?',
-          message: `${device.name} chỉ bị xóa khỏi danh sách trên trình duyệt. ESP32 không bị xóa cấu hình.`,
+          message: `${device.name} chỉ bị xóa khỏi danh sách trên trình duyệt. Máy không bị xóa cấu hình.`,
           accept: 'Xóa thiết bị',
           danger: true
         });
@@ -1064,7 +1084,7 @@
       // khoa "Tong so ngay ap" theo huong an toan (gia dinh co the dang chay)
       // thay vi mac dinh cho sua.
       if ($('totalDays')) $('totalDays').disabled = true;
-      setCurrentActivity('Chưa có dữ liệu vận hành', 'Đang chờ snapshot từ ESP32', 'idle');
+      setCurrentActivity('Chưa có dữ liệu vận hành', 'Đang chờ dữ liệu từ máy', 'idle');
       renderBatchAction(device, null);
       return;
     }
@@ -1140,8 +1160,8 @@
         (device?.batchUiAwaitingConfirmTarget === 'stopped' && !runtime.batchRunning)) {
       const startedNow = device.batchUiAwaitingConfirmTarget === 'running';
       const lateOkMessage = startedNow
-        ? 'Trạng thái máy cho thấy mẻ đã bắt đầu; ACK của thao tác chưa tới'
-        : 'Trạng thái máy cho thấy mẻ đã kết thúc; ACK của thao tác chưa tới';
+        ? 'Trạng thái máy cho thấy mẻ đã bắt đầu; máy chưa gửi xác nhận thao tác'
+        : 'Trạng thái máy cho thấy mẻ đã kết thúc; máy chưa gửi xác nhận thao tác';
       device.batchUiAwaitingConfirmTarget = '';
       if (device.id === state.selectedId) setFormError('batchForm', '');
       addBatchLog(device, lateOkMessage);
@@ -1168,7 +1188,7 @@
         $('pidSummary').textContent = 'Tự dò thất bại';
       } else {
         $('tuneText').textContent = 'Sẵn sàng';
-        $('pidSummary').textContent = 'ESP32 tự tìm và lưu thông số';
+        $('pidSummary').textContent = 'Máy tự tìm và lưu thông số';
       }
     }
 
@@ -1208,7 +1228,7 @@
   async function promptResumeAfterPower(device) {
     const continueBatch = await confirmAction({
       title: 'Tiếp tục mẻ sau mất điện?',
-      message: 'ESP32 phát hiện mẻ ấp đang chờ xác nhận sau khi có điện trở lại.',
+      message: 'Máy phát hiện mẻ ấp đang chờ xác nhận sau khi có điện trở lại.',
       accept: 'Tiếp tục mẻ'
     });
     await sendCommand(continueBatch ? 'resume_yes' : 'resume_no', { device });
@@ -1228,14 +1248,62 @@
 
   function updateSettingSummaries() {
     $('temperatureSummary').textContent = `Đặt ${numberVi($('targetTemp').value)}°C · ngắt khẩn ${numberVi($('emergencyTemp').value)}°C`;
-    $('ventSummary').textContent = $('ventAutoEnabled').checked
+    $('ventSummary').textContent = currentDevice()?.config && !supportsVentProfile(currentDevice().config)
+      ? 'Điều khiển theo ngưỡng nhiệt độ' : $('ventAutoEnabled').checked
       ? `Theo ngày ấp · ${['Thấp', 'Tiêu chuẩn', 'Cao'][Number($('ventProfileLevel').value)] || 'Tiêu chuẩn'}`
       : 'Tự động theo ngày ấp đang tắt';
     $('turningSummary').textContent = $('turningEnabled').checked
       ? `Tự động · mỗi ${$('turnInterval').value || '—'} phút`
       : 'Đang tắt đảo tự động';
-    $('sensorSummary').textContent = `Bù ${numberVi($('tempOffset').value)}°C · timeout ${$('sensorTimeout').value || '—'} giây`;
+    $('sensorSummary').textContent = `Bù ${numberVi($('tempOffset').value)}°C · chờ tối đa ${$('sensorTimeout').value || '—'} giây`;
     $('humidifierSummary').textContent = `Bật ≤${$('humidifierOnHumidity').value || '—'}% · tắt ≥${$('humidifierOffHumidity').value || '—'}%RH`;
+  }
+
+  function supportsVentProfile(config) {
+    return Boolean(config && VENT_PROFILE_KEYS.every((key) => Object.hasOwn(config, key)));
+  }
+
+  function syncVentilationFeatureUi(config) {
+    const available = supportsVentProfile(config);
+    $('ventProfileFields').disabled = !available;
+    $('ventAvailability').hidden = available;
+    $('ventAvailability').textContent = !config
+      ? 'Đang chờ cài đặt từ máy.'
+      : 'Máy đang dùng phần mềm cũ. Bạn vẫn có thể chỉnh ngưỡng nhiệt độ; cập nhật phần mềm máy để dùng thông gió theo ngày ấp.';
+    if (config && !available) $('ventSummary').textContent = 'Điều khiển theo ngưỡng nhiệt độ';
+  }
+
+  function swipeDestination(page, dx, dy, elapsed) {
+    if (elapsed > 700 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return null;
+    const pages = ['device', 'batch', 'settings'];
+    return pages[pages.indexOf(page) + (dx < 0 ? 1 : -1)] || null;
+  }
+
+  function bindMobileSwipe() {
+    const root = document.querySelector('.main');
+    let gesture = null;
+    root.addEventListener('pointerdown', (event) => {
+      if (gesture) { gesture = null; return; }
+      if (event.pointerType !== 'touch' || !event.isPrimary || innerWidth > 800 ||
+          event.clientX < 24 || event.clientX > innerWidth - 24 ||
+          document.querySelector('dialog[open]') ||
+          event.target.closest('input, textarea, select, button, a, label, summary, canvas, [contenteditable], [role="listbox"]')) return;
+      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, at: performance.now() };
+    }, { passive: true });
+    root.addEventListener('pointermove', (event) => {
+      if (!gesture || event.pointerId !== gesture.id) return;
+      const dx = Math.abs(event.clientX - gesture.x), dy = Math.abs(event.clientY - gesture.y);
+      if (dy > 12 && dy > dx) gesture = null;
+    }, { passive: true });
+    root.addEventListener('pointerup', (event) => {
+      const start = gesture;
+      gesture = null;
+      if (!start || start.id !== event.pointerId || document.querySelector('dialog[open]')) return;
+      const next = swipeDestination(document.body.dataset.page, event.clientX - start.x,
+        event.clientY - start.y, performance.now() - start.at);
+      if (next) showPage(next);
+    }, { passive: true });
+    root.addEventListener('pointercancel', () => { gesture = null; }, { passive: true });
   }
 
   function hasDirtyForm(formId) {
@@ -1256,7 +1324,7 @@
     const config = device?.config;
     if (!config) return;
     syncHumidifierFeatureUi(config);
-    $('ventSettingCard').hidden = !Object.prototype.hasOwnProperty.call(config, 'ventAutoEnabled');
+    syncVentilationFeatureUi(config);
     const assign = (formId, id, value) => {
       if (!force && hasDirtyForm(formId)) return;
       const element = $(id);
@@ -1300,6 +1368,10 @@
     check('temperatureForm', 'highTempAlarmWithoutBatch', config.highTempAlarmWithoutBatch);
     assign('ventForm', 'ventOn', config.ventOnTemp);
     assign('ventForm', 'ventOff', config.ventOffTemp);
+    $('ventOn').min = (Number(config.targetTemp) + 0.1).toFixed(1);
+    $('ventOn').max = Number(config.highTempAlarm).toFixed(1);
+    $('ventOff').min = Number(config.targetTemp).toFixed(1);
+    $('ventOff').max = Number(config.highTempAlarm).toFixed(1);
     check('ventForm', 'ventAutoEnabled', config.ventAutoEnabled);
     assign('ventForm', 'ventProfileLevel', config.ventProfileLevel ?? 1);
     assign('ventForm', 'ventCycleMinutes', config.ventCycleMinutes ?? 40);
@@ -1335,7 +1407,7 @@
     assign('advancedForm', 'advAutotuneBandC', config.autotuneBandC);
 
     ['quickForm', 'batchForm', 'temperatureForm', 'ventForm', 'turningForm', 'sensorForm', 'lightAlarmForm', 'humidifierForm', 'advancedForm'].forEach((formId) => {
-      if (force || !hasDirtyForm(formId)) setFormState(formId, 'saved', 'Đã đồng bộ với ESP32');
+      if (force || !hasDirtyForm(formId)) setFormState(formId, 'saved', 'Đã nhận cài đặt từ máy');
     });
     updateSettingSummaries();
   }
@@ -1375,7 +1447,7 @@
   function buildConfig(group) {
     const device = currentDevice();
     if (!device?.config || !validateFullConfig(device.config)) {
-      toast('Chưa nhận đủ cấu hình từ ESP32. Hãy chờ máy đồng bộ.');
+      toast('Chưa nhận đủ cấu hình từ máy. Hãy chờ máy đồng bộ.');
       return null;
     }
     const config = { ...device.config };
@@ -1399,11 +1471,13 @@
     } else if (group === 'vent') {
       config.ventOnTemp = Number($('ventOn').value);
       config.ventOffTemp = Number($('ventOff').value);
-      config.ventAutoEnabled = $('ventAutoEnabled').checked;
-      config.ventProfileLevel = Number($('ventProfileLevel').value);
-      config.ventCycleMinutes = Number($('ventCycleMinutes').value);
-      for (const key of VENT_PROFILE_KEYS.slice(3)) config[key] = Number($(key).value);
-      if (config.ventAutoEnabled) config.ventScheduleEnabled = false;
+      if (supportsVentProfile(device.config)) {
+        config.ventAutoEnabled = $('ventAutoEnabled').checked;
+        config.ventProfileLevel = Number($('ventProfileLevel').value);
+        config.ventCycleMinutes = Number($('ventCycleMinutes').value);
+        for (const key of VENT_PROFILE_KEYS.slice(3)) config[key] = Number($(key).value);
+        if (config.ventAutoEnabled) config.ventScheduleEnabled = false;
+      }
     } else if (group === 'turning') {
       config.turningEnabled = $('turningEnabled').checked;
       config.manualTurnReanchorsSchedule = $('manualTurnReanchorsSchedule').checked;
@@ -1448,7 +1522,7 @@
 
   function publish(topic, payload, options = {}) {
     if (!state.mqttConnected || !state.mqtt?.connected) {
-      const error = new Error('MQTT chưa kết nối'); error.code = 'TRANSPORT_ERROR'; throw error;
+      const error = new Error('Chưa kết nối với máy chủ'); error.code = 'TRANSPORT_ERROR'; throw error;
     }
     const wire = JSON.stringify(payload);
     const bytes = encoder.encode(wire).length + encoder.encode(topic).length + PACKET_POLICY.MQTT_OVERHEAD;
@@ -1492,7 +1566,7 @@
       if (state.pending.get(id) !== pending) return;
       moveToUncertain(id, pending);
       const device = state.devices.find((item) => item.id === pending.deviceId);
-      if (pending.kind === 'config') setFormState(pending.formId, 'unconfirmed', 'Chưa nhận xác nhận cuối từ ESP32 · đang đồng bộ trạng thái');
+      if (pending.kind === 'config') setFormState(pending.formId, 'unconfirmed', 'Chưa nhận xác nhận cuối từ máy · đang đồng bộ trạng thái');
       if (pending.kind === 'reminders' && device) {
         device.remindersPending = false;
         if (device.id === state.selectedId) renderReminderList(device);
@@ -1500,7 +1574,7 @@
       if (pending.kind === 'history') {
         telemetryChart.historyLoading = false;
         telemetryChart.historyRetryAt = Date.now() + 30_000;
-        telemetrySetStatus('Chưa nhận xác nhận cuối từ EEPROM · kết quả chưa chắc chắn');
+        telemetrySetStatus('Máy chưa xác nhận đọc lịch sử · kết quả chưa chắc chắn');
       }
       if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
         clearBatchActionPending(device);
@@ -1511,7 +1585,7 @@
       // ESP32 tra cham, chi cap nhat trang thai ngay trong bieu do; khong
       // hien toast nhu mot thao tac that bai do nguoi dung vua thuc hien.
       if (pending.kind !== 'history')
-        toast('Chưa nhận xác nhận cuối từ ESP32; kết quả chưa chắc chắn', 5000);
+        toast('Chưa nhận xác nhận cuối từ máy; kết quả chưa chắc chắn', 5000);
       if (device) sendSession(device.id, true, true);
     };
     state.pending.set(id, pending);
@@ -1542,14 +1616,14 @@
         if (pending.kind === 'reminders')
           toast('Đã thấy nhắc nhở trên máy; không nhận được ACK cho giao dịch', 5000);
         if (pending.kind === 'history' && telemetryChart.activeRequestId === id)
-          telemetrySetStatus('Đã nhận lịch sử EEPROM; không nhận được ACK cuối');
+          telemetrySetStatus('Đã nhận lịch sử trong bộ nhớ máy; không nhận được ACK cuối');
         continue;
       }
       if (pending.kind === 'config' && Number(device?.revision || 0) <= pending.revision)
         setFormState(pending.formId, 'unconfirmed', 'Không nhận được kết quả cuối; kiểm tra lại cấu hình trên máy');
       if (pending.kind === 'reminders') toast('Chưa xác nhận được nhắc nhở; kiểm tra trên máy', 5000);
       if (pending.kind === 'history' && telemetryChart.activeRequestId === id)
-        telemetrySetStatus('Chưa xác nhận được lịch sử EEPROM · có thể thử đọc lại');
+        telemetrySetStatus('Chưa xác nhận được lịch sử trong bộ nhớ máy · có thể thử đọc lại');
       if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
         if (device) device.batchUiAwaitingConfirmTarget = '';
         if (device?.id === state.selectedId) setFormError('batchForm', 'Chưa xác nhận được kết quả; kiểm tra trạng thái trên máy');
@@ -1585,10 +1659,10 @@
 
   async function sendConfig(formId, group) {
     const device = currentDevice();
-    if (!device) return toast('Hãy thêm thiết bị trước');
+    if (!device) return toast('Hãy thêm máy trước');
     if (!isDeviceOnline(device)) {
-      setFormState(formId, 'unconfirmed', 'Thiết bị đang offline · chưa gửi');
-      toast('Thiết bị đang offline · chưa gửi');
+      setFormState(formId, 'unconfirmed', 'Máy đang ngoại tuyến · chưa gửi');
+      toast('Máy đang ngoại tuyến · chưa gửi');
       return;
     }
     const config = buildConfig(group);
@@ -1616,7 +1690,7 @@
     if (!Object.keys(patch).length) return;
     const payload = { v: Number(device.presence?.proto || 0) >= 2 ? 2 : PROTOCOL_VERSION,
       revision, requestId: id, config: patch };
-    setFormState(formId, 'pending', 'Đang gửi tới ESP32…');
+    setFormState(formId, 'pending', 'Đang gửi tới máy…');
     startTransaction(id, { kind: 'config', operation: 'config.save', deviceId: device.id,
       formId, revision, config, patch, bootId: device.bootId }, WEB.configTimeoutMs);
     try {
@@ -1645,11 +1719,11 @@
     const device = options.device || currentDevice();
     if (!device) return false;
     if (!isDeviceOnline(device)) {
-      toast('Thiết bị đang offline');
+      toast('Máy đang ngoại tuyến');
       return false;
     }
     if (!device.bootId) {
-      toast('Chưa nhận bootId. Hãy chờ ESP32 đồng bộ.');
+      toast('Đang nhận dữ liệu từ máy. Vui lòng chờ một chút.');
       sendSession(device.id, true, true);
       return false;
     }
@@ -1725,7 +1799,7 @@
     const transition = Number(ack.v) === 2 ? transactions.ack(id, ack) : null;
     if (transition === 'IGNORED') return;
     if (transition === 'PROTOCOL_ERROR') {
-      toast('PROTOCOL_ERROR: ACK từ máy không hợp lệ');
+      toast('Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.');
       return;
     }
     if (Number.isFinite(Number(ack.bootId))) device.bootId = Number(ack.bootId);
@@ -1737,14 +1811,14 @@
       if (pending.phase === 'UNCERTAIN') return;
       pending.phase = 'RECEIVED';
       pending.tDeviceReceived = performance.now();
-      if (pending.kind === 'config') setFormState(pending.formId, 'pending', 'Máy đã nhận · đang lưu EEPROM…');
+      if (pending.kind === 'config') setFormState(pending.formId, 'pending', 'Máy đã nhận · đang lưu vào bộ nhớ máy…');
       else toast('Máy đã nhận yêu cầu · đang thực hiện');
       return;
     }
     if (phase === 'uncertain') {
       moveToUncertain(id, pending);
       if (pending.kind === 'config') setFormState(pending.formId, 'unconfirmed',
-        'Máy chưa xác nhận lưu EEPROM · đang đồng bộ');
+        'Máy chưa xác nhận lưu vào bộ nhớ máy · đang đồng bộ');
       if (pending.kind === 'reminders') device.remindersPending = false;
       if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
         clearBatchActionPending(device);
@@ -1755,7 +1829,7 @@
       return;
     }
     if (phase !== 'completed' || (v2 && typeof ack.ok !== 'boolean')) {
-      toast('PROTOCOL_ERROR: ACK từ máy không hợp lệ');
+      toast('Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.');
       return;
     }
     const ok = v2 ? ack.ok : result === 'applied';
@@ -1792,11 +1866,11 @@
           device.config = { ...pending.config };
           device.revision = Number(ack.revision || pending.revision);
         }
-        if (!superseded) setFormState(pending.formId, 'saved', 'ESP32 đã lưu và kiểm tra EEPROM');
-        toast('Đã lưu cấu hình vào ESP32');
+        if (!superseded) setFormState(pending.formId, 'saved', 'Máy đã lưu và xác nhận cài đặt');
+        toast('Đã lưu cấu hình trên máy');
       } else {
         if (!superseded) setFormState(pending.formId, 'error', message);
-        toast(`ESP32 từ chối: ${message}`, 5000);
+        toast(`Máy từ chối: ${message}`, 5000);
       }
       return;
     }
@@ -1809,16 +1883,16 @@
         }
       }
       if (device.id === state.selectedId) renderReminderList(device);
-      toast(ok ? 'Đã lưu danh sách nhắc nhở' : `ESP32 từ chối: ${message}`, 5000);
+      toast(ok ? 'Đã lưu danh sách nhắc nhở' : `Máy từ chối: ${message}`, 5000);
       return;
     }
     if (pending.kind === 'history') {
       telemetryChart.historyLoading = false;
       telemetryChart.historyRetryAt = ok ? 0 : Date.now() + 30_000;
       if (!ok) telemetrySetStatus(ack.code === 'HISTORY_EEPROM_ERROR'
-        ? 'Lỗi đọc EEPROM lịch sử' : message);
+        ? 'Lỗi đọc bộ nhớ lịch sử' : message);
       else telemetrySetStatus(ack.code === 'HISTORY_EMPTY'
-        ? 'EEPROM chưa có dữ liệu · cập nhật trực tiếp' : 'Đã đọc lịch sử EEPROM');
+        ? 'Bộ nhớ máy chưa có dữ liệu · cập nhật trực tiếp' : 'Đã đọc lịch sử trong bộ nhớ máy');
       return;
     }
     if (pending.action === 'batch_start' || pending.action === 'batch_stop') {
@@ -1832,7 +1906,7 @@
         addBatchLog(device, message);
       } else if (device.id === state.selectedId) setFormError('batchForm', '');
     }
-    toast(ok ? message : `ESP32 từ chối: ${message}`, 5000);
+    toast(ok ? message : `Máy từ chối: ${message}`, 5000);
   }
 
   async function verifyDeviceAck(device, ack) {
@@ -1867,10 +1941,10 @@
     'DA HUY KIEM TRA': 'Đã hủy kiểm tra',
     'DA DONG CONG WIFI': 'Đã đóng cổng đổi Wi-Fi',
     'DA GUI YEU CAU DAT LAI PIN': 'Đã gửi yêu cầu đặt lại mã PIN lên máy chủ',
-    'DANG TAI FIRMWARE...': 'Máy đang tải firmware mới - không tắt nguồn',
+    'DANG TAI FIRMWARE...': 'Máy đang tải phần mềm mới - không tắt nguồn',
     'DANG KIEM TRA BAN MOI': 'Máy đang kiểm tra phiên bản mới',
-    'DANG QUAY LAI FIRMWARE CU...': 'Máy đang quay lại firmware trước đó - sắp khởi động lại',
-    'KHONG CO BAN CU DE QUAY LAI': 'Không còn bản firmware trước đó để quay lại',
+    'DANG QUAY LAI FIRMWARE CU...': 'Máy đang quay lại phần mềm trước đó - sắp khởi động lại',
+    'KHONG CO BAN CU DE QUAY LAI': 'Không còn bản phần mềm trước đó để quay lại',
     'DA CHON TIEP TUC ME': 'Đã chọn tiếp tục mẻ ấp dở',
     'KHONG CO ME CHO XAC NHAN': 'Không có mẻ nào đang chờ xác nhận',
     'HAY THOAT TEST TRUOC': 'Hãy thoát chế độ kiểm tra trước',
@@ -1934,7 +2008,7 @@
     // F-01 (audit truoc phat hanh v3.7.1): may tu choi lenh vi dang dung
     // broker MQTT cong khai mac dinh (khong xac thuc) - xem
     // mqttCommandChannelTrusted() trong realtime_link.h.
-    'BROKER CONG KHAI - LENH TU XA BI KHOA': 'Máy đang dùng broker MQTT công khai (chưa cấu hình riêng) nên lệnh điều khiển từ xa bị khoá để an toàn - vui lòng thao tác trực tiếp trên máy',
+    'BROKER CONG KHAI - LENH TU XA BI KHOA': 'Máy chưa được thiết lập kết nối điều khiển bảo mật nên lệnh điều khiển từ xa bị khoá để an toàn - vui lòng thao tác trực tiếp trên máy',
     'CHU KY LENH KHONG HOP LE': 'Yêu cầu điều khiển không có chữ ký hợp lệ - hãy xác thực lại PIN nếu vừa đổi hoặc đặt lại PIN'
   };
 
@@ -1942,15 +2016,15 @@
     const result = String(ack.result || '');
     const raw = String(ack.message || '').trim();
     const map = {
-      accepted: 'ESP32 đã tiếp nhận yêu cầu',
-      applied: 'ESP32 đã lưu và áp dụng cấu hình',
-      rejected: 'ESP32 từ chối yêu cầu (không rõ lý do)',
+      accepted: 'Máy đã tiếp nhận yêu cầu',
+      applied: 'Máy đã lưu và áp dụng cấu hình',
+      rejected: 'Máy từ chối yêu cầu (không rõ lý do)',
       invalid: 'Dữ liệu gửi xuống không hợp lệ',
       duplicate: 'Yêu cầu này đã được xử lý',
-      busy: 'ESP32 đang xử lý yêu cầu khác',
+      busy: 'Máy đang xử lý yêu cầu khác',
       expired: 'Lệnh đã hết thời gian hiệu lực',
       stale: 'Lệnh thuộc lần khởi động cũ',
-      unsupported: 'Firmware chưa hỗ trợ lệnh này',
+      unsupported: 'Phần mềm máy chưa hỗ trợ thao tác này',
       unauthorized: 'Yêu cầu điều khiển chưa được máy chủ xác thực'
     };
     if (raw) return RAW_ACK_MESSAGES[raw] || raw;
@@ -1992,8 +2066,8 @@
         state.uncertain.delete(id);
         transactions.remove(id);
       } else clearPending(id);
-      setFormState(pending.formId, 'saved', 'ESP32 đã lưu và đọc lại cấu hình');
-      toast('Đã lưu cấu hình vào ESP32');
+      setFormState(pending.formId, 'saved', 'Máy đã lưu và xác nhận cài đặt');
+      toast('Đã lưu cấu hình trên máy');
       console.info('[CFG-TX] reconciled from verified config/reported', id);
     }
 
@@ -2070,7 +2144,7 @@
 
   async function sendReminders(device, nextList) {
     if (!device) return;
-    if (!isDeviceOnline(device)) return toast('Thiết bị đang offline');
+    if (!isDeviceOnline(device)) return toast('Máy đang ngoại tuyến');
 
     const revision = Math.max(Number(device.remindersRevision || 0) + 1, Math.floor(Date.now() / 1000));
     const id = requestId('rem');
@@ -2148,12 +2222,12 @@
     135: 'Chờ xác nhận áp lại quá lâu', 136: 'Mẻ ấp quá hạn',
     201: 'Lỗi 2 hành trình', 202: 'Đảo quá thời gian', 203: 'Hành trình bị kẹt',
     204: 'Xung đột lệnh đảo', 205: 'Cần kiểm tra cơ khí đảo',
-    301: 'Mất EEPROM', 302: 'EEPROM suy giảm',
+    301: 'Mất kết nối bộ nhớ máy', 302: 'Bộ nhớ máy suy giảm',
     303: 'Khởi động lại bất thường', 304: 'Xung đột ngõ ra', 305: 'Relay đóng cắt nhiều',
     306: 'Lỗi đồng hồ RTC', 313: 'Chưa xoá dữ liệu mẻ',
     314: 'Lỗi nhật ký an toàn', 315: 'Mất nhật ký mẻ',
     401: 'RAM thấp (cảnh báo sớm)', 402: 'RAM cạn - tự khởi động lại',
-    403: 'Dự đoán sắp chạm ngưỡng nhiệt', 404: 'EEPROM cần thử lại nhiều',
+    403: 'Dự đoán sắp chạm ngưỡng nhiệt', 404: 'Bộ nhớ máy cần thử lại nhiều',
     501: 'Mất liên lạc mạch báo mất điện (ATtiny)', 502: 'Pin còi sắp hết — hãy thay pin'
   };
 
@@ -2184,7 +2258,7 @@
     204: 'Lệnh đảo trái và đảo phải xung đột nhau cùng lúc.',
     205: 'Lỗi đảo lặp lại nhiều lần — cần vào Test Mode xác nhận cơ khí.',
     301: 'Module lưu cấu hình mất kết nối/lỗi nhiều lần liên tiếp.',
-    302: 'EEPROM lỗi tạm thời, đang tự thử kết nối lại.',
+    302: 'Bộ nhớ máy lỗi tạm thời, đang tự thử kết nối lại.',
     303: 'Bộ điều khiển vừa khởi động lại do lỗi phần mềm/nguồn.',
     304: 'Phát hiện 2 đầu ra loại trừ nhau cùng bật.',
     305: 'Relay đóng/cắt vượt tần suất cho phép.',
@@ -2195,8 +2269,8 @@
     401: 'Bộ nhớ RAM còn lại thấp hơn ngưỡng an toàn - hệ thống đang tự theo dõi, chưa ảnh hưởng vận hành.',
     402: 'RAM cạn kiệt nghiêm trọng - máy tự khởi động lại có kiểm soát để phòng tránh treo máy đột ngột. Nhiệt/đảo trứng phục hồi ngay sau khi khởi động lại xong.',
     403: 'Theo tốc độ thay đổi nhiệt độ hiện tại, dự đoán sắp chạm ngưỡng cảnh báo trong ít phút tới - cảnh báo sớm, không phải đã vượt ngưỡng.',
-    404: 'Bộ nhớ EEPROM phải thử lại nhiều lần bất thường khi đọc/ghi - dấu hiệu suy giảm sớm của chip nhớ, nên theo dõi thêm.',
-    501: 'Mạch báo mất điện độc lập (ATtiny13A) không phản hồi lệnh/ping từ ESP32 - có thể mạch mất nguồn pin dự phòng hoặc dây tín hiệu bị đứt. Không ảnh hưởng nhiệt/đảo trứng, nhưng nếu mất điện lưới xảy ra lúc này, còi báo dự phòng có thể không kêu.',
+    404: 'Bộ nhớ máy phải thử lại nhiều lần bất thường khi đọc/ghi - dấu hiệu suy giảm sớm của chip nhớ, nên theo dõi thêm.',
+    501: 'Mạch báo mất điện độc lập (ATtiny13A) không phản hồi lệnh/ping từ máy - có thể mạch mất nguồn pin dự phòng hoặc dây tín hiệu bị đứt. Không ảnh hưởng nhiệt/đảo trứng, nhưng nếu mất điện lưới xảy ra lúc này, còi báo dự phòng có thể không kêu.',
     502: 'ATtiny phát hiện pin 9V nuôi còi đã xuống dưới khoảng 7V. Đây là cảnh báo nhẹ, không khóa vận hành; hãy thay pin sớm để còi vẫn hoạt động khi mất điện. Hệ thống sẽ nhắc lại định kỳ cho tới khi ATtiny xác nhận nguồn 9V đã phục hồi.'
   };
 
@@ -2242,7 +2316,7 @@
     };
     if (known[code]) return known[code];
     if (code === 90) return `Trạng thái mạng: ${NET_STATE_TEXT[value] ?? `mã ${value}`}`;
-    if (code === 91) return 'Đã mở cổng đổi Wi‑Fi từ cài đặt HMI';
+    if (code === 91) return 'Đã mở trang đổi Wi‑Fi từ màn hình máy';
     if (code === 92) return 'Mở cổng cấu hình Wi‑Fi thất bại';
     if (code >= 1000) {
       const title = FAULT_TITLES[code - 1000] || `mã ${code - 1000}`;
@@ -2348,7 +2422,7 @@
     telemetryChart.activeRequestId = requestId;
     telemetryChart.nextCursor = 0;
     telemetryChart.historyGap = false;
-    telemetrySetStatus('Đang đọc EEPROM 30 phút gần nhất…');
+    telemetrySetStatus('Đang đọc lịch sử 30 phút gần nhất…');
     try {
       const body = { v: 1, requestId, minutes: 30 };
       const envelope = await signMqttWrite(device, 'history/request', body);
@@ -2404,8 +2478,8 @@
       telemetryChart.historyLoadedAt = Date.now();
       telemetryChart.historyRetryAt = telemetryChart.historyGap ? Date.now() + 10_000 : 0;
       telemetrySetStatus(telemetryChart.historyGap ? 'Thiếu gói lịch sử · sẽ đọc lại' : telemetryChart.points.length
-        ? 'EEPROM 5 phút · cập nhật trực tiếp'
-        : 'EEPROM chưa có dữ liệu · cập nhật trực tiếp');
+        ? 'Lịch sử mỗi 5 phút · cập nhật trực tiếp'
+        : 'Bộ nhớ máy chưa có dữ liệu · cập nhật trực tiếp');
     }
     requestTemperatureChartRender();
   }
@@ -2512,7 +2586,7 @@
     if (!logs.length) {
       const empty = document.createElement('div');
       empty.className = 'batchLogEmpty';
-      empty.textContent = 'Chưa có hoạt động do ESP32 gửi lên.';
+      empty.textContent = 'Chưa có hoạt động từ máy.';
       root.append(empty);
       return;
     }
@@ -2555,8 +2629,14 @@
 
   function activateSelectedSession(sync = false) {
     clearInterval(state.sessionTimer);
-    if (!state.selectedId || !state.mqttConnected) return;
+    clearSyncRetries();
+    if (!state.selectedId || !state.mqttConnected || document.hidden) return;
     sendSession(state.selectedId, true, sync);
+    const selectedId = state.selectedId;
+    if (sync) state.syncRetryTimers = [700, 1600].map((ms) => setTimeout(() => {
+      if (selectedId === state.selectedId && !document.hidden && selectedNeedsSync())
+        sendSession(selectedId, true, true);
+    }, ms));
     // "session" dung QoS 0 (khong dam bao toi, khong tu gui lai) - neu goi
     // "sync:true" DUY NHAT luc vua ket noi bi rot tren duong truyen (chap
     // chon mang, broker cong khai qua tai), web se ket cau hinh KHONG BAO GIO
@@ -2567,15 +2647,23 @@
     // thuc su nhan du cau hinh hop le - tu gioi han (het roi thi thoi, khong
     // con gui them "sync:true" thua) nen khong tang tai binh thuong.
     state.sessionTimer = setInterval(() => {
-      const device = currentDevice();
-      const needsSync = device?.id !== state.selectedId ||
-          !device?.config || !validateFullConfig(device.config) ||
-          Number(device.snapshot?.revision || 0) > Number(device.revision || 0);
-      sendSession(state.selectedId, true, needsSync);
+      sendSession(state.selectedId, true, selectedNeedsSync());
     }, WEB.sessionRefreshMs);
   }
 
+  function selectedNeedsSync() {
+    const device = currentDevice();
+    return !device?.snapshotAt || !device.config || !validateFullConfig(device.config) ||
+      Number(device.snapshot?.revision || 0) > Number(device.revision || 0);
+  }
+
+  function clearSyncRetries() {
+    state.syncRetryTimers.forEach(clearTimeout);
+    state.syncRetryTimers = [];
+  }
+
   function deactivateSession(deviceId) {
+    clearSyncRetries();
     if (deviceId) sendSession(deviceId, false, false);
   }
 
@@ -2585,8 +2673,13 @@
     subscribeDevice(device.id).then(() => {
       if (device.id === state.selectedId) activateSelectedSession(force);
     }).catch((error) => {
-      state.mqttMessage = `SUBACK lỗi: ${error.message}`;
+      state.mqttMessage = 'Chưa nhận được dữ liệu từ máy. Đang thử kết nối lại…';
       renderDevice();
+      clearTimeout(state.subscriptionRetryTimer);
+      state.subscriptionRetryTimer = setTimeout(() => {
+        if (device.id === state.selectedId && state.mqttConnected && !document.hidden)
+          syncSelectedDevice(true);
+      }, 3000);
     });
     if (device.config) applyConfigToUi(device, force);
     renderReminderList(device);
@@ -2602,17 +2695,32 @@
       ? [outputTopics.presence, outputTopics.snapshot, outputTopics.report,
         outputTopics.remindersReport, outputTopics.ack, outputTopics.log, outputTopics.historyReport]
       : [outputTopics.presence];
-    await Promise.all(desired.filter((topic) => !state.subscriptions.has(topic)).map((topic) =>
-      new Promise((resolve, reject) => {
-        state.mqtt.subscribe(topic, { qos: topic.endsWith('/snapshot') ? 0 : 1 }, (error, granted) => {
-          if (error || !granted?.length || granted.some((item) => item.qos === 128)) {
-            reject(error || new Error(`Broker từ chối ${topic}`));
-            return;
-          }
-          state.subscriptions.add(topic);
-          resolve();
-        });
-      })));
+    const epoch = state.subscriptionEpoch;
+    const key = `${epoch}:${deviceId}:${selected}`;
+    if (state.subscriptionRequests.has(key)) return state.subscriptionRequests.get(key);
+    const missing = desired.filter((topic) => !state.subscriptions.has(topic));
+    if (!missing.length) return;
+    const client = state.mqtt;
+    const request = new Promise((resolve, reject) => {
+      let settled = false;
+      const timeout = setTimeout(() => { settled = true; reject(new Error('SUBSCRIBE_TIMEOUT')); }, 8000);
+      const filters = Object.fromEntries(missing.map((topic) =>
+        [topic, { qos: topic.endsWith('/snapshot') ? 0 : 1 }]));
+      client.subscribe(filters, (error, granted) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        if (client !== state.mqtt || epoch !== state.subscriptionEpoch || !state.mqttConnected)
+          return reject(new Error('CONNECTION_CHANGED'));
+        if (error || !missing.every((topic) => granted?.some((item) =>
+          item.topic === topic && (item.qos === 0 || item.qos === 1))))
+          return reject(error || new Error('SUBSCRIBE_REJECTED'));
+        missing.forEach((topic) => state.subscriptions.add(topic));
+        resolve();
+      });
+    });
+    state.subscriptionRequests.set(key, request);
+    try { await request; } finally { state.subscriptionRequests.delete(key); }
   }
 
   function unsubscribeDevice(deviceId) {
@@ -2627,15 +2735,20 @@
   }
 
   function connectMqtt() {
+    const credentials = [WEB.mqttUrl, WEB.mqttUsername, WEB.mqttPassword];
+    if (state.mqtt && !state.mqtt.disconnecting && state.mqttCredentials?.every((value, i) => value === credentials[i])) {
+      if (state.mqttConnected) syncSelectedDevice(true);
+      return;
+    }
     if (!WEB.mqttUrl || !/^wss?:\/\//i.test(WEB.mqttUrl)) {
       state.mqttSessionState = 'error';
-      state.mqttMessage = 'Chưa cấu hình MQTT WebSocket';
+      state.mqttMessage = 'Chưa có phiên kết nối. Hãy ghép nối máy.';
       renderDevice();
       return;
     }
     if (!window.mqtt?.connect) {
       state.mqttSessionState = 'error';
-      state.mqttMessage = 'Không tải được thư viện MQTT.js';
+      state.mqttMessage = 'Không tải được thành phần kết nối. Hãy tải lại trang.';
       renderDevice();
       return;
     }
@@ -2651,15 +2764,27 @@
     if (WEB.mqttUsername) options.username = WEB.mqttUsername;
     if (WEB.mqttPassword) options.password = WEB.mqttPassword;
 
-    state.mqtt = window.mqtt.connect(WEB.mqttUrl, options);
-    state.mqttMessage = 'Đang kết nối MQTT…';
+    const previous = state.mqtt;
+    state.mqttConnected = false;
+    state.subscriptionEpoch++;
+    state.subscriptions.clear();
+    clearInterval(state.sessionTimer);
+    clearTimeout(state.subscriptionRetryTimer);
+    clearSyncRetries();
+    const client = window.mqtt.connect(WEB.mqttUrl, options);
+    state.mqtt = client;
+    state.mqttCredentials = credentials;
+    if (previous) previous.end(true);
+    state.mqttMessage = 'Đang kết nối với máy…';
     renderDevice();
 
     state.mqtt.on('connect', () => {
+      if (state.mqtt !== client) return;
       state.mqttConnected = true;
       state.mqttSessionState = 'ready';
-      state.mqttMessage = 'MQTT đã kết nối';
+      state.mqttMessage = 'Đã kết nối máy chủ';
       state.subscriptions.clear();
+      state.subscriptionEpoch++;
       state.devices.forEach((device) => {
         if (device.id !== state.selectedId) subscribeDevice(device.id).catch(console.error);
         // Don rac 1 lan: cac ban truoc cua trang nay tung gui config/set voi
@@ -2675,25 +2800,35 @@
       renderDevice();
     });
     state.mqtt.on('reconnect', () => {
+      if (state.mqtt !== client) return;
       state.mqttConnected = false;
-      state.mqttMessage = 'Đang kết nối lại MQTT…';
+      state.mqttMessage = 'Đang kết nối lại với máy…';
       renderDevice();
     });
     state.mqtt.on('close', () => {
+      if (state.mqtt !== client) return;
+      state.subscriptionEpoch++;
+      state.subscriptions.clear();
+      clearInterval(state.sessionTimer);
+      clearTimeout(state.subscriptionRetryTimer);
+      clearSyncRetries();
       state.mqttConnected = false;
-      state.mqttMessage = 'MQTT đã ngắt';
+      state.mqttMessage = 'Kết nối bị gián đoạn';
       renderDevice();
     });
     state.mqtt.on('offline', () => {
+      if (state.mqtt !== client) return;
       state.mqttConnected = false;
-      state.mqttMessage = 'Trình duyệt đang offline';
+      state.mqttMessage = 'Thiết bị của bạn đang mất Internet';
       renderDevice();
     });
     state.mqtt.on('error', (error) => {
-      state.mqttMessage = `MQTT lỗi: ${error?.message || 'không xác định'}`;
+      if (state.mqtt !== client) return;
+      state.mqttMessage = 'Kết nối máy chủ gặp lỗi. Đang thử lại…';
       renderDevice();
     });
     state.mqtt.on('message', (topic, data) => {
+      if (state.mqtt !== client) return;
       const parsedTopic = parseTopic(topic);
       if (!parsedTopic) return;
       const device = state.devices.find((item) => item.id === parsedTopic.deviceId);
@@ -2816,19 +2951,25 @@
     clearInvalid('ventForm');
     const on = Number($('ventOn').value);
     const off = Number($('ventOff').value);
-    if (!(on > off)) return invalidate('ventForm', 'ventOn', 'Nhiệt bật quạt phải cao hơn nhiệt tắt quạt.');
+    const target = Number(currentDevice()?.config?.targetTemp);
+    if (!Number.isFinite(on) || on < target + 0.1 - 0.0005)
+      return invalidate('ventForm', 'ventOn', 'Ngưỡng bật quạt phải cao hơn nhiệt độ đặt ít nhất 0,1°C.');
+    if (!Number.isFinite(off) || off < target - 0.0005)
+      return invalidate('ventForm', 'ventOff', 'Ngưỡng tắt quạt không được thấp hơn nhiệt độ đặt.');
+    if (on - off < 0.1 - 0.0005) return invalidate('ventForm', 'ventOn', 'Ngưỡng bật phải cao hơn ngưỡng tắt ít nhất 0,1°C.');
     if (!(on <= Number(currentDevice()?.config?.highTempAlarm)))
       return invalidate('ventForm', 'ventOn', 'Ngưỡng bật quạt không được cao hơn cảnh báo nhiệt cao.');
+    if (!supportsVentProfile(currentDevice()?.config)) return true;
     const cycle = Number($('ventCycleMinutes').value);
     const level = Number($('ventProfileLevel').value);
     if (!Number.isInteger(level) || level < 0 || level > 2)
       return invalidate('ventForm', 'ventProfileLevel', 'Chọn mức Thấp, Tiêu chuẩn hoặc Cao.');
-    if (!Number.isInteger(cycle) || cycle < 40 || cycle > 120)
-      return invalidate('ventForm', 'ventCycleMinutes', 'Chu kỳ phải từ 40 đến 120 phút.');
+    if (!Number.isInteger(cycle) || cycle < 40 || cycle > 120 || (cycle - 40) % 10 !== 0)
+      return invalidate('ventForm', 'ventCycleMinutes', 'Chu kỳ từ 40 đến 120 phút, tăng giảm mỗi 10 phút như trên máy.');
     for (const key of VENT_PROFILE_KEYS.slice(3)) {
       const duty = Number($(key).value);
       if (!Number.isInteger(duty) || duty < 5 || duty > 90)
-        return invalidate('ventForm', key, 'Duty từng giai đoạn phải từ 5 đến 90%.');
+        return invalidate('ventForm', key, 'Thời gian chạy từng giai đoạn phải từ 5 đến 90%.');
     }
     return true;
   }
@@ -2916,6 +3057,11 @@
 
   function bindUi() {
     initSettingHints();
+    bindMobileSwipe();
+    document.querySelectorAll('.notificationLine input[type="checkbox"]').forEach((input) => {
+      const name = input.closest('.notificationLine')?.querySelector('strong, .settingHintTrigger')?.textContent;
+      if (name) input.setAttribute('aria-label', name.trim());
+    });
     $('confirmCancel').addEventListener('click', () => finishConfirm(false));
     $('confirmAccept').addEventListener('click', () => finishConfirm(true));
     $('confirmDialog').addEventListener('cancel', (event) => { event.preventDefault(); finishConfirm(false); });
@@ -2979,7 +3125,7 @@
       event.preventDefault();
       const id = normalizeDeviceId($('newDeviceId').value);
       const pin = $('newDevicePin').value.trim();
-      if (!DEVICE_ID_RE.test(id)) return toast('ID phải đúng dạng MAP-A1B2C3D4E5F6');
+      if (!DEVICE_ID_RE.test(id)) return toast('Mã máy có dạng MAP-A1B2C3D4E5F6');
       if (!/^[0-9]{4,8}$/.test(pin)) return toast('Mã PIN phải là 4-8 chữ số');
 
       const submitBtn = event.target.querySelector('button[type="submit"]');
@@ -2990,7 +3136,7 @@
         result = await verifyDevicePin(id, pin);
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Thêm và chọn thiết bị';
+        submitBtn.textContent = 'Thêm và chọn máy';
       }
       if (!result.success) return toast(result.error || 'Sai mã PIN hoặc thiết bị chưa đăng ký');
       if (!saveProvisionedMqtt(result)) return toast('Máy chủ chưa cấp cấu hình kết nối.');
@@ -3012,21 +3158,23 @@
       deactivateSession(previous);
       if (previous && previous !== id) unsubscribeDevice(previous);
       renderSelector();
-      subscribeDevice(id);
+      subscribeDevice(id).catch(() => {});
       $('deviceDialog').close();
       // Neu thong bao da bat san tren trinh duyet nay, tu lien ket luon may
       // moi them vao (khong bat nguoi dung phai bam lai "Bat thong bao").
       renderPushStatus();
       saveDevices();
-      toast('Đã thêm thiết bị · đang kết nối tự động');
-      setTimeout(() => window.location.reload(), 400);
+      toast('Đã thêm máy · đang kết nối tự động');
+      controlSessions.delete(id);
+      connectMqtt();
+      controlSession(currentDevice()).catch((error) => console.warn('[SESSION]', error.code || 'TRANSPORT_ERROR'));
     });
 
     $('remindersForm').addEventListener('submit', (event) => {
       event.preventDefault();
       const device = currentDevice();
       clearInvalid('remindersForm');
-      if (!device) return toast('Hãy thêm thiết bị trước');
+      if (!device) return toast('Hãy thêm máy trước');
       if (device.remindersPending) return;
 
       const dayInput = $('reminderDayInput');
@@ -3105,7 +3253,7 @@
       const oldPin = $('changePinOld').value.trim();
       const newPin1 = $('changePinNew1').value.trim();
       const newPin2 = $('changePinNew2').value.trim();
-      if (!/^[0-9]{4,8}$/.test(newPin1)) return toast('Mã PIN mới phải là 4-8 chữ số');
+      if (!/^[0-9]{6,8}$/.test(newPin1)) return toast('Mã PIN mới phải gồm 6–8 chữ số');
       if (newPin1 !== newPin2) {
         errorEl.textContent = 'Mã PIN mới nhập lại không khớp';
         errorEl.classList.add('show');
@@ -3162,7 +3310,7 @@
         if (!validateBatchForm()) return;
         const ok = await confirmAction({
           title: 'Bắt đầu mẻ ấp?',
-          message: `Máy sẽ bắt đầu mẻ “${$('batchName').value.trim()}” theo cấu hình đã được ESP32 xác nhận.`,
+          message: `Máy sẽ bắt đầu mẻ “${$('batchName').value.trim()}” theo cấu hình đã được máy xác nhận.`,
           accept: 'Bắt đầu mẻ'
         });
         if (!ok) return;
@@ -3185,7 +3333,7 @@
 
       const ok = await confirmAction({
         title: 'Kết thúc mẻ ấp?',
-        message: 'Thanh nhiệt và cơ cấu đảo sẽ dừng theo trình tự an toàn của firmware.',
+        message: 'Thanh nhiệt và cơ cấu đảo sẽ dừng theo trình tự an toàn của máy.',
         accept: 'Kết thúc mẻ',
         danger: true
       });
@@ -3242,7 +3390,7 @@
         const ok = await confirmAction({
           title: enabling ? 'Bật đảo tự động?' : 'Tắt đảo tự động?',
           message: enabling
-            ? 'ESP32 sẽ tự động đảo trứng theo chu kỳ và công tắc hành trình.'
+            ? 'Máy sẽ tự động đảo trứng theo chu kỳ và công tắc hành trình.'
             : 'Máy sẽ ngừng tự động đảo trứng cho tới khi bật lại - kiểm tra kỹ nếu đang có mẻ ấp.',
           accept: enabling ? 'Bật đảo tự động' : 'Tắt đảo tự động',
           danger: !enabling
@@ -3287,7 +3435,7 @@
       if (runtime?.batchRunning) return toast('Không thể tự dò khi mẻ đang chạy');
       const ok = await confirmAction({
         title: 'Bắt đầu tự dò PID?',
-        message: 'Chỉ thực hiện khi khoang ấp trống. Firmware sẽ tự điều khiển và lưu kết quả.',
+        message: 'Chỉ thực hiện khi khoang ấp trống. Máy sẽ tự điều khiển và lưu kết quả.',
         accept: 'Bắt đầu tự dò'
       });
       if (ok) await sendCommand('autotune_start');
@@ -3315,6 +3463,7 @@
   function startTimers() {
     clearInterval(state.staleTimer);
     state.staleTimer = setInterval(() => {
+      recoverBrowserConnection();
       sweepUncertain();
       for (const [id, entry] of state.lastTerminalByDevice)
         if (Date.now() - entry.at > PACKET_POLICY.UNCERTAIN_TTL_MS)
@@ -3408,7 +3557,7 @@
 
   async function onEnablePushClick() {
     const device = currentDevice();
-    if (!device) return toast('Hãy thêm thiết bị trước');
+    if (!device) return toast('Hãy thêm máy trước');
     if (!window.MayapPush) return toast('push.js chưa tải xong, thử lại sau vài giây');
 
     const btn = $('enablePushBtn');
@@ -3484,15 +3633,37 @@
       device_id: device.id,
       pairing_token: device.pairingToken,
       control_client_id: controlClientId
-    });
-    if (result.success && saveProvisionedMqtt(result)) {
-      if (result.control) await storeControlSession(device, result.control);
-      state.mqttSessionState = 'ready';
-      return true;
+    }, 10000);
+    if (device.id !== state.selectedId) {
+      if (!state.mqtt) { state.mqttSessionState = 'error'; state.authRetryAt = 0; }
+      return false;
     }
-    state.mqttSessionState = 'error';
-    state.mqttMessage = result.error || 'Không lấy được phiên MQTT WebSocket';
+    if (result.success && saveProvisionedMqtt(result)) {
+      try {
+        if (result.control) await storeControlSession(device, result.control);
+        state.mqttSessionState = 'ready';
+        state.authRetryDelay = 5000;
+        state.authRetryAt = 0;
+        return true;
+      } catch (_) {
+        // An invalid server session must not leave startup stuck at "loading".
+        controlSessions.delete(device.id);
+      }
+    }
+    state.mqttSessionState = [401, 403].includes(result.status) ? 'auth-required' : 'error';
+    state.authRetryAt = Date.now() + state.authRetryDelay;
+    state.authRetryDelay = Math.min(30000, state.authRetryDelay * 2);
+    state.mqttMessage = state.mqttSessionState === 'auth-required'
+      ? 'Phiên ghép nối hết hạn. Hãy thêm máy và nhập lại mã PIN.'
+      : 'Chưa kết nối được máy chủ. Đang thử lại…';
     return false;
+  }
+
+  async function recoverBrowserConnection() {
+    if (document.hidden || state.mqtt || state.mqttSessionState !== 'error' ||
+        Date.now() < state.authRetryAt || !currentDevice()?.pairingToken) return;
+    const ready = await refreshMqttSession();
+    if (ready) connectMqtt(); else renderDevice();
   }
 
   async function init() {
@@ -3507,13 +3678,13 @@
     renderSelector();
     updateSettingSummaries();
     renderBatchLogs();
-    setCurrentActivity('Đang kết nối', 'Đang chờ dữ liệu từ ESP32', 'idle');
-    const mqttReady = await refreshMqttSession();
-    if (mqttReady) connectMqtt();
-    else renderDevice();
+    setCurrentActivity('Đang kết nối', 'Đang chờ dữ liệu từ máy', 'idle');
     startTimers();
     registerServiceWorker();
     renderPushStatus();
+    const mqttReady = await refreshMqttSession();
+    if (mqttReady) connectMqtt();
+    else renderDevice();
   }
 
   window.addEventListener('pagehide', () => {
@@ -3522,6 +3693,10 @@
   });
   window.addEventListener('online', () => {
     if (!state.mqttConnected && state.mqtt) state.mqtt.reconnect();
+    if (!state.mqtt && state.mqttSessionState === 'error') {
+      state.authRetryAt = 0;
+      recoverBrowserConnection();
+    }
   });
 
   // Page Visibility: bao ESP32 biet tab con dang mo (foreground) hay khong,

@@ -6,12 +6,14 @@ Nhánh `feat/adaptive-staged-boot` bổ sung staged startup, chẩn đoán RTC v
 
 Runtime recovery cho shared I2C, RS485, service task và Wi-Fi deep recovery tiếp nối trên cùng nhánh: [Runtime Self-Recovery](doc/RUNTIME_SELF_RECOVERY.md). Tài liệu nêu ladder, owner/mutex, điều kiện restart và giới hạn kiểm thử.
 
+Web 12.1 bổ sung nhóm quạt hút theo HMI, giao diện sáng/tối, vuốt mobile và giảm các bước chờ khi ghép nối/mở trang: [Giao diện và kết nối](doc/WEB_12_1_UX.md).
+
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
 | Release | 4.0.0 |
 | ESP32 firmware | 4.0.0 |
 | HMI firmware | 4.0.0 |
-| Web cache | 12.0.0 |
+| Web cache | 12.1.0 |
 | ATtiny protocol | 1.0.0 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |
