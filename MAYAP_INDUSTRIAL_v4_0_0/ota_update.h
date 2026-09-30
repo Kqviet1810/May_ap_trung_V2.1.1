@@ -4,6 +4,7 @@
 #include "boot_diagnostic.h"
 #include "service_recovery.h"
 #include "firmware_update_guard.h"
+#include "arduino_ota_window.h"
 #include <Arduino.h>
 #include <ArduinoOTA.h>
 #include <Update.h>
@@ -34,11 +35,17 @@ namespace MayapOtaInternal {
 static bool started = false;
 static bool inProgress = false;
 static uint32_t lastProgressAt = 0U;
+static Mayap::ArduinoOtaWindow uploadWindow;
 
 inline void onStart() {
   if (!mayapFirmwareMaintenanceReady()) {
     Update.abort();
     mayapSerialPrintf(false, "[OTA] MAY CHUA AN TOAN DE CAP NHAT - HUY\n");
+    return;
+  }
+  if (!uploadWindow.consume(millis())) {
+    Update.abort();
+    mayapSerialPrintf(false, "[OTA] CUA SO NAP DA DONG - CAN RESET VAT LY\n");
     return;
   }
   mayapSetFirmwareMaintenanceActive(true);
@@ -61,6 +68,7 @@ inline void onEnd() {
 }
 
 inline void onProgress(unsigned int progress, unsigned int total) {
+  if (!inProgress) return;
   static uint32_t lastLogAt = 0U;
   const uint32_t now = millis();
   lastProgressAt = now;
@@ -114,6 +122,11 @@ inline bool mayapOtaQuiesceForWifiPortal() {
 // nao (an toan goi truoc khi Wi-Fi ket noi, thu tu giong cac module khac).
 inline void mayapOtaBegin() {
   if (!mayapOtaEnabled()) return;
+  const esp_reset_reason_t reason = esp_reset_reason();
+  // EN/reset and power cycling open a window. Automatic OTA/recovery/watchdog
+  // restarts do not authorize another upload.
+  MayapOtaInternal::uploadWindow.begin(
+      reason == ESP_RST_POWERON || reason == ESP_RST_EXT, millis());
   ArduinoOTA.setHostname(NETWORK_WIFI_HOSTNAME);
   ArduinoOTA.setPassword(OTA_PASSWORD);
   ArduinoOTA.onStart(MayapOtaInternal::onStart);
@@ -144,8 +157,9 @@ inline bool mayapOtaRuntimeRecover(uint32_t now) {
 // khi da ket noi Wi-Fi that; tu dong dong lai khi mat mang/chuyen OFFLINE de
 // khong giu tai nguyen mang vo ich.
 inline void mayapOtaUpdate(uint32_t now) {
-  (void)now;
   if (!mayapOtaEnabled()) return;
+  now = millis();
+  const bool windowOpen = MayapOtaInternal::uploadWindow.available(now);
 
   // Neu upload ArduinoOTA da bat dau, tiep tuc pump cho den khi onEnd/onError.
   // Khong de portal quiescing (publishedConnected=false) cat ngang flash dang ghi.
@@ -156,12 +170,14 @@ inline void mayapOtaUpdate(uint32_t now) {
 
   const NetworkStatus status = mayapGetNetworkStatus();
   const bool shouldRun =
-      status.requestedMode == ConnectivityMode::Online && status.connected &&
+      windowOpen && status.requestedMode == ConnectivityMode::Online && status.connected &&
       mayapFirmwareMaintenanceReady() && !mayapFirmwareMaintenanceActive();
 
   if (!shouldRun) {
     if (MayapOtaInternal::started) {
       ArduinoOTA.end();
+      if (!windowOpen)
+        mayapSerialPrintf(false, "[OTA] DONG CONG NAP - HET 30 PHUT HOAC DA DUNG LUOT\n");
       MayapOtaInternal::started = false;
       MayapOtaInternal::inProgress = false;
     }

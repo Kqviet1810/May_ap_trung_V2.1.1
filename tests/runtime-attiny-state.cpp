@@ -40,7 +40,7 @@ enum class FaultCode { AttinyBusUnresponsive, SirenBatteryLow, AttinyStateUnsync
 struct Faults {
   bool link = false, battery = false, sync = false;
   unsigned raises = 0U;
-  void set(FaultCode code, bool value, uint32_t) {
+  void set(FaultCode code, bool value, uint32_t, int16_t = 0) {
     if (code == FaultCode::AttinyBusUnresponsive) link = value;
     if (code == FaultCode::SirenBatteryLow) battery = value;
     if (code == FaultCode::AttinyStateUnsynced) {
@@ -61,6 +61,7 @@ struct Controller {
   uint32_t bootAt_=1000U, sirenMutedUntil_=0U;
   Outputs outputs_; Faults faults_; Runtime runtime_;
   AttinyStateSync attinyBatchSync_, attinyActivitySync_;
+  uint8_t attinySyncFaultDetail_ = 0U;
   bool attinySirenMirrorOn_=false, attinyActivityMirrorOn_=false, attinyActivityDesired_=false;
   bool attinyActivitySynced_=false, attinyTinyActivity_=false, attinyStartupProbePending_=true;
   bool attinyLinkChecked_=false, attinyLinkHealthy_=false, attinyStatusKnown_=false;
@@ -114,6 +115,43 @@ static void stop(Controller &m, bool cooling = false) {
 
 int main() {
   unsigned transitions = 0U;
+  // A START response confirms batch, but its separate activity bit may still
+  // be from the pre-handoff state. Confirm the corrective activity command
+  // before calling that intermediate state E503.
+  Controller intermediate; steady(intermediate); start(intermediate);
+  reply(intermediate, ATTINY_MSG_BATCH_START,
+        ATTINY_STATUS_FLAG_BATCH | ATTINY_STATUS_FLAG_ACTIVITY);
+  assert(!intermediate.faults_.sync && intermediate.attinyActivitySync_.pending());
+  reply(intermediate, ATTINY_MSG_STATUS_QUERY,
+        ATTINY_STATUS_FLAG_BATCH | ATTINY_STATUS_FLAG_ACTIVITY);
+  reply(intermediate, ATTINY_MSG_ACTIVITY_OFF, ATTINY_STATUS_FLAG_BATCH);
+  assert(!intermediate.faults_.sync && !intermediate.attinyActivitySync_.pending());
+  stop(intermediate);
+  reply(intermediate, ATTINY_MSG_BATCH_END, ATTINY_STATUS_FLAG_ACTIVITY);
+  assert(!intermediate.faults_.sync && intermediate.attinyActivitySync_.pending());
+  reply(intermediate, ATTINY_MSG_STATUS_QUERY, ATTINY_STATUS_FLAG_ACTIVITY);
+  reply(intermediate, ATTINY_MSG_ACTIVITY_OFF, 0U);
+  assert(!intermediate.faults_.sync && !intermediate.attinyActivitySync_.pending());
+  Controller badActivity; steady(badActivity); start(badActivity);
+  reply(badActivity, ATTINY_MSG_BATCH_START,
+        ATTINY_STATUS_FLAG_BATCH | ATTINY_STATUS_FLAG_ACTIVITY);
+  reply(badActivity, ATTINY_MSG_STATUS_QUERY,
+        ATTINY_STATUS_FLAG_BATCH | ATTINY_STATUS_FLAG_ACTIVITY);
+  reply(badActivity, ATTINY_MSG_ACTIVITY_OFF,
+        ATTINY_STATUS_FLAG_BATCH | ATTINY_STATUS_FLAG_ACTIVITY);
+  assert(badActivity.faults_.sync && badActivity.attinyActivitySync_.fault());
+  // An outside-batch activity command can still be queued when START arrives.
+  // Desired activity remains false on both sides of START, so expect(false)
+  // alone does not mark a transition. The old ON reply is not a real fault.
+  Controller queuedActivity; steady(queuedActivity);
+  mayapAttinyBusRequest(ATTINY_MSG_ACTIVITY_ON);
+  start(queuedActivity);
+  reply(queuedActivity, ATTINY_MSG_ACTIVITY_ON, ATTINY_STATUS_FLAG_ACTIVITY);
+  assert(!queuedActivity.faults_.sync && queuedActivity.attinyActivitySync_.pending());
+  reply(queuedActivity, ATTINY_MSG_BATCH_START, ATTINY_STATUS_FLAG_BATCH | ATTINY_STATUS_FLAG_ACTIVITY);
+  reply(queuedActivity, ATTINY_MSG_STATUS_QUERY, ATTINY_STATUS_FLAG_BATCH | ATTINY_STATUS_FLAG_ACTIVITY);
+  reply(queuedActivity, ATTINY_MSG_ACTIVITY_OFF, ATTINY_STATUS_FLAG_BATCH);
+  assert(!queuedActivity.faults_.sync && !queuedActivity.attinyActivitySync_.pending());
   // No transient E503 on ordinary start/stop, even with stale cached status.
   Controller m; steady(m);
   for (unsigned i = 0U; i < 100U; ++i) {
