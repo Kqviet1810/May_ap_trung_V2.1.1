@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstring>
 #include <cstdio>
+#include <cstdarg>
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -65,6 +66,14 @@ bool publishLogEntry(const HmiEventItem &item) {
   published.push_back(item.sequence); return true;
 }
 #include "actual-event-publish.inc"
+constexpr int ESP_OK=0, ESP_FAIL=-1;
+enum wifi_ps_type_t { WIFI_PS_NONE, WIFI_PS_MIN_MODEM };
+static wifi_ps_type_t radioPs=WIFI_PS_MIN_MODEM;
+static bool radioReady=true, highPerfWifiApplied=false, wifiPowerModeValid=false;
+static unsigned psWrites=0;
+int esp_wifi_get_ps(wifi_ps_type_t *ps) { if (!radioReady) return ESP_FAIL; *ps=radioPs; return ESP_OK; }
+int esp_wifi_set_ps(wifi_ps_type_t ps) { ++psWrites; if (!radioReady) return ESP_FAIL; radioPs=ps; return ESP_OK; }
+#include "actual-wifi-power.inc"
 int main() {
   { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(cloud && mayapTlsBusy());
     MayapTlsOperation other; assert(!other);
@@ -118,6 +127,11 @@ int main() {
   assert(Serial.output.find("discard on EXIT")==std::string::npos);
   assert(Serial.output.find("must not leak")==std::string::npos);
   assert(Serial.output.find("[SERIAL] OFF (EXIT)")!=std::string::npos);
+  Serial.room=0;
+  for(unsigned i=0;i<8;++i) mayapSerialPrintf(true,"toggle %u\n",i);
+  mayapSerialPrintf(true,"final OFF\n"); Serial.room=64;
+  for(unsigned i=0;i<20;++i) mayapSerialDrain();
+  assert(Serial.output.find("final OFF")!=std::string::npos);
 
   using namespace MayapCloudInternal;
   (void)lastSendAt; (void)lastRequestFinishedAt; (void)requestDeferred;
@@ -145,5 +159,11 @@ int main() {
   serviceEventLogPublish(); assert(lastPublishedEventSequence==12 && !eventSnapshotDirty);
   assert(published.size()==12);
   for(unsigned i=0;i<12;++i) assert(published[i]==i+1);
+  serviceWifiPowerMode(); assert(radioPs==WIFI_PS_NONE && psWrites==1);
+  serviceWifiPowerMode(); assert(psWrites==1);
+  radioPs=WIFI_PS_MIN_MODEM; // External radio reinitialization must not fool the cache.
+  serviceWifiPowerMode(); assert(radioPs==WIFI_PS_NONE && psWrites==2);
+  radioReady=false; serviceWifiPowerMode(); assert(!wifiPowerModeValid);
+  radioReady=true; serviceWifiPowerMode(); assert(wifiPowerModeValid && radioPs==WIFI_PS_NONE);
   std::puts("Actual stability helpers: TLS/bulk exclusion, admission boundaries, bounded/chunked HTTP, Serial pressure/mute, alarm coalescing and failed log retry OK");
 }

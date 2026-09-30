@@ -45,6 +45,12 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     start = realtime.index('inline void serviceEventLogPublish()')
     end = realtime.index('}  // namespace MayapRealtimeInternal', start)
     (out / 'actual-event-publish.inc').write_text(realtime[start:end], encoding='utf-8')
+    start = realtime.index('inline void applyWifiPowerMode(')
+    end = realtime.index('// ------------------------------- Chu de MQTT', start)
+    power = realtime[start:end]
+    start = realtime.index('inline void serviceWifiPowerMode()')
+    end = realtime.index('inline void serviceConfigPublish()', start)
+    (out / 'actual-wifi-power.inc').write_text(power + realtime[start:end], encoding='utf-8')
     cfg = (root / 'MAYAP_INDUSTRIAL_v4_0_0/config.h').read_text(encoding='utf-8')
     names = ('PIN_ATTINY_BUS', 'ATTINY_COMMAND_WIDTH_MS', 'ATTINY_BUS_MAX_RETRY',
              'ATTINY_MSG_MAX_COMMAND', 'ATTINY_MSG_STATUS_BASE', 'ATTINY_MSG_STATUS_MAX',

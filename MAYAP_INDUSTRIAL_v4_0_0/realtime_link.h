@@ -1565,6 +1565,9 @@ inline void serviceSessionTimeout(uint32_t now) {
 inline void serviceWifiPowerMode() {
   // This mains-powered controller favors deterministic latency. Faults and
   // browser leases must never toggle modem sleep every time E501 changes.
+  wifi_ps_type_t actualMode;
+  if (esp_wifi_get_ps(&actualMode) != ESP_OK || actualMode != WIFI_PS_NONE)
+    wifiPowerModeValid = false; // WiFi.mode/recovery may reset the driver's policy.
   applyWifiPowerMode(true);
 }
 

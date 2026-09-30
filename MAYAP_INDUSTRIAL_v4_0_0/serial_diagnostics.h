@@ -67,11 +67,15 @@ inline void mayapSerialPrintf(bool force, const char *format, ...) {
     if (item.priority) for (uint8_t i = 0U; i < count; ++i) {
       if (!entries[i].priority && !entries[i].offset && !(i == 0U && draining)) { victim = i; break; }
     }
+    if (victim == CAPACITY && force) for (uint8_t i = 0U; i < count; ++i) {
+      if (entries[i].force && !entries[i].offset && !(i == 0U && draining)) { victim = i; break; }
+    }
     ++dropped;
     if (victim == CAPACITY) {
       if (item.priority) ++criticalDropped;
       portEXIT_CRITICAL(&mux); return;
     }
+    if (entries[victim].priority) ++criticalDropped;
     removeEntry(victim);
   }
   entries[count++] = item;
