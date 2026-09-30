@@ -79,6 +79,7 @@ async function setup(browser, options = {}) {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
   const page = await context.newPage(), errors = [];
+  if (options.initScript) await context.addInitScript(options.initScript);
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('http://127.0.0.1:8765', { waitUntil: 'networkidle' });
   if (options.paired !== false) await page.waitForFunction(() => window.__qa.state.devices[0]?.snapshotAt);
@@ -555,4 +556,5 @@ async function main() {
     console.log(results.join('\n'));
   } finally { await browser.close(); }
 }
-main().catch(error => { console.error(error); process.exitCode=1; });
+module.exports = { setup, swipe };
+if (require.main === module) main().catch(error => { console.error(error); process.exitCode=1; });

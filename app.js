@@ -824,6 +824,7 @@
   }
 
   function renderDevice() {
+    window.MayapNotes?.syncContext();
     const device = currentDevice();
     syncHumidifierFeatureUi(device?.config);
     syncVentilationFeatureUi(device?.config);
@@ -3756,6 +3757,15 @@
     applyTheme(getThemePreference());
     applyDeepLinkDevice();
     bindUi();
+    window.MayapNotes?.mount({
+      getContext: () => {
+        const device = currentDevice();
+        return { deviceId: device?.id || '', deviceName: device?.name || '',
+          batchRunning: Boolean(device && isDeviceOnline(device) && device.snapshot?.runtime?.batchRunning),
+          batchLabel: device?.batchMeta?.name || '' };
+      },
+      confirmAction, toast
+    });
     renderSelector();
     updateSettingSummaries();
     renderBatchLogs();

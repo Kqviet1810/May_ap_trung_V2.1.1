@@ -353,6 +353,42 @@
 </div>
 </dialog>
 <div aria-live="polite" class="toast" id="toast" role="status"></div>
+<div class="notes-root" id="notesRoot" hidden>
+<button class="notes-fab" id="notesFab" type="button" title="Ghi chú · kéo để di chuyển" aria-label="Mở ghi chú" aria-haspopup="dialog" aria-expanded="false" aria-controls="notesSurface">
+<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>
+<span class="notes-badge" id="notesBadge" aria-hidden="true" hidden></span>
+</button>
+<div class="notes-panel" id="notesQuick" hidden>
+<section class="notes-surface" id="notesSurface" role="dialog" aria-label="Ghi chú" tabindex="-1">
+<header class="notes-header">
+<div class="notes-heading"><span class="notes-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></span><div><h2 id="notesHeading">Ghi chú <span id="notesCount"></span></h2><p id="notesOwner"></p></div></div>
+<button class="iconButton" id="notesClose" type="button" aria-label="Đóng ghi chú">×</button>
+</header>
+<div class="notes-toolbar" id="notesToolbar"><button class="primary full" id="notesNew" type="button">+ Ghi chú mới</button></div>
+<div class="notes-search" id="notesSearchTools" hidden>
+<label class="srOnly" for="notesSearch">Tìm kiếm ghi chú</label><input id="notesSearch" type="search" maxlength="300" placeholder="Tìm trong tiêu đề, nội dung…" autocomplete="off"/>
+<div class="notes-filters" role="group" aria-label="Lọc loại ghi chú"><button class="ghost" type="button" data-notes-filter="all" aria-pressed="true">Tất cả</button><button class="ghost" type="button" data-notes-filter="batch" aria-pressed="false">Mẻ</button><button class="ghost" type="button" data-notes-filter="machine" aria-pressed="false">Máy / bảo trì</button></div>
+</div>
+<div class="notes-content">
+<div class="notes-list" id="notesList" aria-live="polite"></div>
+<form class="notes-editor" id="notesEditor" hidden>
+<div class="notes-editor-fields">
+<h3 id="notesEditorTitle">Ghi chú mới</h3>
+<label class="field"><span>Loại ghi chú</span><select id="notesKind"><option value="batch">Mẻ hiện tại</option><option value="machine">Máy / bảo trì</option></select></label>
+<label class="field"><span>Tiêu đề <small>Không bắt buộc</small></span><input id="notesTitle" maxlength="60" placeholder="Ví dụ: Soi trứng ngày 7" autocomplete="off"/></label>
+<label class="field"><span>Nội dung</span><textarea id="notesBody" rows="4" maxlength="300" required placeholder="Ghi lại việc đã làm hoặc điều cần theo dõi…" aria-describedby="notesCounter"></textarea></label>
+<div class="notes-voice"><button class="ghost" id="notesVoice" type="button" aria-pressed="false" aria-describedby="notesVoiceStatus"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span id="notesVoiceLabel">Nhập bằng giọng nói</span></button><p id="notesVoiceStatus" role="status" aria-live="polite"></p></div>
+<div class="notes-editor-meta"><small>Thời gian được ghi khi lưu.</small><output id="notesCounter" for="notesBody">0 / 300</output></div>
+</div>
+<p class="formError notes-error" id="notesEditorError" role="alert" hidden></p>
+<div class="notes-editor-actions"><button class="ghost" id="notesCancel" type="button">Hủy</button><button class="primary" id="notesSave" type="submit">Lưu</button></div>
+</form>
+</div>
+<footer class="notes-footer"><button class="ghost full" id="notesViewAll" type="button" hidden>Xem tất cả</button><small>Bản thử · ghi chú sẽ mất khi tải lại trang.</small></footer>
+</section>
+</div>
+</div>
+<dialog class="notes-full-view" id="notesDialog" aria-label="Tất cả ghi chú"></dialog>
 
-<script defer src="./config.js"></script><script defer src="./vendor/mqtt.min.js"></script><script defer src="./vendor/jsQR.min.js"></script><script defer src="./push.js"></script><script defer src="./protocol_v2.js"></script><script defer src="./app.js"></script></body>
+<script defer src="./config.js"></script><script defer src="./vendor/mqtt.min.js"></script><script defer src="./vendor/jsQR.min.js"></script><script defer src="./push.js"></script><script defer src="./protocol_v2.js"></script><script defer src="./notes.js"></script><script defer src="./app.js"></script></body>
 </html>

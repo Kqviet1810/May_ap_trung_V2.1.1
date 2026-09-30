@@ -8,12 +8,14 @@ Runtime recovery cho shared I2C, RS485, service task và Wi-Fi deep recovery: [R
 
 Web 12.1.7 bổ sung tự phục hồi socket MQTT khi trình duyệt quay lại từ chế độ ngủ và yêu cầu đồng bộ khi snapshot cũ. Giữ các cải tiến giao diện của 12.1.6: [Giao diện và kết nối](doc/WEB_12_1_UX.md). Điều tra E503, kết nối và giới hạn Arduino OTA: [Rà soát ngày 30/09/2026](doc/RELIABILITY_REVIEW_2026_09_30.md).
 
+Web 12.1.8 thêm giao diện ghi chú nổi, kéo/snap cạnh, xem nhanh, tìm kiếm, thêm/sửa/xóa và nhập bằng giọng nói tiếng Việt. Nội dung ghi chú hiện chỉ tồn tại trong phiên trang; chỉ vị trí nút được lưu. Kiến trúc adapter và kiểm tra: [Notes UI](doc/NOTES_UI.md).
+
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
 | Release | 4.0.0 |
 | ESP32 firmware | 4.0.0 |
 | HMI firmware | 4.0.0 |
-| Web cache | 12.1.7 |
+| Web cache | 12.1.8 |
 | ATtiny protocol | 1.0.0 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |
