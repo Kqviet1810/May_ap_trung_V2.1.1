@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/publish-manual-v1_3.yml'
+      - 'tools/build_manual_append_only.py'
   workflow_dispatch:
 
 permissions:
@@ -19,54 +20,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install PDF dependencies
+      - name: Restore original Rev 1.2 PDF
+        run: |
+          git show 1f24ac1dfb12baab19894fabbf6ecc5b959f7d10:docs/MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf > /tmp/MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf
+
+      - name: Install append-only PDF dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y fonts-dejavu-core fonts-noto-core libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info
+          sudo apt-get install -y fonts-dejavu-core
           python3 -m pip install --upgrade pip
-          python3 -m pip install markdown weasyprint
+          python3 -m pip install reportlab pymupdf
 
-      - name: Build HTML and PDF manual
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import markdown
-          from weasyprint import HTML
-
-          src = Path('docs/MAYAP_Huong_dan_van_hanh_va_ma_loi_v1.3.md')
-          out_html = Path('docs/MAYAP_Huong_dan_van_hanh_A5_v1.3_E503.html')
-          out_pdf = Path('docs/MAYAP_Huong_dan_van_hanh_A5_v1.3_E503.pdf')
-
-          md = src.read_text(encoding='utf-8')
-          body = markdown.markdown(md, extensions=['tables','fenced_code'])
-          css = r'''
-          @page { size: A5; margin: 14mm 12mm 14mm 12mm; }
-          :root { --accent:#158a80; --ink:#16363a; --soft:#edf8f6; --line:#cfe7e3; }
-          * { box-sizing: border-box; }
-          body { font-family: 'Noto Sans','DejaVu Sans',sans-serif; color:var(--ink); font-size:9.2pt; line-height:1.42; margin:0; }
-          h1 { color:#10383a; font-size:20pt; line-height:1.08; margin:0 0 8mm; border-bottom:2px solid var(--accent); padding-bottom:4mm; }
-          h2 { color:var(--accent); font-size:13pt; margin:7mm 0 3mm; page-break-after:avoid; }
-          h3 { color:#23565a; font-size:10.5pt; margin:5mm 0 2mm; page-break-after:avoid; }
-          p { margin:0 0 2.4mm; }
-          blockquote { margin:4mm 0; padding:3mm 4mm; background:var(--soft); border-left:3px solid var(--accent); }
-          table { width:100%; border-collapse:collapse; margin:3mm 0 5mm; font-size:7.25pt; }
-          th,td { border:0.35pt solid #b7d6d2; padding:1.5mm 1.6mm; vertical-align:top; }
-          th { background:var(--soft); color:#124f51; font-weight:700; }
-          tr { page-break-inside:avoid; }
-          code { font-family:'DejaVu Sans Mono',monospace; font-size:0.92em; }
-          ul,ol { padding-left:5mm; margin:1.5mm 0 3mm; }
-          hr { border:0; border-top:0.5pt solid var(--line); margin:5mm 0; }
-          a { color:var(--accent); text-decoration:none; }
-          .toolbar { position:sticky; top:0; z-index:9; display:flex; gap:8px; justify-content:flex-end; padding:10px; background:#fff; border-bottom:1px solid var(--line); }
-          .toolbar button { border:0; border-radius:8px; background:var(--accent); color:#fff; padding:8px 12px; font-weight:700; cursor:pointer; }
-          .sheet { max-width:148mm; margin:0 auto; background:#fff; padding:10mm 10mm 14mm; }
-          @media print { .toolbar { display:none; } .sheet { padding:0; max-width:none; } }
-          @media screen { body { background:#e9efef; } .sheet { box-shadow:0 4px 18px rgba(0,0,0,.12); min-height:210mm; } }
-          '''
-          html = f'''<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MAYAP - Hướng dẫn vận hành & mã lỗi - Rev. 1.3</title><style>{css}</style></head><body><div class="toolbar"><button onclick="window.print()">In / Lưu PDF</button></div><main class="sheet">{body}</main></body></html>'''
-          out_html.write_text(html, encoding='utf-8')
-          HTML(string=html, base_url=str(Path.cwd())).write_pdf(str(out_pdf))
-          PY
+      - name: Append only missing firmware fault codes
+        run: python3 tools/build_manual_append_only.py
 
       - name: Point website to Rev 1.3
         run: |
@@ -74,21 +40,20 @@ jobs:
           from pathlib import Path
           p = Path('index.html')
           s = p.read_text(encoding='utf-8')
-          old_pdf = 'MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf'
-          new_pdf = 'MAYAP_Huong_dan_van_hanh_A5_v1.3_E503.pdf'
-          s = s.replace('Tài liệu A5 Rev. 1.2 · 18 trang · có mã lỗi E502', 'Tài liệu A5 Rev. 1.3 · đồng bộ firmware 4.0.0 · 41 mã lỗi · đến E503')
-          s = s.replace(old_pdf, new_pdf)
+          s = s.replace('MAYAP_Huong_dan_van_hanh_A5_v1.2_E502.pdf', 'MAYAP_Huong_dan_van_hanh_A5_v1.3_E503.pdf')
+          s = s.replace('Tài liệu A5 Rev. 1.2 · 18 trang · có mã lỗi E502', 'Tài liệu A5 Rev. 1.3 · bản gốc + trang mã lỗi bổ sung · đến E503')
+          s = s.replace('Tài liệu A5 Rev. 1.3 · đồng bộ firmware 4.0.0 · 41 mã lỗi · đến E503', 'Tài liệu A5 Rev. 1.3 · bản gốc + trang mã lỗi bổ sung · đến E503')
           p.write_text(s, encoding='utf-8')
           PY
 
-      - name: Commit generated manual
+      - name: Commit corrected PDF
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html docs/MAYAP_Huong_dan_van_hanh_A5_v1.3_E503.html docs/MAYAP_Huong_dan_van_hanh_A5_v1.3_E503.pdf
+          git add index.html docs/MAYAP_Huong_dan_van_hanh_A5_v1.3_E503.pdf
           if git diff --cached --quiet; then
             echo 'No changes'
             exit 0
           fi
-          git commit -m 'docs: publish A5 manual rev 1.3 E503'
+          git commit -m 'docs: keep original manual and append missing fault codes'
           git push
