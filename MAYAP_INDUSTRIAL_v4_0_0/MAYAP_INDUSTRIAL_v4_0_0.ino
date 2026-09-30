@@ -469,6 +469,7 @@ void supervisorTask(void *parameter) {
   for (;;) {
     const uint32_t now = millis();
     const uint32_t ctrlBeat = __atomic_load_n(&controlHeartbeatMs, __ATOMIC_ACQUIRE);
+    mayapSerialDrain(); // bounded partial writes; never block controlTask for logging
     const uint32_t hmiBeat = __atomic_load_n(&hmiHeartbeatMs, __ATOMIC_ACQUIRE);
 
     // Do not supervise a task before staged startup has admitted it. Once

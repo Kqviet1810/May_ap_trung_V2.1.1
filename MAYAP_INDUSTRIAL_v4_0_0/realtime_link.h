@@ -108,15 +108,20 @@ static bool webSessionActive = false;
 struct WebClientLease { char id[40] = ""; uint32_t expiresAt = 0U; };
 static WebClientLease webClientLeases[8];
 static bool highPerfWifiApplied = false;  // tranh goi esp_wifi_set_ps lap lai
+static bool wifiPowerModeValid = false;
 static uint32_t lastSnapshotPublishAt = 0U;
 static bool forceSnapshotPublish = false;
 
 inline void applyWifiPowerMode(bool highPerformance) {
-  if (highPerfWifiApplied == highPerformance) return;
-  highPerfWifiApplied = highPerformance;
+  if (wifiPowerModeValid && highPerfWifiApplied == highPerformance) return;
   // WIFI_PS_NONE: khong ngu, do tre thap nhat cho realtime. WIFI_PS_MIN_MODEM:
   // tiet kiem nang luong nhung van thuc day kip DTIM de nhan MQTT/lenh portal.
-  esp_wifi_set_ps(highPerformance ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM);
+  if (esp_wifi_set_ps(highPerformance ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM) != ESP_OK) {
+    wifiPowerModeValid = false;
+    return; // Retry after radio is ready; do not cache a failed hardware change.
+  }
+  highPerfWifiApplied = highPerformance;
+  wifiPowerModeValid = true;
   mayapSerialPrintf(false, "[WEBLINK] WiFi power mode -> %s\n",
                     highPerformance ? "PERFORMANCE" : "SAVE");
 }
@@ -249,7 +254,7 @@ static uint16_t historySampleCount = 0U;
 // Tat ca ham publishXxx() ben duoi chi duoc goi tu networkTask.
 inline bool publishJson(const char *suffix, const JsonDocument &doc,
                         bool retain) {
-  if (!mqtt.connected()) return false;
+  if (!mqtt.connected() || doc.overflowed()) return false;
   // Budget applies to the whole MQTT packet (topic + headers + payload).
   char buffer[MayapProtocol::MQTT_NORMAL_CAP];
   const size_t length = serializeJson(doc, buffer, sizeof(buffer));
@@ -366,7 +371,7 @@ inline void publishPresence(bool online) {
   publishJson("presence", doc, true);
 }
 
-inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
+inline bool publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   char verifiedId[WEB_REQUEST_ID_CAPACITY] = "";
   portENTER_CRITICAL(&webMux);
   if (revision == lastVerifiedConfigRevision)
@@ -447,6 +452,7 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   c["tempOscillationWindowSec"] = cfg.tempOscillationWindowSec;
   c["autotuneRelayPowerPercent"] = cfg.autotuneRelayPowerPercent;
   c["autotuneBandC"] = cfg.autotuneBandC;
+  if (doc.overflowed()) return false;
   // Stream a full report in bounded chunks. Never retain a partial config.
   JsonDocument chunk;
   uint8_t part = 0U;
@@ -466,19 +472,19 @@ inline void publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
     chunk["config"][key] = field.value();
     if (measureJson(chunk) > 850U) {
       chunk["config"].as<JsonObject>().remove(key);
-      publishJson("config/reported", chunk, false);
+      if (!publishJson("config/reported", chunk, false)) return false;
       ++part;
       beginChunk();
       chunk["config"][key] = field.value();
     }
   }
   chunk["done"] = true;
-  publishJson("config/reported", chunk, false);
+  return publishJson("config/reported", chunk, false);
 }
 
 // Danh sach nhac nho tuy chinh hien co - web dung de dong bo lai form khi mo
 // trang/doi thiet bi (giong het vai tro cua "config/reported" voi MachineConfig).
-inline void publishReminderReport(const ReminderSet &reminders, uint32_t revision) {
+inline bool publishReminderReport(const ReminderSet &reminders, uint32_t revision) {
   JsonDocument doc;
   doc["v"] = 1;
   doc["bootId"] = bootId;
@@ -490,10 +496,10 @@ inline void publishReminderReport(const ReminderSet &reminders, uint32_t revisio
     item["day"] = reminders.items[i].day;
     item["label"] = reminders.items[i].label;
   }
-  publishJson("reminders/reported", doc, true);
+  return publishJson("reminders/reported", doc, true);
 }
 
-inline void publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
+inline bool publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
   JsonDocument doc;
   doc["bootId"] = bootId;
   doc["revision"] = revision;
@@ -525,7 +531,7 @@ inline void publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
     f["code"] = rt.activeFaults[i].code;
     f["severity"] = rt.activeFaults[i].severity;
   }
-  publishJson("snapshot", doc, false);
+  return publishJson("snapshot", doc, false);
 }
 
 struct TerminalResult {
@@ -691,14 +697,14 @@ inline bool publishAck(const char *requestId, const char *result,
   return publishJson("ack", doc, false);
 }
 
-inline void publishLogEntry(const HmiEventItem &item) {
+inline bool publishLogEntry(const HmiEventItem &item) {
   JsonDocument doc;
   doc["sequence"] = item.sequence;
   doc["epoch"] = item.epoch;
   doc["code"] = item.code;
   doc["value"] = item.value;
   doc["type"] = item.type;
-  publishJson("log", doc, false);
+  return publishJson("log", doc, false);
 }
 
 // --------------------------- Xu ly ban tin den (networkTask) --------------------
@@ -1290,20 +1296,19 @@ inline void handleSessionMessage(const JsonDocument &doc) {
   webSessionActive = false;
   for (const auto &lease : webClientLeases)
     if (lease.id[0] && !timeReached(now, lease.expiresAt)) webSessionActive = true;
-  applyWifiPowerMode(webSessionActive);
 
   if (sync) {
     portENTER_CRITICAL(&webMux);
     const bool haveConfig = knownConfigValid;
-    const MachineConfig cfg = knownConfig;
-    const uint32_t revision = webConfigRevision;
-    const HmiEventSnapshot recentEvents = pendingEventSnapshot;
     const bool haveReminders = knownRemindersValid;
-    const ReminderSet reminders = knownReminders;
-    const uint32_t remindersRevision = webRemindersRevision;
     portEXIT_CRITICAL(&webMux);
-    if (haveConfig) publishConfigReport(cfg, revision);
-    if (haveReminders) publishReminderReport(reminders, remindersRevision);
+    // Mailboxes are drained outside the MQTT callback, not a burst of JSON/
+    // TLS writes on top of the incoming envelope and signature documents.
+    portENTER_CRITICAL(&webMux);
+    if (haveConfig) configDirty = true;
+    if (haveReminders) remindersDirty = true;
+    eventSnapshotDirty = true;
+    portEXIT_CRITICAL(&webMux);
     lastSnapshotPublishAt = 0U;  // ep publish snapshot ngay trong vong lap toi
     forceSnapshotPublish = true;
     // Trinh duyet MOI mo/vua ket noi lai chi nhan duoc cac su kien XAY RA TU
@@ -1315,9 +1320,8 @@ inline void handleSessionMessage(const JsonDocument &doc) {
     // bat kip lich su that cua may - web da tu dedupe theo "sequence" (xem
     // handleLog() trong app.js) nen phat lai muc da co san KHONG gay trung,
     // chi don gian khong lam gi neu trinh duyet do da nhan roi.
-    for (uint8_t offset = recentEvents.count; offset > 0U; --offset) {
-      publishLogEntry(recentEvents.items[offset - 1U]);
-    }
+    // Replay the bounded retained history in chronological chunks.
+    lastPublishedEventSequence = 0U;
   }
 }
 
@@ -1437,10 +1441,11 @@ inline void attemptConnect(uint32_t now) {
                                willMessage, true);
   if (!ok) {
     netClient.stop(); // Release a failed TCP/TLS session before the existing backoff retry.
-    mqttBackoff.onFailure(now);
+    const uint32_t failedAt = millis();
+    mqttBackoff.onFailure(failedAt);
     mayapSerialPrintf(false, "[WEBLINK] MQTT connect that bai state=%d, thu lai sau %lums\n",
                       mqtt.state(),
-                      static_cast<unsigned long>(mqttBackoff.nextAttemptAt - now));
+                      static_cast<unsigned long>(mqttBackoff.nextAttemptAt - failedAt));
     return;
   }
   mqttBackoff.onSuccess();
@@ -1448,10 +1453,8 @@ inline void attemptConnect(uint32_t now) {
   publishPresence(true);
   portENTER_CRITICAL(&webMux);
   const bool haveConfig = knownConfigValid;
-  const MachineConfig cfg = knownConfig;
-  const uint32_t revision = webConfigRevision;
+  if (haveConfig) configDirty = true;
   portEXIT_CRITICAL(&webMux);
-  if (haveConfig) publishConfigReport(cfg, revision);
   lastSnapshotPublishAt = 0U;
   mayapSerialPrintf(false, "[WEBLINK] MQTT da ket noi %s\n", deviceId);
   // F-01: canh bao ro moi lan ket noi neu dang dung broker/tai khoan mac
@@ -1557,31 +1560,12 @@ inline void serviceSessionTimeout(uint32_t now) {
   webSessionActive = active;
 }
 
-// Nguon "can hieu nang cao": phien web dang active, HOAC cong doi Wi-Fi tren
-// HMI dang mo (AP+STA dang bat, dang phat song MAYAP-XXXX), HOAC dang co
-// canh bao/loi con hoat dong (alarmMask != AlarmNone) - truong hop thu 3 nay
-// dam bao goi canh bao qua Cloud Push (cloud_alert_link.h, chay cung
-// networkTask) di voi do tre thap nhat co the, khong phai cho WiFi "thuc
-// day" tu WIFI_PS_MIN_MODEM luc dang co su co that su can bao gap. Chi doc
-// knownRuntime (da duoc controlTask ghi san qua mayapWebSetRuntime(), bao ve
-// bang webMux - xem hook o duoi file) - KHONG dong cham gi den controlTask/
-// vong dieu khien PID, giu dung yeu cau on dinh phan dieu khien la uu tien
-// tuyet doi.
-//
-// Day la noi DUY NHAT trong toan bo firmware goi esp_wifi_set_ps() - luon di
-// qua applyWifiPowerMode() de bien dem highPerfWifiApplied khong bao gio
-// lech voi trang thai phan cung that (neu co noi thu hai tu goi thang, bien
-// dem se "tuong" sai va bo qua lan dong bo sau, ket qua la giu nham che do).
-// Chay MOI vong lap ke ca khi STA dang tat (dung luc cong doi Wi-Fi vua ngat
-// STA de bat AP on dinh - xem network_service.h::portalBeginStarting), nen
-// duoc goi truoc moi nhanh return som cua mayapWebLinkUpdate().
+// MQTT owner is the sole writer of modem-sleep policy. Reapply after any
+// offline/radio recovery; do not let fault/session churn change radio mode.
 inline void serviceWifiPowerMode() {
-  const WifiPortalStatus portal = mayapGetWifiPortalStatus();
-  const bool portalActive = portal.state != WifiPortalState::Idle;
-  portENTER_CRITICAL(&webMux);
-  const bool alarmActive = knownRuntimeValid && knownRuntime.alarmMask != AlarmNone;
-  portEXIT_CRITICAL(&webMux);
-  applyWifiPowerMode(webSessionActive || portalActive || alarmActive);
+  // This mains-powered controller favors deterministic latency. Faults and
+  // browser leases must never toggle modem sleep every time E501 changes.
+  applyWifiPowerMode(true);
 }
 
 inline void serviceConfigPublish() {
@@ -1591,7 +1575,9 @@ inline void serviceConfigPublish() {
   const MachineConfig cfg = knownConfig;
   const uint32_t revision = webConfigRevision;
   portEXIT_CRITICAL(&webMux);
-  if (dirty) publishConfigReport(cfg, revision);
+  if (dirty && !publishConfigReport(cfg, revision)) {
+    portENTER_CRITICAL(&webMux); configDirty = true; portEXIT_CRITICAL(&webMux);
+  }
 }
 
 inline void serviceReminderPublish() {
@@ -1601,40 +1587,47 @@ inline void serviceReminderPublish() {
   const ReminderSet reminders = knownReminders;
   const uint32_t revision = webRemindersRevision;
   portEXIT_CRITICAL(&webMux);
-  if (dirty) publishReminderReport(reminders, revision);
+  if (dirty && !publishReminderReport(reminders, revision)) {
+    portENTER_CRITICAL(&webMux); remindersDirty = true; portEXIT_CRITICAL(&webMux);
+  }
 }
 
 inline void serviceSnapshotPublish(uint32_t now) {
   const uint32_t interval = webSessionActive ? WEB_SNAPSHOT_ACTIVE_INTERVAL_MS
                                              : WEB_SNAPSHOT_IDLE_INTERVAL_MS;
   if (!forceSnapshotPublish && !timeReached(now, lastSnapshotPublishAt + interval)) return;
-  forceSnapshotPublish = false;
-  lastSnapshotPublishAt = now;
   portENTER_CRITICAL(&webMux);
   const bool valid = knownRuntimeValid;
   const MachineRuntime rt = knownRuntime;
   const uint32_t revision = webConfigRevision;
   portEXIT_CRITICAL(&webMux);
-  if (valid) publishSnapshot(rt, revision);
+  if (valid && publishSnapshot(rt, revision)) {
+    forceSnapshotPublish = false;
+    lastSnapshotPublishAt = millis();
+  }
 }
 
 inline void serviceEventLogPublish() {
   portENTER_CRITICAL(&webMux);
   const bool dirty = eventSnapshotDirty;
   const HmiEventSnapshot snapshot = pendingEventSnapshot;
-  eventSnapshotDirty = false;
   portEXIT_CRITICAL(&webMux);
   if (!dirty || snapshot.sourceSequence == lastPublishedEventSequence) return;
-  // items[0] la moi nhat; chi phat nhung su kien co sequence > lan phat truoc,
-  // toi da vai muc moi lan goi de khong lam nghen vong lap networkTask.
+  // Oldest first; advance the cursor ONLY after successful publication.
+  // Keep dirty until drained so a failed send or >5-item backlog is retried.
   uint8_t published = 0U;
-  for (uint8_t i = 0; i < snapshot.count && published < 5U; ++i) {
-    const HmiEventItem &item = snapshot.items[i];
-    if (item.sequence <= lastPublishedEventSequence) break;
-    publishLogEntry(item);
+  for (uint8_t i = snapshot.count; i > 0U && published < 5U; --i) {
+    const HmiEventItem &item = snapshot.items[i - 1U];
+    if (item.sequence <= lastPublishedEventSequence) continue;
+    if (!publishLogEntry(item)) return;
+    lastPublishedEventSequence = item.sequence;
     ++published;
   }
-  lastPublishedEventSequence = snapshot.sourceSequence;
+  if (lastPublishedEventSequence >= snapshot.sourceSequence) {
+    portENTER_CRITICAL(&webMux);
+    if (pendingEventSnapshot.sourceSequence == snapshot.sourceSequence) eventSnapshotDirty = false;
+    portEXIT_CRITICAL(&webMux);
+  }
 }
 
 }  // namespace MayapRealtimeInternal
@@ -1658,7 +1651,8 @@ inline void mayapWebLinkBegin() {
         "[WEBLINK] TLS bi khoa: chua nhung MAYAP_TLS_ROOT_CA - KHONG ha cap insecure\n");
   }
 #endif
-  applyWifiPowerMode(false);
+  wifiPowerModeValid = false;
+  applyWifiPowerMode(true);
 }
 
 // Owner mqttTask only. Preserve all mailboxes, transactions, ACK outboxes,
@@ -1702,9 +1696,13 @@ inline void mayapWebLinkUpdate(uint32_t now) {
   const uint32_t postLoopNow = millis();
   expirePendingCommands(postLoopNow);
   drainAckOutbox();
+  // Keep the MQTT pump and command ACKs alive during another TLS operation,
+  // but defer bulk reports/history until its transient working set is freed.
+  MayapNetworkBatchOperation batchOperation;
+  if (!batchOperation) return;
+  serviceSnapshotPublish(postLoopNow);
   serviceConfigPublish();
   serviceReminderPublish();
-  serviceSnapshotPublish(postLoopNow);
   serviceEventLogPublish();
   serviceHistoryResponse();
 }

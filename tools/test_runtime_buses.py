@@ -9,6 +9,7 @@ root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument('--cxx', default='g++')
 parser.add_argument('--sanitize', action='store_true')
+parser.add_argument('--check-regression', action='store_true')
 args = parser.parse_args()
 with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     out = Path(temporary)
@@ -32,10 +33,18 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     ota = (root / 'MAYAP_INDUSTRIAL_v4_0_0/ota_update.h').read_text(encoding='utf-8')
     ota = '\n'.join(line for line in ota.splitlines() if not line.startswith('#include'))
     (out / 'actual-ota.inc').write_text(ota, encoding='utf-8')
-    for name in ('attiny_bus', 'gpio_interrupts'):
+    for name in ('attiny_bus', 'gpio_interrupts', 'serial_diagnostics', 'network_io_guard', 'bounded_http'):
         source = (root / ('MAYAP_INDUSTRIAL_v4_0_0/' + name + '.h')).read_text(encoding='utf-8')
         source = '\n'.join(line for line in source.splitlines() if not line.startswith('#include'))
         (out / ('actual-' + name + '.inc')).write_text(source, encoding='utf-8')
+    cloud = (root / 'MAYAP_INDUSTRIAL_v4_0_0/cloud_alert_link.h').read_text(encoding='utf-8')
+    start = cloud.index('struct OutboxItem {')
+    end = cloud.index('inline void enqueueLevel(', start)
+    (out / 'actual-cloud-outbox.inc').write_text(cloud[start:end], encoding='utf-8')
+    realtime = (root / 'MAYAP_INDUSTRIAL_v4_0_0/realtime_link.h').read_text(encoding='utf-8')
+    start = realtime.index('inline void serviceEventLogPublish()')
+    end = realtime.index('}  // namespace MayapRealtimeInternal', start)
+    (out / 'actual-event-publish.inc').write_text(realtime[start:end], encoding='utf-8')
     cfg = (root / 'MAYAP_INDUSTRIAL_v4_0_0/config.h').read_text(encoding='utf-8')
     names = ('PIN_ATTINY_BUS', 'ATTINY_COMMAND_WIDTH_MS', 'ATTINY_BUS_MAX_RETRY',
              'ATTINY_MSG_MAX_COMMAND', 'ATTINY_MSG_STATUS_BASE', 'ATTINY_MSG_STATUS_MAX',
@@ -58,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
                  'mayapBootAcknowledgeHomeFrame'):
         mailbox += re.search(r'inline (?:bool|void) ' + name + r'\(\) \{[^}]*\}', boot)[0] + '\n'
     (out / 'actual-boot-mailbox.inc').write_text(mailbox, encoding='utf-8')
-    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state'):
+    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability'):
         executable = out / (test + ('.exe' if __import__('os').name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
                    str(root / ('tests/' + test + '.cpp')), '-o', str(executable)]
@@ -66,3 +75,18 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
             command += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer']
         subprocess.run(command, check=True)
         subprocess.run([str(executable)], check=True)
+    if args.check_regression:
+        # Demonstrate that the expanded test actually rejects the logged bug,
+        # not merely that the patched source compiles. Only a temporary header
+        # is mutated; production files and the Tiny sketch remain untouched.
+        header = out / 'actual-attiny_bus.inc'
+        source = header.read_text(encoding='utf-8')
+        assert 'if (busHigh() && count >= RESPONSE_EDGES' in source
+        header.write_text(source.replace('if (busHigh() && count >= RESPONSE_EDGES',
+                                         'if (count >= RESPONSE_EDGES'), encoding='utf-8')
+        executable = out / ('runtime-attiny-regression' + ('.exe' if __import__('os').name == 'nt' else ''))
+        subprocess.run([args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
+                        str(root / 'tests/runtime-attiny.cpp'), '-o', str(executable)], check=True)
+        regression = subprocess.run([str(executable)], capture_output=True, text=True)
+        assert regression.returncode != 0, 'Missing HIGH guard was not detected'
+        print('Regression proof: legal >30 ms final LOW fails without production HIGH guard, as expected')

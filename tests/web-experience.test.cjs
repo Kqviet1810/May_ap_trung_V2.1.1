@@ -6,7 +6,7 @@ const { webcrypto } = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const protocol = require('../protocol_v2.js');
 
-function browser() {
+function browser(overrides = {}) {
   const source = fs.readFileSync(require.resolve('../app.js'), 'utf8').replace(/  init\(\);\s*\}\)\(\);\s*$/, `
     renderDevice = () => {}; renderReminderList = () => {}; renderPushStatus = () => {};
     applyConfigToUi = () => {}; clearInvalid = () => {};
@@ -15,12 +15,12 @@ function browser() {
       selectedNeedsSync, deactivateSession, connectMqtt, supportsVentProfile,
       swipeDestination, buildConfig, validateVentForm, REQUIRED_CONFIG_KEYS,
       VENT_PROFILE_KEYS, createDevice, connectionStatus, recoverBrowserConnection,
-      refreshMqttSession, postCloudJson });
+      refreshMqttSession, postCloudJson, isDeviceOnline, sendCommand });
   })();`);
   let now = 0, timerId = 0;
   const timers = new Map(), elements = new Map(), clients = [];
   const window = { hooks: {}, addEventListener() {}, MayapProtocolV2: protocol,
-    MAYAP_WEB_CONFIG: { cloudApiBase:'https://test.invalid', mqttUrl: 'wss://test.invalid/mqtt', mqttUsername: 'test', mqttPassword: 'test', sessionRefreshMs: 3000 },
+    MAYAP_WEB_CONFIG: { cloudApiBase:'https://test.invalid', mqttUrl: 'wss://test.invalid/mqtt', mqttUsername: 'test', mqttPassword: 'test', sessionRefreshMs: 3000, ...overrides },
     mqtt: { connect(url, options) { const c = new EventEmitter(); c.connected = false;
       c.end = () => { c.disconnecting = true; c.emit('close'); }; c.publish = () => {};
       c.subscribe = () => {}; clients.push(c); return c; } } };
@@ -173,4 +173,20 @@ test('startup auth request is bounded and aborts before retry, leaving writes un
   h.run(10000); await request;
   assert.equal(h.state.mqttSessionState, 'error');
   assert.equal(h.clients.length, 0);
+});
+
+test('short stale telemetry is degraded; explicit LWT and long silence still block commands', async () => {
+  const h = browser({ staleAfterMs:8000, offlineAfterMs:30000 }); connected(h);
+  h.device.presence = { online:true };
+  h.device.snapshot = { revision:1 };
+  for (const [age, expected] of [[1000,'online'], [9000,'degraded'], [31000,'offline']]) {
+    h.device.snapshotAt = Date.now() - age;
+    assert.equal(h.connectionStatus(h.device), expected);
+    assert.equal(h.isDeviceOnline(h.device), expected !== 'offline');
+  }
+  h.device.snapshotAt = Date.now(); h.device.presence.online = false;
+  assert.equal(h.connectionStatus(h.device), 'offline');
+  h.device.presence.online = true; h.state.mqttConnected = false;
+  assert.notEqual(h.connectionStatus(h.device), 'online');
+  assert.equal(h.isDeviceOnline(h.device), false);
 });

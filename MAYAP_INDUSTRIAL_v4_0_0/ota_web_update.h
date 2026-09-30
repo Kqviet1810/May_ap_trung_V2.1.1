@@ -4,6 +4,7 @@
 #include "boot_diagnostic.h"
 #include "service_recovery.h"
 #include "network_io_guard.h"
+#include "bounded_http.h"
 #include "firmware_update_guard.h"
 #include <Arduino.h>
 #include <WiFiClientSecure.h>
@@ -198,7 +199,12 @@ inline bool mayapFirmwareWebCheck() {
   const int code = http.POST(body);
   bool available = false;
   if (code == 200) {
-    const String resp = http.getString();
+    char resp[1024];
+    if (!mayapReadBoundedHttpBody(http, resp, sizeof(resp))) {
+      http.end(); client.stop();
+      setError("Firmware metadata qua lon/khong day du");
+      return false;
+    }
     JsonDocument respDoc;
     if (deserializeJson(respDoc, resp) == DeserializationError::Ok) {
       available = respDoc["update_available"] | false;
@@ -419,7 +425,7 @@ inline void mayapFirmwareWebUpdate(uint32_t now) {
 
   const bool checkNow = __atomic_load_n(&checkNowRequestFlag, __ATOMIC_ACQUIRE) != 0U;
   if (!checkNow && lastCheckAt != 0U && (now - lastCheckAt) < FIRMWARE_CHECK_INTERVAL_MS) return;
-  MayapTlsOperation tlsOperation;
+  MayapTlsOperation tlsOperation(MayapTlsKind::Ota);
   if (!tlsOperation) return; // retry next loop, not six hours later
   if (checkNow) __atomic_store_n(&checkNowRequestFlag, 0U, __ATOMIC_RELEASE);
   lastCheckAt = now;

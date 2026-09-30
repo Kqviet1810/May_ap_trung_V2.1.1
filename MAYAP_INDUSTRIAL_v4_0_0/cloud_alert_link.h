@@ -3,6 +3,7 @@
 #include "config.h"
 #include "service_recovery.h"
 #include "network_io_guard.h"
+#include "bounded_http.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -124,18 +125,43 @@ struct OutboxItem {
 static OutboxItem outbox[CLOUD_OUTBOX_SIZE];
 static uint8_t outboxHead = 0U, outboxTail = 0U, outboxCount = 0U;
 static uint32_t lastSendAt = 0U;
+static uint32_t lastRequestFinishedAt = 0U;
+static bool requestDeferred = false;
+static uint32_t outboxDropped = 0U, outboxCriticalDropped = 0U;
 
 inline bool enqueueRaw(const char *alarmType, NotifyLevel severity, bool resolved,
                        const char *message, bool hasReadings, float temperature, float humidity) {
   if (!alarmType || !alarmType[0] || !message || !message[0]) return false;
+  // Coalesce repeat notifications for the SAME state only. Keep an active
+  // alarm and its recovery as distinct events (especially critical faults).
+  for (uint8_t n = 0U; n < outboxCount; ++n) {
+    const uint8_t p = (outboxTail + CLOUD_OUTBOX_SIZE - 1U - n) % CLOUD_OUTBOX_SIZE;
+    OutboxItem &pending = outbox[p];
+    if (!pending.used || strcmp(pending.alarmType, alarmType)) continue;
+    if (pending.resolved == resolved && pending.severity == severity) {
+      snprintf(pending.message, sizeof(pending.message), "%s", message);
+      pending.hasReadings = hasReadings; pending.temperature = temperature; pending.humidity = humidity;
+      return true;
+    }
+    break; // Never coalesce across this alarm's opposite transition.
+  }
   if (outboxCount >= CLOUD_OUTBOX_SIZE) {
-    // Hang doi day (rat hiem - nhieu loi phat sinh dong thoi hon ca toc do
-    // gui): bo tin CU nhat de nhuong cho tin moi, tranh ket "spam do" vinh
-    // vien khi mang cham. Khong lam crash/treo, chi mat 1 thong bao cu.
-    mayapSerialPrintf(false, "[CLOUD] outbox day, bo tin cu nhat\n");
-    outbox[outboxHead].used = false;
-    outboxHead = static_cast<uint8_t>((outboxHead + 1U) % CLOUD_OUTBOX_SIZE);
+    uint8_t victim = CLOUD_OUTBOX_SIZE;
+    for (uint8_t n = 0U; n < outboxCount; ++n) {
+      if (outbox[(outboxHead + n) % CLOUD_OUTBOX_SIZE].severity != NotifyLevel::Critical) { victim = n; break; }
+    }
+    ++outboxDropped;
+    if (victim == CLOUD_OUTBOX_SIZE) {
+      if (severity != NotifyLevel::Critical) return false;
+      victim = 0U; ++outboxCriticalDropped;
+    }
+    for (uint8_t n = victim; n + 1U < outboxCount; ++n)
+      outbox[(outboxHead + n) % CLOUD_OUTBOX_SIZE] = outbox[(outboxHead + n + 1U) % CLOUD_OUTBOX_SIZE];
+    outboxTail = (outboxTail + CLOUD_OUTBOX_SIZE - 1U) % CLOUD_OUTBOX_SIZE;
+    outbox[outboxTail].used = false;
     --outboxCount;
+    mayapSerialPrintf(false, "[CLOUD] outbox loss=%lu critical=%lu\n",
+      static_cast<unsigned long>(outboxDropped), static_cast<unsigned long>(outboxCriticalDropped));
   }
   OutboxItem &item = outbox[outboxTail];
   snprintf(item.alarmType, sizeof(item.alarmType), "%s", alarmType);
@@ -602,11 +628,20 @@ inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const 
 
 inline bool postJson(const char *path, const JsonDocument &doc, const char *logTag,
                      String *responseBody = nullptr, int *responseCode = nullptr) {
-  MayapTlsOperation tlsOperation;
+  requestDeferred = true;
+  if (lastRequestFinishedAt != 0U &&
+      elapsedMs(millis(), lastRequestFinishedAt) < CLOUD_MIN_SEND_GAP_MS) {
+    if (responseCode) *responseCode = 0;
+    return false;
+  }
+  MayapTlsOperation tlsOperation(MayapTlsKind::Cloud);
   if (!tlsOperation) {
     if (responseCode) *responseCode = 0;
     return false; // defer through the existing bounded Cloud retry queue
   }
+  requestDeferred = false;
+  const uint32_t heapBefore = ESP.getFreeHeap();
+  const uint32_t startedAt = millis();
   WiFiClientSecure client;
   HTTPClient http;
   if (!beginCloudRequest(http, client, path)) {
@@ -617,22 +652,34 @@ inline bool postJson(const char *path, const JsonDocument &doc, const char *logT
     return false;
   }
   http.addHeader("Content-Type", "application/json");
-  String body;
-  serializeJson(doc, body);
-  const int code = http.POST(body);
+  char body[1024];
+  const size_t bodySize = measureJson(doc);
+  if (doc.overflowed() || bodySize >= sizeof(body)) {
+    http.end(); client.stop();
+    lastRequestFinishedAt = millis();
+    if (responseCode) *responseCode = 0;
+    return false;
+  }
+  serializeJson(doc, body, sizeof(body));
+  const int code = http.POST(reinterpret_cast<uint8_t *>(body), bodySize);
   if (responseCode) *responseCode = code;
-  const bool ok = code == 200;
-  String resp = code > 0 ? http.getString() : String();
-  if (responseBody) *responseBody = resp;
+  char response[1024]{};
+  const bool bodyOk = code > 0 && mayapReadBoundedHttpBody(http, response, sizeof(response));
+  const bool ok = code == 200 && bodyOk;
+  if (responseBody) *responseBody = bodyOk ? response : "";
   if (ok) {
     mayapSerialPrintf(false, "[CLOUD] %s -> HTTP 200 OK\n", logTag);
   } else {
-    if (resp.length() > 160) resp = resp.substring(0, 160) + "...";
-    mayapSerialPrintf(false, "[CLOUD] %s -> HTTP %d FAIL%s%s\n", logTag, code,
-        resp.length() ? " resp=" : "", resp.c_str());
+    // Never print server response content (provisioning may contain secrets).
+    mayapSerialPrintf(false, "[CLOUD] %s -> HTTP %d FAIL bodyOk=%u\n", logTag, code, bodyOk);
   }
   http.end();
   client.stop();
+  lastRequestFinishedAt = millis();
+  mayapSerialPrintf(false, "[TLS] cloud=%s ms=%lu heapBefore=%lu after=%lu minEver=%lu\n",
+      logTag, static_cast<unsigned long>(elapsedMs(millis(), startedAt)),
+      static_cast<unsigned long>(heapBefore), static_cast<unsigned long>(ESP.getFreeHeap()),
+      static_cast<unsigned long>(ESP.getMinFreeHeap()));
   mayapServiceBeat(MayapRecovery::Service::Cloud);
   return ok;
 }
@@ -758,7 +805,7 @@ inline void drainOutbox(uint32_t now) {
     // doi (khong mat tin), nhung lui backoff truoc khi cho phep thu lai -
     // khong dap HTTPS lien tuc moi CLOUD_MIN_SEND_GAP_MS trong khi mang dang
     // that su mat trong nhieu gio.
-    cloudBackoff.onFailure(now);
+    if (!requestDeferred) cloudBackoff.onFailure(millis());
   }
 }
 
@@ -773,7 +820,7 @@ inline void serviceHeartbeat(uint32_t now) {
   if (sendHeartbeat()) {
     cloudBackoff.onSuccess();
   } else {
-    cloudBackoff.onFailure(now);
+    if (!requestDeferred) cloudBackoff.onFailure(millis());
   }
 }
 
@@ -790,7 +837,7 @@ inline void serviceRegister(uint32_t now) {
     registered = true;
     cloudBackoff.onSuccess();
   } else {
-    cloudBackoff.onFailure(now);
+    if (!requestDeferred) cloudBackoff.onFailure(millis());
   }
 }
 

@@ -138,7 +138,9 @@ inline bool decodeFrame(uint8_t &flags) {
     for (uint8_t i = 0U; i < count; ++i) edge[i] = edgeAtUs_[i];
   }
   portEXIT_CRITICAL(&rxMux_);
-  if (count < RESPONSE_EDGES || count > CAPTURE_EDGES || overflow) return false;
+  // A complete reply has 12 edges, optionally preceded by our two TX edges.
+  // An odd count must never be shifted into a seemingly complete frame.
+  if ((count != RESPONSE_EDGES && count != CAPTURE_EDGES) || overflow) return false;
   const uint8_t base = count - RESPONSE_EDGES;
   const uint32_t preamble = edge[base + 1U] - edge[base];
   if (preamble < 45000UL || preamble > 75000UL) return false;
@@ -292,7 +294,10 @@ inline void mayapAttinyBusUpdate(uint32_t now) {
       if (count != 0U) lastEdge = edgeAtUs_[count - 1U];
       portEXIT_CRITICAL(&rxMux_);
       if (overflow) { retryOrFinish(now, "RX_OVERFLOW"); return; }
-      if (count >= RESPONSE_EDGES && count <= CAPTURE_EDGES &&
+      // Silence during LOW is not an end-of-frame: a legal ONE lasts up
+      // to 40 ms, longer than our 30 ms HIGH end gap. In particular the
+      // final parity LOW leaves 13 edges until Tiny releases the wire.
+      if (busHigh() && count >= RESPONSE_EDGES && count <= CAPTURE_EDGES &&
           static_cast<uint32_t>(micros() - lastEdge) >= FRAME_END_GAP_US) {
         uint8_t flags = 0U;
         if (!commandPulseValid()) retryOrFinish(now, "TX_PULSE_WIDTH");

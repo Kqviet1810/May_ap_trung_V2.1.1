@@ -20,35 +20,7 @@
 #include <stdlib.h>
 #include <algorithm>
 
-static volatile bool gMayapSerialDebugEnabled = SERIAL_DEBUG_DEFAULT_ON;
-
-inline bool mayapSerialDebugEnabled() {
-  return __atomic_load_n(&gMayapSerialDebugEnabled, __ATOMIC_ACQUIRE);
-}
-
-inline void mayapSetSerialDebugEnabled(bool enabled) {
-  __atomic_store_n(&gMayapSerialDebugEnabled, enabled, __ATOMIC_RELEASE);
-}
-
-// Cong Serial duy nhat cua firmware. force=true chi dung de phan hoi lenh SERIAL.
-inline void mayapSerialPrintf(bool force, const char *format, ...) {
-#if MAYAP_DIAGNOSTIC_SERIAL
-  if ((!force && !mayapSerialDebugEnabled()) || !format) return;
-  char buffer[224];
-  va_list args;
-  va_start(args, format);
-  const int length = vsnprintf(buffer, sizeof(buffer), format, args);
-  va_end(args);
-  if (length <= 0) return;
-  const size_t count = static_cast<size_t>(length) < sizeof(buffer)
-      ? static_cast<size_t>(length) : sizeof(buffer) - 1U;
-  if (Serial.availableForWrite() >= static_cast<int>(count)) {
-    Serial.write(reinterpret_cast<const uint8_t *>(buffer), count);
-  }
-#else
-  (void)force; (void)format;
-#endif
-}
+#include "serial_diagnostics.h"
 
 namespace Mayap {
 
@@ -3890,7 +3862,7 @@ class MachineController {
     if (checkpointGate_.due(now, false)) checkpointBatch();
     diagnosticGate_.setPeriod(diagnosticFast_ ? DIAGNOSTIC_FAST_STATUS_MS
                                               : DIAGNOSTIC_STATUS_MS);
-    if (diagnosticGate_.due(now, false)) printStatus(now);
+    if (diagnosticGate_.due(now, false)) printStatus(now, false);
   }
 
   const MachineConfig &config() const { return config_; }
@@ -7266,6 +7238,7 @@ class MachineController {
   }
 
   void printSerialHelp() {
+    mayapSerialPrintf(false, "[BUILD] fw=%s build=%s\n", MAYAP_FIRMWARE_VERSION, MAYAP_BUILD_ID);
     mayapSerialPrintf(false, "\n--- MAYAP INDUSTRIAL v%s SERIAL ---\n",
                      MAYAP_FIRMWARE_VERSION);
 #if MAYAP_SERIAL_INPUT_SIM
@@ -7367,8 +7340,16 @@ class MachineController {
         config_.highTempAlarmWithoutBatch ? "BAT" : "TAT");
   }
 
-  void printStatus(uint32_t now) {
+  void printStatus(uint32_t now, bool detailed = true) {
     const InputState &in = inputs_.state();
+    mayapSerialPrintf(false, "[PROCESS] batch=%u sensor=%u T=%.2f SV=%.2f RH=%.1f PID=%.1f ssr=%u master=%u fault=%u\n",
+      batchRunning_, sensorUsable_, temperature_, config_.targetTemp, humidity_, runtime_.heaterPower,
+      outputs_.state().heaterSsr, outputs_.state().heatMaster, static_cast<unsigned>(faults_.primary()));
+    mayapSerialPrintf(false, "[HEAP] free=%lu minEver=%lu largest=%lu tlsBusy=%u deferred=%lu\n",
+      static_cast<unsigned long>(ESP.getFreeHeap()), static_cast<unsigned long>(ESP.getMinFreeHeap()),
+      static_cast<unsigned long>(ESP.getMaxAllocHeap()), mayapTlsBusy(),
+      static_cast<unsigned long>(mayapTlsDeferredCount()));
+    if (!detailed) return;
     mayapSerialPrintf(false, "[STATUS] switch=%s batch=%u resume=%u clear=%u recovery=%s phase=%u sensor=%u storage=%u safetyNvs=%u resetFault=%u T=%.2f raw=%.2f H=%.1f\n",
       in.autoMode ? "AUTO" : "MAN",
       batchRunning_, resumePending_, batchClearPending_,

@@ -11,7 +11,9 @@ test('three transient TLS users share nonblocking admission with memory budget',
     assert.match(read(`MAYAP_INDUSTRIAL_v4_0_0/${name}`), /MayapTlsOperation tlsOperation/);
   const gate = read('MAYAP_INDUSTRIAL_v4_0_0/network_io_guard.h');
   assert.match(gate, /__atomic_compare_exchange_n/);
-  assert.match(gate, /ESP.getFreeHeap\(\) < 32768U/);
+  assert.match(gate, /49152U : 73728U/);
+  assert.match(gate, /ESP.getMaxAllocHeap\(\) < 24576U/);
+  assert.match(gate, /class MayapNetworkBatchOperation/);
   assert.match(gate, /~MayapTlsOperation/);
   // Busy admission must not consume an explicit OTA request/check.
   assert.match(ota, /if \(!tlsOperation\) return;[^\n]*\n\s*__atomic_store_n\(&applyRequestFlag/);

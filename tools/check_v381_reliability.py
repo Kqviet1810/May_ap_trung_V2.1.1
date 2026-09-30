@@ -124,7 +124,8 @@ if "_delay_ms(50)" in attiny:
 require(attiny, "ESPPIN", "ATtiny digital 3V3 sense")
 require(attiny, "V9PIN", "ATtiny digital 9V sense")
 require(attiny_doc, "Den, coi va tao am khong arm rieng bao mat dien", "humidifier covered by batch arm")
-require(attiny_bus, "if (count < RESPONSE_EDGES || count > CAPTURE_EDGES || overflow) return false", "ATtiny status frame length guard")
+require(attiny_bus, "if ((count != RESPONSE_EDGES && count != CAPTURE_EDGES) || overflow) return false", "ATtiny complete even-length frame guard")
+require(attiny_bus, "if (busHigh() && count >= RESPONSE_EDGES", "ATtiny final LOW is never end-of-frame")
 require(hmi, "(view == View::WifiChange) ? WIFI_PORTAL_UI_IDLE_TIMEOUT_MS", "Wi-Fi screen uses dedicated timeout")
 require(network, "id=wifiPassword", "Wi-Fi portal password input id")
 require(network, "id=showPassword", "Wi-Fi portal show-password control")
@@ -183,11 +184,16 @@ for source in firmware_sources:
     source_text = source.read_text(encoding="utf-8", errors="ignore")
     direct_serial = re.findall(r"\bSerial\.(?:print|printf|write|flush)\s*\(", source_text)
     if source.name == "machine_control.h":
-        if direct_serial != ["Serial.write("]:
-            raise SystemExit("FAIL: Serial output outside the gated helper")
+        if direct_serial:
+            raise SystemExit("FAIL: controlTask must not write Serial directly")
         forced = re.findall(r'mayapSerialPrintf\(true,\s*"([^"\n]*)"', source_text)
         if forced != ["[SERIAL] %s\\n", "[SERIAL] ON (LOG)\\n", "[SERIAL] OFF (EXIT)\\n"]:
             raise SystemExit("FAIL: unsolicited forced Serial output")
+    elif source.name == "serial_diagnostics.h":
+        if direct_serial != ["Serial.write("] or "mayapSerialDebugEnabled()" not in source_text:
+            raise SystemExit("FAIL: bounded Serial writer must preserve debug gate")
+        require(source_text, "inline void mayapSerialDrain()", "sole bounded Serial writer")
+        require(source_text, "criticalDropped", "Serial loss accounting")
     elif direct_serial or "mayapSerialPrintf(true" in source_text:
         raise SystemExit(f"FAIL: ungated Serial output in {source.name}")
 require(config, "HEALTH_HEAP_SAMPLE_INTERVAL_MS = 1000UL", "bounded heap sampling")

@@ -36,6 +36,12 @@
 // ============================================================================
 
 constexpr char MAYAP_FIRMWARE_VERSION[] = "4.0.0";
+#ifndef MAYAP_BUILD_REVISION
+#define MAYAP_BUILD_REVISION local
+#endif
+#define MAYAP_BUILD_STRING_IMPL(value) #value
+#define MAYAP_BUILD_STRING(value) MAYAP_BUILD_STRING_IMPL(value)
+constexpr char MAYAP_BUILD_ID[] = MAYAP_BUILD_STRING(MAYAP_BUILD_REVISION) " " __DATE__ " " __TIME__;
 constexpr char MAYAP_HARDWARE_REVISION[] = "CTRL-S3-N8-R1";
 constexpr char HMI_FIRMWARE_VERSION[] = "4.0.0";
 constexpr char HMI_HARDWARE_REVISION[] = "HMI-S3-R2";

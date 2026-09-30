@@ -120,7 +120,7 @@ jobs:
         run: |
           g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/runtime-recovery.cpp -o /tmp/mayap-runtime-test
           /tmp/mayap-runtime-test
-          python3 tools/test_runtime_buses.py --sanitize
+          python3 tools/test_runtime_buses.py --sanitize --check-regression
 
       - name: Tao MQTT credential cho compile
         env:
@@ -209,7 +209,7 @@ jobs:
           echo "Build profile: ${MAYAP_BUILD_PROFILE}"
           arduino-cli compile \
             --fqbn "${{ env.MAYAP_FQBN }}" \
-            --build-property "compiler.cpp.extra_flags=${MAYAP_CPP_FLAGS}" \
+            --build-property "compiler.cpp.extra_flags=${MAYAP_CPP_FLAGS} -DMAYAP_BUILD_REVISION=${GITHUB_SHA:0:12}" \
             --output-dir ./build \
             --verbose \
             MAYAP_INDUSTRIAL_v4_0_0

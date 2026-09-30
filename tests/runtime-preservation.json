@@ -1,5 +1,6 @@
 {
   "baseline": "d5a0233c6ed39e517938f09336cc1d06425e6c19",
+  "stabilityReviewNote": "2026-09-30: reviewed changes limited to Tiny HIGH frame completion, network memory admission, build ID, nonblocking diagnostic drain/compact status, and OTA admission profile. Thermal control, fault/output safety, configuration schema and Web signed transaction bodies retain their existing fingerprints.",
   "entries": [
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/boot_policy.h",
@@ -27,11 +28,11 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/network_io_guard.h",
-      "sha256": "93bbad700a449fbc66774aff0029efc2758aae95c415f5b53a2a2ea480fe7b9c"
+      "sha256": "28e0b7462f4e634738f2bd839ad4e54273694894baf486f4ff522876e372f01a"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/attiny_bus.h",
-      "sha256": "b98c1e76867cb8c6e49504dcdede0f66742c0db255a392c48650e45c3f3b6086"
+      "sha256": "58b52b9dce76d2287dee29e160f0ff225e6713d28c07fcd28ac9966efa5b54fb"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/attiny_state_sync.h",
@@ -59,12 +60,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/config.h",
-      "sha256": "4c7a54710072b731ba35c899ad0dadf71edc4553dbb590c1834493b14501586f",
+      "sha256": "a888ee5c71eedcd10e423f3400a13b008a63314bf3a09eaacdf26adceb970659",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
-      "sha256": "d4387411571a66573fc6346deccba110990e1caa76648fe1891f6018378a30dd",
+      "sha256": "39000a85a63dda14593ad1c7eeb8e5ace66cd59d0ab8d5ea6be9efc14b88c048",
       "signature": "class MachineController {"
     },
     {
@@ -139,7 +140,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/MAYAP_INDUSTRIAL_v4_0_0.ino",
-      "sha256": "362f70d1b75579d85226cac11dd34d680875359498bfeeeabfbb2d2f5d07e33a",
+      "sha256": "b622dee60c3eb24c222d38d41fafdacae75935b22220e3fab005b1d4d3924eb7",
       "signature": "void supervisorTask(",
       "filter": "supervisor"
     },
@@ -151,7 +152,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/ota_web_update.h",
-      "sha256": "da7b4135c4aa9a783443d05e052e4e94bf2f9c6e6e193e2b84e885a7441eed09",
+      "sha256": "bd6c0bd6c89ea89b8bba11f506ec55443c5f409320b23c8b480e6cfc8519a8c6",
       "signature": "inline void mayapFirmwareWebUpdate("
     },
     {

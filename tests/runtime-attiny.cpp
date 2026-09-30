@@ -28,6 +28,7 @@ static bool initFailure=false, txFailure=false, deferDone=false, timerActive=fal
 static bool respond=true, badParity=false, overflowReply=false;
 static uint8_t replyFlags=0;
 static uint32_t measuredLowUs=0, timerDelayUs=0;
+static uint32_t zeroUs=10000, oneUs=30000, replyGapUs=15000, preambleUs=60000;
 static void (*timerCallback)(void *)=nullptr;
 static void (*gpioHandler)(void *)=nullptr;
 struct Event { uint64_t at; int level; bool done; };
@@ -44,14 +45,14 @@ static void updatePad() {
 static void queueReply() {
   if (!respond || decode(static_cast<uint16_t>(measuredLowUs/1000))==0) return;
   uint64_t cursor=clockUs+48500; // Tiny EEPROM worst path plus 40 ms guard.
-  events.push_back({cursor,LOW,false}); cursor+=60000;
-  events.push_back({cursor,HIGH,false}); cursor+=15000;
+  events.push_back({cursor,LOW,false}); cursor+=preambleUs;
+  events.push_back({cursor,HIGH,false}); cursor+=replyGapUs;
   uint8_t parity=0;
   for (unsigned i=0; i<5; ++i) {
     const uint8_t bit=i<4 ? (replyFlags>>i)&1U : parity^badParity;
     if (i<4) parity^=bit;
-    events.push_back({cursor,LOW,false}); cursor+=bit ? 30000 : 10000;
-    events.push_back({cursor,HIGH,false}); cursor+=15000;
+    events.push_back({cursor,LOW,false}); cursor+=bit ? oneUs : zeroUs;
+    events.push_back({cursor,HIGH,false}); cursor+=replyGapUs;
   }
   if (overflowReply) for (unsigned i=0; i<4; ++i) {
     events.push_back({cursor,static_cast<int>(i%2),false}); cursor+=1000;
@@ -105,6 +106,7 @@ static void reset() {
   using namespace MayapAttinyBusInternal;
   events.clear(); clockUs = 1000000; busLevel = hostLevel = peerLevel = HIGH;
   timerActive = false; timerDelayUs = 0;
+  zeroUs=10000; oneUs=30000; replyGapUs=15000; preambleUs=60000;
   initFailure = txFailure = deferDone = badParity = overflowReply = false;
   respond = true; replyFlags = 0;
   txHead_ = txTail_ = txCount_ = txCode_ = txAttempt_ = incomingCode_ = 0;
@@ -150,6 +152,25 @@ int main() {
       assert(mayapAttinyBusPollIncoming() == ATTINY_MSG_STATUS_BASE + flags);
       assert(busLevel == HIGH); ++transfers;
     }
+  }
+  // Poll while the final parity LOW is still in progress. 30 ms silence
+  // does NOT mark a frame end: a legal ONE can remain LOW for 40 ms.
+  for (uint32_t width : {22000U, 29999U, 30001U, 31000U, 32000U, 39999U, 40000U}) {
+    for (uint8_t flags=0; flags<16; ++flags) {
+      reset(); oneUs=width; replyFlags=flags;
+      assert(mayapAttinyBusRequest(5)); pollUntilResult();
+      assert(result(5));
+      assert(mayapAttinyBusPollIncoming()==ATTINY_MSG_STATUS_BASE+flags);
+      assert(MayapAttinyBusInternal::txAttempt_==1); ++transfers;
+    }
+  }
+  for (uint32_t width : {6000U, 16000U}) for (uint32_t gap : {8000U, 25000U}) {
+    reset(); zeroUs=width; oneUs=40000; replyGapUs=gap; preambleUs=75000; replyFlags=7;
+    assert(mayapAttinyBusRequest(5)); pollUntilResult(); assert(result(5)); ++transfers;
+  }
+  for (uint32_t width : {16001U, 21999U, 40001U}) {
+    reset(); oneUs=width; replyFlags=1;
+    assert(mayapAttinyBusRequest(5)); pollUntilResult(); assert(!result(5));
   }
   reset(); respond = false; assert(mayapAttinyBusRequest(5)); pollUntilResult();
   assert(!result(5) && MayapAttinyBusInternal::txAttempt_ == ATTINY_BUS_MAX_RETRY);

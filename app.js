@@ -38,6 +38,7 @@
     sessionTtlMs: 15000,
     sessionRefreshMs: 9000,
     staleAfterMs: 90000,
+    offlineAfterMs: 120000,
     commandTimeoutMs: 10000,
     configTimeoutMs: 15000,
     ...window.MAYAP_WEB_CONFIG,
@@ -744,12 +745,16 @@
     if (!device.presence.online) return 'offline';
     if (!device.snapshot || !device.snapshotAt) return 'connecting';
     const lastAt = Math.max(device.presenceAt || 0, device.snapshotAt || 0, device.configAt || 0);
-    if (!lastAt || Date.now() - lastAt > WEB.staleAfterMs) return 'offline';
+    if (!lastAt || Date.now() - lastAt > Math.max(WEB.staleAfterMs, WEB.offlineAfterMs)) return 'offline';
+    if (Date.now() - lastAt > WEB.staleAfterMs) return 'degraded';
     return 'online';
   }
 
   function isDeviceOnline(device = currentDevice()) {
-    return connectionStatus(device) === 'online';
+    const connection = connectionStatus(device);
+    // A short telemetry gap is not a broker disconnect. Signed commands
+    // retain their expiry/bootId and must still receive a terminal ACK.
+    return connection === 'online' || connection === 'degraded';
   }
 
   function renderSelector() {
@@ -838,6 +843,11 @@
       pill.className = 'pill online';
       $('wifiConnectionText').textContent = 'Wi‑Fi đã kết nối';
       $('sideStatus').textContent = 'Đang trực tuyến';
+    } else if (connection === 'degraded') {
+      pill.textContent = 'DỮ LIỆU CHẬM';
+      pill.className = 'pill soft';
+      $('wifiConnectionText').textContent = 'Đang chờ dữ liệu mới từ máy';
+      $('sideStatus').textContent = 'Dữ liệu đang chậm';
     } else if (connection === 'connecting') {
       pill.textContent = 'ĐANG KẾT NỐI';
       pill.className = 'pill soft';

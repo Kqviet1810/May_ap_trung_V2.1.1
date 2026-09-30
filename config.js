@@ -27,6 +27,9 @@
     // Presence la retained nen KHONG duoc giu nhan "online" qua lau neu
     // snapshot/config thuc te da dung. 8s > snapshot idle 6s va >> active 400ms.
     staleAfterMs: 8000,
+    // LWT offline is immediate; a stale retained online record has a finite
+    // 30 s limit. Between 8 and 30 s show degraded, not a false Wi-Fi outage.
+    offlineAfterMs: 30000,
     commandTimeoutMs: 10000,
     configTimeoutMs: 15000,
     cloudApiBase: CLOUD_API_BASE,
