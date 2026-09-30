@@ -30,6 +30,9 @@
     // LWT offline is immediate; a stale retained online record has a finite
     // 30 s limit. Between 8 and 30 s show degraded, not a false Wi-Fi outage.
     offlineAfterMs: 30000,
+    // Broker liveness is separate from ESP telemetry freshness. Do not reset
+    // a healthy socket at 8 s while MQTT keepalive is 30 s.
+    brokerSilenceAfterMs: 90000,
     commandTimeoutMs: 10000,
     configTimeoutMs: 15000,
     cloudApiBase: CLOUD_API_BASE,

@@ -1,6 +1,6 @@
 {
   "baseline": "d5a0233c6ed39e517938f09336cc1d06425e6c19",
-  "stabilityReviewNote": "2026-09-30: reviewed changes limited to Tiny HIGH frame completion, network memory admission, build ID, nonblocking diagnostic drain/compact status, and OTA admission profile. Thermal control, fault/output safety, configuration schema and Web signed transaction bodies retain their existing fingerprints.",
+  "stabilityReviewNote": "2026-09-30: reviewed changes limited to Tiny HIGH frame completion, network memory admission, build ID, nonblocking diagnostic drain/compact status, and OTA admission profile. Integrated origin/main E503 transition reconciliation and Arduino OTA window unchanged. Thermal control, fault/output safety, configuration schema and Web signed transaction bodies retain their existing fingerprints.",
   "entries": [
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/boot_policy.h",
@@ -36,7 +36,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/attiny_state_sync.h",
-      "sha256": "5d077fe73be08378505c6659320e412108ef9bed420ea976595bfca73a186df4"
+      "sha256": "40c1f97a1766b1ba953e9c6d41bc11268f43c29d0fafe7a6380205a1bd5a6dcc"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/gpio_interrupts.h",
@@ -65,7 +65,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
-      "sha256": "39000a85a63dda14593ad1c7eeb8e5ace66cd59d0ab8d5ea6be9efc14b88c048",
+      "sha256": "bcff5d09b4efc8f3504d5c72067a03ac3f2711901f696ea0d38a7e2e5a107f8d",
       "signature": "class MachineController {"
     },
     {

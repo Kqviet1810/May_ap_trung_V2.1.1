@@ -6489,7 +6489,17 @@ class MachineController {
 
     uint8_t completedCode = 0U;
     bool completedOk = false;
-    if (mayapAttinyBusTakeResult(completedCode, completedOk)) {
+    const bool haveBusResult = mayapAttinyBusTakeResult(completedCode, completedOk);
+    // expect() alone misses an unchanged desired value with an old opposite
+    // command in flight. Its reply is a transitional snapshot, not E503.
+    // Include a just-completed opposite command: the driver has dequeued it.
+    if (mayapAttinyBusCommandPending(oppositeBatchCommand) ||
+        (haveBusResult && completedCode == oppositeBatchCommand))
+      attinyBatchSync_.reconcile(now);
+    if (mayapAttinyBusCommandPending(oppositeActivityCommand) ||
+        (haveBusResult && completedCode == oppositeActivityCommand))
+      attinyActivitySync_.reconcile(now);
+    if (haveBusResult) {
       attinyLinkChecked_ = true;
       if (completedOk) {
         attinyLinkHealthy_ = true;
@@ -6556,6 +6566,14 @@ class MachineController {
 
       attinyBatchSynced_ = (attinyTinyBatch_ == expectedBatch);
       attinyActivitySynced_ = (attinyTinyActivity_ == expectedActivity);
+      // One frame contains BOTH fields, but a batch command only confirms
+      // batch, and an activity command only confirms activity. During a
+      // handoff, reconcile an unexpected counterpart instead of flashing
+      // E503 on the HMI before its own corrective command has completed.
+      if (attinyBatchSync_.pending() || attinyActivitySync_.pending()) {
+        if (!attinyBatchSynced_) attinyBatchSync_.reconcile(now);
+        if (!attinyActivitySynced_) attinyActivitySync_.reconcile(now);
+      }
       attinyBatchSync_.observe(attinyTinyBatch_,
           completedOk && completedCode == batchCommand &&
           !mayapAttinyBusCommandPending(oppositeBatchCommand), now);
@@ -6645,8 +6663,19 @@ class MachineController {
                 attinyLinkChecked_ && !attinyLinkHealthy_, now);
     faults_.set(FaultCode::SirenBatteryLow,
                 attinyStatusKnown_ && attiny9vLow_, now);
+    const uint8_t syncFaultMask = (attinyBatchSync_.fault() ? 1U : 0U) |
+        (attinyActivitySync_.fault() ? 2U : 0U);
+    if (syncFaultMask != attinySyncFaultDetail_) {
+      attinySyncFaultDetail_ = syncFaultMask;
+      mayapSerialPrintf(false,
+          "[ATTINY-SYNC] fault=%u expected=%u/%u reported=%u/%u pending=%u/%u cmd=%u ok=%u\n",
+          syncFaultMask, expectedBatch, expectedActivity, attinyTinyBatch_,
+          attinyTinyActivity_, attinyBatchSync_.pending(), attinyActivitySync_.pending(),
+          completedCode, completedOk);
+    }
     faults_.set(FaultCode::AttinyStateUnsynced,
-                attinyStatusKnown_ && (attinyBatchSync_.fault() || attinyActivitySync_.fault()), now);
+                attinyStatusKnown_ && (attinyBatchSync_.fault() || attinyActivitySync_.fault()),
+                now, syncFaultMask);
 
     runtime_.attinyLinkHealthy = attinyLinkChecked_ && attinyLinkHealthy_;
     runtime_.attinyBatchSynced = attinyStatusKnown_ && attinyBatchSynced_;
@@ -7512,6 +7541,7 @@ class MachineController {
   bool attinyActivitySynced_ = false;
   AttinyStateSync attinyBatchSync_;
   AttinyStateSync attinyActivitySync_;
+  uint8_t attinySyncFaultDetail_ = 0U;
   bool attinyTinyActivity_ = false;
   bool attinyStartupProbePending_ = true;
   bool attinyLinkChecked_ = false;

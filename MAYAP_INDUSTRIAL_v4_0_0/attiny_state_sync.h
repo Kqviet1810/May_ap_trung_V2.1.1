@@ -31,6 +31,15 @@ class AttinyStateSync {
     fault_ = reported != expected_; // Status bits, not mere command ACK, prove it.
   }
 
+  // Desired state may stay unchanged while an old opposite command is still
+  // active/queued (e.g. manual fan ON, then batch START before its reply).
+  // Require the corrective command, without extending an existing deadline.
+  void reconcile(uint32_t now) {
+    if (pending_) return;
+    pending_ = true;
+    startedAt_ = now;
+  }
+
   void commandFailed() {
     pending_ = false;
     fault_ = true;

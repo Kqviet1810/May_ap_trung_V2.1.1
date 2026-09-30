@@ -26,6 +26,8 @@
 - Wi-Fi giu PERFORMANCE, khong dao MODEM_SLEEP theo loi/lease. Web: LWT
   offline ngay; stale 8..30 s hien DU LIEU CHAM, qua 30 s khoa lenh. Lenh
   trong khoang degraded van can signed ACK/bootId/expiry nhu truoc.
+  Broker silence co nguong rieng 90 s, khong duoc nho hon hai keepalive;
+  khong dung stale 8 s de reset socket dang song. Web cache 12.1.8.
 - Serial dung hang doi tinh ~2 KiB chi trong build diagnostic; supervisor
   ghi tung phan khong cho/delay/flush. Co timestamp, uu tien Fault/Health,
   thong ke dropped/critical/truncated. Khi EXIT, ket thuc dong dang ghi
@@ -48,6 +50,10 @@ alarm coalescing/critical priority va retry log tren 5 muc.
 Fingerprint safety chi doi nhung muc da review trong stabilityReviewNote;
 thermal_control, Tiny, schema, output/fault safety va Web transaction/HMAC
 giu nguyen. Khong dung viec cap nhat fingerprint thay cho behavioral tests.
+
+Tich hop nguyen cac sua doi moi tren main: doi soat E503 khi chuyen batch/
+activity, subscribe QoS1 moi clean session, cua so Arduino OTA 30 phut mot
+luot sau reset vat ly, va tai lieu A5 rev 1.3. Khong ghi de cac thay doi nay.
 
 ## Nghiem thu tren may that (bat buoc truoc khi coi la on dinh dai han)
 

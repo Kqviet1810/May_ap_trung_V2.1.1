@@ -1413,12 +1413,16 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
 }
 
 // ------------------------------ Vong doi ket noi -------------------------------
-inline void subscribeAll() {
-  mqtt.subscribe(topicOf("config/set"));
-  mqtt.subscribe(topicOf("reminders/set"));
-  mqtt.subscribe(topicOf("command"));
-  mqtt.subscribe(topicOf("history/request"));
-  mqtt.subscribe(topicOf("session"));
+inline bool subscribeAll() {
+  // Every new clean session must start at QoS1. The task's legacy promotion
+  // flag can still belong to the previous socket when reconnect succeeds in
+  // one cycle; relying on it leaves these subscriptions at QoS0.
+  bool ok = mqtt.subscribe(topicOf("config/set"), 1);
+  ok = mqtt.subscribe(topicOf("reminders/set"), 1) && ok;
+  ok = mqtt.subscribe(topicOf("command"), 1) && ok;
+  ok = mqtt.subscribe(topicOf("history/request"), 1) && ok;
+  ok = mqtt.subscribe(topicOf("session")) && ok;
+  return ok;
 }
 
 inline void attemptConnect(uint32_t now) {
@@ -1449,7 +1453,13 @@ inline void attemptConnect(uint32_t now) {
     return;
   }
   mqttBackoff.onSuccess();
-  subscribeAll();
+  if (!subscribeAll()) {
+    mqtt.disconnect();
+    netClient.stop();
+    mqttBackoff.onFailure(millis());
+    mayapSerialPrintf(false, "[WEBLINK] MQTT subscribe send failed; retry clean session\n");
+    return;
+  }
   publishPresence(true);
   portENTER_CRITICAL(&webMux);
   const bool haveConfig = knownConfigValid;

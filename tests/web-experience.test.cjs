@@ -130,6 +130,57 @@ test('fan config requires complete capabilities and preserves legacy schedules',
   assert.equal(h.window.invalidField, 'ventCycleMinutes');
 });
 
+test('complete cached config with stale snapshots requests sync again', () => {
+  const h = browser();
+  h.device.config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key => [key, 0]));
+  h.device.snapshot = { revision: 0 };
+  h.device.snapshotAt = Date.now();
+  assert.equal(h.selectedNeedsSync(), false);
+  h.device.snapshotAt -= 90001;
+  assert.equal(h.selectedNeedsSync(), true);
+});
+
+test('dead connected socket is replaced; broker PINGRESP and old-client packets are distinguished', async () => {
+  const h = browser({ keepaliveSeconds: 30 }); h.connectMqtt();
+  const first = h.clients[0]; first.connected = true; first.emit('connect');
+  h.state.mqttLastPacketAt = Date.now() - 90001;
+  h.document.hidden = true;
+  await h.recoverBrowserConnection(); assert.equal(h.clients.length, 1);
+  h.document.hidden = false;
+  await h.recoverBrowserConnection(); assert.equal(h.clients.length, 2);
+  assert.equal(first.disconnecting, true);
+  const second = h.clients[1]; second.connected = true; second.emit('connect');
+  h.device.snapshotAt = Date.now() - 90001; // ESP offline, broker still alive.
+  h.state.mqttLastPacketAt = Date.now() - 90001;
+  first.emit('packetreceive', { cmd: 'pingresp' });
+  assert.ok(Date.now() - h.state.mqttLastPacketAt > 90000);
+  second.emit('packetreceive', { cmd: 'pingresp' });
+  await h.recoverBrowserConnection(); assert.equal(h.clients.length, 2);
+});
+
+test('short telemetry staleness does not reset a healthy broker before keepalive', async () => {
+  const h = browser({ staleAfterMs: 8000, offlineAfterMs: 30000, keepaliveSeconds: 30 });
+  h.connectMqtt();
+  const client = h.clients[0]; client.connected = true; client.emit('connect');
+  for (const silence of [9000, 31000, 89000]) {
+    h.device.snapshotAt = Date.now() - silence;
+    h.state.mqttLastPacketAt = Date.now() - silence;
+    await h.recoverBrowserConnection();
+    assert.equal(h.clients.length, 1);
+  }
+  h.state.mqttLastPacketAt = Date.now() - 91000;
+  await h.recoverBrowserConnection(); assert.equal(h.clients.length, 2);
+});
+
+test('broker silence limit never cuts below two configured keepalive intervals', async () => {
+  const h = browser({ keepaliveSeconds: 60, brokerSilenceAfterMs: 8000 });
+  h.connectMqtt(); h.clients[0].connected = true; h.clients[0].emit('connect');
+  h.state.mqttLastPacketAt = Date.now() - 100000;
+  await h.recoverBrowserConnection(); assert.equal(h.clients.length, 1);
+  h.state.mqttLastPacketAt = Date.now() - 121000;
+  await h.recoverBrowserConnection(); assert.equal(h.clients.length, 2);
+});
+
 test('swipe changes adjacent tabs only and rejects vertical, short, slow or edge swipes', () => {
   const h = browser();
   assert.equal(h.swipeDestination('device', -100, 5, 250), 'batch');
