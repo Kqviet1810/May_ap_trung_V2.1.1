@@ -53,6 +53,18 @@ constexpr uint8_t CLOUD_OUTBOX_SIZE=8;
 namespace MayapCloudInternal {
 enum class NotifyLevel : uint8_t { Info, Warning, Critical, System };
 #include "actual-cloud-outbox.inc"
+enum class ConnectivityMode { Offline, Online };
+struct NetworkStatus { ConnectivityMode requestedMode=ConnectivityMode::Online; bool connected=true; } network;
+static uint8_t pinResetRequestFlag=0;
+static unsigned resetRequests=0;
+static bool resetDeferred=false, resetSuccess=true;
+NetworkStatus mayapGetNetworkStatus() { return network; }
+bool sendResetPin() {
+  requestDeferred=resetDeferred;
+  if (resetDeferred) return false;
+  ++resetRequests; return resetSuccess;
+}
+#include "actual-cloud-pin-reset.inc"
 }
 struct HmiEventItem { uint32_t sequence=0; };
 struct HmiEventSnapshot { uint32_t sourceSequence=0; uint8_t count=0; HmiEventItem items[16]; };
@@ -135,6 +147,15 @@ int main() {
 
   using namespace MayapCloudInternal;
   (void)lastSendAt; (void)lastRequestFinishedAt; (void)requestDeferred;
+  pinResetRequestFlag=1; resetDeferred=true;
+  servicePinReset(); servicePinReset();
+  assert(pinResetRequestFlag==1 && resetRequests==0); // Not sent while busy.
+  resetDeferred=false; servicePinReset(); servicePinReset();
+  assert(pinResetRequestFlag==0 && resetRequests==1);
+  pinResetRequestFlag=1; resetSuccess=false; servicePinReset(); servicePinReset();
+  assert(pinResetRequestFlag==0 && resetRequests==2); // No ambiguous replay.
+  pinResetRequestFlag=1; network.connected=false; servicePinReset();
+  assert(pinResetRequestFlag==0 && resetRequests==2);
   assert(enqueueRaw("FAULT_501",NotifyLevel::Warning,false,"first",false,0,0));
   assert(enqueueRaw("FAULT_501",NotifyLevel::Warning,false,"repeat",false,0,0));
   assert(outboxCount==1 && !strcmp(outbox[outboxHead].message,"repeat"));
@@ -165,5 +186,5 @@ int main() {
   serviceWifiPowerMode(); assert(radioPs==WIFI_PS_NONE && psWrites==2);
   radioReady=false; serviceWifiPowerMode(); assert(!wifiPowerModeValid);
   radioReady=true; serviceWifiPowerMode(); assert(wifiPowerModeValid && radioPs==WIFI_PS_NONE);
-  std::puts("Actual stability helpers: TLS/bulk exclusion, admission boundaries, bounded/chunked HTTP, Serial pressure/mute, alarm coalescing and failed log retry OK");
+  std::puts("Actual stability helpers: TLS/bulk exclusion, admission boundaries, bounded/chunked HTTP, Serial pressure/mute, alarm coalescing, deferred PIN reset and failed log retry OK");
 }

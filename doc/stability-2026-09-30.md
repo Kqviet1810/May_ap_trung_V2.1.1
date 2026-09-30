@@ -17,6 +17,8 @@
   logic hash/chu ky cu. Khong in noi dung response provisioning ra Serial.
 - Backoff HTTPS/MQTT dung millis SAU I/O, gap Cloud toi thieu 3 s sau khi
   request truoc hoan tat. Deferred vi tai nguyen/gap khong tinh la loi mang.
+  Yeu cau reset PIN chua gui do deferred duoc giu lai; KHONG tu replay
+  reset PIN neu HTTPS da gui nhung ket qua bi loi/khong chac chan.
 - Lap lai cung alarm/cung trang thai duoc gop; active/clear/active van la
   ba su kien. Routine traffic khong duoc day Critical ra khoi outbox.
 - Config/reminders/report snapshot gui that bai van duoc thu lai. Event

@@ -841,6 +841,20 @@ inline void serviceRegister(uint32_t now) {
   }
 }
 
+inline void servicePinReset() {
+  if (!__atomic_exchange_n(&pinResetRequestFlag, 0U, __ATOMIC_ACQ_REL)) return;
+  const NetworkStatus netStatus = mayapGetNetworkStatus();
+  if (netStatus.requestedMode != ConnectivityMode::Online || !netStatus.connected) {
+    mayapSerialPrintf(false, "[CLOUD] reset-pin bi huy: khong online luc yeu cau\n");
+    return;
+  }
+  if (!sendResetPin() && requestDeferred) {
+    // No HTTP request was sent: retain the user's intent while admission is
+    // busy. Never automatically replay a reset after an ambiguous HTTP error.
+    __atomic_store_n(&pinResetRequestFlag, 1U, __ATOMIC_RELEASE);
+  }
+}
+
 }  // namespace MayapCloudInternal
 
 // ================================ API cong khai ================================
@@ -915,25 +929,15 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
     checkWifiSignal(now);
   }
 
+  // Explicit user request gets first admission, not a permanently occupied
+  // send gap left by routine heartbeat/alarm traffic.
+  servicePinReset();
   serviceRegister(now);
   if (registered) {
     serviceHeartbeat(now);
     drainOutbox(now);
   }
 
-  // Dat lai PIN: fire-and-forget giong register/heartbeat (khong co man
-  // hinh rieng theo doi tien do tren HMI nhu "Doi Wi-Fi" - day chi la 1
-  // hanh dong don, ket qua xem qua log serial). Chi thu khi dang online,
-  // tranh HTTPClient.begin() bi treo lau luc mat mang.
-  if (__atomic_load_n(&pinResetRequestFlag, __ATOMIC_ACQUIRE)) {
-    __atomic_store_n(&pinResetRequestFlag, 0U, __ATOMIC_RELEASE);
-    const NetworkStatus netStatus = mayapGetNetworkStatus();
-    if (netStatus.requestedMode == ConnectivityMode::Online && netStatus.connected) {
-      sendResetPin();
-    } else {
-      mayapSerialPrintf(false, "[CLOUD] reset-pin bi huy: khong online luc yeu cau\n");
-    }
-  }
 }
 
 // MachineController goi ham nay tu controlTask, cung noi/cung nhip voi
