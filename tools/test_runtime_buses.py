@@ -29,6 +29,10 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     start = network.index('inline void mayapRequestWifiDeepRecovery()')
     end = network.index('inline void mayapSetWifiPortalOtaQuiesced', start)
     (out / 'actual-network.inc').write_text(network[start:end], encoding='utf-8')
+    realtime = (root / 'MAYAP_INDUSTRIAL_v4_0_0/realtime_link.h').read_text(encoding='utf-8')
+    start = realtime.index('inline bool subscribeAll() {')
+    end = realtime.index('inline void attemptConnect', start)
+    (out / 'actual-mqtt-subscriptions.inc').write_text(realtime[start:end], encoding='utf-8')
     ota = (root / 'MAYAP_INDUSTRIAL_v4_0_0/ota_update.h').read_text(encoding='utf-8')
     ota = '\n'.join(line for line in ota.splitlines() if not line.startswith('#include'))
     (out / 'actual-ota.inc').write_text(ota, encoding='utf-8')
@@ -58,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
                  'mayapBootAcknowledgeHomeFrame'):
         mailbox += re.search(r'inline (?:bool|void) ' + name + r'\(\) \{[^}]*\}', boot)[0] + '\n'
     (out / 'actual-boot-mailbox.inc').write_text(mailbox, encoding='utf-8')
-    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state'):
+    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-mqtt-subscriptions'):
         executable = out / (test + ('.exe' if __import__('os').name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
                    str(root / ('tests/' + test + '.cpp')), '-o', str(executable)]

@@ -6,6 +6,11 @@
 #ifndef MAYAP_MQTT_USERNAME
 #define MAYAP_MQTT_USERNAME ""
 #endif
+
+// Optional Arduino LAN OTA password. Empty disables the LAN upload service.
+#ifndef MAYAP_OTA_PASSWORD
+#define MAYAP_OTA_PASSWORD ""
+#endif
 #ifndef MAYAP_MQTT_PASSWORD
 #define MAYAP_MQTT_PASSWORD ""
 #endif

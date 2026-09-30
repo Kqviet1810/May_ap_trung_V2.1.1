@@ -6,14 +6,14 @@ Firmware bổ sung staged startup, chẩn đoán RTC và adaptive recovery Level
 
 Runtime recovery cho shared I2C, RS485, service task và Wi-Fi deep recovery: [Runtime Self-Recovery](doc/RUNTIME_SELF_RECOVERY.md). Tài liệu nêu ladder, owner/mutex, điều kiện restart và giới hạn kiểm thử.
 
-Web 12.1.6 sửa hai khung Mẻ ấp trên PC về chiều cao vừa nội dung, khôi phục mô tả dưới tiêu đề mobile và chia đều chiều cao tám ô trạng thái thiết bị. Khung trạng thái nhận phần chiều cao còn lại, cách thanh tab 10px khi đủ chỗ. Vuốt bám ngón tay hơn, đổi tab ngay khi thả và chuyển cảnh 100ms. Giữ giao diện tối, safe area, màu `#64C9D1`, nhóm quạt hút theo HMI và các cải tiến kết nối: [Giao diện và kết nối](doc/WEB_12_1_UX.md).
+Web 12.1.7 bổ sung tự phục hồi socket MQTT khi trình duyệt quay lại từ chế độ ngủ và yêu cầu đồng bộ khi snapshot cũ. Giữ các cải tiến giao diện của 12.1.6: [Giao diện và kết nối](doc/WEB_12_1_UX.md). Điều tra E503, kết nối và giới hạn Arduino OTA: [Rà soát ngày 30/09/2026](doc/RELIABILITY_REVIEW_2026_09_30.md).
 
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
 | Release | 4.0.0 |
 | ESP32 firmware | 4.0.0 |
 | HMI firmware | 4.0.0 |
-| Web cache | 12.1.6 |
+| Web cache | 12.1.7 |
 | ATtiny protocol | 1.0.0 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |

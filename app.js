@@ -2710,7 +2710,8 @@
 
   function selectedNeedsSync() {
     const device = currentDevice();
-    return !device?.snapshotAt || !device.config || !validateFullConfig(device.config) ||
+    return !device?.snapshotAt || Date.now() - device.snapshotAt > WEB.staleAfterMs ||
+      !device.config || !validateFullConfig(device.config) ||
       Number(device.snapshot?.revision || 0) > Number(device.revision || 0);
   }
 
@@ -2791,9 +2792,9 @@
       });
   }
 
-  function connectMqtt() {
+  function connectMqtt(force = false) {
     const credentials = [WEB.mqttUrl, WEB.mqttUsername, WEB.mqttPassword];
-    if (state.mqtt && !state.mqtt.disconnecting && state.mqttCredentials?.every((value, i) => value === credentials[i])) {
+    if (!force && state.mqtt && !state.mqtt.disconnecting && state.mqttCredentials?.every((value, i) => value === credentials[i])) {
       if (state.mqttConnected) syncSelectedDevice(true);
       return;
     }
@@ -2830,13 +2831,18 @@
     clearSyncRetries();
     const client = window.mqtt.connect(WEB.mqttUrl, options);
     state.mqtt = client;
+    state.mqttLastPacketAt = Date.now();
     state.mqttCredentials = credentials;
     if (previous) previous.end(true);
     state.mqttMessage = 'Đang kết nối với máy…';
     renderDevice();
 
+    client.on('packetreceive', () => {
+      if (state.mqtt === client) state.mqttLastPacketAt = Date.now();
+    });
     state.mqtt.on('connect', () => {
       if (state.mqtt !== client) return;
+      state.mqttLastPacketAt = Date.now();
       state.mqttConnected = true;
       state.mqttSessionState = 'ready';
       state.mqttMessage = 'Đã kết nối máy chủ';
@@ -3726,7 +3732,16 @@
   }
 
   async function recoverBrowserConnection() {
-    if (document.hidden || state.mqtt || state.mqttSessionState !== 'error' ||
+    if (document.hidden) return;
+    // A suspended browser can resume with connected=true on a dead socket.
+    // MQTT traffic (including PINGRESP), not device snapshots, proves liveness;
+    // an offline ESP32 must not cause a reconnect loop to a healthy broker.
+    if (state.mqtt) {
+      if (state.mqttConnected && Date.now() - state.mqttLastPacketAt > WEB.staleAfterMs)
+        connectMqtt(true);
+      return;
+    }
+    if (state.mqttSessionState !== 'error' ||
         Date.now() < state.authRetryAt || !currentDevice()?.pairingToken) return;
     const ready = await refreshMqttSession();
     if (ready) connectMqtt(); else renderDevice();
@@ -3758,11 +3773,16 @@
     clearInterval(state.sessionTimer);
   });
   window.addEventListener('online', () => {
+    recoverBrowserConnection();
     if (!state.mqttConnected && state.mqtt) state.mqtt.reconnect();
     if (!state.mqtt && state.mqttSessionState === 'error') {
       state.authRetryAt = 0;
       recoverBrowserConnection();
     }
+  });
+  window.addEventListener('pageshow', () => {
+    recoverBrowserConnection();
+    if (state.mqttConnected) syncSelectedDevice(true);
   });
 
   // Page Visibility: bao ESP32 biet tab con dang mo (foreground) hay khong,
@@ -3783,7 +3803,8 @@
     } else {
       // sync=true: ep ESP32 phat lai snapshot+config ngay, khong doi chu ky
       // lam moi tiep theo - quay lai tab phai thay du lieu moi ngay tuc thi.
-      activateSelectedSession(true);
+      recoverBrowserConnection();
+      if (state.mqttConnected) syncSelectedDevice(true);
     }
   });
 
