@@ -43,9 +43,20 @@
     document.querySelectorAll('[data-account-avatar]').forEach(root=>{
       root.replaceChildren();
       if(picture){const img=document.createElement('img');img.src=picture;img.alt='';img.referrerPolicy='no-referrer';
-        img.onerror=()=>{root.textContent=Array.from(name.trim())[0]?.toLocaleUpperCase('vi-VN') || 'U';};root.append(img);}
-      else root.textContent=Array.from(name.trim())[0]?.toLocaleUpperCase('vi-VN') || 'U';
+        img.onerror=()=>renderMissingPhoto(root);root.append(img);}
+      else renderMissingPhoto(root);
     });
+  }
+  function renderMissingPhoto(root) {
+    root.removeAttribute('aria-hidden');root.replaceChildren();
+    const button=document.createElement('button');button.type='button';button.className='avatarRefresh';
+    button.title='Cập nhật ảnh đại diện Google';button.setAttribute('aria-label',button.title);
+    // A neutral missing-photo icon, never an invented Google portrait or initials.
+    button.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 22v-2a8 8 0 0 1 16 0v2"/></svg>';
+    button.onclick=()=>{
+      const dialog=document.getElementById('profilePhotoDialog');
+      if(!dialog.open)dialog.showModal();prepareGoogle();
+    };root.append(button);
   }
   function expire() {
     if(account) {
@@ -85,6 +96,10 @@
     });return googleScript;
   }
   let preparing=null,challengeAt=0;
+  function showLoginError(message) {
+    document.getElementById('loginError').textContent=message;
+    const photoError=document.getElementById('profilePhotoError');if(photoError)photoError.textContent=message;
+  }
   async function prepareGoogle() {
     if(preparing)return preparing;
     preparing=(async()=>{
@@ -102,15 +117,15 @@
               const data=await res.json();
               if(!res.ok || !/^[a-f0-9]{64}$/.test(data.token || ''))throw new Error('Login rejected');
               setToken(data.token);location.replace(location.pathname);
-            } catch (_) {document.getElementById('loginError').textContent='Đăng nhập chưa hoàn tất. Vui lòng thử lại.';prepareGoogle();}
+            } catch (_) {showLoginError('Đăng nhập chưa hoàn tất. Vui lòng thử lại.');prepareGoogle();}
             finally {loginPending=false;}
           }});
         document.querySelectorAll('.googleLogin').forEach(root=>{
           root.replaceChildren();google.accounts.id.renderButton(root,{type:'standard',theme:'outline',size:'large',shape:'pill',
-            text:'signin_with',locale:'vi',width:root.closest('.landingNav')?220:300});
-        });document.getElementById('loginError').textContent='';
+            text:'signin_with',locale:'vi',width:root.closest('#profilePhotoDialog')?Math.min(260,window.innerWidth-80):root.closest('.landingNav')?220:300});
+        });showLoginError('');
       } catch (_) {
-        document.getElementById('loginError').textContent='Chưa tải được đăng nhập Google. Kiểm tra mạng rồi thử lại.';
+        showLoginError('Chưa tải được đăng nhập Google. Kiểm tra mạng rồi thử lại.');
         document.querySelectorAll('.googleLogin').forEach(root=>{
           root.replaceChildren();const button=document.createElement('button');button.textContent='Thử lại đăng nhập Google';
           button.onclick=prepareGoogle;root.append(button);
@@ -132,6 +147,7 @@
   });
   window.MayapAccount={ready:null,refresh,api,get current(){return account;}};
   document.getElementById('logoutBtn')?.addEventListener('click',logout);
+  document.getElementById('profilePhotoClose')?.addEventListener('click',()=>document.getElementById('profilePhotoDialog').close());
   document.getElementById('authRetry')?.addEventListener('click',async()=>{if(await refresh())location.reload();});
   setInterval(()=>{if(document.hidden)return;if(account && Date.now()-lastCheck>=300000)refresh();else if(!token && Date.now()-challengeAt>=240000)prepareGoogle();},60000);
   document.addEventListener('visibilitychange',()=>{
