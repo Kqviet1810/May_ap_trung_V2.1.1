@@ -886,15 +886,17 @@ constexpr uint8_t RGB_BRIGHTNESS_ALARM = 30;
 // Khong gia mao ngay thuc. Chi bat neu chap nhan hien ngay bien dich.
 constexpr bool DISPLAY_BUILD_DATE_WHEN_RTC_MISSING = false;
 
-// ----------------------- DS3231 + AT24C32 -----------------------------------
+// ----------------------- DS3231 + AT24C512 ----------------------------------
 // Dia chi co dinh de code gon va xac dinh. Hay quet I2C mot lan roi sua
-// EEPROM_I2C_ADDRESS neu module cua ban khong phai 0x57.
+// Mot EEPROM AT24C512 (64 KiB), A0/A1/A2 = GND, WP = GND de cho phep ghi.
 constexpr bool EXTERNAL_EEPROM_ENABLED = true;
 constexpr bool EXTERNAL_EEPROM_REQUIRED = true;
 constexpr uint8_t RTC_I2C_ADDRESS = 0x68U;
-constexpr uint8_t EEPROM_I2C_ADDRESS = 0x57U;
-constexpr uint16_t EEPROM_CAPACITY_BYTES = 4096U;
-constexpr uint8_t EEPROM_PAGE_SIZE = 32U;
+constexpr uint8_t EEPROM_I2C_ADDRESS = 0x50U;
+constexpr uint32_t EEPROM_CAPACITY_BYTES = 65536UL;
+constexpr uint8_t EEPROM_PAGE_SIZE = 128U;
+// Wire TX = 128 byte, tru 2 byte dia chi o nho. Khong gui ca page 128B.
+constexpr uint8_t EEPROM_MAX_WRITE_CHUNK = 126U;
 constexpr uint16_t EEPROM_WRITE_TIMEOUT_MS = 20U;
 constexpr uint8_t EEPROM_IO_RETRIES = 2U;
 constexpr uint16_t EEPROM_RETRY_GAP_MS = 2U;
@@ -974,21 +976,23 @@ constexpr uint16_t EEPROM_CONFIG_SLOT_BYTES = 0x0100U;
 constexpr uint16_t EEPROM_BATCH_SLOT_BYTES = 0x0080U;
 constexpr uint16_t EEPROM_REMINDERS_SLOT_BYTES = 0x0400U;
 
-// Lich su nhiet do 24 gio tren AT24C32: dung DUY NHAT vung con trong
-// 0x0B00..0x0FFF, tach khoi Config/Batch/Reminders. Moi mau 4 byte, 5 phut/mau,
-// 288 slot = 1152 byte; khong co con tro ghi co dinh de tranh tao wear hotspot.
-constexpr uint16_t EEPROM_ADDR_TEMP_HISTORY = 0x0B00U;
+// AT24C512: giu Config/Batch/Reminders A/B o dia chi cu de bao toan du lieu.
+// 0x0B00..0x0FFF de nguyen (history cu); history moi 0x1000..0x2F7F.
+// 7 ngay, 5 phut/mau; 0x2F80..0xFFFF du phong, KHONG format khi boot.
+constexpr uint16_t EEPROM_ADDR_TEMP_HISTORY = 0x1000U;
 constexpr uint16_t TEMP_HISTORY_SAMPLE_SEC = 300U;
-constexpr uint16_t TEMP_HISTORY_SLOT_COUNT = 288U;
+constexpr uint16_t TEMP_HISTORY_SLOT_COUNT = 2016U;
 constexpr uint16_t TEMP_HISTORY_RECORD_BYTES = 4U;
 constexpr uint16_t TEMP_HISTORY_STORAGE_BYTES =
     TEMP_HISTORY_SLOT_COUNT * TEMP_HISTORY_RECORD_BYTES;
-static_assert(TEMP_HISTORY_STORAGE_BYTES == 1152U,
-              "History 24h/5phut phai dung 1152 byte");
+static_assert(TEMP_HISTORY_STORAGE_BYTES == 8064U,
+              "History 7 ngay/5phut phai dung 8064 byte");
+static_assert(TEMP_HISTORY_SLOT_COUNT < 4096U, "History vuot tag bucket 12-bit");
 
 static_assert(EEPROM_I2C_ADDRESS >= 0x50U && EEPROM_I2C_ADDRESS <= 0x57U,
-              "Dia chi AT24C32 phai nam trong 0x50..0x57");
-static_assert(EEPROM_PAGE_SIZE == 32U, "AT24C32 page phai 32 byte");
+              "Dia chi AT24C512 phai nam trong 0x50..0x57");
+static_assert(EEPROM_PAGE_SIZE == 128U, "AT24C512 page phai 128 byte");
+static_assert(EEPROM_MAX_WRITE_CHUNK + 2U <= 128U, "Vuot Wire TX buffer");
 static_assert(EEPROM_IO_RETRIES > 0U, "EEPROM_IO_RETRIES phai > 0");
 static_assert(EEPROM_FAILURE_LATCH_COUNT > 0U,
               "EEPROM_FAILURE_LATCH_COUNT phai > 0");
@@ -1024,8 +1028,9 @@ static_assert(EEPROM_ADDR_REMINDERS_A + EEPROM_REMINDERS_SLOT_BYTES <= EEPROM_AD
 static_assert(EEPROM_ADDR_REMINDERS_B + EEPROM_REMINDERS_SLOT_BYTES <= EEPROM_ADDR_TEMP_HISTORY,
               "Reminders B de len History");
 static_assert(EEPROM_ADDR_TEMP_HISTORY + TEMP_HISTORY_STORAGE_BYTES <= EEPROM_CAPACITY_BYTES,
-              "History vuot dung luong AT24C32");
-static_assert(EEPROM_PAGE_SIZE == 32U, "History duoc tinh cho AT24C32 page 32 byte");
+              "History vuot dung luong AT24C512");
+static_assert(EEPROM_PAGE_SIZE % TEMP_HISTORY_RECORD_BYTES == 0U,
+              "History record phai vua page");
 
 // -------------------- RANG BUOC HMI/AN TOAN ---------------------------------
 constexpr float TARGET_TEMP_MIN_C = 30.0f;

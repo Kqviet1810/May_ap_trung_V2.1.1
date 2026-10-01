@@ -1,18 +1,27 @@
 <!DOCTYPE html>
 
-<html lang="vi">
+<html lang="vi" data-auth="checking">
 <head>
 <meta charset="utf-8"/>
+<meta name="referrer" content="strict-origin-when-cross-origin"/>
 <meta content="width=device-width,initial-scale=1,viewport-fit=cover" name="viewport"/>
 <meta content="#f3f8f9" name="theme-color"/>
 <meta content="light dark" name="color-scheme"/>
 <title>MAYAP · Máy ấp trứng</title>
 
-<meta content="MAYAP - Theo dõi máy ấp, quản lý mẻ ấp và nhận cảnh báo ở mọi nơi." name="description"/><link href="./manifest.webmanifest" rel="manifest"/><link href="./icons/icon-192.png" rel="icon"/><link href="./icons/apple-touch-icon.png" rel="apple-touch-icon"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/><meta name="apple-mobile-web-app-title" content="MAYAP"/><link href="./styles.css" rel="stylesheet"/><script>try{var t=localStorage.getItem('mayap.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);var bg=getComputedStyle(document.documentElement).getPropertyValue('--bodyBg').trim();if(bg)document.querySelector('meta[name="theme-color"]').setAttribute('content',bg)}catch(e){}</script></head>
+<meta content="MAYAP - Theo dõi máy ấp, quản lý mẻ ấp và nhận cảnh báo ở mọi nơi." name="description"/><link href="./manifest.webmanifest" rel="manifest"/><link href="./icons/icon-192.png" rel="icon"/><link href="./icons/apple-touch-icon.png" rel="apple-touch-icon"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/><meta name="apple-mobile-web-app-title" content="MAYAP"/><link href="./styles.css" rel="stylesheet"/><link href="./landing.css" rel="stylesheet"/><script>try{var t=localStorage.getItem('mayap.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);var bg=getComputedStyle(document.documentElement).getPropertyValue('--bodyBg').trim();if(bg)document.querySelector('meta[name="theme-color"]').setAttribute('content',bg)}catch(e){}</script></head>
 <body><noscript>Hãy bật JavaScript trong trình duyệt để sử dụng MAYAP.</noscript>
+
+<div class="authLoading" role="status"><strong>MAYAP</strong><p id="authMessage">Đang kiểm tra phiên đăng nhập…</p><button class="ghost" id="authRetry" type="button" hidden>Thử lại</button></div>
+<section class="landing" aria-label="MAYAP">
+<nav class="landingNav"><a class="landingBrand" href="./" aria-label="MAYAP Home"><i class="eggMark" aria-hidden="true"></i>MAYAP</a><div class="googleLogin" aria-label="Đăng nhập với Google">Đang chuẩn bị Google…</div></nav>
+<div class="landingHero"><div><p class="heroBrand">MAYAP</p><h1>Giám sát máy ấp trứng thông minh</h1><p class="heroCopy">Theo dõi nhiệt độ, độ ẩm và trạng thái máy theo thời gian thực. Nhận cảnh báo và điều khiển từ xa, ngay trên điện thoại.</p><div class="googleLogin" aria-label="Đăng nhập với Google">Đang chuẩn bị Google…</div><p id="loginError" role="alert"></p><div class="heroTrust"><span>Đăng nhập bảo mật</span><span>Nhiều máy, một tài khoản</span><span>Không cần mật khẩu mới</span></div></div>
+<div class="dashboardDemo" role="img" aria-label="Minh họa dashboard nhiệt độ 37,6 độ, độ ẩm 58 phần trăm và mẻ ấp ngày 12 trên 18"><div class="demoInner"><div class="demoTop"><b>MAYAP</b><span class="demoBadge">● Đang hoạt động</span></div><p class="demoName">Máy ấp 1</p><span class="demoTimestamp">Minh họa giao diện theo dõi</span><div class="demoReadings"><div class="demoReading"><span>Nhiệt độ</span><strong>37,6 °C</strong><small>Mục tiêu 37,5 °C</small></div><div class="demoReading"><span>Độ ẩm</span><strong>58 %</strong><small>Mục tiêu 60 %</small></div><div class="demoReading"><span>Ngày ấp</span><strong>12 / 18</strong><small>Mẻ đang chạy</small></div></div><div class="demoChart"><strong>Biểu đồ nhiệt độ</strong><svg viewBox="0 0 360 110" aria-hidden="true"><defs><linearGradient id="chartFade" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#087d85" stop-opacity=".16"/><stop offset="1" stop-color="#087d85" stop-opacity="0"/></linearGradient></defs><path d="M0 20H360M0 50H360M0 80H360M30 0V100M90 0V100M150 0V100M210 0V100M270 0V100M330 0V100" stroke="#edf3f3"/><path d="M0 57L15 53 30 57 45 48 60 50 75 44 90 51 105 48 120 55 135 49 150 51 165 46 180 50 195 42 210 50 225 48 240 55 255 45 270 49 285 47 300 53 315 43 330 48 345 44 360 46V110H0Z" fill="url(#chartFade)"/><path d="M0 57L15 53 30 57 45 48 60 50 75 44 90 51 105 48 120 55 135 49 150 51 165 46 180 50 195 42 210 50 225 48 240 55 255 45 270 49 285 47 300 53 315 43 330 48 345 44 360 46" fill="none" stroke="#087d85" stroke-width="2"/></svg></div></div><p class="demoIllustrationLabel">Dữ liệu minh họa</p></div></div>
+<div class="landingBenefits"><article><div class="benefitIcon" aria-hidden="true">▥</div><h2>Theo dõi realtime</h2><p>Nhiệt độ, độ ẩm và trạng thái máy cập nhật liên tục.</p></article><article><div class="benefitIcon" aria-hidden="true"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M18 8a6 6 0 0 0-12 0c0 6-2 6-2 8h16c0-2-2-2-2-8ZM10 20h4"/></svg></div><h2>Cảnh báo sự cố</h2><p>Nhận thông báo khi máy có bất thường.</p></article><article><div class="benefitIcon" aria-hidden="true">☷</div><h2>Điều khiển từ xa</h2><p>Điều chỉnh máy từ điện thoại hoặc PC.</p></article><article><div class="benefitIcon" aria-hidden="true">◷</div><h2>Quản lý mẻ ấp</h2><p>Theo dõi tiến trình và lịch nhắc cho từng mẻ.</p></article></div><footer class="landingFooter">MAYAP · Kết nối với máy ấp của bạn</footer>
+</section>
 <div class="appShell">
 <aside class="sidebar">
-<div class="brand"><div class="brandMark">M</div><div><strong>MAYAP</strong><small>Điều khiển máy ấp</small></div></div>
+<div class="brand accountIdentity"><span class="accountAvatar" data-account-avatar aria-hidden="true">U</span><div class="identityText"><strong data-account-name>Tài khoản</strong><small>Tài khoản Google</small></div></div>
 <nav class="nav">
 <button class="active" data-page="device" type="button"><span aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h4M7 12h4M7 16h10M16 8h1"/></svg></span><b>Thiết bị</b></button>
 <button data-page="batch" type="button"><span aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3c4 0 7 6.5 7 11a7 7 0 0 1-14 0c0-4.5 3-11 7-11Z"/><path d="M9 17c.6.7 1.5 1 3 1"/></svg></span><b>Mẻ ấp</b></button>
@@ -22,6 +31,7 @@
 </aside>
 <main class="main">
 <header class="topbar">
+<div class="mobileIdentity accountIdentity"><span class="accountAvatar" data-account-avatar aria-hidden="true">U</span><div class="identityText"><strong data-account-name>Tài khoản</strong><small>Điều khiển máy ấp</small></div></div>
 <div class="title"><h1 aria-live="polite" id="pageTitle">Thiết bị</h1><p id="pageSubtitle">Theo dõi và điều khiển máy.</p></div>
 <div class="headerReadings" role="group" aria-label="Thông số máy">
 <div class="live"><span>Nhiệt độ</span><strong id="liveTemp">—</strong></div>
@@ -274,13 +284,12 @@
 <form class="stackForm" id="renameDeviceForm">
 <p class="settingFootnote">Áp dụng cho mọi người xem máy này, kể cả trên thông báo đẩy.</p>
 <label class="field"><span>Tên mới</span><input autocomplete="off" id="renameDeviceName" maxlength="64" placeholder="Máy ấp số 2" required=""/></label>
-<label class="field"><span>PIN hiện tại</span><input autocomplete="off" id="renameDevicePin" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Nhập mã PIN của máy" required="" type="password"/></label>
 <p class="formError" id="renameDeviceError" role="alert"></p>
 <button class="primary full" type="submit">Đổi tên máy</button>
 </form>
 <hr class="settingDivider"/>
 <form class="stackForm" id="changePinForm">
-<p class="settingFootnote">PIN mới gồm 6–8 chữ số. Dùng mã này để thêm máy trên điện thoại khác.</p>
+<p class="settingFootnote">PIN mới gồm 6–8 chữ số, dùng khi claim máy lần đầu. Đổi điện thoại chỉ cần đăng nhập Google.</p>
 <label class="field"><span>PIN hiện tại</span><input autocomplete="off" id="changePinOld" inputmode="numeric" maxlength="8" minlength="4" pattern="[0-9]{4,8}" placeholder="Nhập mã PIN của máy" required="" type="password"/></label>
 <label class="field"><span>PIN mới</span><input autocomplete="off" id="changePinNew1" inputmode="numeric" maxlength="8" minlength="6" pattern="[0-9]{6,8}" placeholder="6–8 chữ số" required="" type="password"/></label>
 <label class="field"><span>Nhập lại PIN mới</span><input autocomplete="off" id="changePinNew2" inputmode="numeric" maxlength="8" minlength="6" pattern="[0-9]{6,8}" placeholder="6–8 chữ số" required="" type="password"/></label>
@@ -310,6 +319,11 @@
 </details>
 </section>
 </div>
+<section class="panel accountPanel" id="accountPanel" aria-labelledby="accountHeading">
+<div class="accountIdentity"><span class="accountAvatar" data-account-avatar aria-hidden="true">U</span><div class="identityText"><h2 id="accountHeading">Thông tin tài khoản</h2><strong id="accountName" data-account-name>Tài khoản</strong><small id="accountEmail"></small></div></div>
+<button class="ghost accountLogout" id="logoutBtn" type="button">Đăng xuất</button>
+<small id="accountNotice" role="status"></small>
+</section>
 </section>
 </main>
 </div>
@@ -345,6 +359,9 @@
 </div>
 </div>
 </dialog>
+<dialog id="profilePhotoDialog" aria-labelledby="profilePhotoTitle">
+<div class="dialogBody"><h2 id="profilePhotoTitle">Ảnh đại diện Google</h2><p>Xác minh lại tài khoản Google để cập nhật ảnh. Không cần đăng xuất trước.</p><div class="googleLogin" aria-label="Xác minh tài khoản Google"></div><p id="profilePhotoError" role="alert"></p><button class="ghost" id="profilePhotoClose" type="button">Đóng</button></div>
+</dialog>
 <dialog id="confirmDialog">
 <div class="confirmBody">
 <div><p class="eyebrow">XÁC NHẬN THAO TÁC</p><h2 id="confirmTitle">Xác nhận</h2></div>
@@ -354,5 +371,5 @@
 </dialog>
 <div aria-live="polite" class="toast" id="toast" role="status"></div>
 
-<script defer src="./config.js"></script><script defer src="./vendor/mqtt.min.js"></script><script defer src="./vendor/jsQR.min.js"></script><script defer src="./push.js"></script><script defer src="./protocol_v2.js"></script><script defer src="./app.js"></script></body>
+<script defer src="./config.js"></script><script defer src="./account.js"></script><script defer src="./vendor/mqtt.min.js"></script><script defer src="./vendor/jsQR.min.js"></script><script defer src="./push.js"></script><script defer src="./protocol_v2.js"></script><script defer src="./app.js"></script></body>
 </html>

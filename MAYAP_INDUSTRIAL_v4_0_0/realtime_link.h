@@ -1854,11 +1854,15 @@ inline void mayapWebConfirmReminderSave(uint32_t transactionId, bool ok,
                                         const ReminderSet *stored) {
   using namespace MayapRealtimeInternal;
   (void)transactionId;
-  (void)stored;  // danh sach moi da/se toi qua mayapWebSetReminders() tu cung noi goi
   portENTER_CRITICAL(&webMux);
   if (pendingReminderSave.used) {
-    if (ok) webRemindersRevision = pendingReminderSave.revision > webRemindersRevision
-        ? pendingReminderSave.revision : webRemindersRevision + 1U;
+    if (ok && stored) {
+      knownReminders = *stored; // Only the EEPROM readback is authoritative.
+      knownRemindersValid = true;
+      webRemindersRevision = pendingReminderSave.revision > webRemindersRevision
+          ? pendingReminderSave.revision : webRemindersRevision + 1U;
+      remindersDirty = true; // Republish with the final revision even if a report raced.
+    }
     enqueueAckLocked(pendingReminderSave.requestId, ok ? "applied" : "rejected",
                      ok ? "" : "LUU NHAC NHO BI TU CHOI", "reminders.save",
                      pendingReminderSave.queuedAt,

@@ -23,8 +23,8 @@ namespace MayapTemperatureHistoryInternal {
 //   byte2: tempCode[11:4]
 //   byte3: CRC-8 (poly 0x07) cua 3 byte dau
 // bucket = floor(epoch/300) mod 4096; tempCode = round(temp*10)+500.
-// Slot vat ly = floor(epoch/300) mod 288. Khong metadata/index ghi dinh ky,
-// nen moi slot chi bi viet lai xap xi 1 lan/ngay; moi page 32B nhan 8 lan/ngay.
+// Slot vat ly = floor(epoch/300) mod TEMP_HISTORY_SLOT_COUNT (7 ngay tren C512).
+// Khong metadata/index ghi dinh ky; moi slot duoc viet lai sau 7 ngay.
 static uint32_t lastSampleBucket = UINT32_MAX;
 static volatile uint32_t latestRtcEpoch = 0U;
 
@@ -68,7 +68,7 @@ inline bool readRaw(uint16_t address, uint8_t out[TEMP_HISTORY_RECORD_BYTES]) {
 }
 
 inline bool writeRaw(uint16_t address, const uint8_t data[TEMP_HISTORY_RECORD_BYTES]) {
-  // Dia chi history luon boi so 4 va record 4B, nen khong bao gio vuot page 32B.
+  // Dia chi history luon boi so 4 va record 4B, khong vuot page EEPROM.
   if ((address % EEPROM_PAGE_SIZE) > EEPROM_PAGE_SIZE - TEMP_HISTORY_RECORD_BYTES) return false;
   if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) return false;
   Wire.beginTransmission(EEPROM_I2C_ADDRESS);

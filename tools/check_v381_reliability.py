@@ -148,7 +148,8 @@ require(cloud, "MayapProvisioningState::KeyMismatch", "HTTP 401 classification")
 require(cloud, "MayapProvisioningState::CloudOffline", "offline classification")
 
 # Current-scale policy: auto provisioning is enabled, but inventory remains available.
-require(wrangler, 'main = "src/reliability-wrapper.js"', "reliability worker entrypoint")
+require(wrangler, 'main = "src/account-worker.js"', "account worker entrypoint")
+require(read("cloudflare/src/account-worker.js"), "physicalWorker.fetch(request,env,ctx)", "physical device reliability chain")
 require(wrangler, 'REQUIRE_DEVICE_INVENTORY = "0"', "auto provisioning default")
 require(wrangler, "MAX_NEW_DEVICE_REGISTRATIONS_PER_HOUR", "registration rate limit setting")
 require(wrangler, "NEW_DEVICE_REGISTRATION_WINDOW_MINUTES", "registration window setting")

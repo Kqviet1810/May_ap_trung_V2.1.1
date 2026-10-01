@@ -6,14 +6,14 @@ Firmware bổ sung staged startup, chẩn đoán RTC và adaptive recovery Level
 
 Runtime recovery cho shared I2C, RS485, service task và Wi-Fi deep recovery: [Runtime Self-Recovery](doc/RUNTIME_SELF_RECOVERY.md). Tài liệu nêu ladder, owner/mutex, điều kiện restart và giới hạn kiểm thử.
 
-Web 12.1.10 hiển thị cache trước kết nối, nhận bootstrap retained nhỏ, tải config/history khi cần và giữ socket với warm background 5 phút (300 giây) khi quay lại tab: [Luồng kết nối nhanh](doc/WEB_FAST_CONNECT.md). Giữ các cải tiến giao diện và reliability: [Tối ưu theo log](doc/stability-2026-09-30.md), [Giao diện và kết nối](doc/WEB_12_1_UX.md), [Rà soát E503 và OTA](doc/RELIABILITY_REVIEW_2026_09_30.md).
+Web 12.2.0 thêm Google Account và ownership nhiều máy trên GitHub Pages + Worker/D1: [Account và cấu hình OAuth](doc/GOOGLE_ACCOUNT_MULTITENANT.md). Giữ HiveMQ trực tiếp, cache-first, bootstrap retained, lazy data và WARM 5 phút từ [Luồng kết nối nhanh](doc/WEB_FAST_CONNECT.md). API kiểm ownership; command giữ HMAC V2. Credential MQTT chung chưa cô lập quyền đọc topic giữa khách hàng.
 
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
 | Release | 4.0.0 |
 | ESP32 firmware | 4.0.0 |
 | HMI firmware | 4.0.0 |
-| Web cache | 12.1.10 |
+| Web cache | 12.2.2 |
 | ATtiny protocol | 1.0.0 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |
@@ -51,8 +51,8 @@ Người dùng cuối **không nhập hostname, port, WSS, MQTT username/passwor
 1. Máy tạo Device ID dạng `MAP-XXXXXXXXXXXX` từ eFuse MAC.
 2. ESP32 có device key 256-bit riêng, lưu NVS.
 3. Máy đăng ký/provision qua Worker và đồng bộ PIN Web.
-4. Trên web, người dùng thêm máy bằng **Device ID + PIN**.
-5. Worker cấp browser session; dashboard tự lấy cấu hình MQTT cần thiết cho phiên đã xác thực.
+4. Trên GitHub Pages, người dùng đăng nhập **Google**, claim máy lần đầu bằng **Device ID + PIN**.
+5. Worker cấp MAYAP account session, kiểm ownership trước khi cấp MQTT/control grant; lần sau login Google tự lấy lại danh sách máy trên điện thoại/PC khác.
 
 Nếu `REQUIRE_DEVICE_INVENTORY=0`, Worker v3.8.1 có thể auto-admit máy mới theo rate-limit và ghi vào `device_inventory`. Nếu đặt `=1`, quay lại chế độ factory allowlist nghiêm ngặt.
 

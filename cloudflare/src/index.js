@@ -31,21 +31,8 @@ const PIN_RATE_WINDOW_MS = 15 * 60 * 1000;
 const PIN_RATE_BLOCK_MS = 15 * 60 * 1000;
 const PIN_RATE_MAX_FAILURES = 5;
 
-const DEFAULT_MQTT_HOST = '2f4b95444c554498bd4a4b2da0de8013.s1.eu.hivemq.cloud';
-const DEFAULT_MQTT_USERNAME = 'Mayap_Iot';
-// Temporary migration endpoint for already-open V1 pages. V2 never calls it.
-const LEGACY_V1_BODY_CAP = 1350;
-const LEGACY_V1_ENVELOPE_CAP = 1536;
-const MQTT_WRITE_CHANNELS = new Set(['command', 'config/set', 'reminders/set', 'history/request']);
-
 function bytesToHex(bytes) {
   return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-function hexToBytes(hex) {
-  if (typeof hex !== 'string' || !/^[0-9a-f]{64}$/i.test(hex)) return null;
-  const out = new Uint8Array(32);
-  for (let i = 0; i < out.length; i += 1) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
 }
 async function hmacSha256(keyBytes, message) {
   const key = await crypto.subtle.importKey(
@@ -62,24 +49,6 @@ async function deriveCommandKeyHex(env, deviceId) {
   );
   return bytesToHex(digest);
 }
-async function signLegacyMqttWrite(env, deviceId, channel, bodyText) {
-  const key = hexToBytes(await deriveCommandKeyHex(env, deviceId));
-  if (!key) return '';
-  return bytesToHex(await hmacSha256(key,
-    `mayap-mqtt-write:v1\n${deviceId}\n${channel}\n${bodyText}`));
-}
-// HiveMQ Serverless khong dung JWT. Web chi nhan credential chung SAU KHI
-// xac thuc PIN/pairing token qua Worker; lenh ghi MQTT con duoc HMAC rieng
-// tung device ben duoi nen lo credential broker khong du de dieu khien may.
-async function webMqttConfig(env) {
-  const host = String(env.MAYAP_MQTT_HOST || DEFAULT_MQTT_HOST).trim();
-  const username = String(env.MAYAP_MQTT_USERNAME || DEFAULT_MQTT_USERNAME).trim();
-  const password = String(env.MAYAP_MQTT_PASSWORD || '');
-  const url = String(env.MAYAP_MQTT_WSS_URL || (host ? `wss://${host}:8884/mqtt` : '')).trim();
-  if (!/^wss:\/\//i.test(url) || !username || !password) return null;
-  return { url, username, password };
-}
-
 function pinRateKey(request, deviceId) {
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   return `pin:${deviceId}:${ip}`;
@@ -467,81 +436,6 @@ function isValidPin(pin) {
   return typeof pin === 'string' && /^[0-9]{4,8}$/.test(pin);
 }
 
-// -------------------------- Endpoint: xac thuc PIN (dung khi them thiet bi) --------------------------
-async function handleVerifyPin(request, env) {
-  const body = await readJson(request);
-  const deviceId = String(body?.device_id || '').trim();
-  const pin = String(body?.pin || '');
-  if (!isValidDeviceId(deviceId)) return json(env, { success: false, error: 'device_id khong hop le' }, 400);
-
-  const device = await getDeviceByDeviceId(env.DB, deviceId);
-  if (!device) return json(env, { success: false, error: 'device chua dang ky - hay bat may va cho ket noi mang truoc' }, 404);
-  const check = await verifyPinGuarded(request, env, device, pin);
-  if (check.limited) return json(env, { success: false, error: 'Thử sai quá nhiều lần - vui lòng chờ 15 phút' }, 429);
-  if (!check.valid) return json(env, { success: false, error: 'Sai mã PIN của thiết bị' }, 401);
-  const mqtt = await webMqttConfig(env);
-  if (!mqtt) return json(env, { success: false, error: 'Máy chủ chưa cấu hình kết nối MQTT' }, 503);
-  return json(env, {
-    success: true,
-    device_name: device.device_name || device.device_id,
-    pairing_token: device.pairing_token,
-    mqtt,
-  });
-}
-
-async function handleMqttSession(request, env) {
-  const body = await readJson(request);
-  const deviceId = String(body?.device_id || '').trim();
-  const pairingToken = String(body?.pairing_token || '');
-  const device = await getDeviceByDeviceId(env.DB, deviceId);
-  if (!device || !pairingToken || pairingToken !== device.pairing_token) {
-    return json(env, { success: false, error: 'Phiên ghép nối không hợp lệ' }, 401);
-  }
-  const mqtt = await webMqttConfig(env);
-  if (!mqtt) return json(env, { success: false, error: 'Máy chủ MQTT chưa sẵn sàng' }, 503);
-  const clientId = String(body?.control_client_id || '');
-  if (!clientId) return json(env, { success: true, mqtt }); // existing V1 page
-  if (!/^[A-Za-z0-9_-]{8,40}$/.test(clientId)) {
-    return json(env, { success: false, error: 'client_id khong hop le' }, 400);
-  }
-  const commandKey = hexToBytes(await deriveCommandKeyHex(env, deviceId));
-  if (!commandKey) return json(env, { success: false, error: 'Khoa dieu khien chua san sang' }, 503);
-  const expiresAt = Math.floor(Date.now() / 1000) + 300;
-  const grant = `${clientId}|${expiresAt}|${randomToken(12)}`;
-  const grantSig = bytesToHex(await hmacSha256(commandKey,
-    `mayap-control-grant:v2\n${deviceId}\n${grant}`));
-  const sessionKey = bytesToHex(await hmacSha256(commandKey,
-    `mayap-control-session:v2\n${deviceId}\n${grant}`));
-  return json(env, { success: true, mqtt, control: { grant, grantSig, sessionKey, expiresAt } });
-}
-
-// Compatibility only: remove after V1 browsers have aged out. New Web never
-// signs each click through this route; old pages remain functional during rollout.
-async function handleLegacySignMqtt(request, env) {
-  const body = await readJson(request);
-  const deviceId = String(body?.device_id || '').trim();
-  const pairingToken = String(body?.pairing_token || '');
-  const channel = String(body?.channel || '');
-  const payload = body?.body;
-  if (!isValidDeviceId(deviceId) || !MQTT_WRITE_CHANNELS.has(channel) ||
-      !payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return json(env, { success: false, error: 'du lieu ky MQTT khong hop le' }, 400);
-  }
-  const device = await getDeviceByDeviceId(env.DB, deviceId);
-  if (!device || !pairingToken || pairingToken !== device.pairing_token) {
-    return json(env, { success: false, error: 'Phien ghep noi khong hop le' }, 401);
-  }
-  const bodyText = JSON.stringify(payload);
-  const probe = JSON.stringify({ v: 1, body: bodyText, sig: '0'.repeat(64) });
-  if (new TextEncoder().encode(bodyText).length >= LEGACY_V1_BODY_CAP ||
-      new TextEncoder().encode(probe).length >= LEGACY_V1_ENVELOPE_CAP) {
-    return json(env, { success: false, error: 'ban tin MQTT V1 qua lon' }, 413);
-  }
-  const signature = await signLegacyMqttWrite(env, deviceId, channel, bodyText);
-  if (!signature) return json(env, { success: false, error: 'may chu chua san sang ky lenh' }, 503);
-  return json(env, { success: true, body: bodyText, signature });
-}
-
 // -------------------------- Endpoint: doi ten may --------------------------
 async function handleRenameDevice(request, env) {
   const body = await readJson(request);
@@ -877,14 +771,8 @@ export default {
       if (url.pathname === '/api/device/alarm' && request.method === 'POST') {
         return await handleAlarm(request, env);
       }
-      if (url.pathname === '/api/device/verify-pin' && request.method === 'POST') {
-        return await handleVerifyPin(request, env);
-      }
-      if (url.pathname === '/api/device/mqtt-session' && request.method === 'POST') {
-        return await handleMqttSession(request, env);
-      }
-      if (url.pathname === '/api/device/sign-mqtt' && request.method === 'POST') {
-        return await handleLegacySignMqtt(request, env);
+      if (['/api/device/verify-pin','/api/device/mqtt-session','/api/device/sign-mqtt','/api/device/session-check'].includes(url.pathname)) {
+        return json(env, { success:false, error:'ACCOUNT_UPGRADE_REQUIRED' }, 410);
       }
       if (url.pathname === '/api/device/rename' && request.method === 'POST') {
         return await handleRenameDevice(request, env);
