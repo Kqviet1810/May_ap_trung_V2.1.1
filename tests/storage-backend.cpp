@@ -118,7 +118,7 @@ int main() {
   const unsigned before=chips[0].writes;
   assert(!async.saveConfig(c,result) && async.pendingConfig());
   assert(chips[0].writes==before); // control path cannot perform EEPROM I/O
-  async.workerStep(); assert(!async.pendingConfig());
+  async.workerStep(); assert(async.pendingConfig()); // completion cannot race the caller outcome
   assert(async.saveConfig(c,result) && result.value==40);
   batch.elapsed=100; batch.wasRunning=1;
   assert(!async.saveBatch(batch)); async.workerStep();

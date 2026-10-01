@@ -4457,7 +4457,7 @@ class MachineController {
     if (startCommandPending_) {
       const char *message = "LOI LUU TRANG THAI ME";
       const bool ok = startBatch(now, message);
-      if (!startStoragePending_ || !store_.pendingBatch()) {
+      if (!startStoragePending_ || !startAwaitingSave_) {
         startCommandPending_ = false;
         if (!ok && startStoragePending_) {
           if (!safetyJournal_.setStopIntent()) safetyJournalFaultLatched_ = true;
@@ -4701,6 +4701,7 @@ class MachineController {
   }
 
   bool startBatch(uint32_t now, const char *&message) {
+    startAwaitingSave_ = false;
     if (!mayapBootOperationsReady()) { message = "DANG KHOI DONG"; return false; }
     if (mayapFirmwareMaintenanceActive()) { message = "DANG CAP NHAT FIRMWARE"; return false; }
     const InputState &in = inputs_.state();
@@ -4741,6 +4742,7 @@ class MachineController {
       startStoragePending_ = true;
     }
     if (!store_.saveBatch(pendingStartBatch_)) {
+      startAwaitingSave_ = store_.pendingBatch();
       message = "LOI LUU TRANG THAI ME";
       if (!store_.pendingBatch()) {
         // A publication may have succeeded even if its readback failed.
@@ -7451,7 +7453,7 @@ class MachineController {
   PowerManager power_{};
   RtcDs3231 rtc_{};
   bool configSavePending_ = false, reminderSavePending_ = false, tuneSavePending_ = false;
-  bool startCommandPending_ = false, startStoragePending_ = false;
+  bool startCommandPending_ = false, startStoragePending_ = false, startAwaitingSave_ = false;
   MachineConfig pendingConfig_{};
   ReminderSet pendingReminders_{};
   PackedBatchV1 pendingStartBatch_{};

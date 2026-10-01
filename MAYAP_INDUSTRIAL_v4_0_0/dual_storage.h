@@ -227,9 +227,10 @@ class PersistentStore {
   void markOffline() {} // Owner worker decides health, never discard RAM here.
   bool primary() const { return mayapStoragePrimaryOnline(); }
   bool configOutstanding() const { return load(configJob_) != 0; }
-  bool pendingConfig() const { return load(configJob_) == 1; }
-  bool pendingBatch() const { return load(batchJob_) == 1; }
-  bool pendingReminders() const { return load(reminderJob_) == 1; }
+  bool pendingConfig() const { return configWaiting_; }
+  bool pendingBatch() const { return batchWaiting_; }
+  bool batchBusy() const { return load(batchJob_) == 1; }
+  bool pendingReminders() const { return reminderWaiting_; }
   bool loadConfig(MachineConfig &out) {
     if (!configValid_ && load(recoveredConfigReady_) == 1) {
       config_ = recoveredConfig_; configValid_ = true; set(recoveredConfigReady_, 2);
@@ -240,21 +241,23 @@ class PersistentStore {
   bool loadBatch(PackedBatchV1 &out) { if (!batchValid_) return false; out = batch_; return true; }
   bool loadReminders(ReminderSet &out) { out = reminders_; return true; }
   bool saveConfig(const MachineConfig &input, MachineConfig &out) {
+    configWaiting_ = false;
     if (asyncMode_ && !worker_) return false;
     if (!worker_) { const bool ok = backend_.saveConfig(input, out); if (ok) { config_ = out; configValid_ = true; } return ok; }
     const uint8_t state = load(configJob_);
-    if (state == 1) return false;
+    if (state == 1) { configWaiting_ = true; return false; }
     if (state >= 2) {
       if (state == 2) { config_ = configResult_; configValid_ = true; out = config_; }
       set(configJob_, 0); return state == 2;
     }
-    configRequest_ = input; set(configJob_, 1); return false;
+    configRequest_ = input; set(configJob_, 1); configWaiting_ = true; return false;
   }
   bool saveBatch(const PackedBatchV1 &input) {
+    batchWaiting_ = false;
     if (asyncMode_ && !worker_) return false;
     if (!worker_) { const bool ok = backend_.saveBatch(input); if (ok) { batch_ = input; batchValid_ = true; } return ok; }
     const uint8_t state = load(batchJob_);
-    if (state == 1) return false;
+    if (state == 1) { batchWaiting_ = true; return false; }
     if (state >= 2) {
       const bool same = memcmp(&input, &batchRequest_, sizeof(input)) == 0;
       if (state == 2) { batch_ = batchRequest_; batchValid_ = true; }
@@ -262,18 +265,19 @@ class PersistentStore {
       // A completed checkpoint cannot acknowledge a newer STOP or START.
       if (same) return state == 2;
     }
-    batchRequest_ = input; set(batchJob_, 1); return false;
+    batchRequest_ = input; set(batchJob_, 1); batchWaiting_ = true; return false;
   }
   bool saveReminders(const ReminderSet &input, ReminderSet &out) {
+    reminderWaiting_ = false;
     if (asyncMode_ && !worker_) return false;
     if (!worker_) return backend_.saveReminders(input, out);
     const uint8_t state = load(reminderJob_);
-    if (state == 1) return false;
+    if (state == 1) { reminderWaiting_ = true; return false; }
     if (state >= 2) {
       if (state == 2) out = reminders_ = reminderResult_;
       set(reminderJob_, 0); return state == 2;
     }
-    reminderRequest_ = input; set(reminderJob_, 1); return false;
+    reminderRequest_ = input; set(reminderJob_, 1); reminderWaiting_ = true; return false;
   }
   // Poll periodic checkpoints without submitting a new timestamp each loop.
   bool finishBatch(bool &ok) {
@@ -281,7 +285,7 @@ class PersistentStore {
     if (state < 2) return false;
     ok = state == 2;
     if (ok) { batch_ = batchRequest_; batchValid_ = true; }
-    set(batchJob_, 0); return true;
+    set(batchJob_, 0); batchWaiting_ = false; return true;
   }
   uint32_t takeEepromSoftRetryEvents() { return __atomic_exchange_n(&retries_, 0U, __ATOMIC_ACQ_REL); }
  private:
@@ -312,6 +316,7 @@ class PersistentStore {
   PackedBatchV1 batch_{}, batchRequest_{};
   ReminderSet reminders_{}, reminderRequest_{}, reminderResult_{};
   uint8_t configJob_ = 0, batchJob_ = 0, reminderJob_ = 0;
+  bool configWaiting_ = false, batchWaiting_ = false, reminderWaiting_ = false;
   bool configValid_ = false, batchValid_ = false, ready_ = false, asyncMode_ = false;
   uint32_t retries_ = 0;
   StaticTask_t tcb_{};
