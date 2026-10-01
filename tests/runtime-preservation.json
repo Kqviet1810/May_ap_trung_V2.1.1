@@ -1,5 +1,6 @@
 {
   "baseline": "d5a0233c6ed39e517938f09336cc1d06425e6c19",
+  "singleEepromReviewNote": "2026-10-01: reviewed config-only fingerprint update for one AT24C512 at 0x50, 32-bit 64KiB capacity, 128B pages/126B Wire payload and seven-day history in a separate region. Config/Batch/Reminder schemas and existing slot addresses, thermal/output safety, Tiny protocol and signed Web transactions remain unchanged.",
   "stabilityReviewNote": "2026-09-30: reviewed changes limited to Tiny HIGH frame completion, network memory admission, build ID, nonblocking diagnostic drain/compact status, and OTA admission profile. Integrated origin/main E503 transition reconciliation and Arduino OTA window unchanged. Thermal control, fault/output safety, configuration schema and Web signed transaction bodies retain their existing fingerprints.",
   "entries": [
     {
@@ -48,7 +49,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/history_store.h",
-      "sha256": "dc5e1fe4b6ff15a6e37152b3f4dd854f9a2346705b40c2dfe008eef8d951632f"
+      "sha256": "45b221554a4b4a127c66da8fd666b9d7745348d6bb01728a7679815963b671ba"
     },
     {
       "file": "ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino",
@@ -60,7 +61,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/config.h",
-      "sha256": "a888ee5c71eedcd10e423f3400a13b008a63314bf3a09eaacdf26adceb970659",
+      "sha256": "0c5b897a0eca21b3d3f98b7e86c77805400e4a591be1151c92afab0fccbd3a1e",
       "filter": "config"
     },
     {

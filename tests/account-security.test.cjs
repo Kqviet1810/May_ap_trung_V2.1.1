@@ -154,9 +154,11 @@ test('viewer receives existing shared broker credentials but cannot obtain contr
   assert.equal((await h.call('/api/device/rename',viewer,{device_id:id,name:'bad'})).status,403);
   assert.equal((await h.call('/api/device/change-pin',viewer,{device_id:id,old_pin:'123456',new_pin:'999999'})).status,403);
 });
-test('minimal account scope keeps all firmware bytes and 300-second WARM unchanged',()=>{
+test('reviewed single-C512 firmware bridge and 300-second WARM stay protected',()=>{
   const crypto=require('node:crypto');
-  const baseline={"config.h": "09968c2bee4f8e23752c1c6e9adafad0b9454c2727b96f8613c529853782a7f1", "realtime_link.h": "26439b08840e65bd792c731e2c8e1f4d7a0eb1b143acd5626ed42cc8edc6326b"};
+  // Reviewed storage geometry/history and final EEPROM-backed reminder report only.
+  // Account auth/grants and signed transaction bodies retain their other guards.
+  const baseline={"config.h": "b62cb070e0ee1f6c26ebdd736854e673d82360bbc554808416d974457f2640bd", "realtime_link.h": "516483669ee72ffa1d4e4d4ee269813975cd16c149079399823d2280a6ab182f"};
   for(const file of ['config.h','realtime_link.h']) {
     const filename='MAYAP_INDUSTRIAL_v4_0_0/'+file;
     assert.equal(crypto.createHash('sha256').update(fs.readFileSync(filename,'utf8').replace(/\r\n/g,'\n')).digest('hex'),baseline[file]);

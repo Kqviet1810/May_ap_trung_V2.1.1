@@ -1959,7 +1959,7 @@ class ExternalEeprom24xx {
 
   static bool rangeValid(uint16_t address, size_t length) {
     return length <= EEPROM_CAPACITY_BYTES &&
-           address <= static_cast<uint16_t>(EEPROM_CAPACITY_BYTES - length);
+           static_cast<uint32_t>(address) <= EEPROM_CAPACITY_BYTES - length;
   }
 
   // Khoa/mo I2C theo TUNG chunk (toi da 32 byte), khong khoa 1 lan cho ca
@@ -2015,7 +2015,7 @@ class ExternalEeprom24xx {
       const uint8_t pageRemain = static_cast<uint8_t>(
           EEPROM_PAGE_SIZE - (address % EEPROM_PAGE_SIZE));
       const uint8_t chunk = static_cast<uint8_t>(
-          std::min<size_t>(length, pageRemain));
+          std::min<size_t>(length, std::min<size_t>(pageRemain, EEPROM_MAX_WRITE_CHUNK)));
       if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) { ok = false; break; }
       Wire.beginTransmission(EEPROM_I2C_ADDRESS);
       Wire.write(static_cast<uint8_t>(address >> 8U));
