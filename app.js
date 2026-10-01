@@ -306,7 +306,7 @@
 
   function saveDevices() {
     localStorage.setItem(`${STORAGE}.devices`, JSON.stringify(
-      state.devices.map(({ id, name, pairingToken }) => ({ id, name, pairingToken: pairingToken || '' }))
+      state.devices.map(({ id, name }) => ({ id, name }))
     ));
     localStorage.setItem(`${STORAGE}.selected`, state.selectedId || '');
   }
@@ -471,7 +471,7 @@
     return postCloudJson('/api/account/devices/claim', { device_id: deviceId, pin });
   }
 
-  function renameDeviceRemote(deviceId, pin, name) {
+  function renameDeviceRemote(deviceId, name) {
     return postCloudJson('/api/device/rename', { device_id: deviceId, name });
   }
 
@@ -3569,16 +3569,14 @@
       errorEl.classList.remove('show');
       if (!device) return toast('Hãy chọn thiết bị trước');
       const name = $('renameDeviceName').value.trim();
-      const pin = $('renameDevicePin').value.trim();
       if (!name) return toast('Hãy nhập tên hiển thị mới');
-      if (!/^[0-9]{4,8}$/.test(pin)) return toast('Mã PIN phải là 4-8 chữ số');
 
       const submitBtn = event.target.querySelector('button[type="submit"]');
       submitBtn.disabled = true;
       submitBtn.textContent = 'Đang lưu…';
       let result;
       try {
-        result = await renameDeviceRemote(device.id, pin, name);
+        result = await renameDeviceRemote(device.id, name);
       } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Đổi tên máy';
@@ -3589,9 +3587,10 @@
         return;
       }
       device.name = result.device_name || name;
+      const accountRow = window.MayapAccount.current?.devices.find(row => row.device_id === device.id);
+      if (accountRow) accountRow.device_name = device.name;
       saveDevices();
       renderSelector();
-      $('renameDevicePin').value = '';
       toast('Đã đổi tên máy');
     });
 
@@ -3924,10 +3923,7 @@
         toast('Đã tắt thông báo trên trình duyệt này');
       } else {
         const allDeviceIds = state.devices.map((item) => item.id);
-        const pairingTokens = Object.fromEntries(
-          state.devices.map((item) => [item.id, item.pairingToken || ''])
-        );
-        const result = await window.MayapPush.enable(allDeviceIds, { pairingTokens });
+        const result = await window.MayapPush.enable(allDeviceIds);
         toast(result.ok ? '🔔 Đã bật thông báo cho tất cả thiết bị trên dashboard này' : pushReasonText(result.reason, result.error));
       }
     } finally {
