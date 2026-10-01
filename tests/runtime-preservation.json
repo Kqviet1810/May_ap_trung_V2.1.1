@@ -65,7 +65,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
-      "sha256": "456f9115075d3f0c7da4129218366233a96fe3bc514c7ea58e28c21266bdee09",
+      "sha256": "ba0b0997b3ea709cac9c0a5a5e5d10c404577d157eacedce376357b5666cec4d",
       "signature": "class MachineController {"
     },
     {
@@ -366,5 +366,5 @@
     }
   ],
   "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged.",
-  "storageReviewNote": "2026-10-01: C512/C32 migration intentionally changes config storage geometry, history owner/cache and MachineController async persistence integration. Only these three fingerprints are refreshed. Thermal control, FaultManager, OutputArbiter, fault descriptors, payload schemas, GPIO/Tiny, boot policy and Web signed transaction bodies remain preserved. See docs/dual-eeprom-storage.md and tools/test_storage.py."
+  "storageReviewNote": "2026-10-01: Initial C512/C32 migration updated config/history/MachineController fingerprints. Low-wear follow-up refreshes ONLY MachineController for reason-bound async START/STOP/resume, standby warning and NVS STOP reconciliation at boot; no test removed/disabled. Thermal control, FaultManager, OutputArbiter, fault descriptors, payload schemas, GPIO/Tiny, boot policy and Web signed transaction bodies remain preserved. See docs/dual-eeprom-storage.md and tools/test_storage.py."
 }

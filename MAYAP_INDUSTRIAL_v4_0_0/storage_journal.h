@@ -7,6 +7,13 @@
 namespace MayapStorage {
 struct Geometry { uint32_t capacity; uint16_t page; uint8_t address; };
 struct Region { uint16_t base, slots, stride; };
+enum class BootBatchAction : uint8_t { Idle, ReconcileStop, Resume };
+inline BootBatchAction bootBatchAction(bool hasBatch, bool wasRunning, bool stopIntent) {
+  // A single readable STOP copy cannot release the NVS tombstone. Reconcile
+  // through the worker; it acknowledges STOP only after BOTH copies verify.
+  if (stopIntent) return BootBatchAction::ReconcileStop;
+  return hasBatch && wasRunning ? BootBatchAction::Resume : BootBatchAction::Idle;
+}
 inline uint32_t crc32(const void *data, size_t count) {
   const uint8_t *p = static_cast<const uint8_t *>(data);
   uint32_t crc = 0xffffffffU;

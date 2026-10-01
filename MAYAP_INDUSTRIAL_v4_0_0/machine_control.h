@@ -3742,21 +3742,13 @@ class MachineController {
     PackedBatchV1 batch{};
     const bool hasBatchRecord = storeReady && store_.loadBatch(batch);
     const bool stopIntentPending = safetyJournal_.stopIntentPending();
-    if (stopIntentPending) {
-      if (hasBatchRecord && !batch.wasRunning) {
-        // EEPROM da xac nhan me dung. Tombstone NVS chi duoc xoa sau khi
-        // doc lai wasRunning=0 thanh cong.
-        if (!safetyJournal_.clearStopIntent()) {
-          safetyJournalFaultLatched_ = true;
-          faults_.set(FaultCode::SafetyJournalUnavailable, true, bootAt_);
-        }
-      } else {
-        // EEPROM con wasRunning=1 HOAC chua doc duoc. Khong duoc tu phuc
-        // hoi lai me da co lenh DUNG/HUY.
-        batchClearPending_ = true;
-        batchClearRetryAt_ = bootAt_;
-      }
-    } else if (hasBatchRecord && batch.wasRunning) {
+    const auto bootBatchAction = MayapStorage::bootBatchAction(hasBatchRecord, batch.wasRunning, stopIntentPending);
+    if (bootBatchAction == MayapStorage::BootBatchAction::ReconcileStop) {
+      // Do not clear NVS from a single readable STOP record at boot. The worker
+      // must reconcile both chips before tryCommitBatchClear can release it.
+      batchClearPending_ = true;
+      batchClearRetryAt_ = bootAt_;
+    } else if (bootBatchAction == MayapStorage::BootBatchAction::Resume) {
       resumePending_ = true;
       // "Ap lai" BAT: bo qua man hinh hoi CO/HUY ke ca sau mat dien that su,
       // tu dong ap tiep ngay khi cac dieu kien an toan khac (AUTO, cong tac
@@ -4151,9 +4143,11 @@ class MachineController {
     faults_.set(FaultCode::StorageDegraded, !store_.primary() || !mayapStorageBackupOnline(), now);
     if (!startStoragePending_ && !batchClearPending_) {
       bool ok = false;
-      if (store_.finishBatch(ok)) {
+      BackupSyncReason reason = BackupSyncReason::NormalCheckpoint;
+      if (store_.finishBatch(ok, &reason)) {
         if (!ok) { latchStorageFault("ASYNC CHECKPOINT"); checkpointRetryAt_ = now + STORAGE_SERVICE_MS; }
         else {
+          if (reason == BackupSyncReason::ResumeState) resumeCheckpointPending_ = false;
           PackedBatchV1 committed{};
           if (store_.loadBatch(committed)) {
             savedElapsedAtCheckpoint_ = committed.elapsedSec;
@@ -4161,6 +4155,8 @@ class MachineController {
           }
         }
       }
+      if (resumeCheckpointPending_ && store_.ready() && !store_.batchBusy() &&
+          !checkpointRetryAt_) checkpointBatch();
     }
   }
 
@@ -4765,7 +4761,7 @@ class MachineController {
       pendingStartBatch_.checkpointEpoch = pendingStartBatch_.batchStartEpoch;
       startStoragePending_ = true;
     }
-    if (!store_.saveBatch(pendingStartBatch_)) {
+    if (!store_.saveBatch(pendingStartBatch_, BackupSyncReason::BatchStart)) {
       startAwaitingSave_ = store_.pendingBatch();
       message = "LOI LUU TRANG THAI ME";
       if (!store_.pendingBatch()) {
@@ -4777,6 +4773,7 @@ class MachineController {
       return false;
     }
     startStoragePending_ = false;
+    resumeCheckpointPending_ = false;
     // Moi me co mot moc thoi gian va mot file log rieng. Xoa RAM log truoc
     // khi phat BatchStart de HMI chi hien lich su cua me hien tai.
     eventLog_.clear(now);
@@ -5112,6 +5109,7 @@ class MachineController {
     batchLogGate_.reset(now);
     resumePending_ = false;
     batchRunning_ = true;
+    resumeCheckpointPending_ = true; // One lifecycle snapshot, never a periodic standby timer.
     batchPhase_ = BatchPhase::Prestart;
     batchStartedAt_ = now;
     phaseStartedAt_ = now;
@@ -5427,7 +5425,8 @@ class MachineController {
     faults_.set(FaultCode::ResumeRequiresAuto,
                 recoveryExecuting && !in.autoMode, now);
     faults_.set(FaultCode::StorageUnavailable, storageFaultLatched_, now);
-    faults_.set(FaultCode::StorageDegraded, storageDegraded_, now);
+    faults_.set(FaultCode::StorageDegraded,
+                storageDegraded_ || !store_.primary() || !mayapStorageBackupOnline(), now);
     faults_.set(FaultCode::AbnormalReset, abnormalResetLatched_, now,
                 static_cast<int16_t>(resetReason_));
     faults_.set(FaultCode::BatchStateClearPending, batchClearPending_, now,
@@ -6788,7 +6787,8 @@ class MachineController {
     p.checkpointEpoch = rtc_.epoch();
     p.batchStartEpoch = batchStartEpoch_;
     p.lastTurnEpoch = lastTurnEpoch_;
-    const bool ok = store_.saveBatch(p);
+    const bool ok = store_.saveBatch(p, resumeCheckpointPending_ ? BackupSyncReason::ResumeState :
+                                                                BackupSyncReason::NormalCheckpoint);
     if (!ok && !store_.pendingBatch()) {
       latchStorageFault("BATCH SAVE");
     } else if (ok) {
@@ -6803,7 +6803,8 @@ class MachineController {
   }
   bool clearBatchRecord() {
     PackedBatchV1 p{};
-    const bool ok = store_.saveBatch(p);
+    resumeCheckpointPending_ = false;
+    const bool ok = store_.saveBatch(p, BackupSyncReason::BatchStop);
     if (!ok && !store_.pendingBatch()) {
       latchStorageFault("BATCH CLEAR");
     } else if (ok) {
@@ -7521,6 +7522,7 @@ class MachineController {
 
   bool batchRunning_ = false;
   bool resumePending_ = false;
+  bool resumeCheckpointPending_ = false;
   bool resumeConfirmationRequired_ = false;
   uint32_t resumeConfirmPromptAt_ = 0U;
   bool automaticResetRecovery_ = false;

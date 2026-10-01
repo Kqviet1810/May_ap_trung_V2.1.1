@@ -15,6 +15,12 @@ with tempfile.TemporaryDirectory(prefix='mayap-storage-') as folder:
     source = (root / 'MAYAP_INDUSTRIAL_v4_0_0/dual_storage.h').read_text(encoding='utf-8')
     (target / 'actual-storage.inc').write_text(source, encoding='utf-8')
     machine = (root / 'MAYAP_INDUSTRIAL_v4_0_0/machine_control.h').read_text(encoding='utf-8')
+    payloads = []
+    for name in ('PackedMachineConfigV1', 'PackedBatchV1'):
+        start = machine.index('struct ' + name + ' {')
+        payloads.append(machine[start:machine.index('};', start) + 2])
+    (target / 'actual-payloads.inc').write_text('#pragma pack(push, 1)\n' +
+                                             '\n'.join(payloads) + '\n#pragma pack(pop)\n', encoding='utf-8')
     driver = machine[machine.index('class ExternalEeprom24xx {'):machine.index('static_assert(sizeof(ConfigRecordV1)')]
     (target / 'actual-driver.inc').write_text(driver, encoding='utf-8')
     rtc = machine[machine.index('class RtcDs3231 {'):machine.index('// SANITIZE CAU HINH')]
