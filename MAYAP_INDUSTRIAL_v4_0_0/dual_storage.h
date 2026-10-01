@@ -91,8 +91,8 @@ class DualStorageBackend {
     if (!commit(next)) return false;
     // A stopped primary alone cannot invalidate an older backup after reset.
     // Keep the existing NVS stop tombstone until backup also verifies STOP.
-    return batch.wasRunning != 0 || (backupReadable_ && backupJournal_.found &&
-        backupJournal_.latest.payload.hasBatch && backupJournal_.latest.payload.batch.wasRunning == 0);
+    return batch.wasRunning != 0 ||
+        (primaryActive_ && backupReadable_ && stopped(mainJournal_) && stopped(backupJournal_));
   }
   bool loadReminders(ReminderSet &out) {
     if (!primaryActive_) { out = ReminderSet{}; return false; }
@@ -112,18 +112,18 @@ class DualStorageBackend {
       const bool ok = writeSuspect_ ? mainJournal_.append(state_, ++generation_) : (primary_.begin() && mainJournal_.verifyLatest());
       if (ok) {
         health_.good(); writeSuspect_ = false;
-        if (!backupReadable_) backupReadable_ = backup_.begin() && backupJournal_.scan();
+        refreshBackup();
         if (have_) mirrorCritical();
       }
       else if (health_.failed(now, false)) {
-        backupReadable_ = backup_.begin() && backupJournal_.scan();
+        refreshBackup();
         if (backupReadable_ && (!have_ || backupJournal_.append(state_, ++generation_))) {
           primaryActive_ = false; health_.stable = 0;
         }
       }
     } else {
       // Keep backup alive independently; no writes to optional data here.
-      if (!backupReadable_) backupReadable_ = backup_.begin() && backupJournal_.scan();
+      refreshBackup();
       if (!primary_.begin()) { health_.stable = 0; publish(); return; }
       if (!health_.stable && !mainJournal_.scan()) { publish(); return; }
       if (!mainJournal_.verifyLatest()) { health_.stable = 0; publish(); return; }
@@ -149,6 +149,30 @@ class DualStorageBackend {
     publish();
   }
  private:
+  static bool stopped(const CriticalJournal &journal) {
+    return journal.found && journal.latest.payload.hasBatch &&
+           journal.latest.payload.batch.wasRunning == 0;
+  }
+  void refreshBackup() {
+    if (backupReadable_ && backup_.begin() && backupJournal_.verifyLatest()) return;
+    backupReadable_ = backup_.begin() && backupJournal_.scan();
+    if (!backupReadable_) return;
+    if (backupJournal_.found && !compatible(backupJournal_)) {
+      backupReadable_ = false;
+      return; // Preserve an unknown schema; it cannot become a write target.
+    }
+    if (backupJournal_.found && backupJournal_.latest.generation > generation_)
+      generation_ = backupJournal_.latest.generation;
+    if (!have_) {
+      if (backupJournal_.found) adopt(backupJournal_);
+      else if (migrationMarked(backup_)) backupReadable_ = false;
+      return;
+    }
+    // A reinserted backup cannot be admitted with stale data. Keep current RAM
+    // authoritative and raise generation above any record on the replacement.
+    if (!backupJournal_.found || memcmp(&backupJournal_.latest.payload, &state_, sizeof(state_)) != 0)
+      backupReadable_ = backupJournal_.append(state_, ++generation_);
+  }
   // One-time migration fence, NOT a current journal pointer. Located outside
   // legacy config/batch/reminders and outside both new journals.
   struct MigrationFence { uint32_t magic, inverse; };
@@ -240,6 +264,10 @@ class PersistentStore {
   }
   bool loadBatch(PackedBatchV1 &out) { if (!batchValid_) return false; out = batch_; return true; }
   bool loadReminders(ReminderSet &out) { out = reminders_; return true; }
+  bool takeRecoveredReminders(ReminderSet &out) {
+    if (load(recoveredReminderReady_) != 1) return false;
+    out = reminders_ = recoveredReminders_; set(recoveredReminderReady_, 0); return true;
+  }
   bool saveConfig(const MachineConfig &input, MachineConfig &out) {
     configWaiting_ = false;
     if (asyncMode_ && !worker_) return false;
@@ -302,6 +330,11 @@ class PersistentStore {
           set(recoveredConfigReady_, 1);
         __atomic_store_n(&ready_, backend_.ready(), __ATOMIC_RELEASE);
         __atomic_add_fetch(&retries_, backend_.retries(), __ATOMIC_ACQ_REL);
+        if (!backend_.primary()) optionalWasPrimary_ = false;
+        if (backend_.primary() && !optionalWasPrimary_ && load(recoveredReminderReady_) == 0) {
+          if (backend_.loadReminders(recoveredReminders_)) set(recoveredReminderReady_, 1);
+          optionalWasPrimary_ = true;
+        }
         mayapTemperatureHistoryService();
       }
   }
@@ -314,7 +347,9 @@ class PersistentStore {
   MachineConfig config_{}, configRequest_{}, configResult_{}, recoveredConfig_{};
   uint8_t recoveredConfigReady_ = 0;
   PackedBatchV1 batch_{}, batchRequest_{};
-  ReminderSet reminders_{}, reminderRequest_{}, reminderResult_{};
+  ReminderSet reminders_{}, reminderRequest_{}, reminderResult_{}, recoveredReminders_{};
+  uint8_t recoveredReminderReady_ = 0;
+  bool optionalWasPrimary_ = false;
   uint8_t configJob_ = 0, batchJob_ = 0, reminderJob_ = 0;
   bool configWaiting_ = false, batchWaiting_ = false, reminderWaiting_ = false;
   bool configValid_ = false, batchValid_ = false, ready_ = false, asyncMode_ = false;

@@ -74,8 +74,9 @@ Failback requires four successful, spaced probe/read checks, a new journal scan,
 generation comparison and a verified RAM-to-C512 append before enabling primary
 optional traffic. C32 continues serving critical writes throughout recovery.
 No old C512 config is applied into a running controller. Persistent stop intent
-in NVS is cleared only after backup also contains a verified stopped batch, so an
-unavailable/stale backup cannot resurrect a stopped batch on a later boot.
+in NVS is cleared only after primary and backup both contain a verified stopped
+batch. It stays set while either chip is unavailable, so an old running record
+cannot resurrect a stopped batch on a later boot with only that chip available.
 
 ## Validation
 

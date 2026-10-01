@@ -97,6 +97,27 @@ int main() {
   // Cold boot chooses newer backup, syncs before publishing primary.
   chips[0].corrupt=false; DualStorageBackend newest; assert(newest.begin() && newest.primary());
   assert(newest.loadBatch(batch) && batch.elapsed==1200);
+  // A stopped backup alone cannot release the NVS stop intent: C512 may
+  // still contain running=1 and be the only available chip on the next boot.
+  chips[0].present=false; step(newest); step(newest); step(newest);
+  PackedBatchV1 stoppedOnBackup{};
+  assert(!newest.saveBatch(stoppedOnBackup));
+  assert(newest.loadBatch(batch) && batch.wasRunning==0);
+  chips[0].present=true; for(int i=0;i<4;++i) step(newest);
+  assert(newest.primary() && newest.saveBatch(stoppedOnBackup));
+  // Reinserted backup has to receive current RAM before admission. Even a
+  // replacement with a larger generation must not override the live state.
+  auto currentBackup=chips[1];
+  ExternalEeprom24xx replacement({4096,32,EEPROM_BACKUP_ADDRESS});
+  CriticalJournal replacementJournal(replacement,{STORAGE_BACKUP_BASE,STORAGE_BACKUP_SLOTS,STORAGE_SLOT_BYTES});
+  assert(replacementJournal.scan());
+  CriticalSnapshot foreign=replacementJournal.latest.payload;
+  foreign.batch.elapsed=9999; foreign.batch.wasRunning=1;
+  assert(replacementJournal.append(foreign,10000));
+  auto newerBackup=chips[1]; chips[1]=currentBackup;
+  chips[1].present=false; step(newest); chips[1]=newerBackup; step(newest);
+  DualStorageBackend reinserted; assert(reinserted.begin());
+  assert(reinserted.loadBatch(batch) && batch.wasRunning==0);
   // Every-byte migration cut on C512, then reboot with intact legacy/backup.
   for(unsigned cut=0;cut<sizeof(CriticalJournal::Record)+3;++cut) {
     reset(); chips[0].budget=cut; DualStorageBackend migration; migration.begin();
@@ -137,5 +158,5 @@ int main() {
   std::fill(chips[0].bytes.begin()+STORAGE_JOURNAL_BASE,chips[0].bytes.begin()+0xd000,0xff);
   std::fill(chips[1].bytes.begin()+STORAGE_BACKUP_BASE,chips[1].bytes.begin()+4096,0xff);
   DualStorageBackend fenced; assert(!fenced.begin());
-  puts("storage backend: migration power cuts, single/bus NACK, verified failback, newer backup PASS");
+  puts("storage backend: migration/failback power cuts, NACK/bus isolation, stale reinsert, async ACK and STOP safety PASS");
 }

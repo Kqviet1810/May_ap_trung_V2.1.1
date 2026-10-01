@@ -17,7 +17,10 @@ with tempfile.TemporaryDirectory(prefix='mayap-storage-') as folder:
     machine = (root / 'MAYAP_INDUSTRIAL_v4_0_0/machine_control.h').read_text(encoding='utf-8')
     driver = machine[machine.index('class ExternalEeprom24xx {'):machine.index('static_assert(sizeof(ConfigRecordV1)')]
     (target / 'actual-driver.inc').write_text(driver, encoding='utf-8')
-    for name in ('storage-journal', 'storage-backend', 'storage-driver'):
+    history = (root / 'MAYAP_INDUSTRIAL_v4_0_0/history_store.h').read_text(encoding='utf-8')
+    history = '\n'.join(line for line in history.splitlines() if not line.startswith('#include'))
+    (target / 'actual-history.inc').write_text(history, encoding='utf-8')
+    for name in ('storage-journal', 'storage-backend', 'storage-driver', 'storage-history'):
         executable = target / (name + ('.exe' if os.name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(target),
                    str(root / 'tests' / (name + '.cpp')), '-o', str(executable)]

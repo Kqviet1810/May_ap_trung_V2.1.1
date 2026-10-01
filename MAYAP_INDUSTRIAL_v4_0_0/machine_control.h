@@ -4098,6 +4098,9 @@ class MachineController {
     }
 
     if (!EXTERNAL_EEPROM_ENABLED) return;
+    if (store_.takeRecoveredReminders(reminders_)) {
+      mayapWebSetReminders(reminders_); mayapCloudSetReminders(reminders_);
+    }
     // EEPROM evidence/retry/failback belong exclusively to the storage worker.
     if (elapsedMs(now, lastStorageHealthCheckAt_) >= EEPROM_HEALTH_CHECK_MS) {
       lastStorageHealthCheckAt_ = now;
@@ -4392,6 +4395,7 @@ class MachineController {
       if (!store_.pendingConfig()) {
       configSavePending_ = false;
       if (ok) {
+        configLoaded_ = true;
         config_ = readback;
         hmiSetConfig(config_);
         mayapWebSetConfig(config_);
