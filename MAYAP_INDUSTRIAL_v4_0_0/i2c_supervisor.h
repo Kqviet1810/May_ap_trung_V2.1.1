@@ -44,12 +44,18 @@ inline void mayapI2cSupervisorUpdate(uint32_t now) {
   if (recoveredBefore && static_cast<uint32_t>(now - lastRecoveryAt) < 30000U) return;
   if (!mayapI2cLock(0U)) return; // Never wait behind a storage transaction.
   uint8_t failedDevices = 0U;
+  bool nonStorageFailed = false;
   for (uint8_t i = 0U; i < 4U; ++i) {
     if (__atomic_load_n(&failures[i], __ATOMIC_ACQUIRE) >= 3U &&
-        static_cast<uint32_t>(now - __atomic_load_n(&lastError[i], __ATOMIC_ACQUIRE)) < 10000U) ++failedDevices;
+        static_cast<uint32_t>(now - __atomic_load_n(&lastError[i], __ATOMIC_ACQUIRE)) < 10000U) {
+      ++failedDevices;
+      if (i < 2U) nonStorageFailed = true;
+    }
   }
   const bool linesStuck = digitalRead(PIN_I2C_SDA) == LOW || digitalRead(PIN_I2C_SCL) == LOW;
-  if (!linesStuck && failedDevices < 2U) { mayapI2cUnlock(); return; }
+  // Both EEPROMs can be absent or share a failed supply while RTC/LCD still
+  // work. Their NACKs alone must not reset the bus serving those devices.
+  if (!linesStuck && (failedDevices < 2U || !nonStorageFailed)) { mayapI2cUnlock(); return; }
   recoveredBefore = true;
   lastRecoveryAt = now;
   Wire.end();

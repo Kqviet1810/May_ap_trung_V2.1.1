@@ -104,6 +104,14 @@ int main() {
   sclStuck=true; pulses=0; clockMs=93000; mayapI2cSupervisorUpdate(clockMs);
   assert(Wire.ends==4 && pulses<=1 && !locked);
   sdaStuck=sclStuck=false;
+  clockMs=123000;
+  for (unsigned i=0; i<3; ++i) {
+    mayapI2cReport(EEPROM_PRIMARY_ADDRESS,false);
+    mayapI2cReport(EEPROM_BACKUP_ADDRESS,false);
+  }
+  assert(!mayapI2cBusFault());
+  mayapI2cSupervisorUpdate(clockMs);
+  assert(Wire.ends==4); // Two missing EEPROMs cannot reset healthy RTC/LCD.
   clockMs=0;
   SHT485Industrial sensor;
   sensor.begin();
