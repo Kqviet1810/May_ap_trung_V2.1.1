@@ -37,7 +37,7 @@ window.mqtt = { connect() {
           if (topic.endsWith('/presence')) client.deliver('presence', { online: true, bootId: 123, proto: 2, fw: '4.0.0' }, true);
           if (topic.endsWith('/bootstrap')) client.deliver('bootstrap', { v: 1, proto: 2, bootId: 123, revision: 1,
             temperature: 37.4, humidity: 58, machineState: 'DANG AP', batchRunning: true,
-            publishedAt: Math.floor(Date.now()/1000), faultCode: 0 }, true);
+            publishedAt: Math.floor(Date.now()/1000), faultCode: 0, humidifierInstalled: true }, true);
         }
         cb(null, Object.entries(filters).map(([topic, v]) => ({ topic, qos: v.qos })));
       }, 20);
@@ -133,6 +133,7 @@ async function main() {
       await page.waitForFunction(()=>window.__qa.state.devices[0].dataSource === 'bootstrap');
       assert.equal(await page.locator('#onlinePill').innerText(), 'ĐANG ĐỒNG BỘ');
       assert.match(await page.locator('#dataFreshness').innerText(), /Máy chủ ·/);
+      assert.equal(await page.locator('#outputHumidifierTile').isVisible(),true,'Bootstrap exposes installed humidifier without loading full config');
       assert.deepEqual(await page.evaluate(()=>window.__transport.subscriptions[0].map(t=>t.split('/').at(-1))), ['presence','bootstrap','snapshot','ack']);
       await page.evaluate(()=> { window.__transport.holdLive=false; window.__transport.clients[0].snapshot(); });
       await page.waitForFunction(()=>document.body.dataset.connection === 'online' && window.__qa.controlReady(window.__qa.state.devices[0]));

@@ -19,6 +19,7 @@ struct WebClientLease { char id[40] = ""; uint32_t expiresAt = 0; };
 static WebClientLease webClientLeases[8];
 static bool webSessionActive = false, knownConfigValid = true, knownRemindersValid = true;
 static bool configDirty = false, remindersDirty = false, eventSnapshotDirty = false, forceSnapshotPublish = false;
+static struct { bool humidifierInstalled = false; } knownConfig;
 static uint32_t lastSnapshotPublishAt = 99, lastPublishedEventSequence = 7;
 struct Fault { uint16_t code = 112; uint8_t severity = 3; };
 struct MachineRuntime {
@@ -61,6 +62,8 @@ int main() {
   assert(decoded["bootId"] == UINT32_MAX && decoded["config"].isNull());
   assert(decoded["faultCode"] == UINT16_MAX && decoded["lightOn"] == false);
   const size_t packetSize = wire.size() + topic.size() + 7;
+  knownConfig.humidifierInstalled = true; assert(publishBootstrap(rt, UINT32_MAX));
+  assert(!deserializeJson(decoded, wire)); assert(decoded["humidifierInstalled"] == true);
   rt.temperature = NAN; rt.humidity = NAN;
   assert(publishBootstrap(rt, 1));
   assert(wire.find("\"temperature\":null") != std::string::npos);

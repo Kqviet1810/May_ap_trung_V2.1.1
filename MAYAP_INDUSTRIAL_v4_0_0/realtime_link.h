@@ -557,6 +557,10 @@ inline bool publishBootstrap(const MachineRuntime &rt, uint32_t revision) {
   doc["humidifierOn"] = rt.humidifierOn;
   doc["lightOn"] = rt.lightOn;
   doc["sirenOn"] = rt.sirenOn;
+  portENTER_CRITICAL(&webMux);
+  const bool humidifierInstalled = knownConfigValid && knownConfig.humidifierInstalled;
+  portEXIT_CRITICAL(&webMux);
+  doc["humidifierInstalled"] = humidifierInstalled;
   doc["alarmMask"] = rt.alarmMask;
   doc["faultCode"] = rt.primaryFaultCode;
   doc["faultCount"] = rt.activeFaultCount;

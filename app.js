@@ -209,6 +209,7 @@
     return { presence: cached.presence || null, presenceAt: cached.presenceAt || 0,
       snapshot: cached.snapshot, snapshotAt: cached.receivedAt,
       dataSource: 'cache', liveEpoch: -1, cacheAt: cached.receivedAt,
+      features: { humidifierInstalled: cached.features?.humidifierInstalled === true },
       bootId: Number(cached.snapshot.bootId || 0), revision: Number(cached.snapshot.revision || 0) };
   }
 
@@ -221,6 +222,7 @@
       if (Number(previous?.receivedAt || 0) > device.snapshotAt) return;
       localStorage.setItem(`${RUNTIME_CACHE}.${device.id}`, JSON.stringify({ v: 1,
         presence: device.presence, presenceAt: device.presenceAt,
+        features: device.features || {},
         snapshot: device.snapshot, receivedAt: device.snapshotAt }));
       device.cacheWrittenAt = Date.now();
     } catch (_) {} // Private mode/quota failure must not interrupt MQTT or control.
@@ -240,6 +242,7 @@
       revision: 0,
       bootId: 0,
       dataSource: '',
+      features: {},
       liveEpoch: -1,
       presenceEpoch: -1,
       requestedData: new Set(),
@@ -900,7 +903,10 @@
 
   function renderDevice() {
     const device = currentDevice();
-    syncHumidifierFeatureUi(device?.config);
+    if (device?.config) device.features.humidifierInstalled = bool(device.config.humidifierInstalled);
+    syncHumidifierFeatureUi(device?.config || {
+      humidifierInstalled: bool(device?.features?.humidifierInstalled) || bool(device?.snapshot?.runtime?.humidifierOn)
+    });
     syncVentilationFeatureUi(device?.config);
     const connection = connectionStatus(device);
     const pill = $('onlinePill');
@@ -2391,6 +2397,7 @@
     const runtime = { ...hint, activeFaults: hint.faultCode ?
       [{ code: hint.faultCode, severity: hint.faultSeverity || 0 }] : [] };
     device.snapshot = { bootId: hint.bootId, revision: hint.revision, runtime };
+    if (typeof hint.humidifierInstalled === 'boolean') device.features.humidifierInstalled = hint.humidifierInstalled;
     device.snapshotAt = publishedAt > 0 && publishedAt <= Date.now() + 60000 ? publishedAt : Date.now();
     device.dataSource = 'bootstrap';
     device.bootstrapTimeKnown = publishedAt > 0 && publishedAt <= Date.now() + 60000;

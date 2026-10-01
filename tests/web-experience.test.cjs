@@ -259,7 +259,7 @@ const sample = (temperature = 37.5) => ({ bootId: 123, revision: 7,
     lightOn: true, heaterOn: true, activeFaults: [{ code: 110, severity: 1 }] } });
 const bootstrap = (publishedAt = Math.floor(Date.now() / 1000)) => ({ v: 1, proto: 2,
   bootId: 123, revision: 7, publishedAt, temperature: 37.4, humidity: 58,
-  machineState: 'DANG AP', batchRunning: true, lightOn: true, faultCode: 110, faultSeverity: 1 });
+  machineState: 'DANG AP', batchRunning: true, lightOn: true, faultCode: 110, faultSeverity: 1, humidifierInstalled: true });
 
 test('cached runtime is available before MQTT and never grants live status or control', () => {
   const at = Date.now() - 60000;
@@ -304,6 +304,7 @@ test('retained bootstrap arrives during SUBSCRIBE, displays hints, then yields t
   h.handlePresence(h.device, { online: true, bootId: 123, proto: 2 });
   h.handleSnapshot(h.device, sample(37.8));
   assert.equal(h.connectionStatus(h.device), 'online');
+  assert.equal(JSON.parse(h.storage.get(runtimeKey)).features.humidifierInstalled, true);
   h.handleBootstrap(h.device, bootstrap(1));
   assert.equal(h.device.snapshot.runtime.temperature, 37.8);
   assert.equal(h.device.dataSource, 'live');
