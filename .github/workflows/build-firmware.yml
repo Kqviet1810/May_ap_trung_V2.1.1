@@ -116,6 +116,9 @@ jobs:
           g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/boot-policy.cpp -o /tmp/mayap-boot-test
           /tmp/mayap-boot-test
 
+      - name: Dual EEPROM storage fault injection
+        run: python3 tools/test_storage.py --sanitize
+
       - name: Runtime recovery fault injection
         run: |
           g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/runtime-recovery.cpp -o /tmp/mayap-runtime-test

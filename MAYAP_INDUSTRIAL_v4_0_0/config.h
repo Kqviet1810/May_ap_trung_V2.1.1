@@ -892,9 +892,35 @@ constexpr bool DISPLAY_BUILD_DATE_WHEN_RTC_MISSING = false;
 constexpr bool EXTERNAL_EEPROM_ENABLED = true;
 constexpr bool EXTERNAL_EEPROM_REQUIRED = true;
 constexpr uint8_t RTC_I2C_ADDRESS = 0x68U;
-constexpr uint8_t EEPROM_I2C_ADDRESS = 0x57U;
+constexpr uint8_t EEPROM_PRIMARY_ADDRESS = 0x50U;  // AT24C512
+constexpr uint8_t EEPROM_BACKUP_ADDRESS = 0x56U;  // AT24C32
+// Legacy names describe the old C32 map ONLY (migration reader).
+constexpr uint8_t EEPROM_I2C_ADDRESS = EEPROM_BACKUP_ADDRESS;
+constexpr uint32_t EEPROM_PRIMARY_CAPACITY = 65536UL;
+constexpr uint16_t EEPROM_PRIMARY_PAGE = 128U;
+constexpr uint16_t STORAGE_JOURNAL_BASE = 0x1000U;
+constexpr uint16_t STORAGE_JOURNAL_SLOTS = 96U;
+constexpr uint16_t STORAGE_SLOT_BYTES = 512U;
+constexpr uint16_t STORAGE_BACKUP_BASE = 0x0C00U;
+constexpr uint16_t STORAGE_BACKUP_SLOTS = 2U;
+constexpr uint16_t STORAGE_PRIMARY_FENCE = 0x0000U;
+constexpr uint16_t STORAGE_BACKUP_FENCE = 0x0B00U;
+constexpr uint16_t STORAGE_RESERVE_BASE = 0xD000U;
+constexpr uint32_t STORAGE_SERVICE_MS = 5000UL;
+static_assert(EEPROM_PRIMARY_ADDRESS != EEPROM_BACKUP_ADDRESS, "EEPROM addresses must differ");
+static_assert(EEPROM_PRIMARY_ADDRESS >= 0x50U && EEPROM_PRIMARY_ADDRESS <= 0x57U, "C512 address");
+static_assert(STORAGE_JOURNAL_BASE + STORAGE_JOURNAL_SLOTS * STORAGE_SLOT_BYTES == STORAGE_RESERVE_BASE, "journal/reserve overlap");
+// Cross-task admission: optional data is PRIMARY-only.
+static uint8_t storagePrimaryOnline = 0U, storageBackupOnline = 0U;
+inline bool mayapStorageBackupOnline() { return __atomic_load_n(&storageBackupOnline, __ATOMIC_ACQUIRE) != 0; }
+inline void mayapStorageSetBackupOnline(bool online) { __atomic_store_n(&storageBackupOnline, online ? 1U : 0U, __ATOMIC_RELEASE); }
+inline bool mayapStoragePrimaryOnline() { return __atomic_load_n(&storagePrimaryOnline, __ATOMIC_ACQUIRE) != 0; }
+inline void mayapStorageSetPrimaryOnline(bool online) { __atomic_store_n(&storagePrimaryOnline, online ? 1U : 0U, __ATOMIC_RELEASE); }
 constexpr uint16_t EEPROM_CAPACITY_BYTES = 4096U;
 constexpr uint8_t EEPROM_PAGE_SIZE = 32U;
+// ESP32 Wire buffer is 128 bytes, including the two-byte EEPROM word address.
+constexpr uint8_t EEPROM_MAX_TRANSFER_BYTES = 126U;
+constexpr uint16_t RTC_BUS_CONTENTION_RETRY_MS = 20U;
 constexpr uint16_t EEPROM_WRITE_TIMEOUT_MS = 20U;
 constexpr uint8_t EEPROM_IO_RETRIES = 2U;
 constexpr uint16_t EEPROM_RETRY_GAP_MS = 2U;

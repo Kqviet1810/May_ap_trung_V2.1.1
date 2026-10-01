@@ -12,7 +12,7 @@ bool timeReached(uint32_t now, uint32_t when) { return static_cast<int32_t>(now 
 void mayapSerialPrintf(bool, const char *, ...) {}
 constexpr int LOW=0, HIGH=1, INPUT_PULLUP=2, OUTPUT_OPEN_DRAIN=3, OUTPUT=4;
 constexpr uint8_t PIN_I2C_SDA=1, PIN_I2C_SCL=2, PIN_RS485_RX=3, PIN_RS485_TX=4, PIN_RS485_DE_RE=5, SHT_UART_PORT=1;
-constexpr uint8_t LCD_I2C_ADDRESS=0x3F, RTC_I2C_ADDRESS=0x68, EEPROM_I2C_ADDRESS=0x57;
+constexpr uint8_t LCD_I2C_ADDRESS=0x3F, RTC_I2C_ADDRESS=0x68, EEPROM_I2C_ADDRESS=0x56, EEPROM_PRIMARY_ADDRESS=0x50, EEPROM_BACKUP_ADDRESS=0x56;
 constexpr uint32_t I2C_CLOCK_HZ=100000, I2C_TIMEOUT_MS=25, SERIAL_8N1=1;
 static bool sdaStuck=false, sclStuck=false, lockAvailable=true, locked=false;
 static int levels[8]={HIGH,HIGH,HIGH,HIGH,HIGH,LOW,HIGH,HIGH};
@@ -93,7 +93,7 @@ int main() {
   assert(Wire.ends==0); // One missing device is not a shared bus hang.
   for (unsigned i=0; i<3; ++i) mayapI2cReport(RTC_I2C_ADDRESS,false);
   clockMs=3000; mayapI2cSupervisorUpdate(clockMs);
-  assert(Wire.ends==1 && Wire.begins==1 && Wire.probes==3 && !locked);
+  assert(Wire.ends==1 && Wire.begins==1 && Wire.probes==4 && !locked);
   sdaStuck=true; releaseAfter=3; pulses=0;
   clockMs=4000; mayapI2cSupervisorUpdate(clockMs); assert(Wire.ends==1);
   clockMs=33000; mayapI2cSupervisorUpdate(clockMs);
@@ -104,6 +104,14 @@ int main() {
   sclStuck=true; pulses=0; clockMs=93000; mayapI2cSupervisorUpdate(clockMs);
   assert(Wire.ends==4 && pulses<=1 && !locked);
   sdaStuck=sclStuck=false;
+  clockMs=123000;
+  for (unsigned i=0; i<3; ++i) {
+    mayapI2cReport(EEPROM_PRIMARY_ADDRESS,false);
+    mayapI2cReport(EEPROM_BACKUP_ADDRESS,false);
+  }
+  assert(!mayapI2cBusFault());
+  mayapI2cSupervisorUpdate(clockMs);
+  assert(Wire.ends==4); // Two missing EEPROMs cannot reset healthy RTC/LCD.
   clockMs=0;
   SHT485Industrial sensor;
   sensor.begin();
