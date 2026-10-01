@@ -51,7 +51,10 @@ require(build_workflow, "firmware-test-${{ github.sha }}", "test artifact tied t
 require(app, "WEB = Object.freeze({ ...WEB, ...runtimeMqtt });", "web MQTT runtime credential refresh")
 require(app, "state.mqttSessionState = 'ready';", "web MQTT session ready state")
 require(app, "if (mqttReady) connectMqtt();", "web MQTT init readiness gate")
-require(app, "state.mqttSessionState === 'error' || state.mqttSessionState === 'auth-required'", "web MQTT no infinite connecting state")
+require(app, "state.mqttSessionState === 'auth-required' && device", "explicit auth status without false device offline")
+require(app, "state.mqttSessionState === 'error' && !state.mqtt", "visible broker/auth retry status")
+require(app, "device.presenceEpoch === state.subscriptionEpoch && device.presence?.online === false", "device offline requires current presence")
+require(app, "Date.now() - device.snapshotAt > WEB.staleAfterMs", "snapshot freshness independent of presence/config")
 
 
 # Wi-Fi portal must quiesce cross-task network I/O before changing radio mode.

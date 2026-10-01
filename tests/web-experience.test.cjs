@@ -6,34 +6,40 @@ const { webcrypto } = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const protocol = require('../protocol_v2.js');
 
-function browser(overrides = {}) {
+function browser(overrides = {}, initialStorage = {}) {
   const source = fs.readFileSync(require.resolve('../app.js'), 'utf8').replace(/  init\(\);\s*\}\)\(\);\s*$/, `
-    renderDevice = () => {}; renderReminderList = () => {}; renderPushStatus = () => {};
+    renderDevice = () => { window.renders.push({ source: currentDevice()?.dataSource, status: connectionStatus(currentDevice()), temperature: currentDevice()?.snapshot?.runtime?.temperature }); };
+    feedTelemetrySnapshot = () => {}; renderReminderList = () => {}; renderPushStatus = () => {};
     applyConfigToUi = () => {}; clearInvalid = () => {};
     invalidate = (form, id) => { window.invalidField = id; return false; };
     Object.assign(window.hooks, { state, subscribeDevice, activateSelectedSession,
       selectedNeedsSync, deactivateSession, connectMqtt, supportsVentProfile,
       swipeDestination, buildConfig, validateVentForm, REQUIRED_CONFIG_KEYS,
       VENT_PROFILE_KEYS, createDevice, connectionStatus, recoverBrowserConnection,
-      refreshMqttSession, postCloudJson, isDeviceOnline, sendCommand });
+      refreshMqttSession, postCloudJson, isDeviceOnline, sendCommand,
+      handleBootstrap, handleSnapshot, handlePresence, persistRuntimeCache, freshnessText,
+      requestDeviceData, resumeBrowserConnection, controlSession, controlReady,
+      prefetchControlSession, storeControlSession, controlSessions, signMqttWrite });
   })();`);
   let now = 0, timerId = 0;
-  const timers = new Map(), elements = new Map(), clients = [];
-  const window = { hooks: {}, addEventListener() {}, MayapProtocolV2: protocol,
+  const timers = new Map(), elements = new Map(), clients = [], events = new Map();
+  const storage = new Map(Object.entries(initialStorage));
+  const window = { hooks: {}, renders: [], addEventListener(name, fn) { events.set(name, fn); }, MayapProtocolV2: protocol,
     MAYAP_WEB_CONFIG: { cloudApiBase:'https://test.invalid', mqttUrl: 'wss://test.invalid/mqtt', mqttUsername: 'test', mqttPassword: 'test', sessionRefreshMs: 3000, ...overrides },
     mqtt: { connect(url, options) { const c = new EventEmitter(); c.connected = false;
       c.end = () => { c.disconnecting = true; c.emit('close'); }; c.publish = () => {};
       c.subscribe = () => {}; clients.push(c); return c; } } };
-  const document = { hidden: false, addEventListener() {}, getElementById: id => elements.get(id) };
+  const document = { hidden: false, body: { dataset: { page: 'device' } },
+    addEventListener(name, fn) { events.set(name, fn); }, getElementById: id => elements.get(id) };
   const context = { window, document, crypto: webcrypto, URL, URLSearchParams, TextEncoder, AbortController,
-    localStorage: { getItem: () => null, setItem() {} }, console,
+    localStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) }, console,
     performance: { now: () => now },
     setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, delay }); return id; },
     clearTimeout: id => timers.delete(id), setInterval: () => ++timerId, clearInterval() {} };
   vm.runInNewContext(source, context);
   const h = window.hooks, device = h.createDevice('MAP-1234567890AB', 'Máy thử', 'token');
   h.state.devices = [device]; h.state.selectedId = device.id;
-  return { ...h, device, document, elements, window, clients, timers, context,
+  return { ...h, device, document, elements, window, clients, timers, context, storage, events,
     run(delay) { for (const [id, t] of [...timers]) if (t.delay === delay) { timers.delete(id); now += delay; t.fn(); } } };
 }
 
@@ -46,12 +52,13 @@ function connected(h) {
   return calls;
 }
 
-test('one batched SUBSCRIBE preserves all seven topics and QoS, deduplicating simultaneous requests', async () => {
+test('one batched SUBSCRIBE prioritizes four core topics and QoS, deduplicating simultaneous requests', async () => {
   const h = browser(), calls = connected(h);
   const a = h.subscribeDevice(h.device.id), b = h.subscribeDevice(h.device.id);
   assert.equal(calls.length, 1);
   const entries = Object.entries(calls[0].filters);
-  assert.equal(entries.length, 7);
+  assert.equal(entries.length, 4);
+  assert.deepEqual(entries.map(([topic]) => topic.split('/').at(-1)), ['presence', 'bootstrap', 'snapshot', 'ack']);
   for (const [topic, options] of entries) assert.equal(options.qos, topic.endsWith('/snapshot') ? 0 : 1);
   calls[0].callback(null, entries.map(([topic, options]) => ({ topic, qos: options.qos })));
   await Promise.all([a, b]);
@@ -88,6 +95,7 @@ test('lost first QoS0 sync is retried at 700ms; complete data stops extra syncs'
   assert.equal(h.published.length, 2);
   h.device.config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key => [key, 0]));
   h.device.snapshotAt = Date.now(); h.device.snapshot = { revision: 0 };
+  h.device.dataSource = 'live'; h.device.liveEpoch = h.state.subscriptionEpoch;
   h.run(1600);
   assert.equal(h.published.length, 2);
 });
@@ -135,6 +143,7 @@ test('complete cached config with stale snapshots requests sync again', () => {
   h.device.config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key => [key, 0]));
   h.device.snapshot = { revision: 0 };
   h.device.snapshotAt = Date.now();
+  h.device.dataSource = 'live'; h.device.liveEpoch = h.state.subscriptionEpoch;
   assert.equal(h.selectedNeedsSync(), false);
   h.device.snapshotAt -= 90001;
   assert.equal(h.selectedNeedsSync(), true);
@@ -230,14 +239,209 @@ test('short stale telemetry is degraded; explicit LWT and long silence still blo
   const h = browser({ staleAfterMs:8000, offlineAfterMs:30000 }); connected(h);
   h.device.presence = { online:true };
   h.device.snapshot = { revision:1 };
-  for (const [age, expected] of [[1000,'online'], [9000,'degraded'], [31000,'offline']]) {
+  h.device.dataSource = 'live'; h.device.liveEpoch = h.state.subscriptionEpoch;
+  h.device.presenceEpoch = h.state.subscriptionEpoch;
+  for (const [age, expected] of [[1000,'online'], [9000,'degraded'], [31000,'degraded']]) {
     h.device.snapshotAt = Date.now() - age;
     assert.equal(h.connectionStatus(h.device), expected);
-    assert.equal(h.isDeviceOnline(h.device), expected !== 'offline');
+    assert.equal(h.isDeviceOnline(h.device), age <= 30000);
   }
   h.device.snapshotAt = Date.now(); h.device.presence.online = false;
   assert.equal(h.connectionStatus(h.device), 'offline');
   h.device.presence.online = true; h.state.mqttConnected = false;
   assert.notEqual(h.connectionStatus(h.device), 'online');
   assert.equal(h.isDeviceOnline(h.device), false);
+});
+
+const runtimeKey = 'mayap.web.v10.runtime.v1.MAP-1234567890AB';
+const sample = (temperature = 37.5) => ({ bootId: 123, revision: 7,
+  runtime: { temperature, humidity: 58, batchRunning: true, machineState: 'DANG AP',
+    lightOn: true, heaterOn: true, activeFaults: [{ code: 110, severity: 1 }] } });
+const bootstrap = (publishedAt = Math.floor(Date.now() / 1000)) => ({ v: 1, proto: 2,
+  bootId: 123, revision: 7, publishedAt, temperature: 37.4, humidity: 58,
+  machineState: 'DANG AP', batchRunning: true, lightOn: true, faultCode: 110, faultSeverity: 1 });
+
+test('cached runtime is available before MQTT and never grants live status or control', () => {
+  const at = Date.now() - 60000;
+  const h = browser({}, { [runtimeKey]: JSON.stringify({ v: 1, receivedAt: at,
+    snapshot: sample(), presence: { online: true, proto: 2 }, presenceAt: at }) });
+  assert.equal(h.clients.length, 0);
+  assert.equal(h.device.snapshot.runtime.temperature, 37.5);
+  assert.equal(h.device.snapshot.runtime.activeFaults[0].code, 110);
+  assert.equal(h.connectionStatus(h.device), 'cache');
+  assert.equal(h.isDeviceOnline(h.device), false);
+  assert.equal(h.controlReady(h.device), false);
+  assert.match(h.freshnessText(h.device), /Dữ liệu đã nhận/);
+  connected(h);
+  assert.equal(h.connectionStatus(h.device), 'cache');
+  assert.equal(h.selectedNeedsSync(), true);
+});
+
+test('malformed/future cache cannot invent a live sample', () => {
+  for (const wire of ['{broken', JSON.stringify({ v: 1, receivedAt: Date.now() + 120000, snapshot: sample() }),
+    JSON.stringify({ v: 9, receivedAt: Date.now(), snapshot: sample() })]) {
+    const h = browser({}, { [runtimeKey]: wire });
+    assert.equal(h.device.snapshot, null);
+    assert.equal(h.connectionStatus(h.device), 'connecting');
+  }
+});
+
+test('retained bootstrap arrives during SUBSCRIBE, displays hints, then yields to a live snapshot', async () => {
+  const h = browser(); h.connectMqtt();
+  const c = h.clients[0];
+  c.subscribe = (filters, cb) => {
+    if (Object.keys(filters).some(topic => topic.endsWith('/bootstrap')))
+      c.emit('message', `mayap/v1/${h.device.id}/bootstrap`, JSON.stringify(bootstrap()), { retain: true });
+    cb(null, Object.entries(filters).map(([topic, x]) => ({ topic, qos: x.qos })));
+  };
+  c.connected = true; c.emit('connect');
+  await new Promise(setImmediate);
+  assert.equal(h.device.dataSource, 'bootstrap');
+  assert.equal(h.connectionStatus(h.device), 'cache');
+  assert.equal(h.controlReady(h.device), false);
+  // Bootstrap cannot teach the control bootId or capabilities.
+  assert.equal(h.device.bootId, 0);
+  h.handlePresence(h.device, { online: true, bootId: 123, proto: 2 });
+  h.handleSnapshot(h.device, sample(37.8));
+  assert.equal(h.connectionStatus(h.device), 'online');
+  h.handleBootstrap(h.device, bootstrap(1));
+  assert.equal(h.device.snapshot.runtime.temperature, 37.8);
+  assert.equal(h.device.dataSource, 'live');
+});
+
+test('retained full snapshot and stale bootstrap cannot promote browser cache to live', () => {
+  const h = browser({}, { [runtimeKey]: JSON.stringify({ v: 1, receivedAt: Date.now(), snapshot: sample() }) });
+  h.connectMqtt(); const c = h.clients[0]; c.connected = true; c.emit('connect');
+  c.emit('message', `mayap/v1/${h.device.id}/snapshot`, JSON.stringify(sample(99)), { retain: true });
+  h.handleBootstrap(h.device, bootstrap(1));
+  assert.equal(h.device.snapshot.runtime.temperature, 37.5);
+  assert.equal(h.connectionStatus(h.device), 'cache');
+});
+
+test('cache writes coalesce the stream and pagehide flushes the latest sample', () => {
+  const h = browser(); connected(h);
+  h.handleSnapshot(h.device, sample(37.1));
+  h.handleSnapshot(h.device, sample(37.9));
+  assert.equal(JSON.parse(h.storage.get(runtimeKey)).snapshot.runtime.temperature, 37.1);
+  h.events.get('pagehide')();
+  assert.equal(JSON.parse(h.storage.get(runtimeKey)).snapshot.runtime.temperature, 37.9);
+});
+
+test('broker connected without a sample is waiting; explicit device LWT is offline', () => {
+  const h = browser(); connected(h);
+  assert.equal(h.connectionStatus(h.device), 'waiting');
+  h.handlePresence(h.device, { online: false, bootId: 123 });
+  assert.equal(h.connectionStatus(h.device), 'offline');
+  h.state.mqttConnected = false;
+  assert.equal(h.connectionStatus(h.device), 'connecting');
+});
+
+test('fresh presence/config cannot mask stale device telemetry or reset a healthy broker', async () => {
+  const h = browser(); h.connectMqtt(); const c = h.clients[0]; c.connected = true; c.emit('connect');
+  h.handlePresence(h.device, { online: true, bootId: 123 }); h.handleSnapshot(h.device, sample());
+  h.device.snapshotAt -= 150000; h.device.presenceAt = Date.now(); h.device.configAt = Date.now();
+  assert.equal(h.connectionStatus(h.device), 'degraded');
+  await h.recoverBrowserConnection(); assert.equal(h.clients.length, 1);
+});
+
+test('lazy topics wait for the core SUBACK and request only opened data', async () => {
+  const h = browser(), calls = connected(h);
+  const core = h.subscribeDevice(h.device.id), lazy = h.requestDeviceData('config');
+  assert.equal(calls.length, 1);
+  const grant = call => call.callback(null, Object.entries(call.filters).map(([topic, x]) => ({ topic, qos: x.qos })));
+  grant(calls[0]); await core; await new Promise(setImmediate);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(Object.keys(calls[1].filters), [`mayap/v1/${h.device.id}/config/reported`]);
+  grant(calls[1]); await lazy;
+  assert.equal(h.published.at(-1).body.scope, 'runtime');
+  assert.equal(h.published.at(-1).body.config, true);
+  assert.equal(h.published.at(-1).body.reminders, false);
+  assert.equal(h.published.at(-1).body.log, false);
+});
+
+test('pageshow/visibility/online storms reuse a healthy socket and restore one lease timer', async () => {
+  const h = browser(); h.connectMqtt(); const c = h.clients[0];
+  c.subscribe = (filters, cb) => cb(null, Object.entries(filters).map(([topic, x]) => ({ topic, qos: x.qos })));
+  c.connected = true; c.emit('connect'); await new Promise(setImmediate);
+  h.handlePresence(h.device, { online: true, bootId: 123 }); h.handleSnapshot(h.device, sample());
+  h.document.hidden = true; h.events.get('visibilitychange')();
+  assert.equal(h.state.sessionTimer, 0);
+  h.document.hidden = false;
+  for (let i = 0; i < 30; i++) for (const name of ['visibilitychange', 'pageshow', 'online']) h.events.get(name)();
+  await new Promise(setImmediate);
+  assert.equal(h.clients.length, 1);
+  assert.ok(h.state.sessionTimer);
+  assert.equal(h.selectedNeedsSync(), false);
+});
+
+test('cached grant signs commands without HTTP; expired grant rejects without an HTTP hot path', async () => {
+  const h = browser(); let http = 0;
+  h.context.fetch = () => { http++; throw new Error('HTTP IN COMMAND'); };
+  h.device.presence = { online: true, proto: 2 }; h.device.bootId = 123;
+  await h.storeControlSession(h.device, { sessionKey: '07'.repeat(32), sessionId: 'test-session',
+    expiresAt: Math.floor(Date.now() / 1000) + 300, grant: 'test|grant', grantSig: '08'.repeat(32) });
+  const a = await h.signMqttWrite(h.device, 'command', { requestId: 'a', action: 'light_toggle' });
+  const b = await h.signMqttWrite(h.device, 'command', { requestId: 'b', action: 'light_toggle' });
+  const bodyA = JSON.parse(a.body), bodyB = JSON.parse(b.body);
+  assert.equal(a.v, 2); assert.equal(bodyA.bootId, 123);
+  assert.ok(bodyB.seq > bodyA.seq);
+  assert.notEqual(bodyA.nonce, bodyB.nonce);
+  assert.match(a.sig, /^[a-f0-9]{64}$/);
+  h.controlSessions.get(h.device.id).expiresAt = 0;
+  await assert.rejects(h.signMqttWrite(h.device, 'command', { requestId: 'c', action: 'light_toggle' }), /Đang chuẩn bị/);
+  assert.equal(http, 0);
+});
+
+test('control grant preparation is single flight outside commands', async () => {
+  const h = browser(); let http = 0, resolve;
+  h.context.fetch = () => { http++; return new Promise(r => { resolve = r; }); };
+  const a = h.refreshMqttSession(), b = h.refreshMqttSession();
+  assert.equal(http, 1);
+  resolve({ ok: true, status: 200, json: async () => ({ success: true,
+    mqtt: { url: 'wss://test.invalid/mqtt', username: 'test', password: 'test' },
+    control: { sessionKey: '07'.repeat(32), expiresAt: Math.floor(Date.now() / 1000) + 300,
+      grant: 'test|grant', grantSig: '08'.repeat(32) } }) });
+  assert.deepEqual(await Promise.all([a, b]), [true, true]);
+  assert.equal(h.state.authRequests.size, 0);
+});
+
+test('brief hide resets resume coalescing and restores the foreground lease immediately', async () => {
+  const h = browser(); h.connectMqtt(); const c = h.clients[0];
+  c.subscribe = (filters, cb) => cb(null, Object.entries(filters).map(([topic, x]) => ({ topic, qos: x.qos })));
+  c.connected = true; c.emit('connect'); await new Promise(setImmediate);
+  h.state.lastBrowserResumeAt = Date.now();
+  h.document.hidden = true; h.events.get('visibilitychange')();
+  h.document.hidden = false; h.events.get('visibilitychange')();
+  await new Promise(setImmediate);
+  assert.ok(h.state.sessionTimer);
+  assert.equal(h.clients.length, 1);
+});
+
+test('a hidden older tab cannot overwrite a newer device cache', () => {
+  const h = browser(); connected(h); h.handleSnapshot(h.device, sample(37.1));
+  h.storage.set(runtimeKey, JSON.stringify({ v: 1, receivedAt: Date.now() + 1, snapshot: sample(37.9) }));
+  h.events.get('pagehide')();
+  assert.equal(JSON.parse(h.storage.get(runtimeKey)).snapshot.runtime.temperature, 37.9);
+});
+
+test('device reboot invalidates cached config and accepts the new generation revision', () => {
+  const h = browser(); connected(h);
+  h.device.bootId = 122; h.device.revision = 999; h.device.config = { targetTemp: 38 };
+  h.handlePresence(h.device, { online: true, bootId: 123, proto: 2 });
+  assert.equal(h.device.config, null);
+  h.handleSnapshot(h.device, sample());
+  assert.equal(h.device.revision, 7);
+  assert.equal(h.connectionStatus(h.device), 'online');
+});
+
+test('missing control grant backs off without enabling buttons or issuing repeated HTTP', async () => {
+  const h = browser(); let http = 0;
+  h.context.fetch = async () => { http++; return { ok:true, status:200, json:async()=>({success:true,
+    mqtt:{url:'wss://test.invalid/mqtt',username:'test',password:'test'} }) }; };
+  await h.refreshMqttSession();
+  assert.equal(h.state.mqttSessionState, 'error');
+  assert.ok(h.state.authRetryAt > Date.now());
+  assert.equal(h.controlReady(h.device), false);
+  h.handleSnapshot(h.device, sample()); h.prefetchControlSession();
+  assert.equal(http, 1);
 });

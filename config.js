@@ -24,11 +24,11 @@
     // goi sync dau tien bi roi truoc khi SUBACK hoan tat.
     sessionTtlMs: 45000,
     sessionRefreshMs: 3000,
-    // Presence la retained nen KHONG duoc giu nhan "online" qua lau neu
-    // snapshot/config thuc te da dung. 8s > snapshot idle 6s va >> active 400ms.
+    // Presence and runtime freshness are independent. Retained hints/cache
+    // cannot claim live; 8s > snapshot idle 6s and >> active 400ms.
     staleAfterMs: 8000,
-    // LWT offline is immediate; a stale retained online record has a finite
-    // 30 s limit. Between 8 and 30 s show degraded, not a false Wi-Fi outage.
+    // LWT offline is immediate. A stale runtime stays degraded; after 30s
+    // command UI is disabled while broker liveness is assessed separately.
     offlineAfterMs: 30000,
     // Broker liveness is separate from ESP telemetry freshness. Do not reset
     // a healthy socket at 8 s while MQTT keepalive is 30 s.

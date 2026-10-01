@@ -47,6 +47,7 @@
   });
 
   const STORAGE = 'mayap.web.v10';
+  const RUNTIME_CACHE = `${STORAGE}.runtime.v1`;
   const THEME_STORAGE = 'mayap.theme';
   const PROTOCOL_VERSION = 1;
   const DEVICE_ID_RE = /^MAP-[A-F0-9]{12}$/;
@@ -137,6 +138,8 @@
     mqttCredentials: null,
     syncRetryTimers: [],
     subscriptionRetryTimer: 0,
+    authRequests: new Map(),
+    lastBrowserResumeAt: 0,
     authRetryAt: 0,
     authRetryDelay: 5000,
     sessionTimer: 0,
@@ -160,7 +163,10 @@
   const PACKET_POLICY = window.MayapProtocolV2.PacketPolicy;
   const encoder = new TextEncoder();
   async function storeControlSession(device, control) {
-    if (!/^[a-f0-9]{64}$/i.test(control.sessionKey)) throw new Error('PROTOCOL_ERROR');
+    if (!/^[a-f0-9]{64}$/i.test(control.sessionKey) || typeof control.grant !== 'string' ||
+        !/^[a-f0-9]{64}$/i.test(control.grantSig) ||
+        !control.grant.length || !Number.isFinite(Number(control.expiresAt)) ||
+        Number(control.expiresAt) <= Math.floor(Date.now() / 1000) + 30) throw new Error('PROTOCOL_ERROR');
     control.key = await crypto.subtle.importKey('raw', new Uint8Array(
       control.sessionKey.match(/../g).map((v) => parseInt(v, 16))),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
@@ -171,16 +177,53 @@
   async function controlSession(device) {
     const cached = controlSessions.get(device.id);
     if (cached && cached.expiresAt > Math.floor(Date.now() / 1000) + 30) return cached;
-    const result = await postCloudJson('/api/device/mqtt-session', {
-      device_id: device.id, pairing_token: device.pairingToken,
-      control_client_id: controlClientId
-    }, 10000);
-    if (!result.success || !result.control) {
-      const error = new Error(result.error || 'Phiên điều khiển hết hạn');
-      error.code = [401, 403].includes(result.status) ? 'AUTH_ERROR' : 'TRANSPORT_ERROR';
-      throw error;
-    }
-    return storeControlSession(device, result.control);
+    // HTTP grants are prefetched/renewed by the connection lifecycle only.
+    // A click must never wait for Cloudflare or weaken command authentication.
+    const error = new Error('Đang chuẩn bị quyền điều khiển, vui lòng chờ');
+    error.code = 'AUTH_ERROR';
+    throw error;
+  }
+
+  function controlReady(device) {
+    return isDeviceOnline(device) &&
+      Number(controlSessions.get(device?.id)?.expiresAt || 0) > Math.floor(Date.now() / 1000) + 30;
+  }
+
+  function prefetchControlSession() {
+    const device = currentDevice();
+    if (!device?.pairingToken || !state.mqttConnected || device.dataSource !== 'live' ||
+        !device.snapshotAt || document.hidden || state.mqttSessionState === 'auth-required' ||
+        Date.now() < state.authRetryAt || state.authRequests.has(device.id)) return;
+    if (Number(controlSessions.get(device.id)?.expiresAt || 0) > Math.floor(Date.now() / 1000) + 60) return;
+    refreshMqttSession().then(() => {
+      if (device.id !== state.selectedId) return;
+      renderDevice();
+      if (document.body.dataset.page === 'batch' && controlReady(device)) loadTelemetryHistory();
+    });
+  }
+
+  function cachedRuntime(id) {
+    const cached = loadJson(`${RUNTIME_CACHE}.${id}`, null);
+    if (cached?.v !== 1 || !cached.snapshot?.runtime || !Number.isFinite(cached.receivedAt) ||
+        cached.receivedAt <= 0 || cached.receivedAt > Date.now() + 60000) return {};
+    return { presence: cached.presence || null, presenceAt: cached.presenceAt || 0,
+      snapshot: cached.snapshot, snapshotAt: cached.receivedAt,
+      dataSource: 'cache', liveEpoch: -1, cacheAt: cached.receivedAt,
+      bootId: Number(cached.snapshot.bootId || 0), revision: Number(cached.snapshot.revision || 0) };
+  }
+
+  function persistRuntimeCache(device, force = false) {
+    if (!device?.snapshot?.runtime || device.dataSource !== 'live') return;
+    // Coalesce the 400ms stream; final hidden/pagehide flush preserves the latest sample.
+    if (!force && Date.now() - (device.cacheWrittenAt || 0) < 5000) return;
+    try {
+      const previous = loadJson(`${RUNTIME_CACHE}.${device.id}`, null);
+      if (Number(previous?.receivedAt || 0) > device.snapshotAt) return;
+      localStorage.setItem(`${RUNTIME_CACHE}.${device.id}`, JSON.stringify({ v: 1,
+        presence: device.presence, presenceAt: device.presenceAt,
+        snapshot: device.snapshot, receivedAt: device.snapshotAt }));
+      device.cacheWrittenAt = Date.now();
+    } catch (_) {} // Private mode/quota failure must not interrupt MQTT or control.
   }
 
   function createDevice(id, name, pairingToken = '') {
@@ -196,6 +239,11 @@
       configAt: 0,
       revision: 0,
       bootId: 0,
+      dataSource: '',
+      liveEpoch: -1,
+      presenceEpoch: -1,
+      requestedData: new Set(),
+      ...cachedRuntime(id),
       commandSequence: Math.max(1, Number(localStorage.getItem(`${STORAGE}.seq.${id}`) || 0)),
       logs: loadJson(`${STORAGE}.logs.${id}`, []),
       batchMeta: {
@@ -458,6 +506,7 @@
   }
 
   function numberVi(value, digits = 1) {
+    if (value === null || value === undefined || value === '') return '—';
     const number = Number(value);
     return Number.isFinite(number) ? number.toFixed(digits).replace('.', ',') : '—';
   }
@@ -526,8 +575,7 @@
       closeFaultPopup();
       return;
     }
-    const online = connectionStatus(device) === 'online';
-    const faults = online && Array.isArray(runtime?.activeFaults) ? runtime.activeFaults : [];
+    const faults = Array.isArray(runtime?.activeFaults) ? runtime.activeFaults : [];
     const fault = faults.length ? faults[0] : null;
     device.activeFaults = faults;
     device.activeFault = fault;
@@ -535,8 +583,13 @@
     tile.classList.remove('tile-warn', 'tile-stop', 'tile-emergency');
     tile.classList.toggle('tile-clickable', !!fault);
 
-    if (!online) {
+    if (connectionStatus(device) === 'offline') {
       el.textContent = 'Ngoại tuyến';
+      return;
+    }
+
+    if (!runtime) {
+      el.textContent = connectionStatus(device) === 'offline' ? 'Ngoại tuyến' : 'Đang đồng bộ…';
       closeFaultPopup();
       return;
     }
@@ -587,6 +640,7 @@
     const base = topicBase(deviceId);
     return {
       presence: `${base}/presence`,
+      bootstrap: `${base}/bootstrap`,
       snapshot: `${base}/snapshot`,
       report: `${base}/config/reported`,
       remindersReport: `${base}/reminders/reported`,
@@ -604,7 +658,7 @@
   function parseTopic(topic) {
     const root = String(WEB.topicRoot || 'mayap/v1').replace(/^\/+|\/+$/g, '');
     const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = String(topic).match(new RegExp(`^${escaped}/(MAP-[A-F0-9]{12})/(presence|snapshot|config/reported|reminders/reported|ack|log|history/reported)$`));
+    const match = String(topic).match(new RegExp(`^${escaped}/(MAP-[A-F0-9]{12})/(presence|bootstrap|snapshot|config/reported|reminders/reported|ack|log|history/reported)$`));
     return match ? { deviceId: match[1], channel: match[2] } : null;
   }
 
@@ -730,32 +784,47 @@
     });
     $('pageTitle').textContent = pageMeta[name][0];
     $('pageSubtitle').textContent = pageMeta[name][1];
-    if (name === 'batch') { loadTelemetryHistory(); requestTemperatureChartRender(); }
-    if (name === 'settings') renderBatchLogs();
+    if (name === 'batch') { requestDeviceData('config'); requestDeviceData('history'); loadTelemetryHistory(); requestTemperatureChartRender(); }
+    if (name === 'settings') { requestDeviceData('config'); renderBatchLogs(); refreshFirmwareLatestIfNeeded(); }
     document.querySelector('.main')?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }
 
   function connectionStatus(device) {
     if (!device) return 'none';
-    if (!state.mqttConnected) {
-      if (state.mqttSessionState === 'error' || state.mqttSessionState === 'auth-required') return 'offline';
-      return 'connecting';
-    }
-    if (!device.presence) return 'connecting';
-    if (!device.presence.online) return 'offline';
-    if (!device.snapshot || !device.snapshotAt) return 'connecting';
-    const lastAt = Math.max(device.presenceAt || 0, device.snapshotAt || 0, device.configAt || 0);
-    if (!lastAt || Date.now() - lastAt > Math.max(WEB.staleAfterMs, WEB.offlineAfterMs)) return 'offline';
-    if (Date.now() - lastAt > WEB.staleAfterMs) return 'degraded';
+    if (!state.mqttConnected) return device.snapshot ? 'cache' : 'connecting';
+    // Only a presence received on this connection proves the device's LWT state.
+    if (device.presenceEpoch === state.subscriptionEpoch && device.presence?.online === false) return 'offline';
+    if (!device.snapshot || !device.snapshotAt) return 'waiting';
+    if (device.dataSource !== 'live' || device.liveEpoch !== state.subscriptionEpoch) return 'cache';
+    if (Date.now() - device.snapshotAt > WEB.staleAfterMs || device.presence?.online !== true) return 'degraded';
     return 'online';
   }
 
   function isDeviceOnline(device = currentDevice()) {
     const connection = connectionStatus(device);
-    // A short telemetry gap is not a broker disconnect. Signed commands
-    // retain their expiry/bootId and must still receive a terminal ACK.
-    return connection === 'online' || connection === 'degraded';
+    // Long telemetry gaps disable control without inventing an offline presence.
+    return (connection === 'online' || connection === 'degraded') &&
+      Date.now() - device.snapshotAt <= Math.max(WEB.staleAfterMs, WEB.offlineAfterMs);
+  }
+
+  function freshnessText(device) {
+    if (!device?.snapshotAt) return 'Đang chờ dữ liệu từ máy';
+    const time = new Date(device.snapshotAt).toLocaleString('vi-VN');
+    if (device.dataSource === 'bootstrap' && !device.bootstrapTimeKnown)
+      return `Bản lưu trên máy chủ · chưa biết tuổi dữ liệu · nhận lúc ${time}`;
+    return connectionStatus(device) === 'online' ? `Dữ liệu live · ${time}` :
+      `${device.dataSource === 'bootstrap' ? 'Bản lưu trên máy chủ' : 'Dữ liệu đã nhận'} · ${time}`;
+  }
+
+  function freshnessLabel(device) {
+    if (!device?.snapshotAt) return '';
+    const date = new Date(device.snapshotAt);
+    const clock = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    if (connectionStatus(device) === 'online') return `Live · ${clock}`;
+    if (device.dataSource === 'bootstrap' && !device.bootstrapTimeKnown) return 'Máy chủ · tuổi chưa rõ';
+    const day = date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    return `${device.dataSource === 'bootstrap' ? 'Máy chủ' : 'Lưu'} · ${day} ${clock.slice(0, 5)}`;
   }
 
   function renderSelector() {
@@ -839,34 +908,47 @@
     $('sideDevice').textContent = device?.name || 'Chưa có thiết bị';
     refreshDeviceNameIfNeeded(device);
 
-    if (connection === 'online') {
-      pill.textContent = 'TRỰC TUYẾN';
-      pill.className = 'pill online';
-      $('wifiConnectionText').textContent = 'Wi‑Fi đã kết nối';
-      $('sideStatus').textContent = 'Đang trực tuyến';
-    } else if (connection === 'degraded') {
-      pill.textContent = 'DỮ LIỆU CHẬM';
-      pill.className = 'pill soft';
-      $('wifiConnectionText').textContent = 'Đang chờ dữ liệu mới từ máy';
-      $('sideStatus').textContent = 'Dữ liệu đang chậm';
-    } else if (connection === 'connecting') {
-      pill.textContent = 'ĐANG KẾT NỐI';
-      pill.className = 'pill soft';
-      // Chi can bao trang thai don gian cho nguoi dung (dang ket noi/online/
-      // offline) - truoc day hien thang chi tiet ky thuat noi bo cua thu vien
-      // MQTT (vd "MQTT loi: websocket error", "Trinh duyet dang offline"...),
-      // khong can thiet va gay roi cho nguoi dung khong ranh ky thuat.
-      $('wifiConnectionText').textContent = 'Đang kết nối…';
-      $('sideStatus').textContent = 'Đang kết nối';
-    } else {
-      pill.textContent = 'NGOẠI TUYẾN';
-      pill.className = 'pill offline';
-      $('wifiConnectionText').textContent = state.mqttSessionState === 'auth-required' && device
-        ? 'Ghép nối lại máy bằng mã PIN'
-        : state.mqttSessionState === 'error' && !state.mqtt
-          ? 'Chưa kết nối máy chủ · đang thử lại' : 'Chưa nhận dữ liệu từ máy';
-      $('sideStatus').textContent = 'Đang ngoại tuyến';
+    const labels = {
+      online: ['TRỰC TUYẾN', 'online', 'Wi‑Fi đã kết nối'],
+      degraded: ['DỮ LIỆU CHẬM', 'soft', 'Chờ dữ liệu mới từ máy'],
+      cache: ['ĐANG ĐỒNG BỘ', 'soft', state.mqttConnected ? 'Đã nối máy chủ · chờ máy' : 'Đang nối máy chủ…'],
+      connecting: ['ĐANG KẾT NỐI', 'soft', 'Đang nối máy chủ…'],
+      waiting: ['CHỜ THIẾT BỊ', 'soft', 'Đã nối máy chủ · chờ máy'],
+      offline: ['MÁY NGOẠI TUYẾN', 'offline', 'Máy đã ngắt kết nối'],
+      none: ['CHƯA CÓ MÁY', 'soft', 'Thêm máy để bắt đầu']
+    };
+    const [label, css, detail] = labels[connection];
+    pill.textContent = label;
+    pill.className = `pill ${css}`;
+    $('wifiConnectionText').textContent = state.mqttSessionState === 'auth-required' && device
+      ? `${detail} · ghép nối lại để điều khiển` : state.mqttSessionState === 'error' && !state.mqtt
+        ? 'Chưa nối máy chủ · đang thử lại' : detail;
+    $('sideStatus').textContent = label;
+    if ($('dataFreshness')) {
+      $('dataFreshness').textContent = freshnessLabel(device);
+      $('dataFreshness').title = freshnessText(device);
+      $('dataFreshness').setAttribute('aria-label', freshnessText(device));
     }
+    document.body.dataset.connection = connection;
+    document.querySelectorAll('form.stackForm button[type="submit"], #quickForm button[type="submit"]').forEach((button) => {
+      const reminder = button.closest('form')?.id === 'remindersForm';
+      button.disabled = !controlReady(device) || (reminder ? !device?.remindersLoaded : !device?.config);
+    });
+    // Defaults must not become an accidental patch while lazy config is loading.
+    // Readonly quick fields still accept focus, which initiates their lazy read.
+    for (const formId of ['quickForm', 'temperatureForm', 'ventForm', 'turningForm',
+      'sensorForm', 'lightAlarmForm', 'humidifierForm', 'advancedForm']) {
+      $(formId)?.querySelectorAll('input,select').forEach(input => {
+        if (input.type === 'checkbox' || input.tagName === 'SELECT') input.disabled = !device?.config;
+        else input.readOnly = !device?.config;
+      });
+    }
+    if (!device?.config) for (const id of ['quickTarget', 'quickTurn']) {
+      $(id).value = '';
+      $(id).placeholder = '—';
+      $(id).title = 'Chạm để đọc thông số từ máy';
+    }
+    if ($('batchTarget')) $('batchTarget').readOnly = !device?.config;
 
     const ssid = device?.presence?.ssid || '';
     $('wifiSettingSummary').textContent = connection === 'online'
@@ -940,7 +1022,7 @@
       return;
     }
 
-    refreshFirmwareLatestIfNeeded();
+    if (document.body.dataset.page === 'settings') refreshFirmwareLatestIfNeeded();
     const currentVersion = device.presence?.fw || '';
     if (!currentVersion) {
       summaryEl.textContent = 'Đang chờ đồng bộ từ máy…';
@@ -1002,6 +1084,8 @@
         if (!ok) return;
         deactivateSession(device.id);
         unsubscribeDevice(device.id);
+        controlSessions.delete(device.id);
+        try { localStorage.removeItem(`${RUNTIME_CACHE}.${device.id}`); } catch (_) {}
         state.devices = state.devices.filter((item) => item.id !== device.id);
         if (state.selectedId === device.id) state.selectedId = state.devices[0]?.id || '';
         renderSelector();
@@ -1054,7 +1138,7 @@
     }
 
     clearBatchActionPending(device);
-    button.disabled = false;
+    button.disabled = !controlReady(device);
     button.textContent = running ? 'Kết thúc' : 'Bắt đầu';
     button.className = running ? 'dangerButton' : 'primary dark';
     button.setAttribute('aria-label', running ? 'Kết thúc mẻ ấp' : 'Bắt đầu mẻ ấp');
@@ -1109,7 +1193,7 @@
     // luc OFF giua 2 xung, nguoi dung thay "may dang nong" nhung wed bao OFF.
     // heaterPower > 0 phan anh dung y dinh dieu khien (PID dang can nhiet),
     // on dinh hon nhieu cho hien thi cho nguoi dung.
-    const heaterActive = Number(runtime.heaterPower) > 0;
+    const heaterActive = runtime.heaterPower == null ? bool(runtime.heaterOn) : Number(runtime.heaterPower) > 0;
     updateOutput('outputHeater', heaterActive);
     updateOutput('outputCirculation', bool(runtime.circulationFanOn));
     updateOutput('outputVent', bool(runtime.ventFanOn));
@@ -1120,9 +1204,9 @@
       ? 'Chạm để tạm tắt' : 'Chỉ khi còi đang kêu';
     // Nut Den bam duoc bat cu luc nao thiet bi online; nut Coi CHI bam duoc
     // khi coi dang thuc su keu (giong het dieu kien mo man Alarm tren HMI).
-    if ($('outputLightBtn')) $('outputLightBtn').disabled = !isDeviceOnline(device);
+    if ($('outputLightBtn')) $('outputLightBtn').disabled = !controlReady(device);
     if ($('outputSirenBtn')) {
-      $('outputSirenBtn').disabled = !isDeviceOnline(device) || !bool(runtime.sirenOn);
+      $('outputSirenBtn').disabled = !controlReady(device) || !bool(runtime.sirenOn);
     }
 
     const turnMap = { 0: 'DỪNG', 1: 'TRÁI', 2: 'PHẢI', 3: 'CHỜ', 4: 'LỖI' };
@@ -1153,6 +1237,13 @@
       totalDaysInput.title = runtime.batchRunning
         ? 'Đang có mẻ chạy - khoá số ngày ấp (giống trên máy), dừng mẻ để đổi'
         : '';
+    }
+
+    if (device.dataSource !== 'live' || device.liveEpoch !== state.subscriptionEpoch || !isDeviceOnline(device)) {
+      if (totalDaysInput) totalDaysInput.disabled = true;
+      renderBatchAction(device, runtime);
+      setCurrentActivity('Đang đồng bộ…', freshnessText(device), 'idle');
+      return;
     }
 
     if ((device?.batchUiPendingTarget === 'running' && runtime.batchRunning) ||
@@ -2237,6 +2328,13 @@
   }
 
   function handleSnapshot(device, snapshot) {
+    if (!snapshot?.runtime || !Number(snapshot.bootId)) return;
+    if (device.bootId && Number(snapshot.bootId) !== device.bootId) {
+      device.revision = 0;
+      device.config = null;
+      device.configAt = device.configRevision = 0;
+      device.remindersLoaded = false;
+    }
     const last = state.lastTerminalByDevice.get(device.id);
     if (last) {
       console.info('[TX state]', { operation: last.operation,
@@ -2251,17 +2349,52 @@
     }
     device.snapshot = snapshot;
     device.snapshotAt = Date.now();
+    device.dataSource = 'live';
+    device.liveEpoch = state.subscriptionEpoch;
+    // A new non-retained runtime packet supersedes an earlier LWT.
+    if (device.presence?.online === false) device.presence = { ...device.presence, online: true };
+    persistRuntimeCache(device);
     feedTelemetrySnapshot(device, snapshot);
+    prefetchControlSession();
     device.bootId = Number(snapshot.bootId || device.bootId || 0);
     if (Number(snapshot.revision || 0) > device.revision) device.revision = Number(snapshot.revision);
     if (device.id === state.selectedId) {
       renderDevice();
+      if (document.body.dataset.page === 'batch' && controlReady(device)) loadTelemetryHistory();
     }
   }
 
   function handlePresence(device, presence) {
     device.presence = presence;
     device.presenceAt = Date.now();
+    device.presenceEpoch = state.subscriptionEpoch;
+    const nextBoot = Number(presence.bootId || 0);
+    if (nextBoot && nextBoot !== device.bootId) {
+      device.liveEpoch = -1;
+      device.bootId = nextBoot;
+      device.revision = 0;
+      device.config = null;
+      device.configAt = device.configRevision = 0;
+      device.remindersLoaded = false;
+    }
+    persistRuntimeCache(device, true);
+    if (device.id === state.selectedId) renderDevice();
+  }
+
+  function handleBootstrap(device, hint) {
+    if (!hint || hint.v !== 1 || !Number(hint.bootId) || typeof hint.machineState !== 'string') return;
+    // A retained message can be arbitrarily old. Never replace a full live sample,
+    // learn control bootId/protocol from it, or reconcile a pending transaction.
+    if (device.dataSource === 'live' && device.liveEpoch === state.subscriptionEpoch) return;
+    const publishedAt = Number(hint.publishedAt || 0) * 1000;
+    if (device.snapshotAt && (!publishedAt || publishedAt < device.snapshotAt)) return;
+    const runtime = { ...hint, activeFaults: hint.faultCode ?
+      [{ code: hint.faultCode, severity: hint.faultSeverity || 0 }] : [] };
+    device.snapshot = { bootId: hint.bootId, revision: hint.revision, runtime };
+    device.snapshotAt = publishedAt > 0 && publishedAt <= Date.now() + 60000 ? publishedAt : Date.now();
+    device.dataSource = 'bootstrap';
+    device.bootstrapTimeKnown = publishedAt > 0 && publishedAt <= Date.now() + 60000;
+    device.liveEpoch = -1;
     if (device.id === state.selectedId) renderDevice();
   }
 
@@ -2476,6 +2609,8 @@
       telemetryChart.historyRetryAt = Date.now() + 5000;
       return;
     }
+    await requestDeviceData('history');
+    if (!controlReady(device)) { telemetryChart.historyRetryAt = Date.now() + 1000; return; }
     if (!device.pairingToken) {
       telemetrySetStatus('Cần xác thực PIN để đọc lịch sử');
       telemetryChart.historyRetryAt = Date.now() + 60_000;
@@ -2685,13 +2820,22 @@
 
   function sendSession(deviceId, active = true, sync = false) {
     if (!state.mqttConnected || !deviceId) return;
+    const device = state.devices.find(d => d.id === deviceId);
+    const needed = {
+      config: device?.requestedData.has('config') && (!device.config || device.configAt < device.configNeededAt),
+      reminders: device?.requestedData.has('reminders') && !device.remindersLoaded,
+      log: device?.requestedData.has('log') && (device.logSyncAttempts || 0) < 3
+    };
     try {
       publish(topics(deviceId).session, {
         clientId: controlClientId,
         active,
         ttlMs: active ? WEB.sessionTtlMs : 1000,
-        sync
+        sync: active && (sync || Object.values(needed).some(Boolean)),
+        scope: 'runtime',
+        ...needed
       }, { qos: 0, retain: false });
+      if (active && needed.log) device.logSyncAttempts = (device.logSyncAttempts || 0) + 1;
     } catch (_) {}
   }
 
@@ -2705,15 +2849,7 @@
       if (selectedId === state.selectedId && !document.hidden && selectedNeedsSync())
         sendSession(selectedId, true, true);
     }, ms));
-    // "session" dung QoS 0 (khong dam bao toi, khong tu gui lai) - neu goi
-    // "sync:true" DUY NHAT luc vua ket noi bi rot tren duong truyen (chap
-    // chon mang, broker cong khai qua tai), web se ket cau hinh KHONG BAO GIO
-    // ve duoc cho toi khi nguoi dung tu tai lai trang, du o day van bao "da
-    // ket noi MQTT" binh thuong (trang thai socket, khong lien quan gi den
-    // du lieu cua THIET BI co thuc su toi hay khong). Sua bang cach tu xin
-    // dong bo lai moi chu ky giu phien (moi WEB.sessionRefreshMs) CHO TOI KHI
-    // thuc su nhan du cau hinh hop le - tu gioi han (het roi thi thoi, khong
-    // con gui them "sync:true" thua) nen khong tang tai binh thuong.
+    // Retry missing runtime and explicitly requested secondary reports only.
     state.sessionTimer = setInterval(() => {
       sendSession(state.selectedId, true, selectedNeedsSync());
     }, WEB.sessionRefreshMs);
@@ -2721,9 +2857,8 @@
 
   function selectedNeedsSync() {
     const device = currentDevice();
-    return !device?.snapshotAt || Date.now() - device.snapshotAt > WEB.staleAfterMs ||
-      !device.config || !validateFullConfig(device.config) ||
-      Number(device.snapshot?.revision || 0) > Number(device.revision || 0);
+    return !device?.snapshotAt || device.dataSource !== 'live' ||
+      device.liveEpoch !== state.subscriptionEpoch || Date.now() - device.snapshotAt > WEB.staleAfterMs;
   }
 
   function clearSyncRetries() {
@@ -2740,7 +2875,10 @@
     const device = currentDevice();
     if (!device) return;
     subscribeDevice(device.id).then(() => {
-      if (device.id === state.selectedId) activateSelectedSession(force);
+      if (device.id === state.selectedId && !document.hidden) {
+        if (!state.sessionTimer || force) activateSelectedSession(force || selectedNeedsSync());
+        prefetchControlSession();
+      }
     }).catch((error) => {
       state.mqttMessage = 'Chưa nhận được dữ liệu từ máy. Đang thử kết nối lại…';
       renderDevice();
@@ -2756,17 +2894,37 @@
     renderPushStatus();
   }
 
+  async function requestDeviceData(name) {
+    const device = currentDevice();
+    if (!device || !['config', 'reminders', 'history', 'log'].includes(name)) return;
+    const first = !device.requestedData.has(name);
+    device.requestedData.add(name);
+    if (name === 'config' && device.config && Number(device.snapshot?.revision) > Number(device.configRevision || 0))
+      device.configNeededAt = Date.now();
+    try {
+      await subscribeDevice(device.id);
+      if (first && device.id === state.selectedId && !document.hidden)
+        sendSession(device.id, true, name !== 'history');
+    } catch (_) {} // The normal SUBACK/session retry owns recovery.
+  }
+
   async function subscribeDevice(deviceId) {
     if (!state.mqttConnected || !state.mqtt?.connected || !deviceId) return;
     const outputTopics = topics(deviceId);
     const selected = deviceId === state.selectedId;
+    const device = state.devices.find(item => item.id === deviceId);
+    const optional = { config: outputTopics.report, reminders: outputTopics.remindersReport,
+      log: outputTopics.log, history: outputTopics.historyReport };
     const desired = selected
-      ? [outputTopics.presence, outputTopics.snapshot, outputTopics.report,
-        outputTopics.remindersReport, outputTopics.ack, outputTopics.log, outputTopics.historyReport]
+      ? [outputTopics.presence, outputTopics.bootstrap, outputTopics.snapshot, outputTopics.ack,
+        ...[...(device?.requestedData || [])].map(name => optional[name]).filter(Boolean)]
       : [outputTopics.presence];
     const epoch = state.subscriptionEpoch;
     const key = `${epoch}:${deviceId}:${selected}`;
-    if (state.subscriptionRequests.has(key)) return state.subscriptionRequests.get(key);
+    if (state.subscriptionRequests.has(key)) {
+      await state.subscriptionRequests.get(key);
+      return subscribeDevice(deviceId); // Additional lazy topics wait for the core SUBACK.
+    }
     const missing = desired.filter((topic) => !state.subscriptions.has(topic));
     if (!missing.length) return;
     const client = state.mqtt;
@@ -2789,13 +2947,16 @@
       });
     });
     state.subscriptionRequests.set(key, request);
-    try { await request; } finally { state.subscriptionRequests.delete(key); }
+    try {
+      await request;
+      if (selected && deviceId !== state.selectedId) unsubscribeDevice(deviceId);
+    } finally { state.subscriptionRequests.delete(key); }
   }
 
   function unsubscribeDevice(deviceId) {
     if (!state.mqtt?.connected || !deviceId) return;
     const outputTopics = topics(deviceId);
-    [outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log, outputTopics.historyReport]
+    [outputTopics.bootstrap, outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log, outputTopics.historyReport]
       .forEach((topic) => {
         if (!state.subscriptions.has(topic)) return;
         state.mqtt.unsubscribe(topic);
@@ -2806,7 +2967,7 @@
   function connectMqtt(force = false) {
     const credentials = [WEB.mqttUrl, WEB.mqttUsername, WEB.mqttPassword];
     if (!force && state.mqtt && !state.mqtt.disconnecting && state.mqttCredentials?.every((value, i) => value === credentials[i])) {
-      if (state.mqttConnected) syncSelectedDevice(true);
+      if (state.mqttConnected && !state.sessionTimer) syncSelectedDevice(false);
       return;
     }
     if (!WEB.mqttUrl || !/^wss?:\/\//i.test(WEB.mqttUrl)) {
@@ -2860,6 +3021,7 @@
       state.subscriptions.clear();
       state.subscriptionEpoch++;
       state.devices.forEach((device) => {
+        device.logSyncAttempts = 0;
         if (device.id !== state.selectedId) subscribeDevice(device.id).catch(console.error);
         // Don rac 1 lan: cac ban truoc cua trang nay tung gui config/set voi
         // retain:true (da sua), co the con sot lai tren broker tu truoc khi
@@ -2901,7 +3063,7 @@
       state.mqttMessage = 'Kết nối máy chủ gặp lỗi. Đang thử lại…';
       renderDevice();
     });
-    state.mqtt.on('message', (topic, data) => {
+    state.mqtt.on('message', (topic, data, packet) => {
       if (state.mqtt !== client) return;
       const parsedTopic = parseTopic(topic);
       if (!parsedTopic) return;
@@ -2909,12 +3071,22 @@
       if (!device) return;
       let payload;
       try { payload = JSON.parse(data.toString()); } catch (_) { return; }
-      if (parsedTopic.channel !== 'ack' && Number.isFinite(Number(payload.bootId)))
-        device.bootId = Number(payload.bootId);
+
       if (parsedTopic.channel === 'presence') handlePresence(device, payload);
-      else if (parsedTopic.channel === 'snapshot') handleSnapshot(device, payload);
-      else if (parsedTopic.channel === 'config/reported') handleConfigReport(device, payload);
-      else if (parsedTopic.channel === 'reminders/reported') handleReminderReport(device, payload);
+      else if (parsedTopic.channel === 'bootstrap') handleBootstrap(device, payload);
+      else if (parsedTopic.channel === 'snapshot' && !packet?.retain) handleSnapshot(device, payload);
+      else if (parsedTopic.channel === 'config/reported') {
+        if (device.liveEpoch === state.subscriptionEpoch && Number(payload.bootId) && Number(payload.bootId) !== device.bootId) return;
+        const before = device.configAt;
+        handleConfigReport(device, payload);
+        if (device.configAt !== before) device.configRevision = device.revision;
+        if (device.id === state.selectedId) renderDevice();
+      }
+      else if (parsedTopic.channel === 'reminders/reported') {
+        if (device.liveEpoch === state.subscriptionEpoch && Number(payload.bootId) && Number(payload.bootId) !== device.bootId) return;
+        handleReminderReport(device, payload); device.remindersLoaded = true;
+        if (device.id === state.selectedId) renderDevice();
+      }
       else if (parsedTopic.channel === 'ack') {
         verifyDeviceAck(device, payload).then((valid) => {
           if (valid) handleAck(device, payload);
@@ -3366,6 +3538,13 @@
       toast('Đã đổi mã PIN thiết bị');
     });
 
+    $('quickForm').addEventListener('focusin', () => requestDeviceData('config'));
+    $('remindersForm').closest('details')?.addEventListener('toggle', (event) => {
+      if (event.currentTarget.open) requestDeviceData('reminders');
+    });
+    $('batchLogList')?.closest('details')?.addEventListener('toggle', (event) => {
+      if (event.currentTarget.open) requestDeviceData('log');
+    });
     $('quickForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!validateQuickForm()) return;
@@ -3705,6 +3884,14 @@
   }
 
   async function refreshMqttSession() {
+    const device = currentDevice();
+    if (state.authRequests.has(device?.id)) return state.authRequests.get(device.id);
+    const request = provisionMqttSession();
+    state.authRequests.set(device?.id, request);
+    try { return await request; } finally { state.authRequests.delete(device?.id); }
+  }
+
+  async function provisionMqttSession() {
     const device = currentDevice() || state.devices[0];
     if (!device?.id || !device.pairingToken) {
       state.mqttSessionState = 'auth-required';
@@ -3722,8 +3909,10 @@
       return false;
     }
     if (result.success && saveProvisionedMqtt(result)) {
+      connectMqtt(); // WSS/SUBSCRIBE can proceed while the control key imports.
       try {
-        if (result.control) await storeControlSession(device, result.control);
+        if (!result.control) throw new Error('PROTOCOL_ERROR');
+        await storeControlSession(device, result.control);
         state.mqttSessionState = 'ready';
         state.authRetryDelay = 5000;
         state.authRetryAt = 0;
@@ -3734,6 +3923,7 @@
       }
     }
     state.mqttSessionState = [401, 403].includes(result.status) ? 'auth-required' : 'error';
+    if (state.mqttSessionState === 'auth-required') controlSessions.delete(device.id);
     state.authRetryAt = Date.now() + state.authRetryDelay;
     state.authRetryDelay = Math.min(30000, state.authRetryDelay * 2);
     state.mqttMessage = state.mqttSessionState === 'auth-required'
@@ -3771,31 +3961,40 @@
     renderSelector();
     updateSettingSummaries();
     renderBatchLogs();
-    setCurrentActivity('Đang kết nối', 'Đang chờ dữ liệu từ máy', 'idle');
+    if (!currentDevice()?.snapshot) setCurrentActivity('Đang kết nối', 'Đang chờ dữ liệu từ máy', 'idle');
     startTimers();
     registerServiceWorker();
+    setInterval(prefetchControlSession, 5000);
     renderPushStatus();
+    // Available RAM WSS credentials can subscribe without waiting for HTTPS.
+    if (currentDevice()?.pairingToken && WEB.mqttUrl && WEB.mqttUsername && WEB.mqttPassword) {
+      connectMqtt();
+      return;
+    }
     const mqttReady = await refreshMqttSession();
     if (mqttReady) connectMqtt();
     else renderDevice();
   }
 
   window.addEventListener('pagehide', () => {
+    state.lastBrowserResumeAt = 0;
+    persistRuntimeCache(currentDevice(), true);
     deactivateSession(state.selectedId);
     clearInterval(state.sessionTimer);
+    state.sessionTimer = 0;
   });
-  window.addEventListener('online', () => {
+  function resumeBrowserConnection(event) {
+    renderDevice(); // Resume from RAM/cache before waiting for network work.
+    const now = Date.now();
+    if (document.hidden || now - state.lastBrowserResumeAt < 250) return;
+    state.lastBrowserResumeAt = now;
+    if (event?.type === 'online' && !state.mqtt && state.mqttSessionState === 'error') state.authRetryAt = 0;
     recoverBrowserConnection();
-    if (!state.mqttConnected && state.mqtt) state.mqtt.reconnect();
-    if (!state.mqtt && state.mqttSessionState === 'error') {
-      state.authRetryAt = 0;
-      recoverBrowserConnection();
-    }
-  });
-  window.addEventListener('pageshow', () => {
-    recoverBrowserConnection();
-    if (state.mqttConnected) syncSelectedDevice(true);
-  });
+    if (state.mqttConnected) syncSelectedDevice(selectedNeedsSync());
+    prefetchControlSession();
+  }
+  window.addEventListener('online', resumeBrowserConnection);
+  window.addEventListener('pageshow', resumeBrowserConnection);
 
   // Page Visibility: bao ESP32 biet tab con dang mo (foreground) hay khong,
   // de firmware tu chuyen Wi-Fi giua che do hieu nang cao (realtime) va tiet
@@ -3810,13 +4009,14 @@
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      state.lastBrowserResumeAt = 0;
+      persistRuntimeCache(currentDevice(), true);
       deactivateSession(state.selectedId);
       clearInterval(state.sessionTimer);
+      state.sessionTimer = 0;
     } else {
-      // sync=true: ep ESP32 phat lai snapshot+config ngay, khong doi chu ky
-      // lam moi tiep theo - quay lai tab phai thay du lieu moi ngay tuc thi.
-      recoverBrowserConnection();
-      if (state.mqttConnected) syncSelectedDevice(true);
+      // Keep the socket; renew the lease and request runtime only if stale.
+      resumeBrowserConnection();
     }
   });
 
