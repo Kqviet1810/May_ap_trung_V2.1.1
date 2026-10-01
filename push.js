@@ -88,13 +88,13 @@
     }
     return warmupPromise;
   }
-  if (isSupported() && cloudApiBase()) warmUp();
+  if (isSupported() && cloudApiBase()) window.MayapAccount?.ready.then(account => { if(account) warmUp(); });
 
   // Goi /api/push/subscribe la thao tac UPSERT re/an toan goi lai nhieu lan -
   // dung ca khi bat thong bao lan dau LAN khi tu "vien lai" link cho mot
   // subscription da co san (vi du sau khi trinh duyet tu xoay subscription o
   // su kien pushsubscriptionchange, xem sw.js) ma khong can nguoi dung bam lai.
-  async function linkSubscription(deviceId, subscription, pairingToken) {
+  async function linkSubscription(deviceId, subscription) {
     const url = apiUrl('/api/push/subscribe');
     if (!url) throw new Error('Chua cau hinh cloudApiBase trong config.js');
     const res = await fetch(url, {
@@ -102,7 +102,6 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         device_id: deviceId,
-        pairing_token: pairingToken || '',
         subscription: subscription.toJSON ? subscription.toJSON() : subscription,
       }),
     });
@@ -287,6 +286,10 @@
   // ai nhan thong bao ca". Tra ve null khi khong xac dinh duoc (mat mang,
   // device chua dang ky...) de tranh bao nham "0" khi thuc ra la chua ro.
   async function getLinkedCount(deviceId) {
+    if(window.MayapAccount) {
+      const device=window.MayapAccount.current?.devices.find(d=>d.device_id===deviceId);
+      return typeof device?.linked_browsers==='number' ? device.linked_browsers : null;
+    }
     if (!deviceId) return null;
     const url = apiUrl(`/api/device/${encodeURIComponent(deviceId)}/status`);
     if (!url) return null;

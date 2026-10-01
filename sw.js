@@ -1,7 +1,7 @@
 'use strict';
-const CACHE = 'mayap-web-v12.1.10';
+const CACHE = 'mayap-web-v12.2.0';
 const APP_SHELL = [
-  './', './index.html', './styles.css', './config.js', './app.js', './protocol_v2.js', './push.js', './manifest.webmanifest',
+  './', './index.html', './styles.css', './landing.css', './account.js', './config.js', './app.js', './protocol_v2.js', './push.js', './manifest.webmanifest',
   './vendor/jsQR.min.js', './vendor/mqtt.min.js',
   './docs/MAYAP_Huong_dan_van_hanh_A5_v1.3_E503.pdf',
   './icons/icon-192.png', './icons/icon-512.png', './icons/badge-72.png'
@@ -52,7 +52,7 @@ function networkFirstCore(event) {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return;
+  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) return;
   // Pinned bundles use this release's cache; app code prefers fresh responses.
   if (/\/vendor\/(?:mqtt|jsQR)\.min\.js$/.test(url.pathname)) {
     event.respondWith(caches.open(CACHE).then(async (cache) => {

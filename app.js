@@ -19,7 +19,19 @@
     const mqttPassword = String(mqtt?.password || '');
     let parsed; try { parsed = new URL(mqttUrl); } catch (_) {}
     if (!parsed || parsed.protocol !== 'wss:' || !mqttUsername || !mqttPassword) return false;
+    if (state.mqtt?.connected && state.mqttCredentials?.[0] === mqttUrl && state.mqttCredentials?.[1] === mqttUsername) {
+      state.mqtt.publish('mayap/auth/renew', mqttPassword, { qos: 1, retain: false }, (error) => {
+        if (error) state.mqttMessage = 'Đang gia hạn phiên kết nối…';
+      });
+      state.mqtt.options.password = mqttPassword;
+      state.mqttCredentials = [mqttUrl, mqttUsername, mqttPassword];
+    } else if (state.mqtt && !state.mqtt.connected && state.mqttCredentials?.[0] === mqttUrl && state.mqttCredentials?.[1] === mqttUsername) {
+      state.mqtt.options.password = mqttPassword;
+      state.mqtt.options.username = mqttUsername;
+      state.mqttCredentials = [mqttUrl, mqttUsername, mqttPassword];
+    }
     const runtimeMqtt = { mqttUrl, mqttUsername, mqttPassword };
+    state.mqttTicketExpiresAt = Number(mqtt.expiresAt || 0);
     localStorage.setItem(MQTT_OVERRIDE_STORAGE, JSON.stringify(runtimeMqtt));
     // Credential duoc cap sau khi WEB da khoi tao. Cap nhat ngay cau hinh
     // runtime trong tab hien tai; neu chi ghi vao RAM-storage thi WEB van
@@ -46,8 +58,8 @@
     ...loadMqttOverride()
   });
 
-  const STORAGE = 'mayap.web.v10';
-  const RUNTIME_CACHE = `${STORAGE}.runtime.v1`;
+  let STORAGE = 'mayap.web.v10';
+  let RUNTIME_CACHE = `${STORAGE}.runtime.v1`;
   const WARM_BACKGROUND_MS = 300000;
   const WARM_SESSION_REFRESH_MS = 15000;
   const THEME_STORAGE = 'mayap.theme';
@@ -128,7 +140,7 @@
   };
 
   const state = {
-    devices: loadDevices(),
+    devices: window.MayapAccount ? [] : loadDevices(),
     selectedId: localStorage.getItem(`${STORAGE}.selected`) || '',
     mqtt: null,
     mqttConnected: false,
@@ -162,8 +174,8 @@
     currentActivityStartedAt: 0,
     lastResumePromptBootId: 0
   };
-  // Per-tab identity. The pairing token stays in the existing browser session;
-  // the five-minute control key exists only in this tab's memory.
+  // Per-tab identity. In account mode pairingToken is a non-secret RAM UI marker;
+  // server ownership/cookie authorizes grants, whose keys exist only in this tab.
   const controlClientId = `w-${Array.from(crypto.getRandomValues(new Uint8Array(8)),
     (b) => b.toString(16).padStart(2, '0')).join('')}`;
   const controlSessions = new Map();
@@ -203,7 +215,13 @@
 
   function prefetchControlSession() {
     const device = currentDevice();
-    if (!device?.pairingToken || !state.mqttConnected || device.dataSource !== 'live' ||
+    if (device?.pairingToken && browserSessionActive() && state.mqttTicketExpiresAt &&
+        state.mqttTicketExpiresAt <= Math.floor(Date.now()/1000) + 60 &&
+        Date.now() >= state.authRetryAt && !state.authRequests.has(device.id)) {
+      refreshMqttSession();
+      return;
+    }
+    if (device?.accountRole === 'viewer' || !device?.pairingToken || !state.mqttConnected || device.dataSource !== 'live' ||
         !device.snapshotAt || !browserSessionActive() || state.mqttSessionState === 'auth-required' ||
         Date.now() < state.authRetryAt || state.authRequests.has(device.id)) return;
     if (Number(controlSessions.get(device.id)?.expiresAt || 0) > Math.floor(Date.now() / 1000) + 60) return;
@@ -269,6 +287,7 @@
   }
 
   function loadDevices() {
+    if (window.MayapAccount) return []; // D1 ownership is authoritative.
     const stored = loadJson(`${STORAGE}.devices`, []);
     if (!Array.isArray(stored)) return [];
     return stored
@@ -449,11 +468,11 @@
   }
 
   function verifyDevicePin(deviceId, pin) {
-    return postCloudJson('/api/device/verify-pin', { device_id: deviceId, pin });
+    return postCloudJson('/api/account/devices/claim', { device_id: deviceId, pin });
   }
 
   function renameDeviceRemote(deviceId, pin, name) {
-    return postCloudJson('/api/device/rename', { device_id: deviceId, pin, name });
+    return postCloudJson('/api/device/rename', { device_id: deviceId, name });
   }
 
   function changeDevicePin(deviceId, oldPin, newPin) {
@@ -502,6 +521,11 @@
   const deviceNameFetchedAt = new Map();
   const DEVICE_NAME_TTL_MS = 2 * 60 * 1000;
   async function refreshDeviceNameIfNeeded(device) {
+    if (window.MayapAccount) {
+      const row = window.MayapAccount.current?.devices.find(d => d.device_id === device?.id);
+      if (row && row.device_name !== device.name) { device.name = row.device_name; renderSelector(); }
+      return;
+    }
     if (!device) return;
     const last = deviceNameFetchedAt.get(device.id) || 0;
     if (Date.now() - last < DEVICE_NAME_TTL_MS) return;
@@ -1093,23 +1117,16 @@
       text.innerHTML = `<strong>${escapeHtml(device.name)}</strong><small>${escapeHtml(device.id)}</small>`;
       const remove = document.createElement('button');
       remove.type = 'button';
-      remove.textContent = 'Xóa';
+      remove.textContent = 'Xóa cache';
       remove.addEventListener('click', async () => {
         const ok = await confirmAction({
-          title: 'Xóa thiết bị?',
-          message: `${device.name} chỉ bị xóa khỏi danh sách trên trình duyệt. Máy không bị xóa cấu hình.`,
-          accept: 'Xóa thiết bị',
-          danger: true
+          title: 'Xóa dữ liệu đã lưu?',
+          message: `Cache của ${device.name} trên trình duyệt sẽ được xóa. Máy vẫn thuộc tài khoản và dữ liệu live sẽ đồng bộ lại.`,
+          accept: 'Xóa cache'
         });
         if (!ok) return;
-        deactivateSession(device.id);
-        unsubscribeDevice(device.id);
-        controlSessions.delete(device.id);
         try { localStorage.removeItem(`${RUNTIME_CACHE}.${device.id}`); } catch (_) {}
-        state.devices = state.devices.filter((item) => item.id !== device.id);
-        if (state.selectedId === device.id) state.selectedId = state.devices[0]?.id || '';
-        renderSelector();
-        toast('Đã xóa thiết bị khỏi website');
+        toast('Đã xóa cache trên trình duyệt');
       });
       row.append(text, remove);
       root.append(row);
@@ -2904,6 +2921,7 @@
       publish(topics(deviceId).session, {
         clientId: controlClientId,
         active,
+        foreground: active && !warm,
         ttlMs: active ? Math.max(1, Math.floor(warm ? Math.min(WEB.sessionTtlMs, remaining) : WEB.sessionTtlMs)) : 1000,
         sync: active && !warm && (sync || Object.values(needed).some(Boolean)),
         scope: 'runtime',
@@ -3062,7 +3080,7 @@
     }
 
     const options = {
-      clientId: `mayap-web-${Math.random().toString(16).slice(2, 12)}`,
+      clientId: controlClientId,
       clean: true,
       reconnectPeriod: WEB.reconnectPeriodMs,
       connectTimeout: WEB.connectTimeoutMs,
@@ -3107,14 +3125,6 @@
       state.devices.forEach((device) => {
         device.logSyncAttempts = 0;
         if (device.id !== state.selectedId) subscribeDevice(device.id).catch(console.error);
-        // Don rac 1 lan: cac ban truoc cua trang nay tung gui config/set voi
-        // retain:true (da sua), co the con sot lai tren broker tu truoc khi
-        // sua. Publish payload rong kem retain:true la cach chuan cua MQTT de
-        // XOA retained message cu - lam moi lan ket noi cho chac, khong ton
-        // gi neu khong con gi de xoa (broker chi bo qua neu topic dang trong).
-        try {
-          state.mqtt.publish(topics(device.id).config, '', { qos: 1, retain: true });
-        } catch (_) {}
       });
       syncSelectedDevice(true);
       renderDevice();
@@ -3480,7 +3490,7 @@
         submitBtn.textContent = 'Thêm và chọn máy';
       }
       if (!result.success) return toast(result.error || 'Sai mã PIN hoặc thiết bị chưa đăng ký');
-      if (!saveProvisionedMqtt(result)) return toast('Máy chủ chưa cấp cấu hình kết nối.');
+      await window.MayapAccount.refresh();
 
       // Ten hien thi lay tu server (da dat san tu truoc, hoac mac dinh la
       // chinh device_id) - KHONG cho nguoi dung tu go ten luc them nua, vi
@@ -3490,9 +3500,9 @@
       const existed = state.devices.find((device) => device.id === id);
       if (existed) {
         existed.name = name;
-        existed.pairingToken = result.pairing_token || '';
+        existed.pairingToken = 'account-session';
       } else {
-        state.devices.push(createDevice(id, name, result.pairing_token || ''));
+        state.devices.push(createDevice(id, name, 'account-session'));
       }
       const previous = state.selectedId;
       state.selectedId = id;
@@ -3507,7 +3517,7 @@
       saveDevices();
       toast('Đã thêm máy · đang kết nối tự động');
       controlSessions.delete(id);
-      connectMqtt();
+      await refreshMqttSession();
       controlSession(currentDevice()).catch((error) => console.warn('[SESSION]', error.code || 'TRANSPORT_ERROR'));
     });
 
@@ -3615,10 +3625,6 @@
         errorEl.textContent = result.error || 'Không đổi được mã PIN';
         errorEl.classList.add('show');
         return;
-      }
-      if (result.pairing_token) {
-        device.pairingToken = result.pairing_token;
-        saveDevices();
       }
       event.target.reset();
       toast('Đã đổi mã PIN thiết bị');
@@ -3981,13 +3987,12 @@
     const device = currentDevice() || state.devices[0];
     if (!device?.id || !device.pairingToken) {
       state.mqttSessionState = 'auth-required';
-      state.mqttMessage = 'Cần xác thực lại PIN thiết bị';
+      state.mqttMessage = state.devices.length ? 'Cần đăng nhập tài khoản MAYAP' : 'Bấm + để thêm thiết bị vào tài khoản';
       return false;
     }
     state.mqttSessionState = 'loading';
     const result = await postCloudJson('/api/device/mqtt-session', {
       device_id: device.id,
-      pairing_token: device.pairingToken,
       control_client_id: controlClientId
     }, 10000);
     if (device.id !== state.selectedId) {
@@ -3997,8 +4002,8 @@
     if (result.success && saveProvisionedMqtt(result)) {
       connectMqtt(); // WSS/SUBSCRIBE can proceed while the control key imports.
       try {
-        if (!result.control) throw new Error('PROTOCOL_ERROR');
-        await storeControlSession(device, result.control);
+        if (!result.control && device.accountRole !== 'viewer') throw new Error('PROTOCOL_ERROR');
+        if (result.control) await storeControlSession(device, result.control);
         state.mqttSessionState = 'ready';
         state.authRetryDelay = 5000;
         state.authRetryAt = 0;
@@ -4012,8 +4017,9 @@
     if (state.mqttSessionState === 'auth-required') controlSessions.delete(device.id);
     state.authRetryAt = Date.now() + state.authRetryDelay;
     state.authRetryDelay = Math.min(30000, state.authRetryDelay * 2);
-    state.mqttMessage = state.mqttSessionState === 'auth-required'
-      ? 'Phiên ghép nối hết hạn. Hãy thêm máy và nhập lại mã PIN.'
+    state.mqttMessage = result.error === 'MQTT_ISOLATION_NOT_READY'
+      ? 'Máy chủ chưa hoàn tất cấu hình kết nối an toàn.' : state.mqttSessionState === 'auth-required'
+      ? 'Phiên đăng nhập hết hạn. Hãy đăng nhập lại Google.'
       : 'Chưa kết nối được máy chủ. Đang thử lại…';
     return false;
   }
@@ -4074,7 +4080,36 @@
     if (ready) connectMqtt(); else renderDevice();
   }
 
+  function accountDevices(rows) {
+    if (!window.MayapAccount?.current) return;
+    const ids = new Set(rows.map(row => row.device_id));
+    const removed = state.devices.filter(device => !ids.has(device.id));
+    if (removed.length) { state.mqtt?.end(true); state.mqtt = null; state.mqttConnected = false; controlSessions.clear(); }
+    state.devices = rows.map(row => {
+      const device = state.devices.find(d => d.id === row.device_id) || createDevice(row.device_id, row.device_name || row.device_id, 'account-session');
+      device.name = row.device_name || row.device_id;
+      device.accountRole = row.role;
+      if (row.role === 'viewer') controlSessions.delete(device.id);
+      return device;
+    });
+    if (!ids.has(state.selectedId)) state.selectedId = state.devices[0]?.id || '';
+  }
+  window.addEventListener('mayap-logout', () => {
+    state.mqtt?.end(true); state.mqtt = null; state.mqttConnected = false;
+    controlSessions.clear(); state.devices = []; clearInterval(state.sessionTimer);
+  });
   async function init() {
+    if (!window.MayapAccount) return; // Production always installs the account gate.
+    const account = await window.MayapAccount.ready;
+    if (!account) return;
+    STORAGE = `mayap.account.${account.user.sub}`;
+    RUNTIME_CACHE = `${STORAGE}.runtime.v1`;
+    state.selectedId = localStorage.getItem(`${STORAGE}.selected`) || '';
+    accountDevices(account.devices);
+    window.addEventListener('mayap-account-devices', event => {
+      accountDevices(event.detail); renderSelector();
+      if (!state.mqtt && currentDevice()) refreshMqttSession();
+    });
     // Goi showPage() thay vi chi dat dataset.page: truoc day tieu de va chu
     // thich luc moi mo trang lay tu chuoi VIET CUNG trong index.html (vi
     // showPage chi chay khi bam nut chuyen trang), nen moi lan doi chu trong
@@ -4085,6 +4120,7 @@
     applyDeepLinkDevice();
     bindUi();
     renderSelector();
+    document.documentElement.dataset.auth = 'ready';
     updateSettingSummaries();
     renderBatchLogs();
     if (!currentDevice()?.snapshot) setCurrentActivity('Đang kết nối', 'Đang chờ dữ liệu từ máy', 'idle');

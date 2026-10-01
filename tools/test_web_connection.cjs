@@ -18,10 +18,10 @@ for (const m of config.matchAll(/\b(?:float|bool|uint8_t|uint16_t|uint32_t)\s+(\
   defaults[m[1]] = m[2] === 'true' ? true : m[2] === 'false' ? false : Number(m[2]);
 const transport = `
 window.__transport = { connects: 0, subscriptions: [], sessions: [], commands: [], clients: [], holdLive: true };
-window.mqtt = { connect() {
+window.mqtt = { connect(url, options) {
   const t = window.__transport, handlers = {};
   t.connects++;
-  const client = { connected: false, disconnecting: false,
+  const client = { connected: false, disconnecting: false, options,
     on(name, fn) { (handlers[name] ||= []).push(fn); return client; },
     emit(name, ...args) { (handlers[name] || []).forEach(fn => fn(...args)); },
     deliver(suffix, body, retain = false) {
@@ -50,6 +50,7 @@ window.mqtt = { connect() {
     end() { client.disconnecting = true; client.connected = false; client.emit('close'); },
     publish(topic, wire, options, cb) {
       cb?.(); if (!wire) return;
+      if (topic === 'mayap/auth/renew') return;
       const body = JSON.parse(wire);
       if (topic.endsWith('/session')) {
         t.sessions.push(body);
@@ -98,8 +99,8 @@ async function main() {
         window.__defaults = defaults;
         const at = Date.now() - 60000;
         localStorage.setItem('mayap.web.v10.devices', JSON.stringify([{ id:'MAP-1234567890AB', name:'Máy thử', pairingToken:'qa-token' }]));
-        localStorage.setItem('mayap.web.v10.selected', 'MAP-1234567890AB');
-        localStorage.setItem('mayap.web.v10.runtime.v1.MAP-1234567890AB', JSON.stringify({ v:1, receivedAt:at,
+        localStorage.setItem('mayap.account.qa-sub.selected', 'MAP-1234567890AB');
+        localStorage.setItem('mayap.account.qa-sub.runtime.v1.MAP-1234567890AB', JSON.stringify({ v:1, receivedAt:at,
           presence:{online:true,proto:2,bootId:123}, presenceAt:at,
           snapshot:{bootId:123,revision:1,runtime:{temperature:36.9,humidity:57,machineState:'DANG AP',batchRunning:true,lightOn:true,activeFaults:[{code:110,severity:1}]}} }));
       }, defaults);
@@ -108,13 +109,16 @@ async function main() {
       const authGate = new Promise(r => { releaseAuth = r; });
       await context.route('**/*', async route => {
         const url = new URL(route.request().url());
-        if (url.origin === 'http://127.0.0.1:8765') {
+        if (url.origin === 'http://127.0.0.1:8765' && !url.pathname.startsWith('/api/')) {
           if (url.pathname === '/app.js') return route.fulfill({ contentType:'application/javascript', body:app });
           if (url.pathname === '/vendor/mqtt.min.js') return route.fulfill({ contentType:'application/javascript', body:transport });
           return route.continue();
         }
         requests.push(url.pathname);
         let body = { success:true };
+        if (url.pathname === '/api/account/session') body = { success:true,
+          user:{sub:'qa-sub',name:'QA account'},csrf:'csrf-qa',expiresAt:Date.now()+86400000,
+          devices:[{device_id:'MAP-1234567890AB',device_name:'Máy thử',role:'owner'}] };
         if (url.pathname.endsWith('/mqtt-session')) {
           await authGate;
           body = { success:true, mqtt:{url:'wss://qa.invalid/mqtt',username:'qa',password:'qa'},
@@ -126,6 +130,7 @@ async function main() {
       const page = await context.newPage();
       page.on('pageerror', error => errors.push(error.message));
       await page.goto('http://127.0.0.1:8765', { waitUntil:'domcontentloaded' });
+      await page.waitForFunction(()=>document.documentElement.dataset.auth==='ready');
       assert.equal(await page.locator('#liveTemp').innerText(), '36,9°C');
       assert.equal(await page.locator('#onlinePill').innerText(), 'ĐANG ĐỒNG BỘ');
       assert.match(await page.locator('#dataFreshness').innerText(), /Lưu ·/);
@@ -234,7 +239,7 @@ async function main() {
       assert.equal(await page.locator('#onlinePill').innerText(),'DỮ LIỆU CHẬM');
       assert.equal(await page.locator('#outputLightBtn').isDisabled(), true);
       assert.deepEqual(errors,[]);
-      assert.equal(await page.evaluate(()=>Storage.prototype.getItem.call(localStorage,'mayap.web.v10.runtime.v1.MAP-1234567890AB') !== null),true);
+      assert.equal(await page.evaluate(()=>Storage.prototype.getItem.call(localStorage,'mayap.account.qa-sub.runtime.v1.MAP-1234567890AB') !== null),true);
       await page.screenshot({ path:path.join(out, `degraded-${width}.png`) });
       results.push({ width, cacheBeforeAuth:true, bootstrapRetained:true, snapshotSupersedes:true,
         lazy:true, signedCommandAndAck:true, noClickHttp:true, brokerReuse:true,
@@ -245,8 +250,12 @@ async function main() {
     // Exercise the actual service worker and public config.js offline, without
     // provisioning or connecting to any real broker/device.
     const pwa = await browser.newContext({ viewport:{width:390,height:844}, serviceWorkers:'allow' });
-    await pwa.route('**/*', route => new URL(route.request().url()).origin === 'http://127.0.0.1:8765'
-      ? route.continue() : route.fulfill({status:503,contentType:'application/json',body:'{"success":false}'}));
+    await pwa.route('**/*', route => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/api/account/session') return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+        success:true,user:{sub:'qa-sub',name:'QA'},csrf:'qa',devices:[],expiresAt:Date.now()+86400000})});
+      return url.origin === 'http://127.0.0.1:8765' ? route.continue() : route.fulfill({status:503,contentType:'application/json',body:'{"success":false}'});
+    });
     const offlinePage = await pwa.newPage();
     const offlineErrors = [];
     offlinePage.on('pageerror', error => offlineErrors.push(error.message));
@@ -254,19 +263,20 @@ async function main() {
     await offlinePage.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
     await offlinePage.evaluate(()=> {
       localStorage.setItem('mayap.web.v10.devices',JSON.stringify([{id:'MAP-1234567890AB',name:'Máy lưu',pairingToken:'offline-fixture'}]));
-      localStorage.setItem('mayap.web.v10.selected','MAP-1234567890AB');
-      localStorage.setItem('mayap.web.v10.runtime.v1.MAP-1234567890AB',JSON.stringify({v:1,receivedAt:Date.now()-60000,
+      localStorage.setItem('mayap.account.qa-sub.selected','MAP-1234567890AB');
+      localStorage.setItem('mayap.account.qa-sub.runtime.v1.MAP-1234567890AB',JSON.stringify({v:1,receivedAt:Date.now()-60000,
         snapshot:{bootId:123,revision:1,runtime:{temperature:36.9,humidity:57,batchRunning:true,activeFaults:[]}},presence:{online:true,proto:2}}));
     });
+    await pwa.unroute('**/*'); // Route.fulfill bypasses browser offline emulation.
     await pwa.setOffline(true);
     await offlinePage.reload({waitUntil:'domcontentloaded'});
-    assert.equal(await offlinePage.locator('#liveTemp').innerText(),'36,9°C');
-    assert.equal(await offlinePage.locator('#onlinePill').innerText(),'ĐANG ĐỒNG BỘ');
-    assert.equal(await offlinePage.locator('#outputLightBtn').isDisabled(),true);
+    assert.equal(await offlinePage.locator('.appShell').isVisible(),false,'Cold offline reload cannot trust cached ownership');
+    assert.equal(await offlinePage.locator('.landing').isVisible(),false,'Network failure is not logout');
+    assert.equal(await offlinePage.locator('.authLoading').isVisible(),true);
     assert.equal(await offlinePage.evaluate(()=>window.MAYAP_WEB_CONFIG.keepaliveSeconds),30,'Offline config hardening still runs');
     assert.deepEqual(offlineErrors,[]);
     await offlinePage.screenshot({path:path.join(out,'pwa-offline-cache.png')});
-    results.push({pwaOffline:true,actualServiceWorker:true,publicConfigLoaded:true,cacheBeforeNetwork:true,errors:offlineErrors});
+    results.push({pwaOffline:true,actualServiceWorker:true,publicConfigLoaded:true,accountGateFailsClosed:true,errors:offlineErrors});
     await pwa.close();
     fs.writeFileSync(path.join(out,'connection-browser-qa.json'),JSON.stringify({ passed:true, transport:'isolated fixture + actual offline service worker', results },null,2));
     console.log(JSON.stringify(results));

@@ -6,14 +6,14 @@ Firmware bổ sung staged startup, chẩn đoán RTC và adaptive recovery Level
 
 Runtime recovery cho shared I2C, RS485, service task và Wi-Fi deep recovery: [Runtime Self-Recovery](doc/RUNTIME_SELF_RECOVERY.md). Tài liệu nêu ladder, owner/mutex, điều kiện restart và giới hạn kiểm thử.
 
-Web 12.1.10 hiển thị cache trước kết nối, nhận bootstrap retained nhỏ, tải config/history khi cần và giữ socket với warm background 5 phút (300 giây) khi quay lại tab: [Luồng kết nối nhanh](doc/WEB_FAST_CONNECT.md). Giữ các cải tiến giao diện và reliability: [Tối ưu theo log](doc/stability-2026-09-30.md), [Giao diện và kết nối](doc/WEB_12_1_UX.md), [Rà soát E503 và OTA](doc/RELIABILITY_REVIEW_2026_09_30.md).
+Web 12.2.0 thêm Google account, ownership nhiều máy, cookie HttpOnly và MQTT gateway kiểm tra quyền từng topic: [Account, isolation và rollout](doc/GOOGLE_ACCOUNT_MULTITENANT.md). Giữ cache-first, bootstrap retained, lazy data và WARM 5 phút từ [Luồng kết nối nhanh](doc/WEB_FAST_CONNECT.md). MQTT account mode mặc định khóa đến khi gateway và credential broker được chuyển đổi an toàn.
 
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
 | Release | 4.0.0 |
 | ESP32 firmware | 4.0.0 |
 | HMI firmware | 4.0.0 |
-| Web cache | 12.1.10 |
+| Web cache | 12.2.0 |
 | ATtiny protocol | 1.0.0 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |

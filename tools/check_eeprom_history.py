@@ -39,7 +39,7 @@ need('EEPROM_ADDR_TEMP_HISTORY +' in hist, 'history khong dung vung rieng')
 need('mayapTemperatureHistorySample' in mc, 'MachineController chua sample history')
 need('history/request' in rt and 'history/reported' in rt, 'MQTT history contract thieu')
 need('verifyAndDispatch("history/request"' in rt, 'history request khong HMAC')
-need('mayap-control-grant:v2' in worker and 'mqttVerifyV2' in rt,
+need('mayap-control-grant:v2' in text('cloudflare/src/account-auth.js') and 'mqttVerifyV2' in rt,
      'Worker/ESP chua ho tro phien HMAC V2 cho history/request')
 need('temperatureChartCanvas' in html and html.count('id="batchLogList"') == 1, 'UI chart/log sai')
 need('history/reported' in app and "signMqttWrite(device, 'history/request'" in app, 'web MQTT history sai')

@@ -58,12 +58,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
-            npm ci --ignore-scripts --no-audit --no-fund
-          else
-            echo "::warning::cloudflare chua co package-lock.json; tam dung npm install. Hay commit lockfile de CI chuyen sang npm ci dong bang dependency tree."
-            npm install --ignore-scripts --no-audit --no-fund --package-lock=false
-          fi
+          npx --yes pnpm@11.19.0 install --frozen-lockfile
+          node ../tools/build_account_site.mjs
+          node --check src/account-worker.js
 
       - name: Cap nhat D1 schema
         working-directory: cloudflare

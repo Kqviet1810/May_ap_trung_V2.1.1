@@ -183,7 +183,8 @@ test('firmware guards the replay, EEPROM, safety and packet boundaries', () => {
   const web = readFileSync(require.resolve('../app.js'), 'utf8');
   const worker = readFileSync(require.resolve('../cloudflare/src/index.js'), 'utf8');
   assert.equal(web.includes('/api/device/sign-mqtt'), false);
-  assert.ok(worker.includes('handleLegacySignMqtt'));
+  assert.equal(worker.includes('handleLegacySignMqtt'), false);
+  assert.ok(worker.includes('ACCOUNT_UPGRADE_REQUIRED'));
   assert.match(realtime, /terminalCache\[16\]/);
   assert.match(realtime, /replayTerminal\(id\)/);
   assert.match(realtime, /checkReplaySequence\(bodyDoc\)/);

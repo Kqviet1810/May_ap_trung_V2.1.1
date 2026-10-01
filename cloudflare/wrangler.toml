@@ -1,6 +1,6 @@
 name = "mayap-push-worker"
-main = "src/reliability-wrapper.js"
-compatibility_date = "2026-08-01"
+main = "src/account-worker.js"
+compatibility_date = "2026-10-01"
 # Bat buoc: thu vien gui Web Push (@block65/webcrypto-web-push) tham chieu
 # node:crypto lam fallback - thieu co nay Worker co the loi luc gui push that.
 compatibility_flags = ["nodejs_compat"]
@@ -8,6 +8,11 @@ compatibility_flags = ["nodejs_compat"]
 # Bien KHONG bi mat (khong nhay cam). Secret that van dat bang Dashboard/
 # wrangler secret put, KHONG commit vao repo.
 [vars]
+APP_ORIGIN = "https://mayap-push-worker.vietk-mayaptrung.workers.dev"
+# Fail closed until gateway is deployed and old shared browser credentials/connections are revoked.
+MQTT_ISOLATION_READY = "0"
+MQTT_GATEWAY_URL = ""
+GOOGLE_CLIENT_ID = ""
 ALLOWED_ORIGIN = "https://kqviet1810.github.io"
 # Quy mo hien tai: cho may moi tu provisioning. Dat = "1" neu sau nay muon
 # quay lai che do factory allowlist bat buoc trong device_inventory.
@@ -17,16 +22,15 @@ REQUIRE_DEVICE_INVENTORY = "0"
 MAX_NEW_DEVICE_REGISTRATIONS_PER_HOUR = "20"
 # Cua so dem admission. Dat rieng de co the doi policy sau nay ma khong sua code.
 NEW_DEVICE_REGISTRATION_WINDOW_MINUTES = "60"
-# Gioi han mac dinh cho moi may. Doi 3 -> 5 sau nay chi can sua bien nay
-# va deploy lai Worker; khong can nap lai ESP32 hay doi schema.
-MAX_PAIRED_BROWSERS = "3"
-# Moi browser session phai xac thuc PIN lai sau thoi gian nay.
-BROWSER_SESSION_DAYS = "90"
-
 [[d1_databases]]
 binding = "DB"
 database_name = "mayap_push"
 database_id = "e92a393c-8596-4254-b274-68e57a6de290"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
 
 # Chay doc lap voi ESP32 - phat hien khi thiet bi im lang bat thuong.
 [triggers]

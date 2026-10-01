@@ -6,6 +6,7 @@ on:
       - main
       - feature/web-esp-transaction-v2
       - feat/adaptive-staged-boot
+      - feat/google-account-multitenant
       - hardening/v3.8.1-reliability
   pull_request:
     branches:
@@ -32,6 +33,15 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+
+      - name: Install pinned account and MQTT gateway dependencies
+        run: |
+          npx --yes pnpm@11.19.0 --dir cloudflare install --frozen-lockfile --ignore-scripts
+          npx --yes pnpm@11.19.0 --dir mqtt-gateway install --frozen-lockfile --ignore-scripts
+          node tools/build_account_site.mjs
+          node --check account.js
+          node --check cloudflare/src/account-worker.js
+          node --check mqtt-gateway/server.js
 
       - name: Validate JavaScript entrypoints
         run: |

@@ -10,4 +10,8 @@ build-v4/
 
 # Local build outputs
 build/
+node_modules/
+cloudflare/public/
+cloudflare/.wrangler/
+.env
 MAYAP_INDUSTRIAL_v3_4_0/build/

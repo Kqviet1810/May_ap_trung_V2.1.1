@@ -29,7 +29,7 @@ function browser(overrides = {}, initialStorage = {}) {
   const storage = new Map(Object.entries(initialStorage));
   const window = { hooks: {}, renders: [], addEventListener(name, fn) { events.set(name, fn); }, MayapProtocolV2: protocol,
     MAYAP_WEB_CONFIG: { cloudApiBase:'https://test.invalid', mqttUrl: 'wss://test.invalid/mqtt', mqttUsername: 'test', mqttPassword: 'test', sessionRefreshMs: 3000, ...overrides },
-    mqtt: { connect(url, options) { const c = new EventEmitter(); c.connected = false;
+    mqtt: { connect(url, options) { const c = new EventEmitter(); c.connected = false; c.options = options;
       c.end = () => { c.disconnecting = true; c.emit('close'); }; c.publish = () => {};
       c.subscribe = () => {}; clients.push(c); return c; } } };
   const document = { hidden: false, body: { dataset: { page: 'device' } },
@@ -470,7 +470,7 @@ async function warmBrowser() {
     if (typeof filters === 'string') { h.probes.push({topic:filters, callback:cb}); return; }
     options(null, Object.entries(filters).map(([topic, x]) => ({topic, qos:x.qos})));
   };
-  c.publish = (topic, wire, options, cb) => { if(wire) h.published.push({topic, body:JSON.parse(wire), options}); cb?.(); };
+  c.publish = (topic, wire, options, cb) => { if(wire) h.published.push({topic, body:topic==='mayap/auth/renew' ? wire : JSON.parse(wire), options}); cb?.(); };
   c.connected = true; c.emit('connect'); await new Promise(setImmediate);
   h.handlePresence(h.device,{online:true,bootId:123,proto:2}); h.handleSnapshot(h.device,sample());
   await h.storeControlSession(h.device,{sessionKey:'07'.repeat(32),expiresAt:Math.floor(h.now()/1000)+600,
@@ -487,6 +487,7 @@ test('30/120/179/180/299 seconds hidden stay warm and return reuses socket with 
     assert.equal(h.WARM_BACKGROUND_MS,300000);
     const lease=h.published.at(-1).body;
     assert.equal(lease.active,true); assert.equal(lease.ttlMs,45000); assert.equal(lease.sync,false);
+    assert.equal(lease.foreground,false);
     h.elapse(seconds*1000); h.tick();
     assert.equal(h.state.backgroundMode,'warm'); assert.ok(h.browserSessionActive());
     assert.ok(h.published.at(-1).body.ttlMs <= 300000-seconds*1000);
