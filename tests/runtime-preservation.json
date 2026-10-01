@@ -48,7 +48,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/history_store.h",
-      "sha256": "dc5e1fe4b6ff15a6e37152b3f4dd854f9a2346705b40c2dfe008eef8d951632f"
+      "sha256": "1984da6cd26a0bef1843ee9f53fc315ee8531091843fb1c281feb83d5922b30d"
     },
     {
       "file": "ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino",
@@ -60,12 +60,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/config.h",
-      "sha256": "a888ee5c71eedcd10e423f3400a13b008a63314bf3a09eaacdf26adceb970659",
+      "sha256": "882d79ba94bdca3f672dbf194be91231fa56b3aeee463ef3dd9f5f2f0e059350",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
-      "sha256": "bcff5d09b4efc8f3504d5c72067a03ac3f2711901f696ea0d38a7e2e5a107f8d",
+      "sha256": "9c46e5d105aa440f3aea9e1193487c28d2c88589d715d615d67b37cde36a7415",
       "signature": "class MachineController {"
     },
     {
@@ -365,5 +365,6 @@
       ]
     }
   ],
-  "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged."
+  "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged.",
+  "storageReviewNote": "2026-10-01: C512/C32 migration intentionally changes config storage geometry, history owner/cache and MachineController async persistence integration. Only these three fingerprints are refreshed. Thermal control, FaultManager, OutputArbiter, fault descriptors, payload schemas, GPIO/Tiny, boot policy and Web signed transaction bodies remain preserved. See docs/dual-eeprom-storage.md and tools/test_storage.py."
 }
