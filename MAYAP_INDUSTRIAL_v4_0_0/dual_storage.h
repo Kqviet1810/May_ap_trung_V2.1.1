@@ -44,12 +44,7 @@ class DualStorageBackend {
         if (state_.hasConfig) state_.config = packConfig(config);
         if (state_.hasBatch) state_.batch = batch;
         have_ = state_.hasConfig || state_.hasBatch;
-        ReminderSet reminders{};
-        if (mainReadable_ && legacy.loadReminders(reminders)) {
-          ReminderSet ignored{};
-          primaryLegacy_.begin();
-          primaryLegacy_.saveReminders(reminders, ignored);
-        }
+
       }
     }
     primaryActive_ = mainReadable_;
@@ -63,6 +58,7 @@ class DualStorageBackend {
       backupReadable_ = backupJournal_.append(state_, ++generation_);
     }
     if (primaryActive_ && have_) mirrorCritical();
+    if (primaryActive_) migrateOptional();
     if (have_ && (primaryActive_ || backupReadable_)) {
       if (primaryActive_) markMigrated(primary_);
       if (backupReadable_) markMigrated(backup_);
@@ -72,6 +68,7 @@ class DualStorageBackend {
   }
   bool ready() const { return !incompatible_ && (primaryActive_ ? (!writeSuspect_ && health_.failures < 3) : backupReadable_); }
   bool primary() const { return primaryActive_; }
+  bool takeOptionalChanged() { const bool value = optionalChanged_; optionalChanged_ = false; return value; }
   bool loadConfig(MachineConfig &out) const {
     if (!state_.hasConfig) return false;
     out = unpackConfig(state_.config); return true;
@@ -146,9 +143,22 @@ class DualStorageBackend {
       mirrorCritical();
       if (have_) { markMigrated(primary_); if (backupReadable_) markMigrated(backup_); }
     }
+    if (primaryActive_ && !optionalMigrationDone_) migrateOptional();
     publish();
   }
  private:
+  void migrateOptional() {
+    ReminderSet data{}, readback{}; bool present = false;
+    if (!primaryLegacy_.begin() || !primaryLegacy_.loadRemindersForMigration(data, present)) return;
+    if (present) { optionalMigrationDone_ = true; return; }
+    LegacyPersistentStore legacy;
+    if (!legacy.begin() || !legacy.loadRemindersForMigration(data, present)) return;
+    if (!present) { optionalMigrationDone_ = true; return; }
+    if (primaryLegacy_.saveReminders(data, readback)) {
+      optionalMigrationDone_ = true;
+      optionalChanged_ = true;
+    }
+  }
   static bool stopped(const CriticalJournal &journal) {
     return journal.found && journal.latest.payload.hasBatch &&
            journal.latest.payload.batch.wasRunning == 0;
@@ -224,6 +234,7 @@ class DualStorageBackend {
   MayapStorage::Health health_{};
   bool have_ = false, primaryActive_ = false, mainReadable_ = false;
   bool backupReadable_ = false, writeSuspect_ = false, incompatible_ = false;
+  bool optionalMigrationDone_ = false, optionalChanged_ = false;
 };
 
 // One bounded mailbox per kind, SPSC with release/acquire publication. The
@@ -330,7 +341,7 @@ class PersistentStore {
           set(recoveredConfigReady_, 1);
         __atomic_store_n(&ready_, backend_.ready(), __ATOMIC_RELEASE);
         __atomic_add_fetch(&retries_, backend_.retries(), __ATOMIC_ACQ_REL);
-        if (!backend_.primary()) optionalWasPrimary_ = false;
+        if (!backend_.primary() || backend_.takeOptionalChanged()) optionalWasPrimary_ = false;
         if (backend_.primary() && !optionalWasPrimary_ && load(recoveredReminderReady_) == 0) {
           if (backend_.loadReminders(recoveredReminders_)) set(recoveredReminderReady_, 1);
           optionalWasPrimary_ = true;

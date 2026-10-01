@@ -51,6 +51,8 @@ class ExternalEeprom24xx {
   uint32_t takeSoftRetryEvents() { return 0; }
  private: unsigned id;
 };
+static bool primaryRemindersPresent=false;
+static uint32_t primaryReminderValue=0;
 class LegacyPersistentStore {
  public:
   explicit LegacyPersistentStore(bool primary=false):primary_(primary) {}
@@ -58,7 +60,15 @@ class LegacyPersistentStore {
   bool loadConfig(MachineConfig &c) { c.value=37; return true; }
   bool loadBatch(PackedBatchV1 &b) { b.elapsed=300; b.wasRunning=1; return true; }
   bool loadReminders(ReminderSet &r) { r.value=12; return true; }
-  bool saveReminders(const ReminderSet &r, ReminderSet &out) { assert(primary_); out=r; return true; }
+  bool loadRemindersForMigration(ReminderSet &r, bool &present) {
+    if (!begin()) return false;
+    present = !primary_ || primaryRemindersPresent;
+    r.value = primary_ ? primaryReminderValue : 12;
+    return true;
+  }
+  bool saveReminders(const ReminderSet &r, ReminderSet &out) {
+    assert(primary_); primaryRemindersPresent=true; primaryReminderValue=r.value; out=r; return true;
+  }
  private: bool primary_;
 };
 using StackType_t=uint32_t;
@@ -72,8 +82,15 @@ bool mayapStoragePrimaryOnline() { return online; }
 void mayapTemperatureHistoryService() {}
 #include "actual-storage.inc"
 void step(DualStorageBackend &s) { clockMs+=5000; s.service(clockMs); }
-void reset() { chips[0]=Chip{}; chips[1]=Chip{}; bus=false; clockMs=0; }
+void reset() { primaryRemindersPresent=false; primaryReminderValue=0; chips[0]=Chip{}; chips[1]=Chip{}; bus=false; clockMs=0; }
 int main() {
+  reset(); chips[0].present=false; DualStorageBackend delayedMigration;
+  assert(delayedMigration.begin() && !delayedMigration.primary());
+  assert(!primaryRemindersPresent);
+  chips[0].present=true; for(int i=0;i<4;++i) step(delayedMigration);
+  assert(delayedMigration.primary() && primaryRemindersPresent && primaryReminderValue==12);
+  reset(); primaryRemindersPresent=true; primaryReminderValue=77;
+  DualStorageBackend preserveNew; assert(preserveNew.begin() && primaryReminderValue==77);
   reset(); DualStorageBackend store; assert(store.begin() && store.primary());
   MachineConfig c; PackedBatchV1 batch; assert(store.loadConfig(c) && c.value==37);
   // Migration preserves all legacy critical bytes.

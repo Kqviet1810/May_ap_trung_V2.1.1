@@ -2251,6 +2251,17 @@ class LegacyPersistentStore {
     return true;
   }
 
+  // Migration must distinguish a fully read empty region from failed I/O.
+  bool loadRemindersForMigration(ReminderSet &out, bool &present) {
+    ReminderRecordV1 a{}, b{};
+    if (!ready_ || !readRecord(EEPROM_ADDR_REMINDERS_A, a) ||
+        !readRecord(EEPROM_ADDR_REMINDERS_B, b)) return false;
+    const bool va = validReminders(a), vb = validReminders(b);
+    present = va || vb;
+    out = present ? unpackReminders((!vb || (va && newer(a.sequence, b.sequence))) ? a.payload : b.payload) : ReminderSet{};
+    return true;
+  }
+
   bool saveReminders(const ReminderSet &input, ReminderSet &readback) {
     if (!ready_) return false;
     ReminderSet clean = input;
