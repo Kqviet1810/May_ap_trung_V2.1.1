@@ -48,6 +48,8 @@
 
   const STORAGE = 'mayap.web.v10';
   const RUNTIME_CACHE = `${STORAGE}.runtime.v1`;
+  const WARM_BACKGROUND_MS = 300000;
+  const WARM_SESSION_REFRESH_MS = 15000;
   const THEME_STORAGE = 'mayap.theme';
   const PROTOCOL_VERSION = 1;
   const DEVICE_ID_RE = /^MAP-[A-F0-9]{12}$/;
@@ -140,6 +142,13 @@
     subscriptionRetryTimer: 0,
     authRequests: new Map(),
     lastBrowserResumeAt: 0,
+    backgroundMode: 'visible',
+    hiddenAt: 0,
+    hiddenMonoAt: 0,
+    hiddenElapsedMs: 0,
+    backgroundTimer: 0,
+    brokerProbe: null,
+    mqttResumeProbeRequired: false,
     authRetryAt: 0,
     authRetryDelay: 5000,
     sessionTimer: 0,
@@ -192,7 +201,7 @@
   function prefetchControlSession() {
     const device = currentDevice();
     if (!device?.pairingToken || !state.mqttConnected || device.dataSource !== 'live' ||
-        !device.snapshotAt || document.hidden || state.mqttSessionState === 'auth-required' ||
+        !device.snapshotAt || !browserSessionActive() || state.mqttSessionState === 'auth-required' ||
         Date.now() < state.authRetryAt || state.authRequests.has(device.id)) return;
     if (Number(controlSessions.get(device.id)?.expiresAt || 0) > Math.floor(Date.now() / 1000) + 60) return;
     refreshMqttSession().then(() => {
@@ -923,7 +932,9 @@
       offline: ['MÁY NGOẠI TUYẾN', 'offline', 'Máy đã ngắt kết nối'],
       none: ['CHƯA CÓ MÁY', 'soft', 'Thêm máy để bắt đầu']
     };
-    const [label, css, detail] = labels[connection];
+    const [label, css, connectionDetail] = labels[connection];
+    const detail = isDeviceOnline(device) && !controlReady(device) && state.mqttSessionState !== 'auth-required'
+      ? 'Đang chuẩn bị quyền điều khiển…' : connectionDetail;
     pill.textContent = label;
     pill.className = `pill ${css}`;
     $('wifiConnectionText').textContent = state.mqttSessionState === 'auth-required' && device
@@ -2825,20 +2836,73 @@
     state.currentActivityStartedAt = mode === 'idle' ? 0 : Date.now();
   }
 
+  function warmRemainingMs() {
+    if (state.backgroundMode !== 'warm') return 0;
+    // Wall time includes OS suspension; monotonic time covers clock correction.
+    // Never use 32-bit coercion or let a backwards clock restart the budget.
+    state.hiddenElapsedMs = Math.max(state.hiddenElapsedMs,
+      Date.now() - state.hiddenAt, performance.now() - state.hiddenMonoAt, 0);
+    return Math.max(0, WARM_BACKGROUND_MS - state.hiddenElapsedMs);
+  }
+
+  function browserSessionActive() {
+    return state.backgroundMode === 'visible' ? !document.hidden :
+      state.backgroundMode === 'warm' && warmRemainingMs() > 0;
+  }
+
+  function idleBackground() {
+    if (state.backgroundMode === 'idle') return;
+    state.backgroundMode = 'idle';
+    clearTimeout(state.backgroundTimer);
+    state.backgroundTimer = 0;
+    clearInterval(state.sessionTimer);
+    state.sessionTimer = 0;
+    deactivateSession(state.selectedId);
+    // MQTT.js retains ownership of the healthy socket and normal reconnects.
+  }
+
+  function checkBackgroundDeadline() {
+    if (state.backgroundMode !== 'warm') return;
+    clearTimeout(state.backgroundTimer);
+    const remaining = warmRemainingMs();
+    if (!remaining) { idleBackground(); return; }
+    state.backgroundTimer = setTimeout(checkBackgroundDeadline, remaining);
+  }
+
+  function enterBackground() {
+    state.lastBrowserResumeAt = 0;
+    persistRuntimeCache(currentDevice(), true);
+    state.mqttResumeProbeRequired = true;
+    if (state.backgroundMode !== 'visible') { checkBackgroundDeadline(); return; }
+    state.backgroundMode = 'warm';
+    state.hiddenAt = Date.now();
+    state.hiddenMonoAt = performance.now();
+    state.hiddenElapsedMs = 0;
+    checkBackgroundDeadline();
+    activateSelectedSession(false);
+    prefetchControlSession();
+  }
+
   function sendSession(deviceId, active = true, sync = false) {
     if (!state.mqttConnected || !deviceId) return;
+    const warm = state.backgroundMode === 'warm';
+    const remaining = warm ? warmRemainingMs() : 0;
+    if (active && !browserSessionActive()) {
+      if (warm) idleBackground();
+      return;
+    }
     const device = state.devices.find(d => d.id === deviceId);
     const needed = {
-      config: device?.requestedData.has('config') && (!device.config || device.configAt < device.configNeededAt),
-      reminders: device?.requestedData.has('reminders') && !device.remindersLoaded,
-      log: device?.requestedData.has('log') && (device.logSyncAttempts || 0) < 3
+      config: !warm && device?.requestedData.has('config') && (!device.config || device.configAt < device.configNeededAt),
+      reminders: !warm && device?.requestedData.has('reminders') && !device.remindersLoaded,
+      log: !warm && device?.requestedData.has('log') && (device.logSyncAttempts || 0) < 3
     };
     try {
       publish(topics(deviceId).session, {
         clientId: controlClientId,
         active,
-        ttlMs: active ? WEB.sessionTtlMs : 1000,
-        sync: active && (sync || Object.values(needed).some(Boolean)),
+        ttlMs: active ? Math.max(1, Math.floor(warm ? Math.min(WEB.sessionTtlMs, remaining) : WEB.sessionTtlMs)) : 1000,
+        sync: active && !warm && (sync || Object.values(needed).some(Boolean)),
         scope: 'runtime',
         ...needed
       }, { qos: 0, retain: false });
@@ -2849,17 +2913,21 @@
   function activateSelectedSession(sync = false) {
     clearInterval(state.sessionTimer);
     clearSyncRetries();
-    if (!state.selectedId || !state.mqttConnected || document.hidden) return;
+    state.sessionTimer = 0;
+    if (!state.selectedId || !state.mqttConnected || !browserSessionActive()) return;
     sendSession(state.selectedId, true, sync);
     const selectedId = state.selectedId;
-    if (sync) state.syncRetryTimers = [700, 1600].map((ms) => setTimeout(() => {
+    if (sync && !document.hidden) state.syncRetryTimers = [700, 1600].map((ms) => setTimeout(() => {
       if (selectedId === state.selectedId && !document.hidden && selectedNeedsSync())
         sendSession(selectedId, true, true);
     }, ms));
     // Retry missing runtime and explicitly requested secondary reports only.
     state.sessionTimer = setInterval(() => {
-      sendSession(state.selectedId, true, selectedNeedsSync());
-    }, WEB.sessionRefreshMs);
+      checkBackgroundDeadline();
+      if (!browserSessionActive()) return;
+      sendSession(state.selectedId, true, !document.hidden && selectedNeedsSync());
+      prefetchControlSession();
+    }, state.backgroundMode === 'warm' ? WARM_SESSION_REFRESH_MS : WEB.sessionRefreshMs);
   }
 
   function selectedNeedsSync() {
@@ -2882,7 +2950,7 @@
     const device = currentDevice();
     if (!device) return;
     subscribeDevice(device.id).then(() => {
-      if (device.id === state.selectedId && !document.hidden) {
+      if (device.id === state.selectedId && browserSessionActive()) {
         if (!state.sessionTimer || force) activateSelectedSession(force || selectedNeedsSync());
         prefetchControlSession();
       }
@@ -2891,7 +2959,7 @@
       renderDevice();
       clearTimeout(state.subscriptionRetryTimer);
       state.subscriptionRetryTimer = setTimeout(() => {
-        if (device.id === state.selectedId && state.mqttConnected && !document.hidden)
+        if (device.id === state.selectedId && state.mqttConnected && browserSessionActive())
           syncSelectedDevice(true);
       }, 3000);
     });
@@ -3005,7 +3073,9 @@
     state.mqttConnected = false;
     state.subscriptionEpoch++;
     state.subscriptions.clear();
+    cancelBrokerProbe();
     clearInterval(state.sessionTimer);
+    state.sessionTimer = 0;
     clearTimeout(state.subscriptionRetryTimer);
     clearSyncRetries();
     const client = window.mqtt.connect(WEB.mqttUrl, options);
@@ -3017,7 +3087,11 @@
     renderDevice();
 
     client.on('packetreceive', () => {
-      if (state.mqtt === client) state.mqttLastPacketAt = Date.now();
+      if (state.mqtt === client) {
+        state.mqttLastPacketAt = Date.now();
+        state.mqttResumeProbeRequired = false;
+        cancelBrokerProbe();
+      }
     });
     state.mqtt.on('connect', () => {
       if (state.mqtt !== client) return;
@@ -3052,7 +3126,9 @@
       if (state.mqtt !== client) return;
       state.subscriptionEpoch++;
       state.subscriptions.clear();
+      cancelBrokerProbe();
       clearInterval(state.sessionTimer);
+      state.sessionTimer = 0;
       clearTimeout(state.subscriptionRetryTimer);
       clearSyncRetries();
       state.mqttConnected = false;
@@ -3939,6 +4015,41 @@
     return false;
   }
 
+  function cancelBrokerProbe() {
+    if (state.brokerProbe) clearTimeout(state.brokerProbe.timer);
+    state.brokerProbe = null;
+  }
+
+  function probeResumedBroker() {
+    const client = state.mqtt;
+    if (state.brokerProbe || !client?.connected || !state.selectedId) return;
+    const probe = { client, at: Date.now(), monoAt: performance.now(), timer: 0 };
+    state.brokerProbe = probe;
+    const timeoutMs = Math.max(8000, WEB.connectTimeoutMs);
+    probe.timer = setTimeout(() => {
+      if (state.brokerProbe !== probe || state.mqtt !== client) return;
+      cancelBrokerProbe();
+      if (document.hidden) return;
+      // A timer delivered late after another OS suspension is not proof of death.
+      if (Math.max(Date.now() - probe.at, performance.now() - probe.monoAt) > timeoutMs * 2) {
+        probeResumedBroker();
+        return;
+      }
+      state.mqttResumeProbeRequired = false;
+      connectMqtt(true);
+    }, timeoutMs);
+    try {
+      // Public MQTT.js API: SUBACK/PINGRESP/any incoming traffic proves broker
+      // liveness even when the ESP32 is offline. No control or HTTP request.
+      client.subscribe(topics(state.selectedId).presence, { qos: 1 }, (error) => {
+        if (state.mqtt !== client || state.brokerProbe !== probe || error) return;
+        state.mqttLastPacketAt = Date.now();
+        state.mqttResumeProbeRequired = false;
+        cancelBrokerProbe();
+      });
+    } catch (_) {} // The bounded probe deadline owns replacement.
+  }
+
   async function recoverBrowserConnection() {
     if (document.hidden) return;
     // A suspended browser can resume with connected=true on a dead socket.
@@ -3946,8 +4057,12 @@
     // an offline ESP32 must not cause a reconnect loop to a healthy broker.
     if (state.mqtt) {
       const silenceLimit = Math.max(WEB.brokerSilenceAfterMs, WEB.keepaliveSeconds * 2000);
-      if (state.mqttConnected && Date.now() - state.mqttLastPacketAt > silenceLimit)
+      if (state.mqtt.disconnecting || (state.mqttConnected && state.mqtt.stream?.destroyed)) {
         connectMqtt(true);
+      } else if (state.mqttConnected && Date.now() - state.mqttLastPacketAt > silenceLimit) {
+        if (state.mqttResumeProbeRequired || state.brokerProbe) probeResumedBroker();
+        else connectMqtt(true);
+      }
       return;
     }
     if (state.mqttSessionState !== 'error' ||
@@ -3962,6 +4077,7 @@
     // showPage chi chay khi bam nut chuyen trang), nen moi lan doi chu trong
     // pageMeta ma quen sua index.html la nguoi dung van thay chuoi cu.
     showPage('device');
+    if (document.hidden) enterBackground();
     applyTheme(getThemePreference());
     applyDeepLinkDevice();
     bindUi();
@@ -3983,17 +4099,30 @@
     else renderDevice();
   }
 
-  window.addEventListener('pagehide', () => {
-    state.lastBrowserResumeAt = 0;
-    persistRuntimeCache(currentDevice(), true);
-    deactivateSession(state.selectedId);
-    clearInterval(state.sessionTimer);
-    state.sessionTimer = 0;
+  window.addEventListener('pagehide', (event) => {
+    // BFCache can retain the page; a real navigation/unload ends its lease.
+    if (event?.persisted) enterBackground();
+    else {
+      state.lastBrowserResumeAt = 0;
+      state.mqttResumeProbeRequired = true;
+      persistRuntimeCache(currentDevice(), true);
+      idleBackground();
+    }
   });
   function resumeBrowserConnection(event) {
+    if (document.hidden) { checkBackgroundDeadline(); return; }
+    if (state.backgroundMode !== 'visible') {
+      // Evaluate real elapsed time first, even if every background timer froze.
+      checkBackgroundDeadline();
+      state.backgroundMode = 'visible';
+      clearTimeout(state.backgroundTimer);
+      state.backgroundTimer = 0;
+      clearInterval(state.sessionTimer);
+      state.sessionTimer = 0;
+    }
     renderDevice(); // Resume from RAM/cache before waiting for network work.
     const now = Date.now();
-    if (document.hidden || now - state.lastBrowserResumeAt < 250) return;
+    if (state.lastBrowserResumeAt && now >= state.lastBrowserResumeAt && now - state.lastBrowserResumeAt < 250) return;
     state.lastBrowserResumeAt = now;
     if (event?.type === 'online' && !state.mqtt && state.mqttSessionState === 'error') state.authRetryAt = 0;
     recoverBrowserConnection();
@@ -4003,12 +4132,8 @@
   window.addEventListener('online', resumeBrowserConnection);
   window.addEventListener('pageshow', resumeBrowserConnection);
 
-  // Page Visibility: bao ESP32 biet tab con dang mo (foreground) hay khong,
-  // de firmware tu chuyen Wi-Fi giua che do hieu nang cao (realtime) va tiet
-  // kiem nang luong. Chuyen tab/khoa may/thu nho trinh duyet deu kich hoat
-  // 'hidden' ngay lap tuc (khong doi den khi dong han tab), con TTL cua phien
-  // (WEB.sessionTtlMs) la luoi an toan du phong khi trinh duyet bi dong dot
-  // ngot ma khong kip bat 'visibilitychange' (mat dien, crash...).
+  // Hidden pages stay warm for five minutes while the browser permits work.
+  // Short bounded leases still expire if the OS freezes/kills this page.
   window.addEventListener('resize', requestTemperatureChartRender, { passive: true });
   window.matchMedia?.('(prefers-color-scheme: dark)')?.addEventListener('change', () => {
     if (getThemePreference() === 'system') syncBrowserTheme();
@@ -4016,11 +4141,7 @@
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-      state.lastBrowserResumeAt = 0;
-      persistRuntimeCache(currentDevice(), true);
-      deactivateSession(state.selectedId);
-      clearInterval(state.sessionTimer);
-      state.sessionTimer = 0;
+      enterBackground();
     } else {
       // Keep the socket; renew the lease and request runtime only if stale.
       resumeBrowserConnection();

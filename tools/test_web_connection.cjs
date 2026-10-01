@@ -8,7 +8,9 @@ const out = path.resolve(process.argv[2] || path.join(root, 'work', 'connection-
 fs.mkdirSync(out, { recursive: true });
 const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8').replace('  init();', `
   window.__qa = { state, showPage, controlReady, connectionStatus, handlePresence,
-    handleSnapshot, handleBootstrap, REQUIRED_CONFIG_KEYS, VENT_PROFILE_KEYS };
+    handleSnapshot, handleBootstrap, REQUIRED_CONFIG_KEYS, VENT_PROFILE_KEYS,
+    enterBackground, warmRemainingMs, checkBackgroundDeadline, resumeBrowserConnection,
+    controlSessions, prefetchControlSession, renderDevice, renderPushStatus };
   init();`);
 const defaults = {};
 const config = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v4_0_0/config.h'), 'utf8');
@@ -30,7 +32,9 @@ window.mqtt = { connect() {
       runtime: { temperature: 37.8, humidity: 59, batchRunning: true, machineState: 'DANG AP',
         currentDay: 7, heaterPower: 25, lightOn: true, circulationFanOn: true,
         turnState: 3, nextTurnMinutes: 52, activeFaults: [] } }); },
-    subscribe(filters, cb) {
+    subscribe(filters, options, callback) {
+      const cb = typeof options === 'function' ? options : callback;
+      if (typeof filters === 'string') filters = { [filters]: options };
       t.subscriptions.push(Object.keys(filters));
       setTimeout(() => {
         for (const topic of Object.keys(filters)) {
@@ -153,6 +157,63 @@ async function main() {
       });
       assert.equal(resume.connects,1); assert.ok(resume.duration < 500);
       assert.equal(await page.evaluate(()=>window.__transport.manualReconnects || 0),0);
+      // Real DOM lifecycle with elapsed timestamps, without waiting five minutes
+      // or sending commands to a physical device. OS timer freeze is unit tested.
+      await page.evaluate(()=> {
+        window.__qaHidden=false;
+        Object.defineProperty(document,'hidden',{configurable:true,get:()=>window.__qaHidden});
+      });
+      for(const seconds of [30,120,179,180,299]) {
+        const warm=await page.evaluate(seconds=> {
+          const h=window.__qa;
+          window.__qaHidden=true; document.dispatchEvent(new Event('visibilitychange'));
+          h.state.hiddenAt-=seconds*1000; h.state.hiddenMonoAt-=seconds*1000;
+          const result={mode:h.state.backgroundMode,remaining:h.warmRemainingMs(),active:window.__transport.sessions.at(-1).active};
+          window.__qaHidden=false; document.dispatchEvent(new Event('visibilitychange'));
+          return result;
+        },seconds);
+        assert.equal(warm.mode,'warm'); assert.ok(warm.remaining>0); assert.equal(warm.active,true);
+        assert.equal(await page.evaluate(()=>window.__transport.connects),1);
+      }
+      const idle=await page.evaluate(()=> {
+        const h=window.__qa;
+        window.__qaHidden=true; document.dispatchEvent(new Event('visibilitychange'));
+        h.state.hiddenAt-=300000; h.checkBackgroundDeadline();
+        return {mode:h.state.backgroundMode,timer:h.state.sessionTimer,active:window.__transport.sessions.at(-1).active,connects:window.__transport.connects};
+      });
+      assert.deepEqual(idle,{mode:'idle',timer:0,active:false,connects:1});
+      await page.evaluate(async()=> {
+        window.__qaHidden=false; document.dispatchEvent(new Event('visibilitychange'));
+        // Settle the existing independent push/status refresh before measuring
+        // command HTTP. A command must never provision/sign through Cloudflare.
+        await window.__qa.renderPushStatus();
+      });
+      const returnHttp=requests.length;
+      await page.locator('#outputLightBtn').click();
+      await page.waitForFunction(()=>window.__transport.commands.length===2 && window.__qa.state.pending.size===0);
+      assert.equal(requests.length,returnHttp,JSON.stringify(requests.slice(returnHttp)));
+      assert.equal(await page.evaluate(()=>window.__transport.connects),1);
+      let allowRenew;
+      const renewGate=new Promise(resolve=>{allowRenew=resolve;});
+      await context.route('**/api/device/mqtt-session',async route=> {
+        requests.push(new URL(route.request().url()).pathname);
+        await renewGate;
+        await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({success:true,
+          mqtt:{url:'wss://qa.invalid/mqtt',username:'qa',password:'qa'},
+          control:{grant:'qa|renew',grantSig:'08'.repeat(32),sessionKey:'07'.repeat(32),expiresAt:Math.floor(Date.now()/1000)+300}})});
+      });
+      await page.evaluate(()=> {
+        const h=window.__qa;
+        h.controlSessions.get(h.state.selectedId).expiresAt=0; h.renderDevice();
+      });
+      assert.match(await page.locator('#wifiConnectionText').innerText(),/Đang chuẩn bị quyền điều khiển/);
+      assert.equal(await page.locator('#outputLightBtn').isDisabled(),true);
+      await page.evaluate(()=>window.__qa.prefetchControlSession());
+      await page.waitForFunction(()=>window.__qa.state.authRequests.size===1);
+      allowRenew();
+      await page.waitForFunction(()=>window.__qa.controlReady(window.__qa.state.devices[0]));
+      assert.equal(await page.locator('#outputLightBtn').isEnabled(),true);
+      assert.equal(await page.evaluate(()=>window.__transport.connects),1);
       await page.evaluate(()=>window.__qa.showPage('settings'));
       await page.waitForFunction(()=>window.__qa.state.devices[0].configAt > 0);
       assert.ok(await page.evaluate(()=>window.__transport.subscriptions.flat().some(t=>t.endsWith('/config/reported'))));
@@ -174,7 +235,8 @@ async function main() {
       await page.screenshot({ path:path.join(out, `degraded-${width}.png`) });
       results.push({ width, cacheBeforeAuth:true, bootstrapRetained:true, snapshotSupersedes:true,
         lazy:true, signedCommandAndAck:true, noClickHttp:true, brokerReuse:true,
-        simulatedResumeMs:Math.round(resume.duration), offlineAndDegraded:true, errors });
+        simulatedResumeMs:Math.round(resume.duration), warm300s:true, idleRetainsSocket:true,
+        warmReturnNoClickHttp:true, expiredGrantUi:true, proactiveGrantRenew:true, offlineAndDegraded:true, errors });
       await context.close();
     }
     // Exercise the actual service worker and public config.js offline, without

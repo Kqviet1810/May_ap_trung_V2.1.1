@@ -19,9 +19,8 @@
     connectTimeoutMs: 15000,
     // Phat hien socket nua-song som hon, van du rong cho mang di dong/Wi-Fi yeu.
     keepaliveSeconds: 30,
-    // TTL dai hon nhieu so voi refresh de tab bi giat ngan khong lam ESP32 roi
-    // ve che do snapshot cham. Refresh 3s dong thoi tu phuc hoi rat nhanh neu
-    // goi sync dau tien bi roi truoc khi SUBACK hoan tat.
+    // Foreground renews every 3s; app.js warms hidden pages for 300s with 15s
+    // renewal and this bounded TTL. OS-frozen pages still expire safely.
     sessionTtlMs: 45000,
     sessionRefreshMs: 3000,
     // Presence and runtime freshness are independent. Retained hints/cache

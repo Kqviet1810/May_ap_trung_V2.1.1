@@ -45,9 +45,9 @@ bool publishJson(const char *suffix, const JsonDocument &doc, bool retain) {
 }
 #include "actual-web-connect.inc"
 void session(const char *id, bool active, bool sync = false, bool legacy = false,
-             bool config = false, bool reminders = false, bool log = false) {
+             bool config = false, bool reminders = false, bool log = false, uint32_t ttlMs = 15000) {
   JsonDocument doc;
-  doc["clientId"] = id; doc["active"] = active; doc["ttlMs"] = 15000; doc["sync"] = sync;
+  doc["clientId"] = id; doc["active"] = active; doc["ttlMs"] = ttlMs; doc["sync"] = sync;
   if (!legacy) doc["scope"] = "runtime";
   doc["config"] = config; doc["reminders"] = reminders; doc["log"] = log;
   handleSessionMessage(doc);
@@ -115,8 +115,33 @@ int main() {
     session(id, false); assert(webSessionActive);
   }
   session("browser-0007", false); assert(!webSessionActive);
+  // Web's actual warm policy: one hidden lease renews every 15s, bounded to
+  // the five-minute deadline. A second visible browser remains independent.
+  const uint32_t hiddenStart = UINT32_MAX - 100000U;
+  clockMs = hiddenStart;
+  PerformanceGrace warmGrace;
+  for (uint32_t elapsed = 0; elapsed < 300000U; elapsed += 15000U) {
+    clockMs = hiddenStart + elapsed;
+    session("hidden-00001", true, false, false, false, false, false,
+            300000U - elapsed < 45000U ? 300000U - elapsed : 45000U);
+    session("visible-0001", true, false, false, false, false, false, 45000U);
+    serviceSessionTimeout(clockMs);
+    assert(webSessionActive && warmGrace.update(clockMs, webSessionActive));
+  }
+  clockMs = hiddenStart + 300000U;
+  session("hidden-00001", false); serviceSessionTimeout(clockMs);
+  assert(webSessionActive && warmGrace.update(clockMs, webSessionActive));
+  session("visible-0001", false);
+  assert(!webSessionActive && warmGrace.update(clockMs, false));
+  clockMs += 24999U; assert(warmGrace.update(clockMs, false));
+  clockMs += 1U; assert(!warmGrace.update(clockMs, false));
+  session("hidden-00001", true); assert(warmGrace.update(clockMs, webSessionActive));
+  // Fully suspended browser: TTL still expires without any Web timer.
+  clockMs += 15000U; serviceSessionTimeout(clockMs);
+  assert(!webSessionActive && warmGrace.update(clockMs, false));
+  clockMs += 25000U; assert(!warmGrace.update(clockMs, false));
   PerformanceGrace rollover;
   assert(rollover.update(UINT32_MAX - 1000, false));
   assert(rollover.update(500, false)); assert(!rollover.update(25000, false));
-  std::printf("Actual Web bootstrap/session: %zu-byte packet, retained, bounded cadence/retry, lazy sync, 8 leases, TTL, 25s grace and clock rollover OK\n", packetSize);
+  std::printf("Actual Web bootstrap/session: %zu-byte packet, retained, bounded cadence/retry, lazy sync, 8 leases, 300s warm renewals, independent visible browser, TTL, 25s grace and clock rollover OK\n", packetSize);
 }

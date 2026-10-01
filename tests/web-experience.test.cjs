@@ -19,9 +19,12 @@ function browser(overrides = {}, initialStorage = {}) {
       refreshMqttSession, postCloudJson, isDeviceOnline, sendCommand,
       handleBootstrap, handleSnapshot, handlePresence, persistRuntimeCache, freshnessText,
       requestDeviceData, resumeBrowserConnection, controlSession, controlReady,
-      prefetchControlSession, storeControlSession, controlSessions, signMqttWrite });
+      prefetchControlSession, storeControlSession, controlSessions, signMqttWrite,
+      enterBackground, idleBackground, warmRemainingMs, browserSessionActive,
+      checkBackgroundDeadline, WARM_BACKGROUND_MS });
   })();`);
-  let now = 0, timerId = 0;
+  let now = 0, wall = Date.now(), timerId = 0;
+  class BrowserDate extends Date { static now() { return wall; } }
   const timers = new Map(), elements = new Map(), clients = [], events = new Map();
   const storage = new Map(Object.entries(initialStorage));
   const window = { hooks: {}, renders: [], addEventListener(name, fn) { events.set(name, fn); }, MayapProtocolV2: protocol,
@@ -31,16 +34,26 @@ function browser(overrides = {}, initialStorage = {}) {
       c.subscribe = () => {}; clients.push(c); return c; } } };
   const document = { hidden: false, body: { dataset: { page: 'device' } },
     addEventListener(name, fn) { events.set(name, fn); }, getElementById: id => elements.get(id) };
-  const context = { window, document, crypto: webcrypto, URL, URLSearchParams, TextEncoder, AbortController,
+  const context = { window, document, Date: BrowserDate, crypto: webcrypto, URL, URLSearchParams, TextEncoder, AbortController,
     localStorage: { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) }, console,
     performance: { now: () => now },
-    setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, delay }); return id; },
-    clearTimeout: id => timers.delete(id), setInterval: () => ++timerId, clearInterval() {} };
+    setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, delay, at: wall + delay }); return id; },
+    clearTimeout: id => timers.delete(id),
+    setInterval(fn, delay) { const id = ++timerId; timers.set(id, { fn, delay, at: wall + delay, interval: true }); return id; },
+    clearInterval: id => timers.delete(id) };
   vm.runInNewContext(source, context);
   const h = window.hooks, device = h.createDevice('MAP-1234567890AB', 'Máy thử', 'token');
   h.state.devices = [device]; h.state.selectedId = device.id;
   return { ...h, device, document, elements, window, clients, timers, context, storage, events,
-    run(delay) { for (const [id, t] of [...timers]) if (t.delay === delay) { timers.delete(id); now += delay; t.fn(); } } };
+    now: () => wall,
+    elapse(ms, mono = ms) { wall += ms; now += mono; },
+    correctClock(ms) { wall += ms; },
+    tick() { for (const [id, t] of [...timers]) if (timers.has(id) && t.at <= wall) {
+      if (t.interval) t.at = wall + t.delay; else timers.delete(id); t.fn();
+    } },
+    run(delay) { for (const [id, t] of [...timers]) if (!t.interval && t.delay === delay) {
+      timers.delete(id); now += delay; wall += delay; t.fn();
+    } } };
 }
 
 function connected(h) {
@@ -142,7 +155,7 @@ test('complete cached config with stale snapshots requests sync again', () => {
   const h = browser();
   h.device.config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key => [key, 0]));
   h.device.snapshot = { revision: 0 };
-  h.device.snapshotAt = Date.now();
+  h.device.snapshotAt = h.now();
   h.device.dataSource = 'live'; h.device.liveEpoch = h.state.subscriptionEpoch;
   assert.equal(h.selectedNeedsSync(), false);
   h.device.snapshotAt -= 90001;
@@ -152,15 +165,15 @@ test('complete cached config with stale snapshots requests sync again', () => {
 test('dead connected socket is replaced; broker PINGRESP and old-client packets are distinguished', async () => {
   const h = browser({ keepaliveSeconds: 30 }); h.connectMqtt();
   const first = h.clients[0]; first.connected = true; first.emit('connect');
-  h.state.mqttLastPacketAt = Date.now() - 90001;
+  h.state.mqttLastPacketAt = h.now() - 90001;
   h.document.hidden = true;
   await h.recoverBrowserConnection(); assert.equal(h.clients.length, 1);
   h.document.hidden = false;
   await h.recoverBrowserConnection(); assert.equal(h.clients.length, 2);
   assert.equal(first.disconnecting, true);
   const second = h.clients[1]; second.connected = true; second.emit('connect');
-  h.device.snapshotAt = Date.now() - 90001; // ESP offline, broker still alive.
-  h.state.mqttLastPacketAt = Date.now() - 90001;
+  h.device.snapshotAt = h.now() - 90001; // ESP offline, broker still alive.
+  h.state.mqttLastPacketAt = h.now() - 90001;
   first.emit('packetreceive', { cmd: 'pingresp' });
   assert.ok(Date.now() - h.state.mqttLastPacketAt > 90000);
   second.emit('packetreceive', { cmd: 'pingresp' });
@@ -366,7 +379,8 @@ test('pageshow/visibility/online storms reuse a healthy socket and restore one l
   c.connected = true; c.emit('connect'); await new Promise(setImmediate);
   h.handlePresence(h.device, { online: true, bootId: 123 }); h.handleSnapshot(h.device, sample());
   h.document.hidden = true; h.events.get('visibilitychange')();
-  assert.equal(h.state.sessionTimer, 0);
+  assert.equal(h.state.backgroundMode, 'warm');
+  assert.ok(h.state.sessionTimer);
   h.document.hidden = false;
   for (let i = 0; i < 30; i++) for (const name of ['visibilitychange', 'pageshow', 'online']) h.events.get(name)();
   await new Promise(setImmediate);
@@ -445,4 +459,133 @@ test('missing control grant backs off without enabling buttons or issuing repeat
   assert.equal(h.controlReady(h.device), false);
   h.handleSnapshot(h.device, sample()); h.prefetchControlSession();
   assert.equal(http, 1);
+});
+
+async function warmBrowser() {
+  const h = browser({ sessionTtlMs:45000, connectTimeoutMs:15000, keepaliveSeconds:30,
+    staleAfterMs:8000, offlineAfterMs:30000 });
+  h.published = []; h.probes = []; h.connectMqtt();
+  const c = h.clients[0];
+  c.subscribe = (filters, options, cb) => {
+    if (typeof filters === 'string') { h.probes.push({topic:filters, callback:cb}); return; }
+    options(null, Object.entries(filters).map(([topic, x]) => ({topic, qos:x.qos})));
+  };
+  c.publish = (topic, wire, options, cb) => { if(wire) h.published.push({topic, body:JSON.parse(wire), options}); cb?.(); };
+  c.connected = true; c.emit('connect'); await new Promise(setImmediate);
+  h.handlePresence(h.device,{online:true,bootId:123,proto:2}); h.handleSnapshot(h.device,sample());
+  await h.storeControlSession(h.device,{sessionKey:'07'.repeat(32),expiresAt:Math.floor(h.now()/1000)+600,
+    grant:'warm|grant',grantSig:'08'.repeat(32)});
+  h.context.fetch = () => { throw new Error('Unexpected HTTP'); };
+  h.hide = () => { h.document.hidden=true; h.events.get('visibilitychange')(); };
+  h.foreground = () => { h.document.hidden=false; h.events.get('visibilitychange')(); };
+  return h;
+}
+
+test('30/120/179/180/299 seconds hidden stay warm and return reuses socket with immediate local signing', async () => {
+  for(const seconds of [30,120,179,180,299]) {
+    const h=await warmBrowser(); h.hide();
+    assert.equal(h.WARM_BACKGROUND_MS,300000);
+    const lease=h.published.at(-1).body;
+    assert.equal(lease.active,true); assert.equal(lease.ttlMs,45000); assert.equal(lease.sync,false);
+    h.elapse(seconds*1000); h.tick();
+    assert.equal(h.state.backgroundMode,'warm'); assert.ok(h.browserSessionActive());
+    assert.ok(h.published.at(-1).body.ttlMs <= 300000-seconds*1000);
+    h.clients[0].emit('packetreceive',{cmd:'pingresp'});
+    h.handleSnapshot(h.device,sample()); h.foreground(); await new Promise(setImmediate);
+    assert.equal(h.clients.length,1); assert.equal(h.probes.length,0);
+    assert.equal(h.state.backgroundMode,'visible'); assert.ok(h.controlReady(h.device));
+    assert.equal((await h.signMqttWrite(h.device,'command',{requestId:'return',action:'light_toggle'})).v,2);
+  }
+});
+
+test('300 seconds hidden becomes idle, stops lease/grant refresh, retains socket and reuses it after long hide', async () => {
+  const h=await warmBrowser(); h.hide(); h.elapse(300000); h.tick();
+  assert.equal(h.state.backgroundMode,'idle'); assert.equal(h.state.sessionTimer,0);
+  assert.equal(h.published.at(-1).body.active,false); assert.equal(h.clients.length,1);
+  const count=h.published.length; h.elapse(600000); h.tick(); h.prefetchControlSession();
+  assert.equal(h.published.length,count); assert.equal(h.clients[0].disconnecting,undefined);
+  // Restore a still-valid grant; no HTTP may be required on the healthy return.
+  h.controlSessions.get(h.device.id).expiresAt=Math.floor(h.now()/1000)+300;
+  h.clients[0].emit('packetreceive',{cmd:'pingresp'}); h.handleSnapshot(h.device,sample());
+  h.foreground(); await new Promise(setImmediate);
+  assert.equal(h.clients.length,1); assert.equal(h.published.at(-1).body.active,true);
+  assert.ok(h.controlReady(h.device));
+});
+
+test('OS-frozen timers use wall timestamp on resume and stale runtime requests sync without a new WSS', async () => {
+  const h=await warmBrowser(); h.hide(); h.elapse(360000,0);
+  assert.equal(h.state.backgroundMode,'warm'); // No timer was delivered by the OS.
+  h.foreground(); await new Promise(setImmediate);
+  assert.equal(h.state.backgroundMode,'visible'); assert.equal(h.clients.length,1);
+  assert.ok(h.published.some(x=>x.body.active===false));
+  assert.equal(h.published.at(-1).body.sync,true);
+  assert.equal(h.probes.length,1);
+  h.probes[0].callback(null,[]); h.tick();
+  assert.equal(h.clients.length,1); assert.equal(h.state.brokerProbe,null);
+});
+
+test('silent suspended socket probes once; a broker response reuses it even with device offline', async () => {
+  const h=await warmBrowser(); h.hide(); h.elapse(400000,0); h.foreground();
+  for(let i=0;i<30;i++) for(const name of ['pageshow','online','visibilitychange']) h.events.get(name)();
+  await new Promise(setImmediate);
+  assert.equal(h.probes.length,1); assert.equal(h.clients.length,1);
+  h.handlePresence(h.device,{online:false,bootId:123});
+  h.clients[0].emit('packetreceive',{cmd:'pingresp'}); h.elapse(15000); h.tick();
+  assert.equal(h.clients.length,1); assert.equal(h.connectionStatus(h.device),'offline');
+});
+
+test('dead background socket gets exactly one replacement after one bounded broker probe', async () => {
+  const h=await warmBrowser(); h.hide(); h.elapse(400000,0); h.foreground();
+  await new Promise(setImmediate);
+  assert.equal(h.clients.length,1); assert.equal(h.probes.length,1);
+  h.elapse(15000); h.tick(); await new Promise(setImmediate);
+  for(let i=0;i<30;i++) h.resumeBrowserConnection({type:'online'});
+  assert.equal(h.clients.length,2); assert.equal(h.clients[0].disconnecting,true);
+  // A late old SUBACK cannot change the new client's liveness.
+  const at=h.state.mqttLastPacketAt; h.elapse(1000); h.probes[0].callback(null,[]);
+  assert.equal(h.state.mqttLastPacketAt,at);
+});
+
+test('MQTT.js already retrying a closed socket stays the single reconnect owner on resume', async () => {
+  const h=await warmBrowser(); h.hide(); h.clients[0].connected=false; h.clients[0].emit('close');
+  h.elapse(400000); h.foreground();
+  for(let i=0;i<30;i++) h.resumeBrowserConnection({type:'online'});
+  assert.equal(h.clients.length,1); assert.equal(h.probes.length,0);
+  h.clients[0].connected=true; h.clients[0].emit('connect'); await new Promise(setImmediate);
+  assert.equal(h.published.at(-1).body.active,true); assert.equal(h.clients.length,1);
+});
+
+test('warm grant renewal is proactive/single-flight and stops in idle; expired clicks never do HTTP', async () => {
+  const h=await warmBrowser(); let http=0, finish;
+  h.context.fetch=()=>{http++; return new Promise(resolve=>{finish=resolve;});};
+  h.controlSessions.get(h.device.id).expiresAt=Math.floor(h.now()/1000)+300;
+  h.hide(); h.elapse(239000); h.tick(); h.prefetchControlSession(); assert.equal(http,0);
+  h.elapse(2000); h.tick(); for(let i=0;i<20;i++) h.prefetchControlSession();
+  assert.equal(http,1);
+  finish({ok:true,status:200,json:async()=>({success:true,mqtt:{url:'wss://test.invalid/mqtt',username:'test',password:'test'},
+    control:{sessionKey:'07'.repeat(32),expiresAt:Math.floor(h.now()/1000)+300,grant:'renew|grant',grantSig:'08'.repeat(32)}})});
+  await new Promise(setImmediate);
+  h.elapse(60000); h.tick(); assert.equal(h.state.backgroundMode,'idle');
+  h.controlSessions.get(h.device.id).expiresAt=0;
+  h.prefetchControlSession(); assert.equal(http,1);
+  await assert.rejects(h.signMqttWrite(h.device,'command',{requestId:'expired',action:'light_toggle'}),/Đang chuẩn bị/);
+  assert.equal(http,1); h.foreground(); await new Promise(setImmediate);
+  assert.equal(http,2,'Resume prepares the grant outside command handling');
+  finish({ok:false,status:503,json:async()=>({})}); await new Promise(setImmediate);
+});
+
+test('warm deadline survives 32-bit timestamp boundary, backwards clock and duplicate hidden/BFCache events', async () => {
+  const h=await warmBrowser(); h.correctClock(0xffffffff-1000-h.now()); h.hide();
+  h.elapse(120000); h.events.get('pagehide')({persisted:true}); h.events.get('visibilitychange')();
+  assert.equal(h.warmRemainingMs(),180000); // Duplicate events cannot restart five minutes.
+  h.correctClock(-3600000); h.elapse(179999); assert.equal(h.warmRemainingMs(),1);
+  h.elapse(1); h.checkBackgroundDeadline(); assert.equal(h.state.backgroundMode,'idle');
+  assert.equal(h.clients.length,1);
+});
+
+test('late probe timeout after another suspension rechecks broker instead of declaring a healthy socket dead', async () => {
+  const h=await warmBrowser(); h.hide(); h.elapse(400000,0); h.foreground();
+  await new Promise(setImmediate); h.elapse(120000,0); h.tick();
+  assert.equal(h.clients.length,1); assert.equal(h.probes.length,2);
+  h.probes[1].callback(null,[]); assert.equal(h.state.brokerProbe,null);
 });
