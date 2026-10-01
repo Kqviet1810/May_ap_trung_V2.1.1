@@ -161,3 +161,15 @@ test('fleet heartbeat/account/hidden snapshot budget and V1 retirement are expli
   assert.match(account,/Date.now\(\)-lastCheck>=300000/);assert.match(app,/WARM_BACKGROUND_MS = 300000/);
   assert.match(realtime,/if \(!v2\) return/);assert.ok(!fs.readFileSync('config.js','utf8').includes('session-check'));
 });
+test('push ownership is account-scoped and a revoked session cannot receive device alerts',async()=>{
+  const h=await setup(),A=await h.login('push-A'),B=await h.login('push-B'),idA=await h.device(70),idB=await h.device(71);
+  await h.call('/api/account/devices/claim',A,{device_id:idA,pin:'123456'});
+  await h.call('/api/account/devices/claim',B,{device_id:idB,pin:'123456'});
+  const subscription={endpoint:'https://push.example/account-A',keys:{p256dh:'test',auth:'test'}};
+  assert.equal((await h.call('/api/push/subscribe',A,{device_id:idA,subscription})).status,200);
+  assert.equal((await h.call('/api/push/subscribe',B,{device_id:idA,subscription})).status,403);
+  assert.equal((await h.call('/api/push/subscribe',B,{device_id:idB,subscription})).status,403);
+  const account=await (await h.call('/api/account/session',A)).json();assert.equal(account.devices[0].linked_browsers,1);
+  await h.call('/api/account/logout',A,{});assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM push_subscriptions').get().n,0);
+  assert.equal((await h.call('/api/push/subscribe',A,{device_id:idA,subscription})).status,401);
+});

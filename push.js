@@ -110,6 +110,8 @@
     const linked = loadLinked();
     linked[deviceId] = { endpoint: subscription.endpoint, linkedAt: Date.now() };
     saveLinked(linked);
+    const accountDevice=window.MayapAccount?.current?.devices.find(d=>d.device_id===deviceId);
+    if(accountDevice) accountDevice.linked_browsers=Math.max(1,Number(accountDevice.linked_browsers || 0));
   }
 
   function errorText(error) {
@@ -269,7 +271,8 @@
     const ids = (Array.isArray(deviceIds) ? deviceIds : [deviceIds]).filter(Boolean);
     if (ids.length) {
       const linked = loadLinked();
-      const missing = ids.filter((id) => linked[id]?.endpoint !== subscription.endpoint);
+      const missing = ids.filter((id) => linked[id]?.endpoint !== subscription.endpoint ||
+        window.MayapAccount?.current?.devices.find(d=>d.device_id===id)?.linked_browsers===0);
       if (missing.length) {
         try {
           for (const id of missing) await linkSubscription(id, subscription);
