@@ -163,7 +163,7 @@
     lastResumePromptBootId: 0
   };
   // Per-tab identity. In account mode pairingToken is a non-secret RAM UI marker;
-  // server ownership/cookie authorizes grants, whose keys exist only in this tab.
+  // server ownership/bearer session authorizes grants; keys stay in this tab.
   const controlClientId = `w-${Array.from(crypto.getRandomValues(new Uint8Array(8)),
     (b) => b.toString(16).padStart(2, '0')).join('')}`;
   const controlSessions = new Map();
@@ -3061,7 +3061,7 @@
     }
 
     const options = {
-      clientId: controlClientId,
+      clientId: `mayap-web-${Math.random().toString(16).slice(2, 12)}`,
       clean: true,
       reconnectPeriod: WEB.reconnectPeriodMs,
       connectTimeout: WEB.connectTimeoutMs,
@@ -3106,6 +3106,10 @@
       state.devices.forEach((device) => {
         device.logSyncAttempts = 0;
         if (device.id !== state.selectedId) subscribeDevice(device.id).catch(console.error);
+        // Existing direct-HiveMQ cleanup for stale retained config/set messages.
+        try {
+          state.mqtt.publish(topics(device.id).config, '', { qos: 1, retain: true });
+        } catch (_) {}
       });
       syncSelectedDevice(true);
       renderDevice();
