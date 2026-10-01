@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config.h"
+#include "storage_journal.h"
 #include "firmware_update_guard.h"
 #include "boot_diagnostic.h"
 #include "startup_output_policy.h"
@@ -1898,6 +1899,8 @@ inline ReminderSet unpackReminders(const PackedReminderSetV1 &p) {
 
 class ExternalEeprom24xx {
  public:
+  explicit ExternalEeprom24xx(MayapStorage::Geometry g = {EEPROM_CAPACITY_BYTES, EEPROM_PAGE_SIZE, EEPROM_BACKUP_ADDRESS}) : geometry_(g) {}
+  uint8_t deviceAddress() const { return geometry_.address; }
   bool begin() const {
     for (uint8_t attempt = 0U; attempt < EEPROM_IO_RETRIES; ++attempt) {
       if (probe()) {
@@ -1950,6 +1953,7 @@ class ExternalEeprom24xx {
   }
 
  private:
+  MayapStorage::Geometry geometry_;
   mutable uint32_t softRetryEvents_ = 0U;
   static void finiteRetryPause() {
     if (EEPROM_RETRY_GAP_MS != 0U) {
@@ -1957,9 +1961,8 @@ class ExternalEeprom24xx {
     }
   }
 
-  static bool rangeValid(uint16_t address, size_t length) {
-    return length <= EEPROM_CAPACITY_BYTES &&
-           address <= static_cast<uint16_t>(EEPROM_CAPACITY_BYTES - length);
+  bool rangeValid(uint16_t address, size_t length) const {
+    return uint32_t(address) <= geometry_.capacity && length <= geometry_.capacity - uint32_t(address);
   }
 
   // Khoa/mo I2C theo TUNG chunk (toi da 32 byte), khong khoa 1 lan cho ca
@@ -1974,11 +1977,11 @@ class ExternalEeprom24xx {
     while (length && ok) {
       const uint8_t chunk = static_cast<uint8_t>(std::min<size_t>(length, 32U));
       if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) { ok = false; break; }
-      Wire.beginTransmission(EEPROM_I2C_ADDRESS);
+      Wire.beginTransmission(geometry_.address);
       Wire.write(static_cast<uint8_t>(address >> 8U));
       Wire.write(static_cast<uint8_t>(address & 0xFFU));
       if (Wire.endTransmission(false) != 0U) { mayapI2cUnlock(); ok = false; break; }
-      const size_t got = Wire.requestFrom(EEPROM_I2C_ADDRESS, chunk, true);
+      const size_t got = Wire.requestFrom(geometry_.address, chunk, true);
       if (got != chunk) {
         while (Wire.available()) (void)Wire.read();
         mayapI2cUnlock();
@@ -1995,7 +1998,7 @@ class ExternalEeprom24xx {
       out += chunk;
       length -= chunk;
     }
-    mayapI2cReport(EEPROM_I2C_ADDRESS, ok);
+    mayapI2cReport(geometry_.address, ok);
     return ok;
   }
 
@@ -2013,18 +2016,18 @@ class ExternalEeprom24xx {
     bool ok = true;
     while (length && ok) {
       const uint8_t pageRemain = static_cast<uint8_t>(
-          EEPROM_PAGE_SIZE - (address % EEPROM_PAGE_SIZE));
+          geometry_.page - (address % geometry_.page));
       const uint8_t chunk = static_cast<uint8_t>(
-          std::min<size_t>(length, pageRemain));
+          std::min<size_t>(30U, std::min<size_t>(length, pageRemain)));
       if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) { ok = false; break; }
-      Wire.beginTransmission(EEPROM_I2C_ADDRESS);
+      Wire.beginTransmission(geometry_.address);
       Wire.write(static_cast<uint8_t>(address >> 8U));
       Wire.write(static_cast<uint8_t>(address & 0xFFU));
       const size_t written = Wire.write(in, chunk);
       const uint8_t err = Wire.endTransmission(true);
+      mayapI2cUnlock();
       const bool complete = (written == chunk && err == 0U) ?
           waitWriteCompleteLocked() : false;
-      mayapI2cUnlock();
       if (written != chunk || err != 0U || !complete) {
         ok = false;
         break;
@@ -2033,27 +2036,30 @@ class ExternalEeprom24xx {
       in += chunk;
       length -= chunk;
     }
-    mayapI2cReport(EEPROM_I2C_ADDRESS, ok);
+    mayapI2cReport(geometry_.address, ok);
     return ok;
   }
 
-  static bool probeLocked() {
-    Wire.beginTransmission(EEPROM_I2C_ADDRESS);
+  bool probeLocked() const {
+    Wire.beginTransmission(geometry_.address);
     return Wire.endTransmission(true) == 0U; // EEPROM write-busy NACK is normal.
   }
 
-  static bool probe() {
+  bool probe() const {
     if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) return false;
     const bool ok = probeLocked();
-    mayapI2cReport(EEPROM_I2C_ADDRESS, ok);
+    mayapI2cReport(geometry_.address, ok);
     mayapI2cUnlock();
     return ok;
   }
 
-  static bool waitWriteCompleteLocked() {
+  bool waitWriteCompleteLocked() const {
     const uint32_t started = millis();
     do {
-      if (probeLocked()) return true;
+      if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) return false;
+      const bool ready = probeLocked();
+      mayapI2cUnlock();
+      if (ready) return true;
       vTaskDelay(pdMS_TO_TICKS(1));
     } while (elapsedMs(millis(), started) < EEPROM_WRITE_TIMEOUT_MS);
     return false;
@@ -2087,8 +2093,11 @@ static_assert(sizeof(BatchRecordLegacyV2) <= EEPROM_BATCH_SLOT_BYTES,
 static_assert(sizeof(ReminderRecordV1) <= EEPROM_REMINDERS_SLOT_BYTES,
               "Reminder record khong vua slot AT24C32");
 
-class PersistentStore {
+class LegacyPersistentStore {
  public:
+  explicit LegacyPersistentStore(bool primary = false) : eeprom_(primary ?
+      MayapStorage::Geometry{EEPROM_PRIMARY_CAPACITY, EEPROM_PRIMARY_PAGE, EEPROM_PRIMARY_ADDRESS} :
+      MayapStorage::Geometry{EEPROM_CAPACITY_BYTES, EEPROM_PAGE_SIZE, EEPROM_BACKUP_ADDRESS}) {}
   bool begin() {
     configCacheValid_ = false;
     batchCacheValid_ = false;
@@ -2675,6 +2684,8 @@ class PersistentStore {
   uint32_t reminderSequence_ = 0U;
   PackedReminderSetV1 reminderPayload_{};
 };
+
+#include "dual_storage.h"
 
 // ============================================================================
 // INPUT: CUNG MOT HOP DONG CHO GPIO THAT VA SERIAL MO PHONG
@@ -3798,6 +3809,7 @@ class MachineController {
     }
     printConfig();
     if (mayapSerialDebugEnabled()) printSerialHelp();
+    if (!store_.startWorker()) { storageFaultLatched_ = true; }
   }
 
   void update(uint32_t now) {
@@ -3848,12 +3860,13 @@ class MachineController {
     serviceBatchLog(now);
     const OutputState &maintenanceOut = outputs_.state();
     mayapSetFirmwareMaintenanceReady(!batchRunning_ && !resumePending_ &&
-        !batchClearPending_ && !autotune_.running() && !testModeActive_ &&
+        !batchClearPending_ && !configSavePending_ && !reminderSavePending_ &&
+        !startCommandPending_ && !store_.pendingBatch() && !autotune_.running() && !testModeActive_ &&
         !maintenanceOut.heaterSsr && !maintenanceOut.heatMaster &&
         !maintenanceOut.turnLeft && !maintenanceOut.turnRight &&
         !highTemperatureActive_ && !emergencyActive_);
     serviceHealthMonitor(now);
-    // Lich su nhiet tach khoi Flash ESP32/Cloud: chi ghi AT24C32 moi 5 phut.
+    // RAM mailbox only; worker writes PRIMARY history every 5 minutes.
     // Ham tu bo qua neu RTC/cam bien khong hop le va tu tranh ghi lap sau reboot.
     mayapTemperatureHistorySample(rtc_.valid() ? rtc_.epoch() : 0U,
                                   temperature_, sensorUsable_);
@@ -4085,105 +4098,46 @@ class MachineController {
     }
 
     if (!EXTERNAL_EEPROM_ENABLED) return;
-
-    // Kiem tra dia chi 0x57 dinh ky, rat nhe va co timeout. Hai/ba lan loi
-    // lien tiep moi nang muc canh bao, tranh mot xung nhieu I2C lam bao gia.
-    if (store_.ready() && !storageFaultLatched_ && !storageDegraded_ &&
-        elapsedMs(now, lastStorageHealthCheckAt_) >= EEPROM_HEALTH_CHECK_MS) {
+    // EEPROM evidence/retry/failback belong exclusively to the storage worker.
+    if (elapsedMs(now, lastStorageHealthCheckAt_) >= EEPROM_HEALTH_CHECK_MS) {
       lastStorageHealthCheckAt_ = now;
-      if (!store_.probe()) {
-        store_.markOffline();
-        latchStorageFault("HEALTH CHECK");
-      } else {
-        storageFailureStreak_ = 0U;
-      }
-    }
-
-    const bool needRecovery = storageFaultLatched_ || storageDegraded_ ||
-                              !store_.ready();
-    if (!needRecovery) return;
-    if (elapsedMs(now, lastStorageReconnectAt_) < EEPROM_RECONNECT_PERIOD_MS) {
-      return;
-    }
-    lastStorageReconnectAt_ = now;
-
-    if (!store_.reconnect()) return;
-
-    bool verified = false;
-    MachineConfig recovered{};
-
-    if (batchRunning_ || resumePending_) {
-      // Dang chay me: RAM la nguon dung. Khong tai cau hinh cu tu EEPROM vao
-      // giua me; ghi lai cau hinh hien tai de phuc hoi kha nang checkpoint.
-      MachineConfig readback{};
-      verified = store_.saveConfig(config_, readback);
-      if (verified) {
-        config_ = readback;
-        configLoaded_ = true;
-        mayapSetConnectivityMode(config_.connectivityMode);
-      }
-    } else if (store_.loadConfig(recovered)) {
-      // May dang dung: doc lap lai de chac chan module vua lap lai on dinh,
-      // sau do moi dua cau hinh EEPROM vao RAM/HMI.
-      PackedMachineConfigV1 first = packConfig(recovered);
-      verified = true;
-      for (uint8_t i = 1U; i < EEPROM_RECOVERY_VERIFY_COUNT; ++i) {
-        MachineConfig second{};
-        if (!store_.loadConfig(second)) {
-          verified = false;
-          break;
+      if (!store_.ready()) latchStorageFault("STORAGE WORKER");
+      else {
+        if (!configLoaded_) {
+          MachineConfig recovered{};
+          if (store_.loadConfig(recovered)) {
+            config_ = recovered; configLoaded_ = true;
+            hmiSetConfig(config_); mayapWebSetConfig(config_); mayapCloudSetConfig(config_);
+            mayapSetConnectivityMode(config_.connectivityMode);
+            pid_.applyConfigBumpless(now, config_.targetTemp, temperature_, config_);
+          }
         }
-        const PackedMachineConfigV1 secondPacked = packConfig(second);
-        if (memcmp(&first, &secondPacked, sizeof(first)) != 0) {
-          verified = false;
-          break;
+        if (!configLoaded_) return;
+        storageFailureStreak_ = 0;
+        storageFaultLatched_ = false;
+        storageDegraded_ = false;
+        (void)faults_.clearRecovered(FaultCode::StorageUnavailable, now);
+        (void)faults_.clearRecovered(FaultCode::StorageDegraded, now);
+      }
+    }
+    if (checkpointRetryAt_ && timeReached(now, checkpointRetryAt_) && store_.ready() &&
+        !startStoragePending_ && !batchClearPending_) {
+      checkpointRetryAt_ = 0; checkpointBatch();
+    }
+    // Backup mode is a warning only; it must not inhibit active control.
+    faults_.set(FaultCode::StorageDegraded, !store_.primary(), now);
+    if (!startStoragePending_ && !batchClearPending_) {
+      bool ok = false;
+      if (store_.finishBatch(ok)) {
+        if (!ok) { latchStorageFault("ASYNC CHECKPOINT"); checkpointRetryAt_ = now + STORAGE_SERVICE_MS; }
+        else {
+          PackedBatchV1 committed{};
+          if (store_.loadBatch(committed)) {
+            savedElapsedAtCheckpoint_ = committed.elapsedSec;
+            lastCheckpointEpoch_ = committed.checkpointEpoch;
+          }
         }
       }
-      if (verified) {
-        config_ = recovered;
-        sanitizeMachineConfig(config_);
-        configLoaded_ = true;
-        hmiSetConfig(config_);
-        mayapWebSetConfig(config_);
-        mayapCloudSetConfig(config_);
-        mayapSetConnectivityMode(config_.connectivityMode);
-        pid_.applyConfigBumpless(now, config_.targetTemp, temperature_, config_);
-      }
-    } else {
-      // EEPROM trang/du lieu cu hong: chi khoi tao lai khi may dang dung.
-      MachineConfig readback{};
-      verified = store_.saveConfig(config_, readback);
-      if (verified) {
-        config_ = readback;
-        configLoaded_ = true;
-        hmiSetConfig(config_);
-        mayapWebSetConfig(config_);
-        mayapCloudSetConfig(config_);
-        mayapSetConnectivityMode(config_.connectivityMode);
-      }
-    }
-
-    if (!verified) {
-      store_.markOffline();
-      return;
-    }
-
-    storageFailureStreak_ = 0U;
-    lastStorageHealthCheckAt_ = now;
-    storageDegraded_ = false;
-    storageFaultLatched_ = false;
-    (void)faults_.clearRecovered(FaultCode::StorageDegraded, now);
-    (void)faults_.clearRecovered(FaultCode::StorageUnavailable, now);
-    eventLog_.push(now, EventType::Recovery,
-                   static_cast<uint16_t>(EventCode::StorageReconnected));
-    mayapSerialPrintf(false,
-        "[EEPROM] CONNECTION RESTORED addr=0x%02X config=OK\n",
-        EEPROM_I2C_ADDRESS);
-
-    if (batchRunning_ || resumePending_) {
-      // Ghi checkpoint ngay sau khi module quay lai. Neu that bai, ham nay se
-      // dua EEPROM ve trang thai suy giam mot cach co kiem soat.
-      (void)saveBatchRecord();
     }
   }
 
@@ -4388,9 +4342,11 @@ class MachineController {
 
   // ----------------------------- HMI/EEPROM ----------------------------------
   void processHmiTransactions(uint32_t now) {
-    MachineConfig requested{};
-    uint32_t transactionId = 0;
-    if (hmiTakeSavedConfig(requested, transactionId)) {
+    if (!configSavePending_ && !tuneSavePending_)
+      configSavePending_ = hmiTakeSavedConfig(pendingConfig_, pendingConfigId_);
+    MachineConfig requested = pendingConfig_;
+    uint32_t transactionId = pendingConfigId_;
+    if (configSavePending_) {
       sanitizeMachineConfig(requested);
       // nextDirection la trang thai scheduler noi bo, HMI khong duoc ghi de.
       requested.nextDirection = config_.nextDirection;
@@ -4432,7 +4388,9 @@ class MachineController {
       MachineConfig readback{};
       const bool saveAllowed = !batchClearPending_ &&
           !safetyJournalFaultLatched_ && !protectedBatchChange;
-      const bool ok = saveAllowed && store_.saveConfig(requested, readback);
+      const bool ok = (saveAllowed || store_.configOutstanding()) && store_.saveConfig(requested, readback);
+      if (!store_.pendingConfig()) {
+      configSavePending_ = false;
       if (ok) {
         config_ = readback;
         hmiSetConfig(config_);
@@ -4452,26 +4410,38 @@ class MachineController {
         latchStorageFault("CONFIG SAVE");
       }
       if (ok) clearStorageDegraded(now);
+      if (tuneSavePending_) {
+        eventLog_.push(now, EventType::AutoTuneEnd,
+            static_cast<uint16_t>(ok ? EventCode::AutoTuneSuccess : EventCode::AutoTuneFailed));
+        if (!ok) autotune_.abort();
+        tuneSavePending_ = false;
+      } else {
       hmiConfirmConfigSave(transactionId, ok, ok ? &readback : nullptr);
       mayapWebConfirmConfigSave(transactionId, ok, ok ? &readback : nullptr,
           !saveAllowed ? (protectedBatchChange ? "CONFIG_BATCH_LOCKED" : "CONFIG_SAFETY_BLOCK")
                        : "CONFIG_EEPROM_ERROR");
+      }
       mayapSerialPrintf(false, "[CFG] save=%s%s SV=%.1f HIGH=%.1f EMG=%.1f turn=%umin\n",
                        ok ? "OK" : "FAIL",
                        saveAllowed ? "" : (protectedBatchChange ? "(BATCH_LOCK)" : "(SAFETY_BLOCK)"), requested.targetTemp,
                        requested.highTempAlarm, requested.emergencyTemp,
                        requested.turnIntervalMin);
+      }
     }
 
     // Nhac nho tuy chinh (v3.7.0) - giao dich RIENG voi luu cau hinh o tren:
     // khong dan xen dieu khien/an toan (khong co "protectedBatchChange"/
     // "saveAllowed" o day), khong co man hinh HMI nen khong goi hmiSetConfig-
     // kieu ham nao ca, chi can ghi EEPROM + bao lai web.
-    ReminderSet requestedReminders{};
-    uint32_t reminderTransactionId = 0;
-    if (hmiTakeSavedReminders(requestedReminders, reminderTransactionId)) {
+    if (!reminderSavePending_)
+      reminderSavePending_ = hmiTakeSavedReminders(pendingReminders_, pendingReminderId_);
+    ReminderSet requestedReminders = pendingReminders_;
+    uint32_t reminderTransactionId = pendingReminderId_;
+    if (reminderSavePending_) {
       ReminderSet readbackReminders{};
       const bool remindersOk = store_.saveReminders(requestedReminders, readbackReminders);
+      if (!store_.pendingReminders()) {
+      reminderSavePending_ = false;
       if (remindersOk) {
         reminders_ = readbackReminders;
         mayapWebSetReminders(reminders_);
@@ -4481,8 +4451,23 @@ class MachineController {
       mayapWebConfirmReminderSave(reminderTransactionId, remindersOk,
                                   remindersOk ? &readbackReminders : nullptr);
       mayapSerialPrintf(false, "[REMIND] save=%s\n", remindersOk ? "OK" : "FAIL");
+      }
     }
 
+    if (startCommandPending_) {
+      const char *message = "LOI LUU TRANG THAI ME";
+      const bool ok = startBatch(now, message);
+      if (!startStoragePending_ || !store_.pendingBatch()) {
+        startCommandPending_ = false;
+        if (!ok && startStoragePending_) {
+          if (!safetyJournal_.setStopIntent()) safetyJournalFaultLatched_ = true;
+          batchClearPending_ = true; batchClearRetryAt_ = now;
+        }
+        startStoragePending_ = false;
+        hmiConfirmCommand(pendingStartId_, ok, message);
+        mayapWebConfirmCommand(pendingStartId_, ok, message);
+      }
+    }
     HmiCommand command{};
     uint8_t budget = 0;
     while (budget++ < COMMAND_QUEUE_SIZE && hmiTakeCommand(command)) {
@@ -4490,8 +4475,21 @@ class MachineController {
       const char *message = "LENH KHONG HOP LE";
       switch (command.type) {
         case HmiCommandType::BatchStart:
-          ok = startBatch(now, message); break;
+          if (startCommandPending_) { message = "DANG LUU ME"; break; }
+          ok = startBatch(now, message);
+          if (startStoragePending_ && store_.pendingBatch()) {
+            startCommandPending_ = true; pendingStartId_ = command.id; continue;
+          }
+          break;
         case HmiCommandType::BatchStop:
+          if (startCommandPending_) {
+            if (!safetyJournal_.setStopIntent()) safetyJournalFaultLatched_ = true;
+            batchClearPending_ = true; batchClearRetryAt_ = now;
+            startCommandPending_ = false; startStoragePending_ = false;
+            hmiConfirmCommand(pendingStartId_, false, "DA HUY BAT DAU ME");
+            mayapWebConfirmCommand(pendingStartId_, false, "DA HUY BAT DAU ME");
+            ok = true; message = "DA HUY BAT DAU ME"; break;
+          }
           ok = stopBatch(now, message); break;
         case HmiCommandType::AlarmAck: {
           // F-12: chuoi bao tam dung coi truoc day hard-code "5 PHUT" trong
@@ -4707,6 +4705,7 @@ class MachineController {
     if (mayapFirmwareMaintenanceActive()) { message = "DANG CAP NHAT FIRMWARE"; return false; }
     const InputState &in = inputs_.state();
     if (testModeActive_) { message = "HAY THOAT TEST TRUOC"; return false; }
+    if (configSavePending_) { message = "DANG LUU CAU HINH"; return false; }
     if (batchRunning_) { message = "ME DANG CHAY"; return false; }
     if (batchClearPending_) { message = "DANG XOA DU LIEU ME CU"; return false; }
     if (safetyJournalFaultLatched_) { message = "LOI NHAT KY AN TOAN"; return false; }
@@ -4732,10 +4731,30 @@ class MachineController {
       message = "HAY BAT TU DONG DAO"; return false;
     }
 
+    if (!startStoragePending_) {
+      pendingStartBatch_ = PackedBatchV1{};
+      pendingStartBatch_.wasRunning = 1;
+      pendingStartBatch_.nextDirection = static_cast<uint8_t>(config_.nextDirection);
+      pendingStartBatch_.batchStartEpoch = rtc_.epoch();
+      pendingStartBatch_.lastTurnEpoch = pendingStartBatch_.batchStartEpoch;
+      pendingStartBatch_.checkpointEpoch = pendingStartBatch_.batchStartEpoch;
+      startStoragePending_ = true;
+    }
+    if (!store_.saveBatch(pendingStartBatch_)) {
+      message = "LOI LUU TRANG THAI ME";
+      if (!store_.pendingBatch()) {
+        // A publication may have succeeded even if its readback failed.
+        if (!safetyJournal_.setStopIntent()) safetyJournalFaultLatched_ = true;
+        batchClearPending_ = true; batchClearRetryAt_ = now;
+        startStoragePending_ = false; latchStorageFault("BATCH START");
+      }
+      return false;
+    }
+    startStoragePending_ = false;
     // Moi me co mot moc thoi gian va mot file log rieng. Xoa RAM log truoc
     // khi phat BatchStart de HMI chi hien lich su cua me hien tai.
     eventLog_.clear(now);
-    batchStartEpoch_ = rtc_.epoch();
+    batchStartEpoch_ = pendingStartBatch_.batchStartEpoch;
     lastTurnEpoch_ = batchStartEpoch_;
     lastTurnAt_ = now;
     batchLogSampleSequence_ = 0U;
@@ -4770,18 +4789,6 @@ class MachineController {
     humidityTimer_.reset();
     heatRestartNotBefore_ = std::max<uint32_t>(
         heatRestartNotBefore_, now + FAN_PRESTART_MS);
-    if (!saveBatchRecord()) {
-      batchRunning_ = false;
-      eventLog_.setLoggingEnabled(false);
-      batchPhase_ = BatchPhase::Stopped;
-      batchLogger_.stop();
-      batchStartEpoch_ = 0U;
-      lastTurnEpoch_ = 0U;
-      lastTurnAt_ = 0U;
-      batchLogFaultActive_ = false;
-      message = "LOI LUU TRANG THAI ME";
-      return false;
-    }
     message = "DA BAT DAU ME";
     eventLog_.push(now, EventType::BatchStart,
                    static_cast<uint16_t>(EventCode::BatchStart));
@@ -5435,25 +5442,11 @@ class MachineController {
       return;
     }
     if (tunedReady) {
-      MachineConfig readback{};
-      if (store_.saveConfig(tuned, readback)) {
-        config_ = readback;
-        hmiSetConfig(config_);
-        mayapWebSetConfig(config_);
-        mayapCloudSetConfig(config_);
-        mayapSetConnectivityMode(config_.connectivityMode);
-        eventLog_.push(now, EventType::AutoTuneEnd,
-                       static_cast<uint16_t>(EventCode::AutoTuneSuccess),
-                       static_cast<int16_t>(lroundf(config_.kp * 10.0f)));
-        mayapSerialPrintf(false, "[TUNE] SUCCESS Kp=%.3f Ki=%.3f Kd=%.3f\n",
-                         config_.kp, config_.ki, config_.kd);
+      if (!configSavePending_) {
+        pendingConfig_ = tuned; pendingConfigId_ = 0; tuneSavePending_ = true;
+        configSavePending_ = true;
       } else {
         autotune_.abort();
-        latchStorageFault("AUTOTUNE SAVE");
-        eventLog_.push(now, EventType::AutoTuneEnd,
-                       static_cast<uint16_t>(EventCode::AutoTuneFailed),
-                       1, 1U);
-        mayapSerialPrintf(false, "[TUNE] FAIL SAVE\n");
       }
       postCoolUntil_ = now + POST_COOL_MS;
       heatRestartNotBefore_ = now + HEAT_RESTART_LOCKOUT_MS;
@@ -6770,9 +6763,9 @@ class MachineController {
     p.batchStartEpoch = batchStartEpoch_;
     p.lastTurnEpoch = lastTurnEpoch_;
     const bool ok = store_.saveBatch(p);
-    if (!ok) {
+    if (!ok && !store_.pendingBatch()) {
       latchStorageFault("BATCH SAVE");
-    } else {
+    } else if (ok) {
       clearStorageDegraded(millis());
     }
     if (ok && p.checkpointEpoch != 0U) {
@@ -6785,9 +6778,9 @@ class MachineController {
   bool clearBatchRecord() {
     PackedBatchV1 p{};
     const bool ok = store_.saveBatch(p);
-    if (!ok) {
+    if (!ok && !store_.pendingBatch()) {
       latchStorageFault("BATCH CLEAR");
-    } else {
+    } else if (ok) {
       clearStorageDegraded(millis());
       savedElapsedAtCheckpoint_ = 0U;
       lastCheckpointEpoch_ = 0U;
@@ -7176,8 +7169,19 @@ class MachineController {
 
     if (cmd && !strcmp(cmd, "BATCH") && arg1) {
       const char *message = nullptr;
-      const bool ok = !strcmp(arg1, "START") ? startBatch(now, message)
+      if (!strcmp(arg1, "STOP") && startCommandPending_) {
+        if (!safetyJournal_.setStopIntent()) safetyJournalFaultLatched_ = true;
+        batchClearPending_ = true; batchClearRetryAt_ = now;
+        startCommandPending_ = false; startStoragePending_ = false;
+        hmiConfirmCommand(pendingStartId_, false, "DA HUY BAT DAU ME");
+        mayapWebConfirmCommand(pendingStartId_, false, "DA HUY BAT DAU ME");
+      }
+      const bool ok = !strcmp(arg1, "START") && !startCommandPending_ ? startBatch(now, message)
                     : !strcmp(arg1, "STOP") ? stopBatch(now, message) : false;
+      if (!strcmp(arg1, "START") && startStoragePending_ && store_.pendingBatch()) {
+        startCommandPending_ = true; pendingStartId_ = 0;
+        mayapSerialPrintf(false, "[SER] BATCH START: PENDING VERIFY\n"); return;
+      }
       mayapSerialPrintf(false, "[SER] BATCH %s: %s - %s\n", arg1,
                        ok ? "OK" : "FAIL", message ? message : "SAI LENH");
     } else if (cmd && !strcmp(cmd, "ACK")) {
@@ -7393,10 +7397,10 @@ class MachineController {
     mayapSerialPrintf(false, "[RTC] addr=0x%02X online=%u valid=%u osf=%u epoch=%lu date=%s\n",
       RTC_I2C_ADDRESS, rtc_.online(), rtc_.valid(), rtc_.oscillatorStopped(),
       static_cast<unsigned long>(rtc_.epoch()), rtc_.dateText());
-    mayapSerialPrintf(false, "[EEPROM] type=AT24C32 addr=0x%02X capacity=%u page=%u ready=%u\n",
-      EEPROM_I2C_ADDRESS,
-      static_cast<unsigned>(EEPROM_CAPACITY_BYTES),
-      static_cast<unsigned>(EEPROM_PAGE_SIZE),
+    mayapSerialPrintf(false, "[EEPROM] type=C512_PRIMARY_C32_BACKUP primary=0x%02X capacity=%u page=%u ready=%u\n",
+      EEPROM_PRIMARY_ADDRESS,
+      static_cast<unsigned>(EEPROM_PRIMARY_CAPACITY),
+      static_cast<unsigned>(EEPROM_PRIMARY_PAGE),
       !(storageFaultLatched_ || storageDegraded_));
     const NetworkStatus network = mayapGetNetworkStatus();
     mayapSerialPrintf(false,
@@ -7446,6 +7450,13 @@ class MachineController {
   SafetyJournal safetyJournal_{};
   PowerManager power_{};
   RtcDs3231 rtc_{};
+  bool configSavePending_ = false, reminderSavePending_ = false, tuneSavePending_ = false;
+  bool startCommandPending_ = false, startStoragePending_ = false;
+  MachineConfig pendingConfig_{};
+  ReminderSet pendingReminders_{};
+  PackedBatchV1 pendingStartBatch_{};
+  uint32_t pendingConfigId_ = 0, pendingReminderId_ = 0, pendingStartId_ = 0;
+  uint32_t checkpointRetryAt_ = 0;
   PersistentStore store_{};
   InputManager inputs_{};
   SHT485Industrial sensor_{};

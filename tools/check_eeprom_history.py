@@ -24,8 +24,8 @@ def num(name, base=10):
     need(m, 'thieu ' + name)
     return int(m.group(1), 0)
 
-need(num('EEPROM_CAPACITY_BYTES') == 4096, 'khong phai AT24C32 4KB')
-need(num('EEPROM_PAGE_SIZE') == 32, 'page AT24C32 phai 32B')
+need(num('EEPROM_PRIMARY_CAPACITY') == 65536, 'PRIMARY must be C512')
+need(num('EEPROM_PRIMARY_PAGE') == 128, 'C512 page must be 128B')
 base = num('EEPROM_ADDR_TEMP_HISTORY')
 slots = num('TEMP_HISTORY_SLOT_COUNT')
 rec = num('TEMP_HISTORY_RECORD_BYTES')
@@ -46,8 +46,7 @@ need('history/reported' in app and "signMqttWrite(device, 'history/request'" in 
 need('/api/device/history' not in app, 'web van phu thuoc Cloud history')
 need('telemetry_history' not in worker, 'Worker runtime khong duoc luu telemetry')
 
-# Wear worst-case: 4-byte record, page 32B => 8 writes/page/day. Datasheet minimum
-# 1,000,000 page-write cycles @25C => >300 nam ly thuyet; chi check kien truc.
-writes_per_page_day = 32 // rec
-need(writes_per_page_day == 8, 'wear distribution khong nhu thiet ke')
+# Four-byte history samples share 128-byte primary pages. No life guarantee: temperature and vendor matter.
+writes_per_page_day = 128 // rec
+need(writes_per_page_day == 32, 'wear distribution khong nhu thiet ke')
 print(f'EEPROM history checks: OK base=0x{base:04X} bytes={slots*rec} writes/page/day={writes_per_page_day}')

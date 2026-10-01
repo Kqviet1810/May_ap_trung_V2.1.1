@@ -3,12 +3,12 @@
 #include <Wire.h>
 
 namespace MayapI2cSupervisor {
-static uint32_t failures[3] = {}, lastError[3] = {};
+static uint32_t failures[4] = {}, lastError[4] = {};
 static uint32_t epoch = 0U;
 static uint32_t lastCheckAt = 0U, lastRecoveryAt = 0U;
 static bool recoveredBefore = false;
 inline uint8_t index(uint8_t address) {
-  return address == LCD_I2C_ADDRESS ? 0U : address == RTC_I2C_ADDRESS ? 1U : 2U;
+  return address == LCD_I2C_ADDRESS ? 0U : address == RTC_I2C_ADDRESS ? 1U : address == EEPROM_PRIMARY_ADDRESS ? 2U : 3U;
 }
 }
 inline void mayapI2cReport(uint8_t address, bool ok) {
@@ -21,6 +21,19 @@ inline void mayapI2cReport(uint8_t address, bool ok) {
     if (n < 255U) __atomic_store_n(&failures[i], n + 1U, __ATOMIC_RELEASE);
   }
 }
+inline bool mayapI2cBusFault() {
+  using namespace MayapI2cSupervisor;
+  // EEPROM NACK alone is device-local. A stuck line or recent RTC/LCD
+  // failure is shared-bus evidence; failover must wait for bus recovery.
+  if (!mayapI2cLock(0U)) return true; // contention is not EEPROM evidence
+  const bool stuck = digitalRead(PIN_I2C_SDA) == LOW || digitalRead(PIN_I2C_SCL) == LOW;
+  mayapI2cUnlock();
+  const uint32_t now = millis();
+  for (uint8_t i = 0; i < 2; ++i)
+    if (__atomic_load_n(&failures[i], __ATOMIC_ACQUIRE) >= 3U &&
+        uint32_t(now - __atomic_load_n(&lastError[i], __ATOMIC_ACQUIRE)) < 10000U) return true;
+  return stuck;
+}
 inline uint32_t mayapI2cRecoveryEpoch() {
   return __atomic_load_n(&MayapI2cSupervisor::epoch, __ATOMIC_ACQUIRE);
 }
@@ -31,7 +44,7 @@ inline void mayapI2cSupervisorUpdate(uint32_t now) {
   if (recoveredBefore && static_cast<uint32_t>(now - lastRecoveryAt) < 30000U) return;
   if (!mayapI2cLock(0U)) return; // Never wait behind a storage transaction.
   uint8_t failedDevices = 0U;
-  for (uint8_t i = 0U; i < 3U; ++i) {
+  for (uint8_t i = 0U; i < 4U; ++i) {
     if (__atomic_load_n(&failures[i], __ATOMIC_ACQUIRE) >= 3U &&
         static_cast<uint32_t>(now - __atomic_load_n(&lastError[i], __ATOMIC_ACQUIRE)) < 10000U) ++failedDevices;
   }
@@ -59,7 +72,7 @@ inline void mayapI2cSupervisorUpdate(uint32_t now) {
   const bool begun = Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, I2C_CLOCK_HZ);
   Wire.setTimeOut(I2C_TIMEOUT_MS);
   uint8_t present = 0U;
-  const uint8_t addresses[] = {LCD_I2C_ADDRESS, RTC_I2C_ADDRESS, EEPROM_I2C_ADDRESS};
+  const uint8_t addresses[] = {LCD_I2C_ADDRESS, RTC_I2C_ADDRESS, EEPROM_PRIMARY_ADDRESS, EEPROM_BACKUP_ADDRESS};
   if (clear && begun) {
     for (uint8_t address : addresses) {
       Wire.beginTransmission(address);
@@ -72,5 +85,5 @@ inline void mayapI2cSupervisorUpdate(uint32_t now) {
   mayapI2cUnlock();
   // Device owners perform their normal reinit/readback validation. No fault
   // is cleared here and a missing/shorted device never requests ESP restart.
-  mayapSerialPrintf(false, "[I2C-RECOVERY] clear=%u begin=%u present=%u/3\n", clear, begun, present);
+  mayapSerialPrintf(false, "[I2C-RECOVERY] clear=%u begin=%u present=%u/4\n", clear, begun, present);
 }
