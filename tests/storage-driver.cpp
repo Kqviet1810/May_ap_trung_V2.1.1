@@ -5,7 +5,7 @@
 #include <algorithm>
 #include "../MAYAP_INDUSTRIAL_v4_0_0/storage_journal.h"
 constexpr uint32_t EEPROM_CAPACITY_BYTES=4096;
-constexpr uint8_t EEPROM_PAGE_SIZE=32;
+constexpr uint8_t EEPROM_PAGE_SIZE=32, EEPROM_MAX_TRANSFER_BYTES=126;
 constexpr uint8_t EEPROM_BACKUP_ADDRESS=0x57, EEPROM_IO_RETRIES=2;
 constexpr uint32_t EEPROM_RETRY_GAP_MS=2, I2C_STORAGE_LOCK_TIMEOUT_MS=2, EEPROM_WRITE_TIMEOUT_MS=20;
 static bool locked=false, nack=false;
@@ -26,7 +26,7 @@ struct FakeWire {
   uint32_t busyUntil[2]={0,0};
   void beginTransmission(uint8_t device) { assert(locked); id=device==0x56?0:1; tx.clear(); }
   size_t write(uint8_t v) { tx.push_back(v); return 1; }
-  size_t write(const uint8_t *p,size_t n) { assert(tx.size()+n<=32); tx.insert(tx.end(),p,p+n); return n; }
+  size_t write(const uint8_t *p,size_t n) { assert(tx.size()+n<=128); tx.insert(tx.end(),p,p+n); return n; }
   uint8_t endTransmission(bool) {
     ++transactions;
     if(nack || clockMs<busyUntil[id]) return 2;

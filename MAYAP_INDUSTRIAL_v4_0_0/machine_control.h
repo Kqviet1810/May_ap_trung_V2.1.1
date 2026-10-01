@@ -958,10 +958,18 @@ class RtcDs3231 {
   void update(uint32_t now) {
     if (elapsedMs(now, lastReadAt_) < RTC_READ_PERIOD_MS) return;
     lastReadAt_ = now;
+    busContended() = false;
 
     DateTime next{};
     bool osf = true;
     if (!readDateTime(next) || !readOsf(osf)) {
+      if (busContended()) {
+        // Storage/LCD own the bus: skip this cycle instead of blocking control
+        // for the storage lock timeout or manufacturing a device NACK streak.
+        lastReadAt_ = now - RTC_READ_PERIOD_MS + RTC_BUS_CONTENTION_RETRY_MS;
+        if (shadowValid_ && elapsedMs(now, shadowAtMs_) > RTC_STUCK_TIMEOUT_MS) valid_ = false;
+        return;
+      }
       invalidReadConfirm_ = 0U;
       if (failedReads_ < 255U) ++failedReads_;
       if (failedReads_ >= 3U) {
@@ -1231,9 +1239,10 @@ class RtcDs3231 {
     osf = (status & 0x80U) != 0U;
     return true;
   }
+  static bool &busContended() { static bool contended = false; return contended; }
   static bool readRegisters(uint8_t reg, uint8_t *data, size_t length) {
     if (!data || !length || length > 32U) return false;
-    if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) return false;
+    if (!mayapI2cLock(0U)) { busContended() = true; return false; }
     Wire.beginTransmission(RTC_I2C_ADDRESS);
     Wire.write(reg);
     const uint8_t err = Wire.endTransmission(false);
@@ -1264,7 +1273,7 @@ class RtcDs3231 {
   }
   static bool writeRegisters(uint8_t reg, const uint8_t *data, size_t length) {
     if (!data || !length || length > 30U) return false;
-    if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) return false;
+    if (!mayapI2cLock(0U)) { busContended() = true; return false; }
     Wire.beginTransmission(RTC_I2C_ADDRESS);
     Wire.write(reg);
     const size_t written = Wire.write(data, length);
@@ -2018,7 +2027,7 @@ class ExternalEeprom24xx {
       const uint8_t pageRemain = static_cast<uint8_t>(
           geometry_.page - (address % geometry_.page));
       const uint8_t chunk = static_cast<uint8_t>(
-          std::min<size_t>(30U, std::min<size_t>(length, pageRemain)));
+          std::min<size_t>(EEPROM_MAX_TRANSFER_BYTES, std::min<size_t>(length, pageRemain)));
       if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) { ok = false; break; }
       Wire.beginTransmission(geometry_.address);
       Wire.write(static_cast<uint8_t>(address >> 8U));
@@ -7174,6 +7183,9 @@ class MachineController {
     }
 
     if (cmd && !strcmp(cmd, "BATCH") && arg1) {
+      if (!strcmp(arg1, "START") && startCommandPending_) {
+        mayapSerialPrintf(false, "[SER] BATCH START: ALREADY PENDING\n"); return;
+      }
       const char *message = nullptr;
       if (!strcmp(arg1, "STOP") && startCommandPending_) {
         if (!safetyJournal_.setStopIntent()) safetyJournalFaultLatched_ = true;

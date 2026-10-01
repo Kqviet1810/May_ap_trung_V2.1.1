@@ -58,9 +58,10 @@ downgrade to old firmware; restore/export data before downgrading.
 The low-priority static storage worker owns EEPROM writes, retries, health checks,
 scan/recovery and history cache population. The control task submits bounded RAM
 mailboxes; HMI/MQTT save success and batch start wait for verified completion.
-MQTT history reads use RAM only. Every I2C transfer is bounded; page and 30-byte
+MQTT history reads use RAM only. Every I2C transfer is bounded; page and 126-byte
 transport limits are respected. The shared bus mutex is released during internal
-EEPROM write-cycle waits. Two attempts per operation, 2 ms retry gap, 20 ms write
+EEPROM write-cycle waits. RTC bus admission is nonblocking in the control task;
+contention retries after 20 ms without incrementing device-error evidence. Two attempts per operation, 2 ms retry gap, 20 ms write
 cycle deadline; health/recovery attempts are spaced 5 seconds apart.
 
 Three failed service checks spanning at least 10 seconds confirm primary failure.

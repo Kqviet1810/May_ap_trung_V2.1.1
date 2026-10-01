@@ -918,6 +918,9 @@ inline bool mayapStoragePrimaryOnline() { return __atomic_load_n(&storagePrimary
 inline void mayapStorageSetPrimaryOnline(bool online) { __atomic_store_n(&storagePrimaryOnline, online ? 1U : 0U, __ATOMIC_RELEASE); }
 constexpr uint16_t EEPROM_CAPACITY_BYTES = 4096U;
 constexpr uint8_t EEPROM_PAGE_SIZE = 32U;
+// ESP32 Wire buffer is 128 bytes, including the two-byte EEPROM word address.
+constexpr uint8_t EEPROM_MAX_TRANSFER_BYTES = 126U;
+constexpr uint16_t RTC_BUS_CONTENTION_RETRY_MS = 20U;
 constexpr uint16_t EEPROM_WRITE_TIMEOUT_MS = 20U;
 constexpr uint8_t EEPROM_IO_RETRIES = 2U;
 constexpr uint16_t EEPROM_RETRY_GAP_MS = 2U;
