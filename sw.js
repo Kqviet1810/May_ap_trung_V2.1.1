@@ -1,7 +1,7 @@
 'use strict';
 const CACHE = 'mayap-web-v12.1.9';
 const APP_SHELL = [
-  './', './index.html', './styles.css', './app.js', './protocol_v2.js', './push.js', './manifest.webmanifest',
+  './', './index.html', './styles.css', './config.js', './app.js', './protocol_v2.js', './push.js', './manifest.webmanifest',
   './vendor/jsQR.min.js', './vendor/mqtt.min.js',
   './docs/MAYAP_Huong_dan_van_hanh_A5_v1.3_E503.pdf',
   './icons/icon-192.png', './icons/icon-512.png', './icons/badge-72.png'
@@ -25,15 +25,35 @@ self.addEventListener('activate', (event) => {
   )));
   self.clients.claim();
 });
+// A warm app shell must not wait indefinitely for a weak/mobile connection.
+// Prefer fresh code, then fall back to THIS release's cache after 250ms, keeping
+// the refresh alive. Only public same-origin static assets use this path.
+function networkFirstCore(event) {
+  const cacheReady = caches.open(CACHE).catch(() => null);
+  const cachedReady = cacheReady.then(cache => cache?.match(event.request)).catch(() => undefined);
+  const refresh = fetch(event.request).then(async response => {
+    if (!response.ok) return (await cachedReady) || response;
+    try { await (await cacheReady)?.put(event.request, response.clone()); } catch (_) {}
+    return response;
+  }).catch(async () => (await cachedReady) || Response.error());
+  // Register the extended lifetime synchronously inside the fetch event.
+  event.waitUntil(refresh.then(() => {}));
+  return cachedReady.then(async cached => {
+    if (!cached) return refresh;
+    let timer;
+    try {
+      return await Promise.race([refresh, new Promise(resolve => {
+        timer = setTimeout(() => resolve(cached), 250);
+      })]);
+    } finally { clearTimeout(timer); }
+  });
+}
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
-  if (url.pathname.endsWith('/config.js')) {
-    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
-    return;
-  }
   if (url.origin !== self.location.origin) return;
-  // Pinned bundles use this release's cache; app code remains network-first.
+  // Pinned bundles use this release's cache; app code prefers fresh responses.
   if (/\/vendor\/(?:mqtt|jsQR)\.min\.js$/.test(url.pathname)) {
     event.respondWith(caches.open(CACHE).then(async (cache) => {
       const cached = await cache.match(event.request);
@@ -44,20 +64,10 @@ self.addEventListener('fetch', (event) => {
     }));
     return;
   }
-  // Network-first cho HTML/JS/CSS: luon co gang lay ban moi nhat tu mang
-  // truoc, chi dung cache khi mat mang. Cache-first (cu) tung khien trang
-  // "khong bao gio tu cap nhat" cho nguoi dung da tung mo qua 1 lan, vi no
-  // tra ve cache ngay ma khong kiem tra mang, kho nhan ra ke ca sau khi
-  // Service Worker moi da activate (dac biet dai tren iOS PWA).
+  // Background refresh preserves updates even when a cached shell wins.
   const isCoreAsset = /\.(?:html|js|css)$/.test(url.pathname) || url.pathname.endsWith('/');
   if (isCoreAsset) {
-    event.respondWith(
-      fetch(event.request).then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
-        return response;
-      }).catch(() => caches.match(event.request))
-    );
+    event.respondWith(networkFirstCore(event));
     return;
   }
   event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {

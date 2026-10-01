@@ -176,7 +176,33 @@ async function main() {
         simulatedResumeMs:Math.round(resume.duration), offlineAndDegraded:true, errors });
       await context.close();
     }
-    fs.writeFileSync(path.join(out,'connection-browser-qa.json'),JSON.stringify({ passed:true, transport:'isolated fixture', results },null,2));
+    // Exercise the actual service worker and public config.js offline, without
+    // provisioning or connecting to any real broker/device.
+    const pwa = await browser.newContext({ viewport:{width:390,height:844}, serviceWorkers:'allow' });
+    await pwa.route('**/*', route => new URL(route.request().url()).origin === 'http://127.0.0.1:8765'
+      ? route.continue() : route.fulfill({status:503,contentType:'application/json',body:'{"success":false}'}));
+    const offlinePage = await pwa.newPage();
+    const offlineErrors = [];
+    offlinePage.on('pageerror', error => offlineErrors.push(error.message));
+    await offlinePage.goto('http://127.0.0.1:8765', {waitUntil:'domcontentloaded'});
+    await offlinePage.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
+    await offlinePage.evaluate(()=> {
+      localStorage.setItem('mayap.web.v10.devices',JSON.stringify([{id:'MAP-1234567890AB',name:'Máy lưu',pairingToken:'offline-fixture'}]));
+      localStorage.setItem('mayap.web.v10.selected','MAP-1234567890AB');
+      localStorage.setItem('mayap.web.v10.runtime.v1.MAP-1234567890AB',JSON.stringify({v:1,receivedAt:Date.now()-60000,
+        snapshot:{bootId:123,revision:1,runtime:{temperature:36.9,humidity:57,batchRunning:true,activeFaults:[]}},presence:{online:true,proto:2}}));
+    });
+    await pwa.setOffline(true);
+    await offlinePage.reload({waitUntil:'domcontentloaded'});
+    assert.equal(await offlinePage.locator('#liveTemp').innerText(),'36,9°C');
+    assert.equal(await offlinePage.locator('#onlinePill').innerText(),'ĐANG ĐỒNG BỘ');
+    assert.equal(await offlinePage.locator('#outputLightBtn').isDisabled(),true);
+    assert.equal(await offlinePage.evaluate(()=>window.MAYAP_WEB_CONFIG.keepaliveSeconds),30,'Offline config hardening still runs');
+    assert.deepEqual(offlineErrors,[]);
+    await offlinePage.screenshot({path:path.join(out,'pwa-offline-cache.png')});
+    results.push({pwaOffline:true,actualServiceWorker:true,publicConfigLoaded:true,cacheBeforeNetwork:true,errors:offlineErrors});
+    await pwa.close();
+    fs.writeFileSync(path.join(out,'connection-browser-qa.json'),JSON.stringify({ passed:true, transport:'isolated fixture + actual offline service worker', results },null,2));
     console.log(JSON.stringify(results));
   } finally { await browser.close(); }
 }

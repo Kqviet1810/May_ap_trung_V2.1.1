@@ -184,6 +184,7 @@ int main() {
   serviceEventLogPublish(); assert(lastPublishedEventSequence==12 && !eventSnapshotDirty);
   assert(published.size()==12);
   for(unsigned i=0;i<12;++i) assert(published[i]==i+1);
+  MayapCloudInternal::network.connected=true; // Previous PIN-reset case deliberately disconnected STA.
   serviceWifiPowerMode(); assert(radioPs==WIFI_PS_NONE && psWrites==1);
   serviceWifiPowerMode(); assert(psWrites==1);
   radioPs=WIFI_PS_MIN_MODEM; // External radio reinitialization must not fool the cache.
