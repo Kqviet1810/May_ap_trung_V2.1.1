@@ -204,12 +204,15 @@ async function main() {
       });
       await page.evaluate(()=> {
         const h=window.__qa;
-        h.controlSessions.get(h.state.selectedId).expiresAt=0; h.renderDevice();
+        h.controlSessions.get(h.state.selectedId).expiresAt=0;
+        h.state.devices[0].snapshotAt=Date.now()-40000; h.renderDevice();
       });
       assert.match(await page.locator('#wifiConnectionText').innerText(),/Đang chuẩn bị quyền điều khiển/);
+      assert.match(await page.locator('#wifiConnectionText').innerText(),/Chờ dữ liệu/);
       assert.equal(await page.locator('#outputLightBtn').isDisabled(),true);
       await page.evaluate(()=>window.__qa.prefetchControlSession());
       await page.waitForFunction(()=>window.__qa.state.authRequests.size===1);
+      await page.evaluate(()=>window.__transport.clients[0].snapshot());
       allowRenew();
       await page.waitForFunction(()=>window.__qa.controlReady(window.__qa.state.devices[0]));
       assert.equal(await page.locator('#outputLightBtn').isEnabled(),true);

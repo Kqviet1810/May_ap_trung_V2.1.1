@@ -193,9 +193,12 @@
     throw error;
   }
 
+  function controlGrantReady(device) {
+    return Number(controlSessions.get(device?.id)?.expiresAt || 0) > Math.floor(Date.now() / 1000) + 30;
+  }
+
   function controlReady(device) {
-    return isDeviceOnline(device) &&
-      Number(controlSessions.get(device?.id)?.expiresAt || 0) > Math.floor(Date.now() / 1000) + 30;
+    return isDeviceOnline(device) && controlGrantReady(device);
   }
 
   function prefetchControlSession() {
@@ -933,8 +936,8 @@
       none: ['CHƯA CÓ MÁY', 'soft', 'Thêm máy để bắt đầu']
     };
     const [label, css, connectionDetail] = labels[connection];
-    const detail = isDeviceOnline(device) && !controlReady(device) && state.mqttSessionState !== 'auth-required'
-      ? 'Đang chuẩn bị quyền điều khiển…' : connectionDetail;
+    const detail = ['online', 'degraded'].includes(connection) && !controlGrantReady(device) && state.mqttSessionState !== 'auth-required'
+      ? `${connection === 'degraded' ? 'Chờ dữ liệu · ' : ''}Đang chuẩn bị quyền điều khiển…` : connectionDetail;
     pill.textContent = label;
     pill.className = `pill ${css}`;
     $('wifiConnectionText').textContent = state.mqttSessionState === 'auth-required' && device
