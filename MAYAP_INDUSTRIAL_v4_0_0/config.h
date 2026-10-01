@@ -892,8 +892,8 @@ constexpr bool DISPLAY_BUILD_DATE_WHEN_RTC_MISSING = false;
 constexpr bool EXTERNAL_EEPROM_ENABLED = true;
 constexpr bool EXTERNAL_EEPROM_REQUIRED = true;
 constexpr uint8_t RTC_I2C_ADDRESS = 0x68U;
-constexpr uint8_t EEPROM_PRIMARY_ADDRESS = 0x56U;
-constexpr uint8_t EEPROM_BACKUP_ADDRESS = 0x57U;
+constexpr uint8_t EEPROM_PRIMARY_ADDRESS = 0x50U;  // AT24C512
+constexpr uint8_t EEPROM_BACKUP_ADDRESS = 0x56U;  // AT24C32
 // Legacy names describe the old C32 map ONLY (migration reader).
 constexpr uint8_t EEPROM_I2C_ADDRESS = EEPROM_BACKUP_ADDRESS;
 constexpr uint32_t EEPROM_PRIMARY_CAPACITY = 65536UL;

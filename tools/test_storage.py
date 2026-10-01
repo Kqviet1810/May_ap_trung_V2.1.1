@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import re
 
 root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
@@ -12,6 +13,10 @@ parser.add_argument('--sanitize', action='store_true')
 args = parser.parse_args()
 with tempfile.TemporaryDirectory(prefix='mayap-storage-') as folder:
     target = Path(folder)
+    config = (root / 'MAYAP_INDUSTRIAL_v4_0_0/config.h').read_text(encoding='utf-8')
+    addresses = [re.search(r'constexpr uint8_t ' + name + r'\s*=\s*[^;]+;', config)[0]
+                 for name in ('EEPROM_PRIMARY_ADDRESS', 'EEPROM_BACKUP_ADDRESS')]
+    (target / 'actual-storage-addresses.inc').write_text('\n'.join(addresses), encoding='utf-8')
     source = (root / 'MAYAP_INDUSTRIAL_v4_0_0/dual_storage.h').read_text(encoding='utf-8')
     (target / 'actual-storage.inc').write_text(source, encoding='utf-8')
     machine = (root / 'MAYAP_INDUSTRIAL_v4_0_0/machine_control.h').read_text(encoding='utf-8')

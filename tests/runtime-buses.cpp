@@ -12,7 +12,7 @@ bool timeReached(uint32_t now, uint32_t when) { return static_cast<int32_t>(now 
 void mayapSerialPrintf(bool, const char *, ...) {}
 constexpr int LOW=0, HIGH=1, INPUT_PULLUP=2, OUTPUT_OPEN_DRAIN=3, OUTPUT=4;
 constexpr uint8_t PIN_I2C_SDA=1, PIN_I2C_SCL=2, PIN_RS485_RX=3, PIN_RS485_TX=4, PIN_RS485_DE_RE=5, SHT_UART_PORT=1;
-constexpr uint8_t LCD_I2C_ADDRESS=0x3F, RTC_I2C_ADDRESS=0x68, EEPROM_I2C_ADDRESS=0x57, EEPROM_PRIMARY_ADDRESS=0x56, EEPROM_BACKUP_ADDRESS=0x57;
+constexpr uint8_t LCD_I2C_ADDRESS=0x3F, RTC_I2C_ADDRESS=0x68, EEPROM_I2C_ADDRESS=0x56, EEPROM_PRIMARY_ADDRESS=0x50, EEPROM_BACKUP_ADDRESS=0x56;
 constexpr uint32_t I2C_CLOCK_HZ=100000, I2C_TIMEOUT_MS=25, SERIAL_8N1=1;
 static bool sdaStuck=false, sclStuck=false, lockAvailable=true, locked=false;
 static int levels[8]={HIGH,HIGH,HIGH,HIGH,HIGH,LOW,HIGH,HIGH};

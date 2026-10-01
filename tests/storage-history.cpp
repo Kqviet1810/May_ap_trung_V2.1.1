@@ -9,7 +9,7 @@ using std::isfinite;
 constexpr uint16_t TEMP_HISTORY_SLOT_COUNT=288, TEMP_HISTORY_RECORD_BYTES=4,
  TEMP_HISTORY_SAMPLE_SEC=300, EEPROM_ADDR_TEMP_HISTORY=0xb00,
  TEMP_HISTORY_STORAGE_BYTES=1152, EEPROM_PRIMARY_PAGE=128;
-constexpr uint8_t EEPROM_PRIMARY_ADDRESS=0x56;
+#include "actual-storage-addresses.inc"
 constexpr uint32_t I2C_STORAGE_LOCK_TIMEOUT_MS=2, EEPROM_WRITE_TIMEOUT_MS=20;
 static bool primary=true, locked=false;
 static uint32_t clockMs=0, transactions=0;

@@ -13,7 +13,8 @@ struct __attribute__((packed)) TestCriticalSnapshot {
 };
 constexpr uint32_t EEPROM_CAPACITY_BYTES=4096;
 constexpr uint8_t EEPROM_PAGE_SIZE=32, EEPROM_MAX_TRANSFER_BYTES=126;
-constexpr uint8_t EEPROM_BACKUP_ADDRESS=0x57, EEPROM_IO_RETRIES=2;
+#include "actual-storage-addresses.inc"
+constexpr uint8_t EEPROM_IO_RETRIES=2;
 constexpr uint32_t EEPROM_RETRY_GAP_MS=2, I2C_STORAGE_LOCK_TIMEOUT_MS=2, EEPROM_WRITE_TIMEOUT_MS=20;
 static bool locked=false, nack=false;
 static unsigned nackBudget=0;
@@ -34,27 +35,31 @@ struct FakeWire {
   uint32_t busyUntil[2]={0,0};
   uint32_t cycles[2][512]{};
   uint32_t totalCycles[2]{};
-  void beginTransmission(uint8_t device) { assert(locked); id=device==0x56?0:1; tx.clear(); }
+  void beginTransmission(uint8_t device) {
+    assert(locked); id=device==0x50?0:device==0x56?1:2; tx.clear();
+  }
   size_t write(uint8_t v) { tx.push_back(v); return 1; }
   size_t write(const uint8_t *p,size_t n) { assert(tx.size()+n<=128); tx.insert(tx.end(),p,p+n); return n; }
   uint8_t endTransmission(bool) {
     ++transactions;
+    if(id>=2) return 2; // Physical straps: C512 0x50, C32 0x56; no chip at 0x57.
     if(nackBudget) { --nackBudget; return 2; }
     if(nack || clockMs<busyUntil[id]) return 2;
-    if(tx.size()>=2) address=(uint16_t(tx[0])<<8)|tx[1];
+    if(tx.size()>=2) address=((uint16_t(tx[0])<<8)|tx[1])%bytes[id].size();
     if(tx.size()>2) {
       const unsigned page=id?32:128;
-      assert(address/page==(address+tx.size()-3)/page);
-      assert(address+tx.size()-2<=bytes[id].size());
       ++cycles[id][address/page]; ++totalCycles[id];
-      for(unsigned i=2;i<tx.size();++i) bytes[id][address+i-2]=tx[i];
+      // Real 24xx chips wrap within their PHYSICAL page on an oversized write.
+      // ACK succeeds even when the configured geometry is the wrong model.
+      for(unsigned i=2;i<tx.size();++i)
+        bytes[id][address-address%page+(address%page+i-2)%page]=tx[i];
       busyUntil[id]=clockMs+5;
     }
     return 0;
   }
   size_t requestFrom(uint8_t,uint8_t n,bool) {
     assert(locked);
-    for(unsigned i=0;i<n;++i) rx.push_back(bytes[id][address+i]);
+    for(unsigned i=0;i<n;++i) rx.push_back(bytes[id][(address+i)%bytes[id].size()]);
     return n;
   }
   int available() { return int(rx.size()); }
@@ -62,7 +67,8 @@ struct FakeWire {
 } Wire;
 #include "actual-driver.inc"
 int main() {
-  ExternalEeprom24xx primary({65536,128,0x56}), backup({4096,32,0x57});
+  assert(EEPROM_PRIMARY_ADDRESS==0x50 && EEPROM_BACKUP_ADDRESS==0x56);
+  ExternalEeprom24xx primary({65536,128,EEPROM_PRIMARY_ADDRESS}), backup({4096,32,EEPROM_BACKUP_ADDRESS});
   uint8_t input[259], output[259]; for(unsigned i=0;i<sizeof(input);++i) input[i]=uint8_t(i);
   for(unsigned a : {0U,31U,32U,127U,128U,65277U}) {
     assert(primary.writeBytes(a,input,sizeof(input)));
@@ -84,11 +90,30 @@ int main() {
   assert(mainJournal.scan() && backupJournal.scan());
   TestCriticalSnapshot state{}; state.configSchema=12; state.batchSchema=3;
   state.hasConfig=state.hasBatch=1; state.batch.wasRunning=1;
+  ExternalEeprom24xx wrongModel({65536,128,0x56}), missingBackup({4096,32,0x57});
+  assert(wrongModel.begin() && !missingBackup.begin());
+  J wrongJournal(wrongModel,{0x800,2,512}); assert(wrongJournal.scan());
+  assert(!wrongJournal.append(state,1) && !wrongJournal.found);
+  puts("storage wiring regression: old 0x56/0x57 targets C32 as C512; ACK succeeds but page-wrap readback rejects save PASS");
   const unsigned p=Wire.totalCycles[0], b=Wire.totalCycles[1];
   assert(mainJournal.append(state,1) && backupJournal.append(state,1));
   assert(Wire.totalCycles[0]-p==5 && Wire.totalCycles[1]-b==8);
   assert(Wire.cycles[0][0x1000/128]==2 && Wire.cycles[0][0x11ff/128]==2);
   assert(Wire.cycles[1][0xc00/32]==1 && Wire.cycles[1][0xdff/32]==2);
+  (void)primary.takeSoftRetryEvents(); (void)backup.takeSoftRetryEvents();
+  for(unsigned save=0;save<50;++save) {
+    state.config.targetTemp=37.0f+float(save)/100.0f;
+    const uint64_t generation=save+2;
+    assert(mainJournal.append(state,generation) && backupJournal.append(state,generation));
+    J rebootMain(primary,{0x1000,96,512}), rebootBackup(backup,{0xc00,2,512});
+    assert(rebootMain.scan() && rebootBackup.scan());
+    assert(rebootMain.found && rebootBackup.found);
+    assert(rebootMain.latest.generation==generation && rebootBackup.latest.generation==generation);
+    assert(!memcmp(&rebootMain.latest.payload,&state,sizeof(state)));
+    assert(!memcmp(&rebootBackup.latest.payload,&state,sizeof(state)));
+  }
+  assert(primary.takeSoftRetryEvents()==0 && backup.takeSoftRetryEvents()==0);
+  puts("storage saves: 50 changed config publications at 0x50/0x56 survive full rescans; normal write-busy ACK polling causes zero soft retries PASS");
   puts("storage physical wear: actual 166-byte record, C512 5 write cycles/append, C32 8; busiest journal page 2 cycles/reuse PASS");
   puts("storage driver: geometry, page boundaries, 64KiB end, bounded retries, unlocked ACK wait PASS");
 }

@@ -7,7 +7,7 @@ intent/reset handling is deliberately preserved as an independent safety layer.
 
 ## Map and wiring
 
-Addresses are centralized in `config.h`: C512 PRIMARY `0x56`, C32 BACKUP `0x57`,
+Addresses are centralized in `config.h`: C512 PRIMARY `0x50`, C32 BACKUP `0x56`,
 DS3231 `0x68`. Set the physical A0/A1/A2 straps to match. Driver capacity uses
 32-bit arithmetic so 65,536 bytes does not wrap to zero. Geometry is separate:
 C512 65,536 bytes / 128-byte pages; C32 4,096 bytes / 32-byte pages.
@@ -54,11 +54,31 @@ Ordinary standby age in elapsed/turn counters is intentional. After failback C32
 returns to this policy immediately. During BACKUP mode it is active critical
 storage and receives the 5-minute checkpoint until C512 has recovered.
 
-I2C addresses remain C512 `0x56`, C32 `0x57`. Boot reports each configured device
+I2C addresses are C512 `0x50`, C32 `0x56`. Boot reports each configured device
 separately as OK / NO ACK / SCAN FAILED / SCHEMA UNSUPPORTED. ACK does not identify
 the EEPROM model, capacity or page size: geometry is configured, with journal
 reads/CRC and write readback validation; confirm physical chip markings/straps on
 the PCB. Firmware does not auto-detect or swap chip identities by ACK.
+
+### Save-failure correction — 2026-10-01
+
+The confirmed wiring is AT24C512 at `0x50`, AT24C32 at `0x56`. The former
+`0x56`/`0x57` mapping could target the C32 as the primary C512 and miss the real
+primary entirely. An ACK alone does not prevent this: a write larger than the
+C32's 32-byte page wraps within that page, so journal readback/CRC rejects it.
+The driver test now models that physical wrap and missing `0x57`, reproduces the
+old mapping's rejected publication, and verifies 50 changed config publications
+with complete primary/backup rescans at the corrected addresses. Normal internal
+write-busy polling is not a soft retry; real NACK/CRC failures remain errors.
+
+The warning is retry/availability evidence, not proof that EEPROM endurance has
+been exhausted. It may disappear after health recovery without the rejected
+new config having been saved: rejected input is deliberately not applied.
+Only the two address constants and wiring tests changed in this correction;
+journal/schema, asynchronous save ACK, failover and STOP/NVS safety are preserved.
+Before flashing, note important settings. If the mismatched firmware has already
+overwritten legacy C32 pages, this fix cannot reconstruct lost settings; restore
+them through normal verified config saves. No automatic erase/format is added.
 
 ## Publication, migration and wear
 

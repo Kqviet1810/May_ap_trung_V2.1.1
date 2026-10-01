@@ -11,7 +11,7 @@ constexpr uint32_t EEPROM_PRIMARY_CAPACITY=65536, STORAGE_SERVICE_MS=5000;
 constexpr uint16_t EEPROM_PRIMARY_PAGE=128, STORAGE_SLOT_BYTES=512,
  STORAGE_JOURNAL_BASE=0x1000, STORAGE_JOURNAL_SLOTS=96,
  STORAGE_BACKUP_BASE=0xc00, STORAGE_BACKUP_SLOTS=2, STORAGE_PRIMARY_FENCE=0, STORAGE_BACKUP_FENCE=0xb00;
-constexpr uint8_t EEPROM_PRIMARY_ADDRESS=0x56, EEPROM_BACKUP_ADDRESS=0x57;
+#include "actual-storage-addresses.inc"
 #include "actual-payloads.inc"
 struct MachineConfig { uint32_t value; };
 struct ReminderSet { uint32_t value; };
@@ -109,8 +109,8 @@ void assertStopBoot(DualStorageBackend &s) {
 }
 void standbyPolicy() {
   reset(); DualStorageBackend s; assert(s.begin());
-  assert(logs.find("PRIMARY C512 0x56: OK")!=std::string::npos);
-  assert(logs.find("BACKUP  C32  0x57: OK")!=std::string::npos);
+  assert(logs.find("PRIMARY C512 0x50: OK")!=std::string::npos);
+  assert(logs.find("BACKUP  C32  0x56: OK")!=std::string::npos);
   PackedBatchV1 b{}; assert(s.saveBatch(b));
   b.wasRunning=1; b.batchStartEpoch=86400; b.checkpointEpoch=86400;
   const unsigned starts=chips[1].publications;
@@ -209,9 +209,9 @@ void failoverLatestAndReplacement() {
     assert(chips[1].writes==activeWrites);
   }
   reset(); chips[0].present=false; DualStorageBackend missingPrimary; assert(missingPrimary.begin());
-  assert(logs.find("PRIMARY C512 0x56: NO ACK")!=std::string::npos);
+  assert(logs.find("PRIMARY C512 0x50: NO ACK")!=std::string::npos);
   reset(); chips[1].present=false; DualStorageBackend missingBackup; assert(missingBackup.begin());
-  assert(logs.find("BACKUP  C32  0x57: NO ACK")!=std::string::npos && !backupOnline);
+  assert(logs.find("BACKUP  C32  0x56: NO ACK")!=std::string::npos && !backupOnline);
   puts("failover: verified latest RAM before routing, single NACK/bus immunity, bounded confirmation, old/high-generation C512 and stable failback PASS");
 }
 void publicationCutsAndReboots() {
