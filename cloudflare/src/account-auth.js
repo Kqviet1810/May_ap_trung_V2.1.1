@@ -25,7 +25,7 @@ export async function session(request, env) {
   if (!env.MAYAP_SESSION_PEPPER) return null;
   const token = (request.headers.get('Authorization') || '').replace(/^Bearer /, '');
   if (!/^[a-f0-9]{64}$/.test(token)) return null;
-  return env.DB.prepare(`SELECT s.*, u.email, u.name FROM user_sessions s JOIN users u
+  return env.DB.prepare(`SELECT s.*, u.email, u.name, u.picture FROM user_sessions s JOIN users u
     ON u.google_sub=s.user_sub WHERE s.token_hash=? AND s.revoked_at IS NULL
     AND s.expires_at>? AND u.disabled=0`).bind(await hash(token, env), Date.now()).first();
 }
@@ -48,9 +48,11 @@ export async function permission(env, sub, id, write = false) {
 export async function createSession(env, identity, agent = '') {
   const now = Date.now(), token = randomToken(32), id = randomToken(24);
   const expiry = now + 86400000;
-  await env.DB.prepare(`INSERT INTO users(google_sub,email,name,created_at,last_login_at) VALUES(?,?,?,?,?)
-    ON CONFLICT(google_sub) DO UPDATE SET email=excluded.email,name=excluded.name,last_login_at=excluded.last_login_at`)
-    .bind(identity.sub, String(identity.email || '').slice(0,254), String(identity.name || '').slice(0,100), now, now).run();
+  let picture='';
+  try {const url=new URL(identity.picture);if(url.protocol==='https:' && /(^|\.)googleusercontent\.com$/.test(url.hostname))picture=url.href.slice(0,2048);} catch (_) {}
+  await env.DB.prepare(`INSERT INTO users(google_sub,email,name,picture,created_at,last_login_at) VALUES(?,?,?,?,?,?)
+    ON CONFLICT(google_sub) DO UPDATE SET email=excluded.email,name=excluded.name,picture=excluded.picture,last_login_at=excluded.last_login_at`)
+    .bind(identity.sub, String(identity.email || '').slice(0,254), String(identity.name || '').slice(0,100), picture, now, now).run();
   const enabled = await env.DB.prepare('SELECT disabled FROM users WHERE google_sub=?').bind(identity.sub).first();
   if (enabled.disabled) throw new Error('Account disabled');
   await env.DB.prepare(`INSERT INTO user_sessions(id,user_sub,token_hash,created_at,expires_at,user_agent)

@@ -45,12 +45,14 @@ popup ID-token này. [GIS integration](https://developers.google.com/identity/gs
 
 Worker cấp token MAYAP opaque 256-bit, chỉ lưu hash có pepper trong D1. Hạn tuyệt đối
 24 giờ; có logout/revoke/disabled account. Browser giữ token trong RAM +
-`sessionStorage`, không localStorage; gửi `Authorization: Bearer` cho đúng Worker
-origin. Giữ qua reload/tab còn sống; tab đóng hoặc session hết hạn cần login lại.
+`localStorage` để giữ khi đóng tab/trình duyệt; gửi `Authorization: Bearer` cho đúng Worker
+origin. Mỗi lần mở vẫn xác minh phiên trên máy chủ; hết hạn/thu hồi mới yêu cầu login.
+Token cũ trong sessionStorage được chuyển sang localStorage khi mở bản mới.
 Mỗi điện thoại/PC login Google là lấy lại danh sách máy, không nhập PIN từng máy nữa.
 
-Trade-off: token đọc được bởi JavaScript nếu có XSS. Dùng `sessionStorage` có giới hạn
-24 giờ và server revoke; không đặt secret dài hạn ở localStorage. Cookie HttpOnly
+Trade-off: token đọc được bởi JavaScript nếu có XSS, kể cả token lưu bền trên thiết bị.
+Giữ hạn tuyệt đối 24 giờ và server revoke; không lưu Google token hoặc broker password
+bền trong trình duyệt. Trên thiết bị dùng chung, phải đăng xuất sau khi dùng. Cookie HttpOnly
 cross-site giữa github.io và workers.dev phụ thuộc third-party cookie và có thể bị
 iOS chặn, nên không dùng cookie cho account API. CORS chỉ cho đúng GitHub Pages
 origin; explicit bearer authorization và Origin check ngăn cookie-style CSRF.
@@ -167,7 +169,7 @@ batch recovery không thay đổi. MQTT I/O vẫn mqttTask, Cloud I/O cloudTask.
 7. Dùng **GitHub Pages deployment hiện hành**; lưu ý branch hiện được auto-publish
    ngay khi push, nên Draft không ngăn deploy Pages. Operator có thể chọn staging
    branch/workflow nếu cần review trước khi xuất bản; PR không tự đổi Settings này. Đảm bảo
-   account.js/landing.css cùng Web 12.2.0 được publish. Không chuyển hosting sang Worker.
+   account.js/styles.css cùng Web 12.2.1 được publish. Không chuyển hosting sang Worker.
    Mở URL Pages, login hai tài khoản, claim riêng, kiểm tra API/grant chéo tenant bị
    từ chối, reload/PC khác có danh sách máy và command/ACK giữ realtime.
 8. Android/iOS/PC: kiểm tra popup/FedCM Google thật, consent, CORS, sessionStorage/PWA,

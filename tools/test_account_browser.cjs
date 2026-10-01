@@ -10,6 +10,7 @@ const gis=`window.google={accounts:{id:{initialize(options){window.gisOptions=op
 async function fixture(context,{gate=Promise.resolve(),guest=false}={}){
   let loggedOut=false;
   await context.route('https://accounts.google.com/gsi/client',r=>r.fulfill({contentType:'application/javascript',body:gis}));
+  await context.route('https://lh3.googleusercontent.com/**',r=>r.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#087d85"/><circle cx="32" cy="24" r="12" fill="#fff"/><path d="M10 64v-9a22 22 0 0 1 44 0v9" fill="#fff"/></svg>'}));
   await context.route(api+'/api/**',async route=>{
     const request=route.request(),pathname=new URL(request.url()).pathname;
     const headers={'Access-Control-Allow-Origin':home,'Access-Control-Allow-Headers':'authorization,content-type','Access-Control-Allow-Methods':'GET,POST,DELETE'};
@@ -22,7 +23,7 @@ async function fixture(context,{gate=Promise.resolve(),guest=false}={}){
     }else if(pathname==='/api/account/session'){
       await gate;assert.equal(request.headers().authorization,'Bearer '+token);
       if(loggedOut || guest){status=401;data={success:false};}
-      else data={success:true,user:{sub:'returning-sub',name:'Khách quay lại'},devices:[],expiresAt:Date.now()+86400000};
+      else data={success:true,user:{sub:'returning-sub',name:'Khách quay lại',email:'user@example.test',picture:'https://lh3.googleusercontent.com/avatar'},devices:[],expiresAt:Date.now()+86400000};
     }else if(pathname==='/api/account/logout'){
       assert.equal(request.headers().authorization,'Bearer '+token);loggedOut=true;
     }
@@ -42,12 +43,23 @@ async function main(){
       assert.equal(await page.evaluate(()=>window.gisOptions.nonce),'server-nonce');
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
       await page.screenshot({path:path.join(out,`landing-${width}.png`),fullPage:true});
-      // Cold login creates a per-tab MAYAP token; reload restores D1-owned list without PIN.
+      // Durable token restores server-verified identity even after all tabs close.
       await page.locator('.googleLogin button').first().click();
       await page.waitForFunction(()=>document.documentElement.dataset.auth==='ready');
-      assert.equal(await page.evaluate(()=>sessionStorage.getItem('mayap.account.session.v1')),token);
-      assert.equal(await page.evaluate(()=>localStorage.getItem('mayap.account.session.v1')),null);
-      assert.deepEqual(errors,[]);results.push({width,guestHome:true,coldGoogleLogin:true,sessionStorageOnly:true,noOverflow:true,errors});await context.close();
+      assert.equal(await page.evaluate(()=>sessionStorage.getItem('mayap.account.session.v1')),null);
+      assert.equal(await page.evaluate(()=>localStorage.getItem('mayap.account.session.v1')),token);
+      await page.close();
+      const reopened=await context.newPage();await reopened.goto(home,{waitUntil:'networkidle'});
+      await reopened.waitForFunction(()=>document.documentElement.dataset.auth==='ready');
+      assert.equal(await reopened.locator(width<=800?'.mobileIdentity [data-account-name]':'.brand [data-account-name]').textContent(),'Khách quay lại');
+      if(width<=800)assert.equal(await reopened.locator('.sidebar > .brand').isVisible(),false);
+      assert.equal(await reopened.locator(width<=800?'.mobileIdentity img':'.brand img').evaluate(img=>img.complete && img.naturalWidth>0),true);
+      assert.equal(await reopened.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+      await reopened.locator('[data-page="settings"]').click();
+      assert.equal(await reopened.locator('#page-settings > :last-child').getAttribute('id'),'accountPanel');
+      assert.equal(await reopened.locator('#revokeOtherSessions').count(),0);
+      await reopened.screenshot({path:path.join(out,`account-settings-${width}.png`),fullPage:true});
+      assert.deepEqual(errors,[]);results.push({width,guestHome:true,coldGoogleLogin:true,reopenKeepsLogin:true,identityVisible:true,noOverflow:true,errors});await context.close();
     }
     const context=await browser.newContext({viewport:{width:390,height:844},serviceWorkers:'block'});
     let release;const gate=new Promise(r=>{release=r;});await fixture(context,{gate});
@@ -67,6 +79,7 @@ async function main(){
     await page.waitForFunction(()=>document.documentElement.dataset.auth==='guest');
     assert.equal(await page.locator('.landing').isVisible(),true);assert.equal(await page.locator('.appShell').isVisible(),false);
     assert.equal(await page.evaluate(()=>sessionStorage.getItem('mayap.account.session.v1')),null);
+    assert.equal(await page.evaluate(()=>localStorage.getItem('mayap.account.session.v1')),null);
     results.push({returningLoginNoLandingFlash:true,logoutReturnsHome:true,logoutClearsToken:true,crossOriginBearer:true});await context.close();
     fs.writeFileSync(path.join(out,'account-browser-qa.json'),JSON.stringify({passed:true,results},null,2));console.log(JSON.stringify(results));
   }finally{await browser.close();}

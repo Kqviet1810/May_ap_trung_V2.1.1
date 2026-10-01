@@ -9,6 +9,7 @@ function database(){
   sql.exec(fs.readFileSync('cloudflare/schema.sql','utf8'));
   sql.exec(fs.readFileSync('cloudflare/migrations/0003_telemetry_history.sql','utf8'));
   sql.exec(fs.readFileSync('cloudflare/migrations/0004_accounts.sql','utf8'));
+  sql.exec(fs.readFileSync('cloudflare/migrations/0005_account_picture.sql','utf8'));
   const DB={prepare(source){const statement=sql.prepare(source);let args=[];
     return {bind(...a){args=a;return this;},async first(){return statement.get(...args) || null;},
       async all(){return {results:statement.all(...args)};},async run(){
@@ -32,6 +33,18 @@ async function setup(){
   }
   return {env,sql,auth,jose,login,device,call};
 }
+test('verified account picture persists safely and token expiry stays bounded',async()=>{
+  const h=await setup();
+  const s=await h.auth.createSession(h.env,{sub:'profile-test',name:'Việt Kiều',email:'user@example.test',picture:'https://lh3.googleusercontent.com/photo'});
+  const data=await (await h.call('/api/account/session',s)).json();
+  assert.equal(data.user.picture,'https://lh3.googleusercontent.com/photo');
+  assert.equal(data.user.name,'Việt Kiều');
+  assert.ok(s.expiry-Date.now()<=86400000);
+  await h.auth.createSession(h.env,{sub:'profile-test',picture:'https://googleusercontent.com.attacker.test/photo'});
+  assert.equal((await (await h.call('/api/account/session',s)).json()).user.picture,'');
+  h.sql.prepare('UPDATE user_sessions SET expires_at=? WHERE id=?').run(Date.now()-1,s.id);
+  assert.equal((await h.call('/api/account/session',s)).status,401);
+});
 test('claim checks PIN, refuses takeover, and ownership protects status/history/config/grant',async()=>{
   const h=await setup(), A=await h.login('user-A'), B=await h.login('user-B'), id=await h.device(1);
   assert.equal((await h.call('/api/account/devices/claim',B,{device_id:id,pin:'000000'})).status,403);

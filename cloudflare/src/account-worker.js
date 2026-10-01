@@ -113,7 +113,7 @@ async function fetchAccount(request, env, ctx) {
   const auth=await session(request,env);
   if (!auth) return deny(401);
   if (path==='/api/account/session' && method==='GET') return json({success:true,
-    user:{sub:auth.user_sub,name:auth.name,email:auth.email},expiresAt:auth.expires_at,
+    user:{sub:auth.user_sub,name:auth.name,email:auth.email,picture:auth.picture},expiresAt:auth.expires_at,
     devices:await deviceList(env,auth.user_sub)});
   const data=method==='GET' ? {} : await body(request);
   if (path==='/api/account/logout' && method==='POST') {

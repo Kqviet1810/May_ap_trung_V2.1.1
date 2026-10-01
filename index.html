@@ -21,7 +21,7 @@
 </section>
 <div class="appShell">
 <aside class="sidebar">
-<div class="brand"><div class="brandMark">M</div><div><strong>MAYAP</strong><small>Điều khiển máy ấp</small></div></div>
+<div class="brand accountIdentity"><span class="accountAvatar" data-account-avatar aria-hidden="true">U</span><div class="identityText"><strong data-account-name>Tài khoản</strong><small>Tài khoản Google</small></div></div>
 <nav class="nav">
 <button class="active" data-page="device" type="button"><span aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 8h4M7 12h4M7 16h10M16 8h1"/></svg></span><b>Thiết bị</b></button>
 <button data-page="batch" type="button"><span aria-hidden="true"><svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3c4 0 7 6.5 7 11a7 7 0 0 1-14 0c0-4.5 3-11 7-11Z"/><path d="M9 17c.6.7 1.5 1 3 1"/></svg></span><b>Mẻ ấp</b></button>
@@ -31,6 +31,7 @@
 </aside>
 <main class="main">
 <header class="topbar">
+<div class="mobileIdentity accountIdentity"><span class="accountAvatar" data-account-avatar aria-hidden="true">U</span><div class="identityText"><strong data-account-name>Tài khoản</strong><small>Điều khiển máy ấp</small></div></div>
 <div class="title"><h1 aria-live="polite" id="pageTitle">Thiết bị</h1><p id="pageSubtitle">Theo dõi và điều khiển máy.</p></div>
 <div class="headerReadings" role="group" aria-label="Thông số máy">
 <div class="live"><span>Nhiệt độ</span><strong id="liveTemp">—</strong></div>
@@ -99,7 +100,7 @@
 <div class="telemetryAxis" aria-hidden="true"><span>−30 phút</span><span>−15 phút</span><span>Bây giờ</span></div>
 </section>
 </section>
-<section class="page" id="page-settings"><section class="panel"><div class="panelHead"><h2>Tài khoản MAYAP</h2></div><p id="accountName"></p><div class="buttonRow"><button class="ghost" id="logoutBtn" type="button">Đăng xuất</button><button class="ghost" id="revokeOtherSessions" type="button">Quản lý phiên đăng nhập</button></div><small id="accountNotice" role="status"></small><div id="accountSessions" class="accountSessions"></div></section>
+<section class="page" id="page-settings">
 <div class="settingsStack">
 <section class="settingGroup" aria-labelledby="settings-connection"><h2 class="settingGroupLabel" id="settings-connection">Giao diện &amp; kết nối</h2>
 <details class="settingCard">
@@ -318,6 +319,11 @@
 </details>
 </section>
 </div>
+<section class="panel accountPanel" id="accountPanel" aria-labelledby="accountHeading">
+<div class="accountIdentity"><span class="accountAvatar" data-account-avatar aria-hidden="true">U</span><div class="identityText"><h2 id="accountHeading">Thông tin tài khoản</h2><strong id="accountName" data-account-name>Tài khoản</strong><small id="accountEmail"></small></div></div>
+<button class="ghost accountLogout" id="logoutBtn" type="button">Đăng xuất</button>
+<small id="accountNotice" role="status"></small>
+</section>
 </section>
 </main>
 </div>

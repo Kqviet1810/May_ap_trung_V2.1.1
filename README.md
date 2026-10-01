@@ -13,7 +13,7 @@ Web 12.2.0 thêm Google Account và ownership nhiều máy trên GitHub Pages + 
 | Release | 4.0.0 |
 | ESP32 firmware | 4.0.0 |
 | HMI firmware | 4.0.0 |
-| Web cache | 12.2.0 |
+| Web cache | 12.2.1 |
 | ATtiny protocol | 1.0.0 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |

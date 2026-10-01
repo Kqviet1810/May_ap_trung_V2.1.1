@@ -6,7 +6,11 @@
   const nativeFetch=window.fetch.bind(window);
   const channel=typeof BroadcastChannel==='function' ? new BroadcastChannel('mayap-account') : null;
   let token='',account=null,pending=null,lastCheck=0,googleScript=null,loginPending=false;
-  try {token=sessionStorage.getItem(SESSION_KEY) || '';} catch (_) {}
+  try {
+    token=localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY) || '';
+    if(token)localStorage.setItem(SESSION_KEY,token);
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch (_) {try {token=sessionStorage.getItem(SESSION_KEY) || '';} catch (_) {}}
   const api=async(path,init={})=>{
     const url=new URL(path instanceof Request ? path.url : String(path),base+'/');
     if(url.origin!==apiOrigin || !url.pathname.startsWith('/api/'))throw new Error('Invalid account API');
@@ -27,14 +31,29 @@
   };
   function setToken(value) {
     token=value;
+    try {if(value)localStorage.setItem(SESSION_KEY,value);else localStorage.removeItem(SESSION_KEY);} catch (_) {}
     try {if(value)sessionStorage.setItem(SESSION_KEY,value);else sessionStorage.removeItem(SESSION_KEY);} catch (_) {}
+  }
+  function renderIdentity(user) {
+    const name=user.name || user.email || 'Tài khoản Google';
+    document.querySelectorAll('[data-account-name]').forEach(el=>{el.textContent=name;el.title=name;});
+    const email=document.getElementById('accountEmail');if(email)email.textContent=user.email || '';
+    let picture='';
+    try {const url=new URL(user.picture);if(url.protocol==='https:' && /(^|\.)googleusercontent\.com$/.test(url.hostname))picture=url.href;} catch (_) {}
+    document.querySelectorAll('[data-account-avatar]').forEach(root=>{
+      root.replaceChildren();
+      if(picture){const img=document.createElement('img');img.src=picture;img.alt='';img.referrerPolicy='no-referrer';
+        img.onerror=()=>{root.textContent=Array.from(name.trim())[0]?.toLocaleUpperCase('vi-VN') || 'U';};root.append(img);}
+      else root.textContent=Array.from(name.trim())[0]?.toLocaleUpperCase('vi-VN') || 'U';
+    });
   }
   function expire() {
     if(account) {
       const prefix=`mayap.account.${account.user.sub}.`;
       try {for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key?.startsWith(prefix))localStorage.removeItem(key);}} catch (_) {}
     }
-    setToken('');account=null;localStorage.removeItem('mayap.web.v10.mqtt.private');localStorage.removeItem('mayap.push.v1');
+    setToken('');account=null;
+    try {localStorage.removeItem('mayap.web.v10.mqtt.private');localStorage.removeItem('mayap.push.v1');} catch (_) {}
     window.dispatchEvent(new Event('mayap-logout'));
     // Keep the GitHub Pages project path, including installed PWAs.
     location.replace(location.pathname);
@@ -51,7 +70,7 @@
         if(!data.success || !data.user?.sub || !Array.isArray(data.devices))throw new Error('Invalid session');
         if(account && account.user.sub!==data.user.sub){expire();return null;}
         account=data;lastCheck=Date.now();
-        const label=document.getElementById('accountName');if(label)label.textContent=data.user.name || data.user.email || 'Tài khoản MAYAP';
+        renderIdentity(data.user);
         window.dispatchEvent(new CustomEvent('mayap-account-devices',{detail:data.devices}));return data;
       } catch (_) {
         document.getElementById('authMessage').textContent='Chưa kiểm tra được phiên đăng nhập. Hãy thử lại khi có mạng.';
@@ -106,19 +125,14 @@
     } catch (_) {document.getElementById('accountNotice').textContent='Chưa đăng xuất được. Kiểm tra kết nối rồi thử lại.';}
   }
   channel?.addEventListener('message',event=>{if(event.data==='logout')expire();});
+  window.addEventListener('storage',event=>{
+    if(event.key!==SESSION_KEY)return;
+    if(!event.newValue){expire();return;}
+    if(event.newValue!==token)location.replace(location.pathname);
+  });
   window.MayapAccount={ready:null,refresh,api,get current(){return account;}};
   document.getElementById('logoutBtn')?.addEventListener('click',logout);
   document.getElementById('authRetry')?.addEventListener('click',async()=>{if(await refresh())location.reload();});
-  document.getElementById('revokeOtherSessions')?.addEventListener('click',async()=>{
-    const res=await api('/api/account/sessions'),data=await res.json();if(!res.ok)return;
-    const root=document.getElementById('accountSessions');root.replaceChildren();
-    for(const session of data.sessions){
-      const button=document.createElement('button');button.className='ghost';
-      button.textContent=`Thu hồi: ${session.user_agent.slice(0,55)} · ${new Date(session.created_at).toLocaleDateString('vi-VN')}`;
-      button.onclick=async()=>{const result=await api('/api/account/sessions/revoke',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({session_id:session.id})});if(result.ok){await refresh();button.remove();}};root.append(button);
-    }
-  });
   setInterval(()=>{if(document.hidden)return;if(account && Date.now()-lastCheck>=300000)refresh();else if(!token && Date.now()-challengeAt>=240000)prepareGoogle();},60000);
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden)return;
