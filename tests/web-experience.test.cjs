@@ -555,6 +555,16 @@ test('MQTT.js already retrying a closed socket stays the single reconnect owner 
   assert.equal(h.published.at(-1).body.active,true); assert.equal(h.clients.length,1);
 });
 
+test('traffic early in WARM followed by OS suspension still probes before replacing the resumed socket', async () => {
+  const h=await warmBrowser(); h.hide(); h.elapse(30000); h.tick();
+  h.clients[0].emit('packetreceive',{cmd:'pingresp'});
+  assert.equal(h.state.mqttResumeProbeRequired,false);
+  h.elapse(360000,0); h.foreground(); await new Promise(setImmediate);
+  assert.equal(h.clients.length,1); assert.equal(h.probes.length,1);
+  h.probes[0].callback(null,[]); h.elapse(15000); h.tick();
+  assert.equal(h.clients.length,1);
+});
+
 test('warm grant renewal is proactive/single-flight and stops in idle; expired clicks never do HTTP', async () => {
   const h=await warmBrowser(); let http=0, finish;
   h.context.fetch=()=>{http++; return new Promise(resolve=>{finish=resolve;});};

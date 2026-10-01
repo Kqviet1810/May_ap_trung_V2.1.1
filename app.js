@@ -4112,6 +4112,7 @@
   function resumeBrowserConnection(event) {
     if (document.hidden) { checkBackgroundDeadline(); return; }
     if (state.backgroundMode !== 'visible') {
+      state.mqttResumeProbeRequired = true;
       // Evaluate real elapsed time first, even if every background timer froze.
       checkBackgroundDeadline();
       state.backgroundMode = 'visible';
