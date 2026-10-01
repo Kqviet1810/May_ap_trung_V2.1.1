@@ -8,7 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 # Bien KHONG bi mat (khong nhay cam). Secret that van dat bang Dashboard/
 # wrangler secret put, KHONG commit vao repo.
 [vars]
-GOOGLE_CLIENT_ID = ""
+GOOGLE_CLIENT_ID = "327661992995-534m50g6qbqfqdfcn731drgu01ge8jst.apps.googleusercontent.com"
 ALLOWED_ORIGIN = "https://kqviet1810.github.io"
 # Quy mo hien tai: cho may moi tu provisioning. Dat = "1" neu sau nay muon
 # quay lai che do factory allowlist bat buoc trong device_inventory.
