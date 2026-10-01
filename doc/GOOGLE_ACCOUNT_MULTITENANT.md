@@ -3,8 +3,10 @@
 Frontend vẫn là GitHub Pages: `https://kqviet1810.github.io/May_ap_trung_V2.1.1/`.
 Backend vẫn là Cloudflare Worker + D1. Web kết nối WSS **trực tiếp HiveMQ** như
 `feat/web-fast-connect`. Không có gateway/VPS/Caddy/Docker/domain mới hoặc Worker
-hosting frontend. Không deploy production, migration remote, merge main hay OTA
-trong quá trình làm PR này. PR giữ Draft.
+hosting frontend. Không phát lệnh deploy Worker, migration remote, merge main hay
+OTA trong quá trình làm PR này. PR giữ Draft. GitHub Pages đang cấu hình tự publish
+nhánh `feat/google-account-multitenant`: push PR cũng tự chạy deployment Pages theo
+Settings hiện hữu, không chờ PR hết Draft. Cấu hình Pages không được thay đổi ở đây.
 
 ## Giới hạn bảo mật bắt buộc
 
@@ -162,7 +164,9 @@ batch recovery không thay đổi. MQTT I/O vẫn mqttTask, Cloud I/O cloudTask.
    phê duyệt, sau khi xác nhận migration tracking và vars/secrets. Workflow cần existing
    GitHub secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. Không auto trigger deploy
    khi push Draft. Worker không có ASSETS binding/frontend build step.
-7. Khi cho phép xuất bản Web, dùng **GitHub Pages deployment hiện hành**; đảm bảo
+7. Dùng **GitHub Pages deployment hiện hành**; lưu ý branch hiện được auto-publish
+   ngay khi push, nên Draft không ngăn deploy Pages. Operator có thể chọn staging
+   branch/workflow nếu cần review trước khi xuất bản; PR không tự đổi Settings này. Đảm bảo
    account.js/landing.css cùng Web 12.2.0 được publish. Không chuyển hosting sang Worker.
    Mở URL Pages, login hai tài khoản, claim riêng, kiểm tra API/grant chéo tenant bị
    từ chối, reload/PC khác có danh sách máy và command/ACK giữ realtime.

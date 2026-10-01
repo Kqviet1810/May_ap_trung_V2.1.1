@@ -12,7 +12,7 @@ build-v4/
 build/
 node_modules/
 cloudflare/public/
-cloudflare/.wrangler/
+.wrangler/
 .env
 .env.*
 !.env.example
