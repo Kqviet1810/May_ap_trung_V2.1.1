@@ -21,6 +21,7 @@ static bool online=false, bus=false;
 static uint32_t clockMs=0;
 uint32_t millis() { return clockMs; }
 bool mayapI2cBusFault() { return bus; }
+void mayapStorageSetBackupOnline(bool) {}
 void mayapStorageSetPrimaryOnline(bool b) { online=b; }
 struct Chip {
   std::vector<uint8_t> bytes=std::vector<uint8_t>(65536,0xff);

@@ -190,7 +190,7 @@ class DualStorageBackend {
     if (backupJournal_.found && backupJournal_.latest.generation == generation_) return;
     if (!backupJournal_.append(state_, generation_)) backupReadable_ = false;
   }
-  void publish() { mayapStorageSetPrimaryOnline(primaryActive_ && !writeSuspect_ && !incompatible_ && health_.failures == 0); }
+  void publish() { mayapStorageSetBackupOnline(backupReadable_ && !incompatible_); mayapStorageSetPrimaryOnline(primaryActive_ && !writeSuspect_ && !incompatible_ && health_.failures == 0); }
   ExternalEeprom24xx primary_, backup_;
   CriticalJournal mainJournal_, backupJournal_;
   LegacyPersistentStore primaryLegacy_{true};

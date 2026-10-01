@@ -4125,7 +4125,7 @@ class MachineController {
       checkpointRetryAt_ = 0; checkpointBatch();
     }
     // Backup mode is a warning only; it must not inhibit active control.
-    faults_.set(FaultCode::StorageDegraded, !store_.primary(), now);
+    faults_.set(FaultCode::StorageDegraded, !store_.primary() || !mayapStorageBackupOnline(), now);
     if (!startStoragePending_ && !batchClearPending_) {
       bool ok = false;
       if (store_.finishBatch(ok)) {
@@ -4701,8 +4701,8 @@ class MachineController {
   }
 
   bool startBatch(uint32_t now, const char *&message) {
+    if (!mayapBootOperationsReady()) { startAwaitingSave_ = false; message = "DANG KHOI DONG"; return false; }
     startAwaitingSave_ = false;
-    if (!mayapBootOperationsReady()) { message = "DANG KHOI DONG"; return false; }
     if (mayapFirmwareMaintenanceActive()) { message = "DANG CAP NHAT FIRMWARE"; return false; }
     const InputState &in = inputs_.state();
     if (testModeActive_) { message = "HAY THOAT TEST TRUOC"; return false; }

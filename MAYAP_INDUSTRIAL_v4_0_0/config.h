@@ -911,7 +911,9 @@ static_assert(EEPROM_PRIMARY_ADDRESS != EEPROM_BACKUP_ADDRESS, "EEPROM addresses
 static_assert(EEPROM_PRIMARY_ADDRESS >= 0x50U && EEPROM_PRIMARY_ADDRESS <= 0x57U, "C512 address");
 static_assert(STORAGE_JOURNAL_BASE + STORAGE_JOURNAL_SLOTS * STORAGE_SLOT_BYTES == STORAGE_RESERVE_BASE, "journal/reserve overlap");
 // Cross-task admission: optional data is PRIMARY-only.
-static uint8_t storagePrimaryOnline = 0U;
+static uint8_t storagePrimaryOnline = 0U, storageBackupOnline = 0U;
+inline bool mayapStorageBackupOnline() { return __atomic_load_n(&storageBackupOnline, __ATOMIC_ACQUIRE) != 0; }
+inline void mayapStorageSetBackupOnline(bool online) { __atomic_store_n(&storageBackupOnline, online ? 1U : 0U, __ATOMIC_RELEASE); }
 inline bool mayapStoragePrimaryOnline() { return __atomic_load_n(&storagePrimaryOnline, __ATOMIC_ACQUIRE) != 0; }
 inline void mayapStorageSetPrimaryOnline(bool online) { __atomic_store_n(&storagePrimaryOnline, online ? 1U : 0U, __ATOMIC_RELEASE); }
 constexpr uint16_t EEPROM_CAPACITY_BYTES = 4096U;
