@@ -82,6 +82,10 @@ constexpr int ESP_OK=0, ESP_FAIL=-1;
 enum wifi_ps_type_t { WIFI_PS_NONE, WIFI_PS_MIN_MODEM };
 static wifi_ps_type_t radioPs=WIFI_PS_MIN_MODEM;
 static bool radioReady=true, highPerfWifiApplied=false, wifiPowerModeValid=false;
+static bool webSessionActive=true;
+#include "../MAYAP_INDUSTRIAL_v4_0_0/web_realtime_policy.h"
+using MayapCloudInternal::mayapGetNetworkStatus;
+static MayapWebRealtime::PerformanceGrace wifiPerformanceGrace;
 static unsigned psWrites=0;
 int esp_wifi_get_ps(wifi_ps_type_t *ps) { if (!radioReady) return ESP_FAIL; *ps=radioPs; return ESP_OK; }
 int esp_wifi_set_ps(wifi_ps_type_t ps) { ++psWrites; if (!radioReady) return ESP_FAIL; radioPs=ps; return ESP_OK; }
@@ -180,11 +184,23 @@ int main() {
   serviceEventLogPublish(); assert(lastPublishedEventSequence==12 && !eventSnapshotDirty);
   assert(published.size()==12);
   for(unsigned i=0;i<12;++i) assert(published[i]==i+1);
+  MayapCloudInternal::network.connected=true; // Previous PIN-reset case deliberately disconnected STA.
   serviceWifiPowerMode(); assert(radioPs==WIFI_PS_NONE && psWrites==1);
   serviceWifiPowerMode(); assert(psWrites==1);
   radioPs=WIFI_PS_MIN_MODEM; // External radio reinitialization must not fool the cache.
   serviceWifiPowerMode(); assert(radioPs==WIFI_PS_NONE && psWrites==2);
   radioReady=false; serviceWifiPowerMode(); assert(!wifiPowerModeValid);
   radioReady=true; serviceWifiPowerMode(); assert(wifiPowerModeValid && radioPs==WIFI_PS_NONE);
+  webSessionActive=false; serviceWifiPowerMode(); assert(radioPs==WIFI_PS_NONE);
+  clockMs += 24999; serviceWifiPowerMode(); assert(radioPs==WIFI_PS_NONE);
+  webSessionActive=true; serviceWifiPowerMode(); assert(radioPs==WIFI_PS_NONE);
+  webSessionActive=false; serviceWifiPowerMode(); clockMs += 25000;
+  serviceWifiPowerMode(); assert(radioPs==WIFI_PS_MIN_MODEM);
+  const unsigned savedWrites=psWrites; serviceWifiPowerMode(); assert(psWrites==savedWrites);
+  radioReady=false; serviceWifiPowerMode(); assert(!wifiPowerModeValid);
+  radioReady=true; serviceWifiPowerMode(); assert(wifiPowerModeValid && radioPs==WIFI_PS_MIN_MODEM);
+  webSessionActive=true; serviceWifiPowerMode(); assert(radioPs==WIFI_PS_NONE);
+  webSessionActive=false; MayapCloudInternal::network.connected=false;
+  clockMs+=30000; serviceWifiPowerMode(); assert(radioPs==WIFI_PS_NONE);
   std::puts("Actual stability helpers: TLS/bulk exclusion, admission boundaries, bounded/chunked HTTP, Serial pressure/mute, alarm coalescing, deferred PIN reset and failed log retry OK");
 }

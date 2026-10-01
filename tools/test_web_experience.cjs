@@ -9,7 +9,7 @@ const out = path.resolve(process.argv[2] || path.join(root, 'work', 'web-qa'));
 fs.mkdirSync(out, { recursive: true });
 const source = fs.readFileSync(path.join(root, 'app.js'), 'utf8').replace('  init();', `
   window.__qa = { state, REQUIRED_CONFIG_KEYS, VENT_PROFILE_KEYS, handleConfigReport,
-    handleSnapshot, showPage, buildConfig, createDevice, renderSelector, renderDevice, connectionStatus };
+    handleSnapshot, handlePresence, showPage, buildConfig, createDevice, renderSelector, renderDevice, connectionStatus };
   init();`);
 const firmware = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v4_0_0/config.h'), 'utf8');
 const defaults = {};
@@ -53,7 +53,7 @@ async function setup(browser, options = {}) {
       const h = window.__qa, d = h.state.devices[0]; if (!d) return;
       const config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.concat(h.VENT_PROFILE_KEYS).map(key => [key, defaults[key] ?? 0]));
       config.ventAutoEnabled = true;
-      d.presence = { online: true, fw: '4.0.0', proto: 2, ssid: 'Wi-Fi gia đình' }; d.presenceAt = Date.now();
+      h.handlePresence(d, { online: true, bootId: 123, fw: '4.0.0', proto: 2, ssid: 'Wi-Fi gia đình' });
       h.handleConfigReport(d, { revision: 1, bootId: 123, config });
       h.handleSnapshot(d, { revision: 1, bootId: 123, runtime: { temperature: 37.5, humidity: 58,
         heaterPower: 25, circulationFanOn: true, ventFanOn: false, turningEnabled: true,
@@ -74,7 +74,7 @@ async function setup(browser, options = {}) {
     if (url.pathname.endsWith('/mqtt-session') || url.pathname.endsWith('/verify-pin')) body = {
       success: true, pairing_token: 'qa-token', device_name: 'Máy ấp nhà mình',
       mqtt: { url: 'wss://qa.invalid/mqtt', username: 'qa', password: 'qa' },
-      control: { sessionId: 'qa-session', sessionKey: '07'.repeat(32), expiresAt: Math.floor(Date.now()/1000)+300 } };
+      control: { sessionId: 'qa-session', sessionKey: '07'.repeat(32), grant: 'qa|grant', grantSig: '08'.repeat(32), expiresAt: Math.floor(Date.now()/1000)+300 } };
     if (url.pathname.endsWith('/firmware/latest')) body = { success: true, version: '4.0.0' };
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });

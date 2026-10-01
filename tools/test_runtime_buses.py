@@ -3,6 +3,7 @@ import argparse
 import subprocess
 import tempfile
 import re
+import os
 from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
@@ -58,6 +59,29 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     start = realtime.index('inline void serviceWifiPowerMode()')
     end = realtime.index('inline void serviceConfigPublish()', start)
     (out / 'actual-wifi-power.inc').write_text(power + realtime[start:end], encoding='utf-8')
+    parts = []
+    for begin, end in (('inline bool publishBootstrap(', 'struct TerminalResult {'),
+                       ('inline void handleSessionMessage(', 'inline void mqttMessageCallback('),
+                       ('inline void serviceSessionTimeout(', '// MQTT owner is')):
+        start = realtime.index(begin)
+        stop = realtime.index(end, start)
+        # The session callback is followed by other message helpers; extract its
+        # balanced body only, so tests use the actual lease/sync implementation.
+        if 'handleSessionMessage' in begin:
+            brace = realtime.index('{', start)
+            depth = 1
+            stop = brace + 1
+            while depth:
+                depth += (realtime[stop] == '{') - (realtime[stop] == '}')
+                stop += 1
+        parts.append(realtime[start:stop])
+    (out / 'actual-web-connect.inc').write_text('\n'.join(parts), encoding='utf-8')
+    json_candidates = [Path(os.environ.get('MAYAP_ARDUINOJSON', 'missing')),
+                       Path.home() / 'Arduino/libraries/ArduinoJson/src',
+                       Path.home() / 'Documents/Arduino/libraries/ArduinoJson/src']
+    json_include = next((path for path in json_candidates if (path / 'ArduinoJson.h').is_file()), None)
+    if json_include is None:
+        raise SystemExit('ArduinoJson 7 required for actual retained bootstrap/session tests')
     cfg = (root / 'MAYAP_INDUSTRIAL_v4_0_0/config.h').read_text(encoding='utf-8')
     names = ('PIN_ATTINY_BUS', 'ATTINY_COMMAND_WIDTH_MS', 'ATTINY_BUS_MAX_RETRY',
              'ATTINY_MSG_MAX_COMMAND', 'ATTINY_MSG_STATUS_BASE', 'ATTINY_MSG_STATUS_MAX',
@@ -80,10 +104,12 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
                  'mayapBootAcknowledgeHomeFrame'):
         mailbox += re.search(r'inline (?:bool|void) ' + name + r'\(\) \{[^}]*\}', boot)[0] + '\n'
     (out / 'actual-boot-mailbox.inc').write_text(mailbox, encoding='utf-8')
-    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-mqtt-subscriptions'):
+    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-mqtt-subscriptions', 'runtime-web-connect'):
         executable = out / (test + ('.exe' if __import__('os').name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
                    str(root / ('tests/' + test + '.cpp')), '-o', str(executable)]
+        if test == 'runtime-web-connect':
+            command += ['-I', str(json_include)]
         if args.sanitize:
             command += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer']
         subprocess.run(command, check=True)
