@@ -19,19 +19,7 @@
     const mqttPassword = String(mqtt?.password || '');
     let parsed; try { parsed = new URL(mqttUrl); } catch (_) {}
     if (!parsed || parsed.protocol !== 'wss:' || !mqttUsername || !mqttPassword) return false;
-    if (state.mqtt?.connected && state.mqttCredentials?.[0] === mqttUrl && state.mqttCredentials?.[1] === mqttUsername) {
-      state.mqtt.publish('mayap/auth/renew', mqttPassword, { qos: 1, retain: false }, (error) => {
-        if (error) state.mqttMessage = 'Đang gia hạn phiên kết nối…';
-      });
-      state.mqtt.options.password = mqttPassword;
-      state.mqttCredentials = [mqttUrl, mqttUsername, mqttPassword];
-    } else if (state.mqtt && !state.mqtt.connected && state.mqttCredentials?.[0] === mqttUrl && state.mqttCredentials?.[1] === mqttUsername) {
-      state.mqtt.options.password = mqttPassword;
-      state.mqtt.options.username = mqttUsername;
-      state.mqttCredentials = [mqttUrl, mqttUsername, mqttPassword];
-    }
     const runtimeMqtt = { mqttUrl, mqttUsername, mqttPassword };
-    state.mqttTicketExpiresAt = Number(mqtt.expiresAt || 0);
     localStorage.setItem(MQTT_OVERRIDE_STORAGE, JSON.stringify(runtimeMqtt));
     // Credential duoc cap sau khi WEB da khoi tao. Cap nhat ngay cau hinh
     // runtime trong tab hien tai; neu chi ghi vao RAM-storage thi WEB van
@@ -215,12 +203,6 @@
 
   function prefetchControlSession() {
     const device = currentDevice();
-    if (device?.pairingToken && browserSessionActive() && state.mqttTicketExpiresAt &&
-        state.mqttTicketExpiresAt <= Math.floor(Date.now()/1000) + 60 &&
-        Date.now() >= state.authRetryAt && !state.authRequests.has(device.id)) {
-      refreshMqttSession();
-      return;
-    }
     if (device?.accountRole === 'viewer' || !device?.pairingToken || !state.mqttConnected || device.dataSource !== 'live' ||
         !device.snapshotAt || !browserSessionActive() || state.mqttSessionState === 'auth-required' ||
         Date.now() < state.authRetryAt || state.authRequests.has(device.id)) return;
@@ -2921,7 +2903,6 @@
       publish(topics(deviceId).session, {
         clientId: controlClientId,
         active,
-        foreground: active && !warm,
         ttlMs: active ? Math.max(1, Math.floor(warm ? Math.min(WEB.sessionTtlMs, remaining) : WEB.sessionTtlMs)) : 1000,
         sync: active && !warm && (sync || Object.values(needed).some(Boolean)),
         scope: 'runtime',
@@ -4013,8 +3994,7 @@
     if (state.mqttSessionState === 'auth-required') controlSessions.delete(device.id);
     state.authRetryAt = Date.now() + state.authRetryDelay;
     state.authRetryDelay = Math.min(30000, state.authRetryDelay * 2);
-    state.mqttMessage = result.error === 'MQTT_ISOLATION_NOT_READY'
-      ? 'Máy chủ chưa hoàn tất cấu hình kết nối an toàn.' : state.mqttSessionState === 'auth-required'
+    state.mqttMessage = state.mqttSessionState === 'auth-required'
       ? 'Phiên đăng nhập hết hạn. Hãy đăng nhập lại Google.'
       : 'Chưa kết nối được máy chủ. Đang thử lại…';
     return false;

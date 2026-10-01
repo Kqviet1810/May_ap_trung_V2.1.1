@@ -106,9 +106,8 @@ static BackoffTimer mqttBackoff{};
 // Chi doc/ghi tu mqttTask (session den qua MQTT callback, cung chay trong
 // mqtt.loop() goi tu mqttTask) nen khong can mutex.
 static bool webSessionActive = false;
-struct WebClientLease { char id[40] = ""; uint32_t expiresAt = 0U; bool foreground = true; };
+struct WebClientLease { char id[40] = ""; uint32_t expiresAt = 0U; };
 static WebClientLease webClientLeases[8];
-static bool webForegroundActive = false;
 static bool highPerfWifiApplied = false;  // tranh goi esp_wifi_set_ps lap lai
 static bool wifiPowerModeValid = false;
 static MayapWebRealtime::PerformanceGrace wifiPerformanceGrace;
@@ -1325,18 +1324,13 @@ inline void handleSessionMessage(const JsonDocument &doc) {
     if (ttlMs == 0U || ttlMs > WEB_SESSION_MAX_TTL_MS) ttlMs = WEB_SESSION_MAX_TTL_MS;
     snprintf(slot->id, sizeof(slot->id), "%s", client);
     slot->expiresAt = now + ttlMs;
-    slot->foreground = doc["foreground"] | true; // Older V2 pages stay fast.
   } else {
     slot->id[0] = '\0';
     slot->expiresAt = now;
   }
   webSessionActive = false;
-  webForegroundActive = false;
   for (const auto &lease : webClientLeases)
-    if (lease.id[0] && !timeReached(now, lease.expiresAt)) {
-      webSessionActive = true;
-      if (lease.foreground) webForegroundActive = true;
-    }
+    if (lease.id[0] && !timeReached(now, lease.expiresAt)) webSessionActive = true;
 
   if (sync) {
     portENTER_CRITICAL(&webMux);
@@ -1383,7 +1377,6 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
     activeAckKeyValid = false;
     JsonDocument bodyDoc;
     const bool v2 = wireDoc["v"].as<int>() == 2;
-    if (!v2) return; // Account gateway rollout retires browser command V1.
     bool expired = false;
     if (!(v2 ? mqttVerifyV2(channel, wireDoc, bodyDoc, expired)
              : mqttVerifySignedWrite(channel, wireDoc, bodyDoc))) {
@@ -1609,13 +1602,9 @@ inline void drainAckOutbox() {
 
 inline void serviceSessionTimeout(uint32_t now) {
   bool active = false;
-  webForegroundActive = false;
   for (auto &lease : webClientLeases) {
     if (lease.id[0] && timeReached(now, lease.expiresAt)) lease.id[0] = '\0';
-    if (lease.id[0]) {
-      active = true;
-      if (lease.foreground) webForegroundActive = true;
-    }
+    if (lease.id[0]) active = true;
   }
   webSessionActive = active;
 }
@@ -1657,14 +1646,9 @@ inline void serviceReminderPublish() {
   }
 }
 
-inline uint32_t snapshotIntervalMs() {
-  return webSessionActive ? (webForegroundActive ? WEB_SNAPSHOT_ACTIVE_INTERVAL_MS
-                                                                   : WEB_SNAPSHOT_WARM_INTERVAL_MS)
-                                             : WEB_SNAPSHOT_IDLE_INTERVAL_MS;
-}
-
 inline void serviceSnapshotPublish(uint32_t now) {
-  const uint32_t interval = snapshotIntervalMs();
+  const uint32_t interval = webSessionActive ? WEB_SNAPSHOT_ACTIVE_INTERVAL_MS
+                                             : WEB_SNAPSHOT_IDLE_INTERVAL_MS;
   if (!forceSnapshotPublish && !timeReached(now, lastSnapshotPublishAt + interval)) return;
   portENTER_CRITICAL(&webMux);
   const bool valid = knownRuntimeValid;

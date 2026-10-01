@@ -1,7 +1,7 @@
 const test=require('node:test'), assert=require('node:assert/strict'), fs=require('node:fs');
 const { DatabaseSync }=require('node:sqlite');
 const { pathToFileURL }=require('node:url');
-const base='https://account.example';
+const base='https://worker.example',frontend='https://kqviet1810.github.io';
 const modules=Promise.all([import('../cloudflare/src/account-worker.js'),import('../cloudflare/src/account-auth.js'),
   import(pathToFileURL(require.resolve('../cloudflare/node_modules/jose')).href)]);
 function database(){
@@ -20,18 +20,17 @@ function database(){
 }
 async function setup(){
   const [worker,auth,jose]=await modules, {DB,sql}=database();
-  const pair=await jose.generateKeyPair('EdDSA',{extractable:true});
-  const env={DB,APP_ORIGIN:base,MAYAP_SESSION_PEPPER:'random-session-test-only',DEVICE_KEY_PEPPER:'random-device-test-only',
-    MQTT_ISOLATION_READY:'1',MQTT_GATEWAY_URL:'wss://gateway.example/mqtt',MQTT_TICKET_PRIVATE_KEY:await jose.exportPKCS8(pair.privateKey),MQTT_GATEWAY_CHECK_SECRET:'gateway-test-only'};
+  const env={DB,ALLOWED_ORIGIN:frontend,MAYAP_SESSION_PEPPER:'random-session-test-only',DEVICE_KEY_PEPPER:'random-device-test-only',
+    GOOGLE_CLIENT_ID:'google-client',MAYAP_MQTT_WSS_URL:'wss://broker.example:8884/mqtt',MAYAP_MQTT_USERNAME:'shared-web',MAYAP_MQTT_PASSWORD:'shared-test-only'};
   async function login(sub){return auth.createSession(env,{sub,email:sub+'@example.test',name:sub});}
   async function device(n){const id='MAP-'+n.toString(16).toUpperCase().padStart(12,'0');
     sql.prepare('INSERT INTO devices(device_id,device_key_hash,created_at,web_pin_hash) VALUES(?,?,?,?)')
       .run(id,'device-key-test',Date.now(),await auth.hash('123456',{MAYAP_SESSION_PEPPER:env.DEVICE_KEY_PEPPER}));return id;}
   async function call(path,sess,data,method=data?'POST':'GET',extra={}){
-    return worker.default.fetch(new Request(base+path,{method,headers:{Cookie:sess?`${auth.cookieName}=${sess.token}; ${auth.csrfCookie}=${sess.csrfToken}`:'',
-      Origin:base,'Content-Type':'application/json','X-Mayap-CSRF':sess?.csrfToken || '',...extra},body:data?JSON.stringify(data):undefined}),env,{waitUntil(){}});
+    return worker.default.fetch(new Request(base+path,{method,headers:{Authorization:sess?'Bearer '+sess.token:'',
+      Origin:frontend,'Content-Type':'application/json',...extra},body:data?JSON.stringify(data):undefined}),env,{waitUntil(){}});
   }
-  return {env,sql,auth,jose,pair,login,device,call};
+  return {env,sql,auth,jose,login,device,call};
 }
 test('claim checks PIN, refuses takeover, and ownership protects status/history/config/grant',async()=>{
   const h=await setup(), A=await h.login('user-A'), B=await h.login('user-B'), id=await h.device(1);
@@ -40,6 +39,7 @@ test('claim checks PIN, refuses takeover, and ownership protects status/history/
   assert.equal((await h.call('/api/account/devices/claim',B,{device_id:id,pin:'123456'})).status,409);
   for(const route of ['status','history','config'])assert.equal((await h.call(`/api/device/${id}/${route}`,B)).status,403);
   assert.equal((await h.call('/api/device/mqtt-session',B,{device_id:id,control_client_id:'w-browserB123'})).status,403);
+  for(const route of ['rename','change-pin'])assert.equal((await h.call('/api/device/'+route,B,{device_id:id,name:'bad',old_pin:'123456',new_pin:'999999'})).status,403);
   assert.equal((await h.call(`/api/device/${id}/status`,A)).status,200);
   assert.equal((await h.call(`/api/device/${id}/status`,null)).status,401);
   assert.equal((await h.call(`/api/device/${id}/status`,null,undefined,'GET',{Cookie:'pairing_token=legacy-known-token'})).status,401);
@@ -52,19 +52,19 @@ test('PIN attempts are reserved atomically and bounded across accounts/IPs',asyn
   assert.equal(requests.filter(r=>r.status===429).length,1);
   assert.equal(h.sql.prepare('SELECT attempts FROM auth_rate_limits WHERE rate_key=?').get('claim:device:'+id).attempts,6);
 });
-test('account session uses Google sub, rejects CSRF/cross origin, logout/expiry/revoke end access',async()=>{
+test('account session uses Google sub and bearer auth, rejects cross origin, logout/expiry/revoke end access',async()=>{
   const h=await setup(), A=await h.login('stable-google-sub'), A2=await h.login('stable-google-sub'), B=await h.login('B');
-  const data=await (await h.call('/api/account/session',A)).json();assert.equal(data.user.sub,'stable-google-sub');assert.equal(data.csrf,A.csrfToken);
-  assert.equal((await h.call('/api/account/logout',A,{},'POST',{'X-Mayap-CSRF':'wrong'})).status,403);
+  const data=await (await h.call('/api/account/session',A)).json();assert.equal(data.user.sub,'stable-google-sub');assert.equal(data.csrf,undefined);
+  assert.equal((await h.call('/api/account/logout',null,{},'POST',{Cookie:'mayap_session='+A.token})).status,401);
   assert.equal((await h.call('/api/account/logout',A,{},'POST',{Origin:'https://attacker.example'})).status,403);
   await h.call('/api/account/sessions/revoke',B,{session_id:A2.id});assert.equal((await h.call('/api/account/session',A2)).status,200);
   await h.call('/api/account/sessions/revoke',A,{session_id:A2.id});assert.equal((await h.call('/api/account/session',A2)).status,401);
-  const res=await h.call('/api/account/logout',A,{});assert.equal(res.status,200);assert.match(res.headers.get('Set-Cookie'),/HttpOnly; Secure; SameSite=Lax; Max-Age=0/);
+  const res=await h.call('/api/account/logout',A,{});assert.equal(res.status,200);assert.equal(res.headers.get('Set-Cookie'),null);
   assert.equal((await h.call('/api/account/session',A)).status,401);
   h.sql.prepare('UPDATE user_sessions SET expires_at=? WHERE id=?').run(Date.now()-1,B.id);
   assert.equal((await h.call('/api/account/session',B)).status,401);
 });
-test('10 customers x 3 devices issue only their own MQTT topics and exact existing V2 grants',async()=>{
+test('10 customers x 3 devices list only their own machines and receive exact existing HMAC V2 grants',async()=>{
   const h=await setup(), accounts=[],ids=[];
   for(let user=0;user<10;user++){
     const s=await h.login('google-'+user);accounts.push(s);ids[user]=[];
@@ -75,11 +75,13 @@ test('10 customers x 3 devices issue only their own MQTT topics and exact existi
     const rows=await (await h.call('/api/account/session',s)).json();assert.equal(rows.devices.length,3);
     const result=await (await h.call('/api/device/mqtt-session',s,{device_id:ids[user][0],control_client_id:'w-browser'+user+'000'})).json();
     assert.equal(result.success,true);
-    const {payload}=await h.jose.jwtVerify(result.mqtt.password,h.pair.publicKey,{issuer:base,audience:'mayap-mqtt-gateway'});
-    assert.deepEqual(payload.read,ids[user]);assert.deepEqual(payload.write,ids[user]);assert.equal(payload.sub,'google-'+user);
-    const keyHex=await h.auth.hmacHex(h.env.DEVICE_KEY_PEPPER,'mayap-command-key:v1:'+ids[user][0]), bytes=Buffer.from(keyHex,'hex');
+    assert.equal(result.mqtt.url,h.env.MAYAP_MQTT_WSS_URL);
+    assert.equal(result.mqtt.password,h.env.MAYAP_MQTT_PASSWORD);
+    const bytes=Buffer.from(await h.auth.hmacHex(h.env.DEVICE_KEY_PEPPER,'mayap-command-key:v1:'+ids[user][0]),'hex');
     assert.equal(result.control.grantSig,await h.auth.hmacHex(bytes,`mayap-control-grant:v2\n${ids[user][0]}\n${result.control.grant}`));
     assert.equal(result.control.sessionKey,await h.auth.hmacHex(bytes,`mayap-control-session:v2\n${ids[user][0]}\n${result.control.grant}`));
+    assert.match(result.control.grant,new RegExp('^w-browser'+user+'000\\|'));
+
   }
   for(let i=0;i<10;i++)for(let j=0;j<10;j++)if(i!==j){
     assert.equal((await h.call(`/api/device/${ids[j][0]}/status`,accounts[i])).status,403);
@@ -87,11 +89,11 @@ test('10 customers x 3 devices issue only their own MQTT topics and exact existi
   }
   assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM user_devices').get().n,30);
 });
-test('MQTT isolation readiness gate cannot leak shared broker credentials',async()=>{
-  const h=await setup(), A=await h.login('A'),id=await h.device(8);await h.call('/api/account/devices/claim',A,{device_id:id,pin:'123456'});
-  h.env.MQTT_ISOLATION_READY='0';h.env.WEB_MQTT_PASSWORD='shared-old-password';
-  const response=await h.call('/api/device/mqtt-session',A,{device_id:id,control_client_id:'w-gated00000'});
-  assert.equal(response.status,503);assert.ok(!(await response.text()).includes('shared-old-password'));
+test('direct HiveMQ credentials require account membership and configured existing broker password',async()=>{
+  const h=await setup(),A=await h.login('A'),id=await h.device(8);
+  await h.call('/api/account/devices/claim',A,{device_id:id,pin:'123456'});
+  h.env.MAYAP_MQTT_PASSWORD='';
+  assert.equal((await h.call('/api/device/mqtt-session',A,{device_id:id,control_client_id:'w-client000'})).status,503);
 });
 test('Google RS256 identity validates signature, audience, issuer, expiry, nonce, azp and sub',async()=>{
   const [,auth,jose]=await modules, pair=await jose.generateKeyPair('RS256');
@@ -104,62 +106,64 @@ test('Google RS256 identity validates signature, audience, issuer, expiry, nonce
   const other=await jose.generateKeyPair('RS256');await assert.rejects(auth.verifyGoogle(await mint({},other.privateKey),'google-client','expected',pair.publicKey));
   await assert.rejects(auth.verifyGoogle('invalid','google-client','expected',pair.publicKey));
 });
-test('OIDC start uses state/nonce/PKCE, callback rejects forged/replayed state',async()=>{
-  const h=await setup();h.env.GOOGLE_CLIENT_ID='client';h.env.GOOGLE_CLIENT_SECRET='test-only';
-  const response=await h.call('/auth/google/start');assert.equal(response.status,302);
-  const url=new URL(response.headers.get('Location'));assert.equal(url.searchParams.get('response_type'),'code');
-  assert.equal(url.searchParams.get('code_challenge_method'),'S256');assert.equal(url.searchParams.get('redirect_uri'),base+'/auth/google/callback');
-  assert.match(response.headers.get('Set-Cookie'),/HttpOnly; Secure; SameSite=Lax/);
-  assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM oauth_transactions').get().n,1);
-  const state=url.searchParams.get('state');
-  const noCookie=await h.call('/auth/google/callback?state='+state+'&code=invalid');assert.match(noCookie.headers.get('Location'),/login_error/);
-  assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM user_sessions').get().n,0);
+test('Google nonce challenge is one-use, expired/forged challenges cannot create sessions',async()=>{
+  const h=await setup();
+  const challenge=await (await h.call('/api/account/google/challenge',null,{})).json();
+  assert.match(challenge.nonce,/^[a-f0-9]{64}$/);assert.equal(challenge.clientId,h.env.GOOGLE_CLIENT_ID);
+  assert.equal((await h.call('/api/account/google/login',null,{challenge:challenge.challenge,credential:'invalid'})).status,401);
+  assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM google_login_challenges').get().n,0);
+  assert.equal((await h.call('/api/account/google/login',null,{challenge:challenge.challenge,credential:'invalid'})).status,401);
+  const next=await (await h.call('/api/account/google/challenge',null,{})).json();
+  h.sql.prepare('UPDATE google_login_challenges SET expires_at=?').run(Date.now()-1);
+  assert.equal((await h.call('/api/account/google/login',null,{challenge:next.challenge,credential:'invalid'})).status,401);
 });
-test('Google code callback verifies remote JWKS, creates HttpOnly MAYAP session and consumes state once',async()=>{
-  const h=await setup();h.env.GOOGLE_CLIENT_ID='callback-client';h.env.GOOGLE_CLIENT_SECRET='callback-test-only';
-  const start=await h.call('/auth/google/start'), state=new URL(start.headers.get('Location')).searchParams.get('state');
-  const tx=h.sql.prepare('SELECT * FROM oauth_transactions').get(), keys=await h.jose.generateKeyPair('RS256',{extractable:true});
+test('GIS login verifies remote Google JWKS and issues a hash-only revocable MAYAP bearer session',async()=>{
+  const h=await setup(),keys=await h.jose.generateKeyPair('RS256',{extractable:true});
+  const challenge=await (await h.call('/api/account/google/challenge',null,{})).json();
   const jwk=await h.jose.exportJWK(keys.publicKey);jwk.kid='test-google-key';jwk.alg='RS256';jwk.use='sig';
-  const token=await new h.jose.SignJWT({nonce:tx.nonce,email:'display@example.test',name:'Google user'})
+  const token=await new h.jose.SignJWT({nonce:challenge.nonce,email:'display@example.test',name:'Google user'})
     .setProtectedHeader({alg:'RS256',kid:jwk.kid}).setIssuer('https://accounts.google.com')
     .setAudience(h.env.GOOGLE_CLIENT_ID).setSubject('actual-google-sub').setIssuedAt().setExpirationTime('5m').sign(keys.privateKey);
-  const originalFetch=global.fetch;let exchanges=0;
-  global.fetch=async(url,init)=>{
-    if(String(url)==='https://oauth2.googleapis.com/token'){
-      exchanges++;const form=init.body;assert.equal(form.get('code_verifier'),tx.verifier);
-      assert.equal(form.get('redirect_uri'),base+'/auth/google/callback');
-      return new Response(JSON.stringify({id_token:token,access_token:'not-persisted'}));
-    }
-    if(String(url)==='https://www.googleapis.com/oauth2/v3/certs')return new Response(JSON.stringify({keys:[jwk]}));
-    throw new Error('Unexpected remote request');
+  const original=global.fetch;global.fetch=async url=>{
+    assert.equal(String(url),'https://www.googleapis.com/oauth2/v3/certs');return new Response(JSON.stringify({keys:[jwk]}));
   };
   try {
-    const response=await h.call('/auth/google/callback?state='+state+'&code=test',null,undefined,'GET',{Cookie:'__Host-mayap_oauth='+state});
-    assert.equal(response.status,303);assert.equal(response.headers.get('Location'),base+'/');
-    assert.match(response.headers.get('Set-Cookie'),/__Host-mayap_session=[a-f0-9]{64}; Path=\/; HttpOnly; Secure/);
-    assert.equal(h.sql.prepare('SELECT user_sub FROM user_sessions').get().user_sub,'actual-google-sub');
-    assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM oauth_transactions').get().n,0);
-    const replay=await h.call('/auth/google/callback?state='+state+'&code=test',null,undefined,'GET',{Cookie:'__Host-mayap_oauth='+state});
-    assert.match(replay.headers.get('Location'),/login_error/);assert.equal(exchanges,1);
-  }finally{global.fetch=originalFetch;}
+    const res=await h.call('/api/account/google/login',null,{challenge:challenge.challenge,credential:token});
+    assert.equal(res.status,200);const data=await res.json();assert.match(data.token,/^[a-f0-9]{64}$/);
+    const saved=h.sql.prepare('SELECT * FROM user_sessions').get();assert.equal(saved.user_sub,'actual-google-sub');
+    assert.notEqual(saved.token_hash,data.token);assert.equal(saved.token_hash,await h.auth.hash(data.token,h.env));
+    assert.ok(data.expiresAt>Date.now()+86300000);assert.ok(data.expiresAt<=Date.now()+86400000);
+    assert.equal((await h.call('/api/account/session',{token:data.token})).status,200);
+    assert.equal((await h.call('/api/account/google/login',null,{challenge:challenge.challenge,credential:token})).status,401);
+  }finally{global.fetch=original;}
 });
-test('viewer can receive read MQTT ticket but cannot obtain control grant or change ownership/config',async()=>{
+test('exact-origin CORS preflight allows bearer JSON API calls, denies other origins/headers',async()=>{
+  const h=await setup();
+  const good=await h.call('/api/account/session',null,undefined,'OPTIONS',{'Access-Control-Request-Method':'GET','Access-Control-Request-Headers':'authorization,content-type'});
+  assert.equal(good.status,204);assert.equal(good.headers.get('Access-Control-Allow-Origin'),frontend);
+  assert.equal((await h.call('/api/account/session',null,undefined,'OPTIONS',{Origin:'https://attacker.example','Access-Control-Request-Method':'GET'})).status,403);
+  assert.equal((await h.call('/api/account/session',null,undefined,'OPTIONS',{'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'x-unexpected'})).status,403);
+});
+test('viewer receives existing shared broker credentials but cannot obtain control grant or change devices via API',async()=>{
   const h=await setup(),owner=await h.login('owner'),viewer=await h.login('viewer'),id=await h.device(50);
   await h.call('/api/account/devices/claim',owner,{device_id:id,pin:'123456'});
   h.sql.prepare("INSERT INTO user_devices(user_sub,device_id,role,created_at) VALUES(?,?,'viewer',?)").run('viewer',id,Date.now());
   const data=await (await h.call('/api/device/mqtt-session',viewer,{device_id:id,control_client_id:'w-viewer000'})).json();
   assert.equal(data.control,null);
-  const {payload}=await h.jose.jwtVerify(data.mqtt.password,h.pair.publicKey);assert.deepEqual(payload.read,[id]);assert.deepEqual(payload.write,[]);
+  assert.equal(data.mqtt.password,h.env.MAYAP_MQTT_PASSWORD); // No claim of broker read isolation.
   assert.equal((await h.call('/api/device/rename',viewer,{device_id:id,name:'bad'})).status,403);
   assert.equal((await h.call('/api/device/change-pin',viewer,{device_id:id,old_pin:'123456',new_pin:'999999'})).status,403);
 });
-test('fleet heartbeat/account/hidden snapshot budget and V1 retirement are explicit',()=>{
-  const config=fs.readFileSync('MAYAP_INDUSTRIAL_v4_0_0/config.h','utf8'),app=fs.readFileSync('app.js','utf8'),
-    account=fs.readFileSync('account.js','utf8'),realtime=fs.readFileSync('MAYAP_INDUSTRIAL_v4_0_0/realtime_link.h','utf8');
-  assert.match(config,/CLOUD_HEARTBEAT_INTERVAL_MS = 60000UL/);assert.equal(30*86400000/60000,43200);
-  assert.match(config,/WEB_SNAPSHOT_WARM_INTERVAL_MS = 3000UL/);assert.match(config,/WEB_SNAPSHOT_ACTIVE_INTERVAL_MS = 400UL/);
-  assert.match(account,/Date.now\(\)-lastCheck>=300000/);assert.match(app,/WARM_BACKGROUND_MS = 300000/);
-  assert.match(realtime,/if \(!v2\) return/);assert.ok(!fs.readFileSync('config.js','utf8').includes('session-check'));
+test('minimal account scope keeps all firmware bytes and 300-second WARM unchanged',()=>{
+  const crypto=require('node:crypto');
+  const baseline={"config.h": "09968c2bee4f8e23752c1c6e9adafad0b9454c2727b96f8613c529853782a7f1", "realtime_link.h": "26439b08840e65bd792c731e2c8e1f4d7a0eb1b143acd5626ed42cc8edc6326b"};
+  for(const file of ['config.h','realtime_link.h']) {
+    const filename='MAYAP_INDUSTRIAL_v4_0_0/'+file;
+    assert.equal(crypto.createHash('sha256').update(fs.readFileSync(filename,'utf8').replace(/\r\n/g,'\n')).digest('hex'),baseline[file]);
+  }
+  assert.match(fs.readFileSync('app.js','utf8'),/WARM_BACKGROUND_MS = 300000/);
+  assert.ok(!fs.readFileSync('config.js','utf8').includes('session-check'));
+  assert.ok(!fs.existsSync('mqtt-gateway/server.js'));
 });
 test('push ownership is account-scoped and a revoked session cannot receive device alerts',async()=>{
   const h=await setup(),A=await h.login('push-A'),B=await h.login('push-B'),idA=await h.device(70),idB=await h.device(71);

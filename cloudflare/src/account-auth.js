@@ -1,15 +1,9 @@
-import { createRemoteJWKSet, jwtVerify, SignJWT, importPKCS8 } from 'jose';
-import { randomToken, hashDeviceKey, timingSafeEqual } from './auth.js';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { randomToken, hashDeviceKey } from './auth.js';
 
 const googleKeys = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'),
   { timeoutDuration: 5000, cooldownDuration: 30000, cacheMaxAge: 3600000 });
-export const cookieName = '__Host-mayap_session';
-export const csrfCookie = '__Host-mayap_csrf';
 export const hash = (value, env) => hashDeviceKey(value, env.MAYAP_SESSION_PEPPER);
-export const cookie = (name, value, age) => `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`;
-export function cookies(request) {
-  return Object.fromEntries((request.headers.get('Cookie') || '').split(';').map(s => s.trim().split('=')));
-}
 export function json(data, status = 200, extra = {}) {
   return new Response(JSON.stringify(data), { status, headers: {
     'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store',
@@ -29,15 +23,11 @@ export async function verifyGoogle(token, clientId, nonce, keys = googleKeys) {
 }
 export async function session(request, env) {
   if (!env.MAYAP_SESSION_PEPPER) return null;
-  const token = cookies(request)[cookieName] || '';
+  const token = (request.headers.get('Authorization') || '').replace(/^Bearer /, '');
   if (!/^[a-f0-9]{64}$/.test(token)) return null;
   return env.DB.prepare(`SELECT s.*, u.email, u.name FROM user_sessions s JOIN users u
     ON u.google_sub=s.user_sub WHERE s.token_hash=? AND s.revoked_at IS NULL
     AND s.expires_at>? AND u.disabled=0`).bind(await hash(token, env), Date.now()).first();
-}
-export async function csrf(request, env, auth) {
-  return request.headers.get('Origin') === new URL(request.url).origin &&
-    timingSafeEqual(await hash(request.headers.get('X-Mayap-CSRF') || '', env), auth.csrf_hash);
 }
 export async function deviceList(env, sub) {
   const { results } = await env.DB.prepare(`SELECT d.device_id, d.device_name, d.status, d.last_seen,
@@ -56,28 +46,25 @@ export async function permission(env, sub, id, write = false) {
     ${write ? "AND ud.role IN ('owner','operator')" : ''}`).bind(sub, id).first();
 }
 export async function createSession(env, identity, agent = '') {
-  const now = Date.now(), token = randomToken(32), csrfToken = randomToken(32), id = randomToken(24);
-  const expiry = now + 7 * 86400000;
+  const now = Date.now(), token = randomToken(32), id = randomToken(24);
+  const expiry = now + 86400000;
   await env.DB.prepare(`INSERT INTO users(google_sub,email,name,created_at,last_login_at) VALUES(?,?,?,?,?)
     ON CONFLICT(google_sub) DO UPDATE SET email=excluded.email,name=excluded.name,last_login_at=excluded.last_login_at`)
     .bind(identity.sub, String(identity.email || '').slice(0,254), String(identity.name || '').slice(0,100), now, now).run();
   const enabled = await env.DB.prepare('SELECT disabled FROM users WHERE google_sub=?').bind(identity.sub).first();
   if (enabled.disabled) throw new Error('Account disabled');
-  await env.DB.prepare(`INSERT INTO user_sessions(id,user_sub,token_hash,csrf_hash,created_at,expires_at,user_agent)
-    VALUES(?,?,?,?,?,?,?)`).bind(id, identity.sub, await hash(token,env), await hash(csrfToken,env), now, expiry, agent.slice(0,200)).run();
-  return { token, csrfToken, id, expiry };
+  await env.DB.prepare(`INSERT INTO user_sessions(id,user_sub,token_hash,created_at,expires_at,user_agent)
+    VALUES(?,?,?,?,?,?)`).bind(id, identity.sub, await hash(token,env), now, expiry, agent.slice(0,200)).run();
+  return { token, id, expiry };
 }
-export async function mqttTicket(env, auth, clientId) {
-  if (env.MQTT_ISOLATION_READY !== '1' || !/^wss:\/\//.test(env.MQTT_GATEWAY_URL || '') || !env.MQTT_TICKET_PRIVATE_KEY)
-    throw new Error('MQTT_ISOLATION_NOT_READY');
-  const devices = await deviceList(env, auth.user_sub);
-  const key = await importPKCS8(env.MQTT_TICKET_PRIVATE_KEY, 'EdDSA');
-  const exp = Math.min(Math.floor(auth.expires_at/1000), Math.floor(Date.now()/1000) + 900);
-  const ticket = await new SignJWT({ sid: auth.id, cid: clientId,
-    read: devices.map(d=>d.device_id), write: devices.filter(d=>d.role!=='viewer').map(d=>d.device_id) })
-    .setProtectedHeader({ alg: 'EdDSA', typ: 'JWT' }).setIssuer(env.APP_ORIGIN)
-    .setAudience('mayap-mqtt-gateway').setSubject(auth.user_sub).setIssuedAt().setExpirationTime(exp).sign(key);
-  return { url: env.MQTT_GATEWAY_URL, username: clientId, password: ticket, expiresAt: exp };
+export function mqttCredentials(env) {
+  // Existing direct HiveMQ transport. This shared credential is NOT a tenant ACL.
+  const host = String(env.MAYAP_MQTT_HOST || '2f4b95444c554498bd4a4b2da0de8013.s1.eu.hivemq.cloud').trim();
+  const url = String(env.MAYAP_MQTT_WSS_URL || `wss://${host}:8884/mqtt`).trim();
+  const username = String(env.MAYAP_MQTT_USERNAME || 'Mayap_Iot').trim();
+  const password = String(env.MAYAP_MQTT_PASSWORD || '');
+  if (!/^wss:\/\//i.test(url) || !username || !password) throw new Error('MQTT_NOT_CONFIGURED');
+  return { url, username, password };
 }
 export async function hmacHex(secret, value) {
   const key = await crypto.subtle.importKey('raw', typeof secret === 'string' ? new TextEncoder().encode(secret) : secret,

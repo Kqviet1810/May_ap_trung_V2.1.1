@@ -25,3 +25,7 @@ html:not([data-auth="checking"]) .authLoading {display:none}
 .accountBar{padding:16px 10px;border-top:1px solid #e1ebed;margin-top:auto;display:grid;gap:8px}.accountBar span{font-size:12px;word-break:break-word}.accountBar button{font-size:12px;padding:8px}.accountBar small{font-size:11px}.accountSessions{display:grid;gap:8px;max-height:200px;overflow:auto}
 @media(max-width:900px){.landingHero{gap:24px;padding-top:32px}.landingBenefits{grid-template-columns:repeat(2,1fr)}.demoInner{padding:16px}.demoReading strong{font-size:18px}.heroTrust{gap:12px}.accountBar{display:none}}
 @media(max-width:600px){.landingNav{padding:16px 20px;height:72px}.landingNav .googleLogin{padding:9px 13px;font-size:11px;min-height:40px;gap:7px}.landingNav .googleG{width:25px;height:25px;font-size:18px}.landingBrand{font-size:20px;gap:9px}.landingHero{grid-template-columns:1fr;padding:32px 22px 38px;gap:40px}.heroBrand{font-size:54px}.landing h1{font-size:34px}.heroCopy{font-size:15px}.heroTrust{font-size:11px}.dashboardDemo{transform:none;padding:12px}.demoInner{padding:19px}.landingBenefits{padding:0 22px 24px;gap:12px}.landingBenefits article{padding:18px}.landingBenefits h2{font-size:14px}.landingBenefits p{font-size:12px}.demoReading strong{font-size:21px}.accountBar{display:grid;margin:10px 0}.sidebar .accountBar{display:none}}
+
+/* Google renders its official popup button inside these two containers. */
+.googleLogin,.landingNav .googleLogin{padding:0;min-height:44px;background:transparent;box-shadow:none;border-radius:0}
+.googleLogin:hover{background:transparent}

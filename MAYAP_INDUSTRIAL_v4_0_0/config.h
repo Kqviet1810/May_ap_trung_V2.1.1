@@ -141,7 +141,6 @@ constexpr uint32_t WEB_SESSION_MAX_TTL_MS = 60000UL;
 // Toc do phat snapshot: nhanh khi co web dang mo (foreground), cham lai khi
 // khong ai theo doi de tiet kiem song/nang luong nhung van giu "con song".
 constexpr uint32_t WEB_SNAPSHOT_ACTIVE_INTERVAL_MS = 400UL;
-constexpr uint32_t WEB_SNAPSHOT_WARM_INTERVAL_MS = 3000UL;
 constexpr uint32_t WEB_SNAPSHOT_IDLE_INTERVAL_MS = 6000UL;
 constexpr uint32_t WEB_COMMAND_ACK_TIMEOUT_MS = 8000UL;
 constexpr uint32_t WEB_CONFIG_SAVE_ACK_TIMEOUT_MS = 8000UL;
@@ -222,7 +221,7 @@ constexpr uint32_t FIRMWARE_CHECK_INTERVAL_MS = 6UL * 60UL * 60UL * 1000UL;  // 
 // nhan duoc su kien LWT khi khong co request nao toi). Cron kiem tra phia
 // Worker toi da 1 phut/lan (san co, gioi han cua nen tang) nen day la do
 // tre nhanh nhat dat duoc cho kenh bao qua dien thoai voi kien truc hien tai.
-constexpr uint32_t CLOUD_HEARTBEAT_INTERVAL_MS = 60000UL;
+constexpr uint32_t CLOUD_HEARTBEAT_INTERVAL_MS = 15000UL;
 // Chu ky nhac lai khi loi con ton tai (tuy muc do - CRITICAL nhac nhanh hon
 // WARNING nhu yeu cau). "Info" gan nhu khong dung cho loi that (chi day phong).
 constexpr uint32_t CLOUD_REPEAT_WARNING_MS = 600000UL;    // 10 phut

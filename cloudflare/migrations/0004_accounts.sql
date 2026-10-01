@@ -5,7 +5,7 @@ CREATE TABLE users (
 );
 CREATE TABLE user_sessions (
   id TEXT PRIMARY KEY, user_sub TEXT NOT NULL REFERENCES users(google_sub),
-  token_hash TEXT NOT NULL UNIQUE, csrf_hash TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
   created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, revoked_at INTEGER,
   user_agent TEXT NOT NULL DEFAULT ''
 );
@@ -17,8 +17,8 @@ CREATE TABLE user_devices (
 );
 CREATE UNIQUE INDEX idx_device_one_owner ON user_devices(device_id) WHERE role = 'owner';
 CREATE INDEX idx_user_devices_device ON user_devices(device_id);
-CREATE TABLE oauth_transactions (
-  state_hash TEXT PRIMARY KEY, nonce TEXT NOT NULL, verifier TEXT NOT NULL, expires_at INTEGER NOT NULL
+CREATE TABLE google_login_challenges (
+  challenge_hash TEXT PRIMARY KEY, nonce TEXT NOT NULL, expires_at INTEGER NOT NULL
 );
 ALTER TABLE push_subscriptions ADD COLUMN user_sub TEXT REFERENCES users(google_sub);
 ALTER TABLE push_subscriptions ADD COLUMN user_session_id TEXT REFERENCES user_sessions(id);

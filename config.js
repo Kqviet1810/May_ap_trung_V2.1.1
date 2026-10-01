@@ -1,4 +1,4 @@
-// Same-origin account API. No persistent browser/MQTT credentials.
+// GitHub Pages frontend + cross-origin Worker account API. No persistent browser/MQTT credentials.
 (() => {
   'use strict';
   const key='mayap.web.v10.mqtt.private';
@@ -12,5 +12,5 @@
   window.MAYAP_WEB_CONFIG=Object.freeze({mqttUrl:'',mqttUsername:'',mqttPassword:'',topicRoot:'mayap/v1',
     reconnectPeriodMs:2000,connectTimeoutMs:15000,keepaliveSeconds:30,sessionTtlMs:45000,sessionRefreshMs:3000,
     staleAfterMs:8000,offlineAfterMs:30000,brokerSilenceAfterMs:90000,commandTimeoutMs:10000,
-    configTimeoutMs:15000,cloudApiBase:location.origin});
+    configTimeoutMs:15000,cloudApiBase:'https://mayap-push-worker.vietk-mayaptrung.workers.dev'});
 })();

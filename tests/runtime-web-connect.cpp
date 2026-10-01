@@ -12,15 +12,11 @@ uint32_t millis() { return clockMs; }
 bool timeReached(uint32_t now, uint32_t target) { return static_cast<int32_t>(now - target) >= 0; }
 constexpr char MAYAP_FIRMWARE_VERSION[] = "4.0.0";
 constexpr uint32_t WEB_SESSION_MAX_TTL_MS = 60000;
-constexpr uint32_t WEB_SNAPSHOT_ACTIVE_INTERVAL_MS = 400;
-constexpr uint32_t WEB_SNAPSHOT_WARM_INTERVAL_MS = 3000;
-constexpr uint32_t WEB_SNAPSHOT_IDLE_INTERVAL_MS = 6000;
 #define portENTER_CRITICAL(x) ((void)(x))
 #define portEXIT_CRITICAL(x) ((void)(x))
 static int webMux;
-struct WebClientLease { char id[40] = ""; uint32_t expiresAt = 0; bool foreground = true; };
+struct WebClientLease { char id[40] = ""; uint32_t expiresAt = 0; };
 static WebClientLease webClientLeases[8];
-static bool webForegroundActive = false;
 static bool webSessionActive = false, knownConfigValid = true, knownRemindersValid = true;
 static bool configDirty = false, remindersDirty = false, eventSnapshotDirty = false, forceSnapshotPublish = false;
 static struct { bool humidifierInstalled = false; } knownConfig;
@@ -49,13 +45,11 @@ bool publishJson(const char *suffix, const JsonDocument &doc, bool retain) {
 }
 #include "actual-web-connect.inc"
 void session(const char *id, bool active, bool sync = false, bool legacy = false,
-             bool config = false, bool reminders = false, bool log = false, uint32_t ttlMs = 15000,
-             bool foreground = true) {
+             bool config = false, bool reminders = false, bool log = false, uint32_t ttlMs = 15000) {
   JsonDocument doc;
   doc["clientId"] = id; doc["active"] = active; doc["ttlMs"] = ttlMs; doc["sync"] = sync;
   if (!legacy) doc["scope"] = "runtime";
   doc["config"] = config; doc["reminders"] = reminders; doc["log"] = log;
-  doc["foreground"] = foreground;
   handleSessionMessage(doc);
 }
 int main() {
@@ -146,16 +140,6 @@ int main() {
   clockMs += 15000U; serviceSessionTimeout(clockMs);
   assert(!webSessionActive && warmGrace.update(clockMs, false));
   clockMs += 25000U; assert(!warmGrace.update(clockMs, false));
-  assert(snapshotIntervalMs() == 6000U);
-  session("hidden-00001", true, false, false, false, false, false, 45000U, false);
-  assert(webSessionActive && !webForegroundActive && snapshotIntervalMs() == 3000U);
-  assert(warmGrace.update(clockMs, true));
-  session("visible-0001", true);
-  assert(webForegroundActive && snapshotIntervalMs() == 400U);
-  session("hidden-00001", false);
-  assert(webSessionActive && webForegroundActive && snapshotIntervalMs() == 400U);
-  session("visible-0001", false);
-  assert(!webSessionActive && snapshotIntervalMs() == 6000U);
   PerformanceGrace rollover;
   assert(rollover.update(UINT32_MAX - 1000, false));
   assert(rollover.update(500, false)); assert(!rollover.update(25000, false));

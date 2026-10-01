@@ -27,13 +27,6 @@ test('runtime recovery preserves Adaptive Boot, local safety, schemas, protocol 
     if (entry.filter === 'webBeat') source = source.replace(/^\s*mayapServiceBeat\(MayapRecovery::Service::Ota\);\n/gm, '');
     if (entry.filter === 'supervisor') source = source.replace(/    MayapRecovery::Service failedService[\s\S]*?(?=    const esp_err_t result = esp_task_wdt_reset\(\);)/, '');
     if (entry.filter === 'config') source = source.replace(/^void mayapI2cReport\(uint8_t address, bool ok\);\n|^uint32_t mayapI2cRecoveryEpoch\(\);\n/gm, '');
-    // Reviewed network-only changes. Hash still protects every safety/storage constant.
-    if (entry.filter === 'config') {
-      assert.match(source, /CLOUD_HEARTBEAT_INTERVAL_MS = 60000UL/);
-      assert.match(source, /WEB_SNAPSHOT_WARM_INTERVAL_MS = 3000UL/);
-      source = source.replace(/^constexpr uint32_t WEB_SNAPSHOT_WARM_INTERVAL_MS = 3000UL;\n/m, '')
-        .replace('CLOUD_HEARTBEAT_INTERVAL_MS = 60000UL', 'CLOUD_HEARTBEAT_INTERVAL_MS = 15000UL');
-    }
     assert.equal(crypto.createHash('sha256').update(source).digest('hex'), entry.sha256, entry.file + ' ' + (entry.signature || ''));
   }
 });

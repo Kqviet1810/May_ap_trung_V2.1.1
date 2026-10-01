@@ -62,8 +62,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     parts = []
     for begin, end in (('inline bool publishBootstrap(', 'struct TerminalResult {'),
                        ('inline void handleSessionMessage(', 'inline void mqttMessageCallback('),
-                       ('inline void serviceSessionTimeout(', '// MQTT owner is'),
-                       ('inline uint32_t snapshotIntervalMs()', 'inline void serviceSnapshotPublish(')):
+                       ('inline void serviceSessionTimeout(', '// MQTT owner is')):
         start = realtime.index(begin)
         stop = realtime.index(end, start)
         # The session callback is followed by other message helpers; extract its

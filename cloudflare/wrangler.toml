@@ -8,10 +8,6 @@ compatibility_flags = ["nodejs_compat"]
 # Bien KHONG bi mat (khong nhay cam). Secret that van dat bang Dashboard/
 # wrangler secret put, KHONG commit vao repo.
 [vars]
-APP_ORIGIN = "https://mayap-push-worker.vietk-mayaptrung.workers.dev"
-# Fail closed until gateway is deployed and old shared browser credentials/connections are revoked.
-MQTT_ISOLATION_READY = "0"
-MQTT_GATEWAY_URL = ""
 GOOGLE_CLIENT_ID = ""
 ALLOWED_ORIGIN = "https://kqviet1810.github.io"
 # Quy mo hien tai: cho may moi tu provisioning. Dat = "1" neu sau nay muon
@@ -26,11 +22,6 @@ NEW_DEVICE_REGISTRATION_WINDOW_MINUTES = "60"
 binding = "DB"
 database_name = "mayap_push"
 database_id = "e92a393c-8596-4254-b274-68e57a6de290"
-
-[assets]
-directory = "./public"
-binding = "ASSETS"
-run_worker_first = true
 
 # Chay doc lap voi ESP32 - phat hien khi thiet bi im lang bat thuong.
 [triggers]

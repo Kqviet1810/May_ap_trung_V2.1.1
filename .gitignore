@@ -14,4 +14,10 @@ node_modules/
 cloudflare/public/
 cloudflare/.wrangler/
 .env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.local/
 MAYAP_INDUSTRIAL_v3_4_0/build/

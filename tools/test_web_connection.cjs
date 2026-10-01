@@ -50,7 +50,6 @@ window.mqtt = { connect(url, options) {
     end() { client.disconnecting = true; client.connected = false; client.emit('close'); },
     publish(topic, wire, options, cb) {
       cb?.(); if (!wire) return;
-      if (topic === 'mayap/auth/renew') return;
       const body = JSON.parse(wire);
       if (topic.endsWith('/session')) {
         t.sessions.push(body);
@@ -97,6 +96,7 @@ async function main() {
       const context = await browser.newContext({ viewport: { width, height: 844 }, serviceWorkers: 'block' });
       await context.addInitScript(defaults => {
         window.__defaults = defaults;
+        sessionStorage.setItem('mayap.account.session.v1','aa'.repeat(32));
         const at = Date.now() - 60000;
         localStorage.setItem('mayap.web.v10.devices', JSON.stringify([{ id:'MAP-1234567890AB', name:'Máy thử', pairingToken:'qa-token' }]));
         localStorage.setItem('mayap.account.qa-sub.selected', 'MAP-1234567890AB');
@@ -109,6 +109,7 @@ async function main() {
       const authGate = new Promise(r => { releaseAuth = r; });
       await context.route('**/*', async route => {
         const url = new URL(route.request().url());
+        if(route.request().method()==='OPTIONS')return route.fulfill({headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'},status:204,headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765','Access-Control-Allow-Headers':'authorization,content-type','Access-Control-Allow-Methods':'GET,POST,DELETE'}});
         if (url.origin === 'http://127.0.0.1:8765' && !url.pathname.startsWith('/api/')) {
           if (url.pathname === '/app.js') return route.fulfill({ contentType:'application/javascript', body:app });
           if (url.pathname === '/vendor/mqtt.min.js') return route.fulfill({ contentType:'application/javascript', body:transport });
@@ -117,7 +118,7 @@ async function main() {
         requests.push(url.pathname);
         let body = { success:true };
         if (url.pathname === '/api/account/session') body = { success:true,
-          user:{sub:'qa-sub',name:'QA account'},csrf:'csrf-qa',expiresAt:Date.now()+86400000,
+          user:{sub:'qa-sub',name:'QA account'},expiresAt:Date.now()+86400000,
           devices:[{device_id:'MAP-1234567890AB',device_name:'Máy thử',role:'owner'}] };
         if (url.pathname.endsWith('/mqtt-session')) {
           await authGate;
@@ -125,7 +126,7 @@ async function main() {
             control:{grant:'qa|grant',grantSig:'08'.repeat(32),sessionKey:'07'.repeat(32),expiresAt:Math.floor(Date.now()/1000)+300} };
         }
         if (url.pathname.endsWith('/firmware/latest')) body = { success:true, version:'4.0.0' };
-        await route.fulfill({ status:200, contentType:'application/json', body:JSON.stringify(body) });
+        await route.fulfill({headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'}, status:200, contentType:'application/json', body:JSON.stringify(body) });
       });
       const page = await context.newPage();
       page.on('pageerror', error => errors.push(error.message));
@@ -203,7 +204,7 @@ async function main() {
       await context.route('**/api/device/mqtt-session',async route=> {
         requests.push(new URL(route.request().url()).pathname);
         await renewGate;
-        await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({success:true,
+        await route.fulfill({headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'},status:200,contentType:'application/json',body:JSON.stringify({success:true,
           mqtt:{url:'wss://qa.invalid/mqtt',username:'qa',password:'qa'},
           control:{grant:'qa|renew',grantSig:'08'.repeat(32),sessionKey:'07'.repeat(32),expiresAt:Math.floor(Date.now()/1000)+300}})});
       });
@@ -252,10 +253,12 @@ async function main() {
     const pwa = await browser.newContext({ viewport:{width:390,height:844}, serviceWorkers:'allow' });
     await pwa.route('**/*', route => {
       const url = new URL(route.request().url());
-      if (url.pathname === '/api/account/session') return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
-        success:true,user:{sub:'qa-sub',name:'QA'},csrf:'qa',devices:[],expiresAt:Date.now()+86400000})});
-      return url.origin === 'http://127.0.0.1:8765' ? route.continue() : route.fulfill({status:503,contentType:'application/json',body:'{"success":false}'});
+        if(route.request().method()==='OPTIONS')return route.fulfill({headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'},status:204,headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765','Access-Control-Allow-Headers':'authorization,content-type','Access-Control-Allow-Methods':'GET,POST,DELETE'}});
+      if (url.pathname === '/api/account/session') return route.fulfill({headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'},status:200,contentType:'application/json',body:JSON.stringify({
+        success:true,user:{sub:'qa-sub',name:'QA'},devices:[],expiresAt:Date.now()+86400000})});
+      return url.origin === 'http://127.0.0.1:8765' ? route.continue() : route.fulfill({headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'},status:503,contentType:'application/json',body:'{"success":false}'});
     });
+    await pwa.addInitScript(()=>sessionStorage.setItem('mayap.account.session.v1','aa'.repeat(32)));
     const offlinePage = await pwa.newPage();
     const offlineErrors = [];
     offlinePage.on('pageerror', error => offlineErrors.push(error.message));

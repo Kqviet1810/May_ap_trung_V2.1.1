@@ -1,174 +1,191 @@
-# MAYAP account + tenant isolation (Draft, Web 12.2.0)
+# Google Account + ownership — phạm vi tối giản của PR #24
 
-Branch starts at `feat/web-fast-connect` commit `37d8035`. No production deployment,
-remote migration, merge, credential rotation or real OTA was performed for this change.
+Frontend vẫn là GitHub Pages: `https://kqviet1810.github.io/May_ap_trung_V2.1.1/`.
+Backend vẫn là Cloudflare Worker + D1. Web kết nối WSS **trực tiếp HiveMQ** như
+`feat/web-fast-connect`. Không có gateway/VPS/Caddy/Docker/domain mới hoặc Worker
+hosting frontend. Không deploy production, migration remote, merge main hay OTA
+trong quá trình làm PR này. PR giữ Draft.
 
-## Account and data model
+## Giới hạn bảo mật bắt buộc
 
-Google authorization code OIDC runs on the Worker, with a random state cookie,
-single-use 10-minute D1 transaction, nonce and PKCE S256. Worker exchanges the code
-with Google's token endpoint, verifies RS256 through Google's cached/rotating JWKS,
-issuer, audience, authorized party, expiry, issued-at, nonce and subject. Google
-`sub` is the identity key; email/name are display fields. No Google access/refresh
-token is stored. No password registration is introduced.
+- **Account/API isolation: đã triển khai.** Worker xác thực MAYAP session rồi kiểm
+  tra `user_devices` trước khi đọc status/history/config, cấp MQTT/control grant,
+  rename, change PIN hoặc liên kết Push. PIN đúng không chiếm được máy có owner khác.
+- **MQTT command authorization: vẫn được HMAC V2 bảo vệ.** Grant theo từng máy,
+  hạn 5 phút; command giữ bootId/expiry/anti-replay và signed ACK. Biết broker
+  credential chung không cho phép tự tạo chữ ký hoặc xin grant cho máy khác.
+- **MQTT read/topic isolation giữa khách hàng: CHƯA giải quyết hoàn toàn.** Web
+  vẫn nhận credential HiveMQ chung. Người có credential có thể tự dùng MQTT client
+  hoặc DevTools; khả năng subscribe telemetry/topic máy khác phụ thuộc ACL hiện tại
+  của HiveMQ. Không mô tả credential này là tenant-safe; UI chỉ subscribe máy trong
+  account không phải một hàng rào broker authorization.
+- Cô lập MQTT read/topic là hạng mục tương lai trước khi yêu cầu multi-tenant thương
+  mại nghiêm ngặt. PR này không thay broker hoặc transport để giải quyết hạng mục đó.
 
-Migration `0004_accounts.sql` adds `users`, `user_sessions`, `user_devices` and
-`oauth_transactions`, and binds push subscriptions to account/session. A partial
-unique index enforces one owner per device; membership roles are owner/operator/viewer.
-Claim uses authenticated account + CSRF + existing device PIN hash/pepper, atomic
-attempt reservation and conditional insert. Wrong PIN is rejected; a valid PIN
-cannot take over someone else's device. Owner transfer is deliberately unavailable
-until a verified transfer workflow is added. A reset PIN at HMI does not transfer ownership.
+API ownership không thể thu hồi tức thì một grant HMAC đã cấp: grant đó còn hợp lệ
+đến expiry tối đa 5 phút theo firmware hiện hành. Logout/revoke chặn cấp grant mới,
+Web dọn key/socket hiện tại. Firmware được giữ nguyên, kể cả compatibility verifier
+cũ; Web hiện hành chỉ phát V2 và `/sign-mqtt` cũ không còn cấp chữ ký qua API.
 
-MAYAP session: random opaque 256-bit token, only its peppered hash in D1,
-7-day absolute expiry, revocation row, cookie `__Host-mayap_session` with
-HttpOnly/Secure/SameSite=Lax/Path=/. CSRF secret is another HttpOnly cookie and
-returned to same-origin JS RAM by session API; writes require Origin + CSRF header.
-Logout revokes the current session, deletes its push links, clears this account's
-local cache/control keys and disconnects MQTT. Other tabs receive BroadcastChannel
-logout. Settings can revoke another session. Other gateways detect revocation at
-the next 60s batch check; failed checks shut sockets within 90s of the last success.
+## Login và session
 
-Web/static assets are served through Worker ASSETS **on the same origin**. This avoids
-third-party-cookie dependence between github.io and workers.dev, especially on iOS.
-The account gate hides both dashboard and landing while checking. Valid session goes
-straight to owned devices; 401 shows landing; network failure keeps the check/retry
-screen. A cold offline reload cannot validate ownership and fails closed. A running
-authenticated tab retains its RAM/cache and existing MQTT during temporary HTTP failure.
+Landing hiện khi chưa có session; dashboard ẩn. Session sẵn có được kiểm tra trước
+khi hiện dashboard, không flash landing. Google Identity Services render nút Google
+chuẩn, popup/callback tại GitHub Pages. Worker cấp nonce/challenge một lần, hạn
+5 phút, giới hạn 60 lần/15 phút/IP. Web gửi Google ID token qua HTTPS POST;
+Worker kiểm RS256/JWKS, issuer, audience, expiry/issued-at, nonce, azp và `sub`.
+Nonce challenge bị consume một lần; không tin profile tự gửi từ frontend.
 
-Cache keys: `mayap.account.<Google sub>.runtime.v1.<Device ID>`, plus selection and
-batch preferences under the same account namespace. Cache is explicitly old data,
-never live. Legacy browser pairing secrets are discarded, not migrated into ownership.
-`pairingToken='account-session'` inside the existing app object is a **non-secret
-RAM/UI compatibility marker** for unchanged V2 signing guards, never an authorization
-credential; Worker strips/ignores it and uses cookie + D1 ownership. No old token
-can authorize API or MQTT. Device firmware identity/provisioning remains unchanged.
+Google `sub` là identity; email/name chỉ để hiển thị. Không tạo password riêng,
+không lưu Google ID/access/refresh token, không cần OAuth client secret cho luồng GIS
+popup ID-token này. [GIS integration](https://developers.google.com/identity/gsi/web/guides/integrate),
+[server verification](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token).
 
-`/api/account/session` validates all owned devices together, once per 5 minutes while
-visible and when resuming after that interval. No per-device session-check/name/status
-poll loop. Push linked counts come in the same account response. API status/history/
-config and MQTT/control ticket issuance check membership. Full realtime config/history
-remain lazy over authorized MQTT. Viewer tickets contain read rights and lease/session
-rights, but no control grant or command/config/reminder/history write rights.
+Worker cấp token MAYAP opaque 256-bit, chỉ lưu hash có pepper trong D1. Hạn tuyệt đối
+24 giờ; có logout/revoke/disabled account. Browser giữ token trong RAM +
+`sessionStorage`, không localStorage; gửi `Authorization: Bearer` cho đúng Worker
+origin. Giữ qua reload/tab còn sống; tab đóng hoặc session hết hạn cần login lại.
+Mỗi điện thoại/PC login Google là lấy lại danh sách máy, không nhập PIN từng máy nữa.
 
-## MQTT gateway and commercial cutover
+Trade-off: token đọc được bởi JavaScript nếu có XSS. Dùng `sessionStorage` có giới hạn
+24 giờ và server revoke; không đặt secret dài hạn ở localStorage. Cookie HttpOnly
+cross-site giữa github.io và workers.dev phụ thuộc third-party cookie và có thể bị
+iOS chặn, nên không dùng cookie cho account API. CORS chỉ cho đúng GitHub Pages
+origin; explicit bearer authorization và Origin check ngăn cookie-style CSRF.
+GIS login thêm nonce một lần. Không dùng `Access-Control-Allow-Origin: *` cho account.
 
-HiveMQ Serverless topic permissions exist, but its management capabilities differ
-from Starter and it cannot validate these account tickets directly. Shared browser
-username/password never provided read isolation, even with per-device command HMAC.
+Logout revoke current session, xóa Push links của phiên, token/cache/control keys và
+MQTT socket. BroadcastChannel báo các tab cùng origin dọn phiên. Settings vẫn có
+revoke session khác. Cache namespace `mayap.account.<Google sub>.runtime.v1.<Device ID>`
+được hiện sau khi ownership xác thực; không coi cache là live. Cold offline reload
+không xác thực được account thì giữ màn kiểm tra/retry; tab đã xác thực vẫn giữ RAM/
+socket khi HTTP tạm lỗi.
 
-This change supplies a small Node WSS MQTT gateway (`mqtt-gateway/`) placed near the
-broker. Browser receives a Worker-signed Ed25519 JWT valid at most 15 minutes,
-bound to account session, per-tab client ID, read devices and writable devices.
-The gateway verifies JWT and current account rights before opening one HiveMQ WSS
-connection per browser (about 20 at target size). Broker password stays server-side.
-Commands and signed ACK are forwarded unchanged; gateway does not sign or execute them.
+## D1 và claim
 
-Exact topic ACL excludes `#`, `+`, `$share`, `$SYS`, other machines and arbitrary
-topics. Core reads: presence/bootstrap/snapshot/ack. Lazy reads:
-config/reported, reminders/reported, history/reported, log. Writes:
-session, command, config/set, reminders/set, history/request with appropriate roles.
-Only V2 control envelopes, QoS 0/1, no retained writes, normal payload <1536 bytes.
-Upstream PUBLISH is checked too, so a broker misroute cannot leak another tenant.
-Parser fragments, queues and backpressure are bounded; MQTT v3.1.1 clean sessions
-only, no browser LWT. Gateway upstream TLS certificate verification stays enabled.
+Migration **`0004_accounts.sql`** thêm:
 
-Ticket renewal goes through reserved `mayap/auth/renew` QoS1, consumed by gateway.
-It updates the ACL/expiry and acknowledges locally while retaining the same socket;
-no renewal reaches ESP32/broker. Worker reissues ticket during normal control-grant
-prefetch. Account revocation/ownership is checked by one signed gateway batch every
-60s, never an HTTP call per packet/click. Session ticket expiry and fail-closed check
-deadline stop stale authorization. The gateway host/reverse proxy is an additional
-operational dependency; colocate it to keep command latency low and monitor it.
+- `users`: Google sub primary key, display email/name, login timestamps, disabled.
+- `user_sessions`: token hash unique, user, expiry, revoked timestamp, user agent.
+- `user_devices`: user/device membership, owner/operator/viewer; unique một owner/máy.
+- `google_login_challenges`: challenge hash, nonce, expiry, consume một lần.
+- Push subscriptions thêm user/session association. Push cũ được xóa và tự relink
+  sau login nếu browser đã bật thông báo; browser client cũ bị revoke.
 
-**No production isolation claim until old shared credentials AND old live broker
-connections are revoked.** Deleting a HiveMQ credential alone does not terminate
-connections already established with it. If ESP32 currently shares that credential
-with old browsers, provision a separate broker credential per ESP32 (read its own
-incoming topics, publish only its own outgoing topics), plus a server-only gateway
-credential with the required 30-device ACL. Rotate the old credential and drain old
-browser connections in a coordinated maintenance window. Existing local safety/control
-continues during network downtime. Do not enable `MQTT_ISOLATION_READY=1` beforehand.
+Login → + Thêm máy → Device ID + PIN → Worker kiểm existing PIN hash + rate-limit
+5 lần/15 phút/máy, 30 lần/15 phút/IP → insert owner atomic. Máy có owner khác trả 409,
+kể cả biết PIN. Reset PIN HMI không đổi owner. Chưa thêm UI chia sẻ/chuyển owner;
+schema role để mở rộng sau. Legacy `device_clients/browser_limit` giữ audit/schema,
+không còn cấp quyền browser; `device_inventory` giữ admission/disable thiết bị.
 
-Account mode defaults **fail closed** (`MQTT_ISOLATION_READY=0`). Login/claim can work
-once Google/session secrets are set; MQTT session returns 503 with a clear UI message
-until cutover is complete. No shared-password fallback exists. Old verify-pin,
-session-check, sign-mqtt routes return 410; V1 signing handlers are removed and
-firmware rejects V1 control. Old pages must reload/login; local machine control is
-not bricked. Old `device_clients`/browser_limit are retained audit/schema records,
-revoked in migration, with their authorization code removed. `device_inventory`
-remains factory admission and account access disable list.
+Physical-device API register/heartbeat/reset-pin/rotate-key/alarm và OTA download vẫn
+dùng device authentication hiện có, không Google. Public metadata/VAPID không chứa
+dữ liệu riêng từng máy. Mọi API dữ liệu máy/grant/đổi máy đều cần account ownership.
+Config thực tế vẫn lazy load qua MQTT; HTTP config trả hướng dẫn dùng MQTT sau khi
+kiểm quyền. History API chỉ đọc tối đa 500 điểm, không thêm cloud telemetry write.
 
-## Realtime and fleet request budget
+## Realtime giữ nguyên
 
-Cloud heartbeat 60s instead of 15s: 30 machines = 30 requests/minute, 43,200/day
-instead of 172,800/day. Offline cloud threshold remains 180s, with cron detection
-up to another 60s; MQTT LWT/freshness remains independent and faster. Alarm traffic
-and retry/safety paths are unchanged.
+`Web → local HMAC V2 → HiveMQ MQTT → ESP32/controller → signed ACK`. Không HTTP trong
+từng click. Broker credential giữ RAM, không localStorage. Worker chỉ cấp broker
+credential/grant sau kiểm membership; viewer không được control grant. HMAC key
+derivation và signed ACK giữ nguyên. `/verify-pin`, `/sign-mqtt`, `/session-check`
+browser cũ trả upgrade-required; Web mới không poll route cũ hoặc dùng pairing token
+để cấp quyền account.
 
-Snapshots: any foreground lease = 400ms; only WARM hidden leases = 3000ms;
-no active lease = 6000ms. Web hidden remains WARM for 300s, refreshes 45s TTL every
-15s bounded to its real hidden deadline. Any active lease keeps PERFORMANCE. After
-all leases expire/idle, existing nonblocking 25s grace permits SAVE. Browser/OS
-freeze is handled by actual elapsed timestamps and ESP lease TTL. Return immediately
-publishes foreground active + runtime sync if stale, restoring fast snapshots.
+Cache-first, bootstrap retained, QoS1, lazy config/history/log, MQTT reuse và packet/
+PINGRESP liveness giữ nguyên. WARM **300 giây** theo branch gốc; hidden không đóng
+socket khỏe, resume reuse + sync. Grace SAVE/PERFORMANCE, snapshot cadence và Cloud
+heartbeat **15 giây** cũng giữ nguyên firmware nhánh gốc. Không còn thay đổi heartbeat
+60 giây hoặc hidden snapshot 3 giây trong PR này. Account session validation một
+batch 5 phút/lần khi visible/resume, control grant renew ngoài click như hiện hành.
 
-MQTT socket is kept in WARM and IDLE while healthy; resume/pageshow/online are
-coalesced and packet/PINGRESP liveness is independent of device snapshots. Expired
-gateway tickets are renewed outside click handlers before MQTT retry. Grant expiry
-shows “Đang chuẩn bị quyền điều khiển”. Grant stays 5 minutes and is prefetched
-at <=60s remaining, single flight/backoff; no renewal after WARM becomes IDLE.
+Toàn bộ firmware ESP32/ATtiny giống base `37d8035`; PID/heater/turning/HMI/EEPROM/
+batch recovery không thay đổi. MQTT I/O vẫn mqttTask, Cloud I/O cloudTask.
 
-20 active browsers: account batch ~4 requests/minute; grant/ticket renewal roughly
-5/minute; gateway introspection 1/minute (up to two D1 queries/session).
-MQTT control click remains local HMAC V2 → gateway MQTT → HiveMQ → ESP32
-→ controller → signed ACK. No Cloudflare HTTP per click. Extra gateway hop needs
-real latency validation; target remains 100–500ms command receipt, ACK usually <1s.
-PID/safety/turning/alarm/HMI/EEPROM/ATtiny/batch recovery are unchanged.
+## Các bước thủ công để cấu hình và deploy sau khi operator phê duyệt
 
-## Configuration and rollout (operator must perform later)
+1. Google Cloud Console → tạo/chọn project → Google Auth Platform → Branding/Audience:
+   đặt tên MAYAP, support/developer email, External nếu phục vụ khách ngoài tổ chức;
+   thêm test users khi Testing. Khi mở cho khách thật, chuyển Publishing status và
+   hoàn tất yêu cầu consent mà Google hiển thị.
+2. Clients → Create client → **Web application**. Authorized JavaScript origins:
+   **`https://kqviet1810.github.io`**, không có đường dẫn repo/slash cuối. GIS popup
+   callback dùng JavaScript nên **không cần Authorized redirect URI** hoặc Worker
+   `/auth/google/callback`. Không dùng client type Desktop/Android hoặc OAuth access
+   token flow. Copy client ID `…apps.googleusercontent.com` (public).
+3. Trong `cloudflare/wrangler.toml` đặt `GOOGLE_CLIENT_ID` thành ID trên.
+   `ALLOWED_ORIGIN` giữ `https://kqviet1810.github.io`. `config.js` giữ Worker URL
+   `https://mayap-push-worker.vietk-mayaptrung.workers.dev`; nếu Worker URL đang vận hành
+   khác thì sửa đúng URL hiện hữu, không cần domain mới. Không copy client secret vào Web.
+4. Từ thư mục `cloudflare`, cài pinned packages và đăng nhập Cloudflare:
 
-1. Back up D1. Apply pending migration **0004_accounts.sql** with existing migration
-   tracking, after confirming 0001–0003 are applied. It clears old browser push links
-   and revokes old browser sessions; customers login + claim once. Never assign an
-   owner from an old pairing token. Fresh staging DB needs the existing base schema
-   before migration tracking, since old migrations assume that base already exists.
-2. Google Cloud OAuth client type **Web application**, consent screen and test users
-   during draft. Authorized redirect URI exactly `<APP_ORIGIN>/auth/google/callback`.
-   Configure authorized JavaScript origin `<APP_ORIGIN>` if the console requests it;
-   no Google frontend SDK/token post endpoint is used. APP_ORIGIN must be HTTPS and
-   exact origin, with no trailing slash. Workers.dev or custom domain is supported.
-3. Worker vars: APP_ORIGIN, GOOGLE_CLIENT_ID, MQTT_GATEWAY_URL (`wss://…/mqtt`),
-   MQTT_ISOLATION_READY (keep 0 until validated). Worker secrets: GOOGLE_CLIENT_SECRET,
-   MAYAP_SESSION_PEPPER (separate random secret), MQTT_TICKET_PRIVATE_KEY (Ed25519
-   PKCS8 PEM), MQTT_GATEWAY_CHECK_SECRET. Existing DEVICE_KEY_PEPPER/VAPID/OTA secrets
-   stay unchanged; **do not rotate DEVICE_KEY_PEPPER as part of account migration**.
-4. Gateway env: APP_ORIGIN, MQTT_TICKET_PUBLIC_KEY (Ed25519 SPKI PEM), same
-   MQTT_GATEWAY_CHECK_SECRET, HIVEMQ_WSS_URL, HIVEMQ_GATEWAY_USERNAME/PASSWORD.
-   Private ticket signing key stays only in Worker. Configure secure WSS reverse
-   proxy `/mqtt` with Upgrade/Connection, idle timeout > MQTT keepalive, request
-   size/rate limits. Container listens 8080 internally; do not expose plain WS publicly.
-5. Run `node tools/build_account_site.mjs` before local Worker bundle/deploy. Only
-   explicit public files are copied. Web moves from github.io to APP_ORIGIN; update
-   bookmarks/PWA installation and old Pages redirect in the coordinated rollout.
-6. Test account A/B, browser credential denial against broker directly, gateway
-   revocation, physical command/ACK, background/resume and iOS cookie/PWA behavior.
-   Then operator may enable isolation gate. This Draft does not execute these steps.
+   ```powershell
+   npx --yes pnpm@11.19.0 install --frozen-lockfile
+   npx wrangler login
+   npx wrangler secret put MAYAP_SESSION_PEPPER
+   ```
 
-Primary references: [Google OIDC](https://developers.google.com/identity/openid-connect/openid-connect),
-[Worker assets](https://developers.cloudflare.com/workers/static-assets/binding/),
-[HiveMQ auth/topic permissions](https://docs.hivemq.com/hivemq-cloud/authn-authz.html),
-[HiveMQ REST availability](https://docs.hivemq.com/hivemq-cloud/rest-api.html).
+   Nhập secret ngẫu nhiên mới ít nhất 32 byte, lưu ở secret manager; không dùng lại
+   DEVICE_KEY_PEPPER. Giữ nguyên DEVICE_KEY_PEPPER/VAPID/OTA. Worker phải có existing
+   `MAYAP_MQTT_PASSWORD` đúng credential HiveMQ hiện hành; `MAYAP_MQTT_USERNAME/HOST`
+   hoặc `MAYAP_MQTT_WSS_URL` chỉ cần override nếu đã khác defaults hiện hữu.
+   **Không cần GOOGLE_CLIENT_SECRET hoặc gateway/ticket secrets.**
+5. Backup và kiểm tra D1 trước migration:
 
-## Validation
+   ```powershell
+   New-Item -ItemType Directory -Force .local
+   npx wrangler d1 export mayap_push --remote --output .local/before-accounts.sql
+   npx wrangler d1 migrations list mayap_push --remote
+   npx wrangler d1 execute mayap_push --remote --command "PRAGMA table_info(firmware_cache); PRAGMA table_info(push_subscriptions); SELECT name FROM sqlite_master WHERE type='table';"
+   ```
 
-Run Node 24 tests (`node --test tests/*.test.cjs`) with frozen Worker/gateway packages
-installed. Account tests use SQLite constraints and server Worker routes, RS256 tokens
-and actual JWT verification. Gateway tests use real WebSocket client packets and
-production parser/ACL with a simulated broker; no customer/device I/O.
-Browser scripts test real DOM/WebCrypto at mobile/desktop sizes, login gate, logout,
-cache/live separation, retained bootstrap, local command/ACK, WARM and no click HTTP.
-ESP32/ATtiny build, protected safety fingerprints and Linux ASan/UBSan remain CI gates.
-Android/iOS suspension, Google production login/consent, actual HiveMQ connection drain,
-30 physical machines, reverse-proxy latency and real Push delivery require hardware/
-staging validation. Host/fixture tests do not prove production tenant isolation.
+   Đảm bảo migrations 0001–0003 đã apply/tracked. Chỉ pending **0004_accounts.sql**
+   thì chạy:
+
+   ```powershell
+   npx wrangler d1 migrations apply mayap_push --remote
+   ```
+
+   Nếu tracker và schema cũ không khớp (ví dụ signature/client_id có sẵn nhưng 0001/
+   0002 báo pending), dừng đối chiếu backup/schema và reconcile tracking trước;
+   không chạy lại ALTER mù. Nếu 0004 bản cũ đã từng apply ngoài PR, cũng dừng để viết
+   migration follow-up thay vì chạy lại bản Draft sửa schema. PR này chưa apply remote.
+6. Kiểm tra bundle và deploy **Worker API**:
+
+   ```powershell
+   npx wrangler deploy --dry-run
+   npx wrangler deploy
+   ```
+
+   Hoặc chạy workflow manual `Deploy Cloudflare Worker` với đúng `source_ref` đã
+   phê duyệt, sau khi xác nhận migration tracking và vars/secrets. Workflow cần existing
+   GitHub secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. Không auto trigger deploy
+   khi push Draft. Worker không có ASSETS binding/frontend build step.
+7. Khi cho phép xuất bản Web, dùng **GitHub Pages deployment hiện hành**; đảm bảo
+   account.js/landing.css cùng Web 12.2.0 được publish. Không chuyển hosting sang Worker.
+   Mở URL Pages, login hai tài khoản, claim riêng, kiểm tra API/grant chéo tenant bị
+   từ chối, reload/PC khác có danh sách máy và command/ACK giữ realtime.
+8. Android/iOS/PC: kiểm tra popup/FedCM Google thật, consent, CORS, sessionStorage/PWA,
+   đóng/mở tab, logout, WARM + OS suspend, command latency và Push. OAuth/fixture QA
+   không thay kiểm thử trên tài khoản/máy thật.
+
+[Google OAuth setup](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid)
+và [GIS JavaScript reference](https://developers.google.com/identity/gsi/web/reference/js-reference).
+
+## File bỏ / giữ và validation
+
+Bỏ khỏi PR: toàn bộ `mqtt-gateway/` + test gateway, `tools/build_account_site.mjs`,
+Worker ASSETS, ticket Ed25519/gateway session checks/renew topic, isolation gate và
+gateway CI install. Khôi phục firmware và runtime host tests về branch gốc.
+
+Giữ: landing/index/styles, `account.js`, account-auth/account-worker, migration 0004,
+account membership trong app/Push/db, direct HiveMQ credential provisioning,
+Worker package lock, account/API/CORS/Google/browser tests và CI kiểm regression.
+
+Node tests và Chrome fixtures kiểm server signature/nonce/expiry/audience, ownership,
+10 user × 3 device, claim/rate-limit, revoke/logout, exact-origin CORS, cross-origin
+login/session, cache/retained bootstrap, WARM/socket reuse, HMAC command/signed ACK và
+không HTTP mỗi click. Migration SQL chạy trong SQLite test; Worker dry-run bundle.
+Build ESP32/ATtiny + host ASan/UBSan/ISR checks là CI gates. Giới hạn MQTT read/topic
+ở trên vẫn còn, không có test nào tuyên bố broker shared credential đã tenant-safe.

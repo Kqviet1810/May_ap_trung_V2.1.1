@@ -1,86 +1,128 @@
 (() => {
   'use strict';
-  let account=null, csrf='', pending=null, lastCheck=0;
+  const SESSION_KEY='mayap.account.session.v1';
+  const base=String(window.MAYAP_WEB_CONFIG.cloudApiBase).replace(/\/+$/,'');
+  const apiOrigin=new URL(base).origin;
   const nativeFetch=window.fetch.bind(window);
   const channel=typeof BroadcastChannel==='function' ? new BroadcastChannel('mayap-account') : null;
+  let token='',account=null,pending=null,lastCheck=0,googleScript=null,loginPending=false;
+  try {token=sessionStorage.getItem(SESSION_KEY) || '';} catch (_) {}
   const api=async(path,init={})=>{
+    const url=new URL(path instanceof Request ? path.url : String(path),base+'/');
+    if(url.origin!==apiOrigin || !url.pathname.startsWith('/api/'))throw new Error('Invalid account API');
     const headers=new Headers(init.headers);
-    if(init.method && init.method!=='GET') headers.set('X-Mayap-CSRF',csrf);
-    const response=await nativeFetch(path,{...init,headers,credentials:'same-origin',cache:'no-store'});
-    if(response.status===401 && account) expire();
+    if(token)headers.set('Authorization','Bearer '+token);
+    const response=await nativeFetch(url.href,{...init,headers,credentials:'omit',cache:'no-store'});
+    if(response.status===401 && account)expire();
     return response;
   };
   window.fetch=async(input,init)=>{
     const url=new URL(input instanceof Request ? input.url : String(input),location.href);
-    if(url.origin!==location.origin || !url.pathname.startsWith('/api/')) return nativeFetch(input,init);
+    if(url.origin!==apiOrigin || !url.pathname.startsWith('/api/'))return nativeFetch(input,init);
     const next={...init};
     if(typeof next.body==='string') {
-      try {const data=JSON.parse(next.body);delete data.pairing_token;delete data.browser_sessions;next.body=JSON.stringify(data);} catch(_){}
+      try {const data=JSON.parse(next.body);delete data.pairing_token;delete data.browser_sessions;next.body=JSON.stringify(data);} catch (_) {}
     }
-    return api(input,next);
+    return api(url.href,next);
   };
+  function setToken(value) {
+    token=value;
+    try {if(value)sessionStorage.setItem(SESSION_KEY,value);else sessionStorage.removeItem(SESSION_KEY);} catch (_) {}
+  }
   function expire() {
     if(account) {
       const prefix=`mayap.account.${account.user.sub}.`;
-      for(let i=localStorage.length-1;i>=0;i--) {
-        const key=localStorage.key(i);if(key?.startsWith(prefix))localStorage.removeItem(key);
-      }
+      try {for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key?.startsWith(prefix))localStorage.removeItem(key);}} catch (_) {}
     }
-    csrf='';account=null;localStorage.removeItem('mayap.web.v10.mqtt.private');
-    localStorage.removeItem('mayap.push.v1');
+    setToken('');account=null;localStorage.removeItem('mayap.web.v10.mqtt.private');localStorage.removeItem('mayap.push.v1');
     window.dispatchEvent(new Event('mayap-logout'));
-    document.documentElement.dataset.auth='guest';
-    // Drop device DOM/RAM and pending command keys before another user signs in.
-    location.replace('/');
+    // Keep the GitHub Pages project path, including installed PWAs.
+    location.replace(location.pathname);
   }
   async function refresh() {
     if(pending)return pending;
+    if(!token){document.documentElement.dataset.auth='guest';prepareGoogle();return null;}
     pending=(async()=>{
       try {
         const response=await api('/api/account/session');
-        if(response.status===401) {document.documentElement.dataset.auth='guest';return null;}
-        if(!response.ok)throw new Error('Phiên đăng nhập chưa kiểm tra được.');
+        if(response.status===401){setToken('');document.documentElement.dataset.auth='guest';prepareGoogle();return null;}
+        if(!response.ok)throw new Error('Session unavailable');
         const data=await response.json();
-        if(!data.success || !data.user?.sub || !Array.isArray(data.devices))throw new Error('Phản hồi đăng nhập không hợp lệ.');
+        if(!data.success || !data.user?.sub || !Array.isArray(data.devices))throw new Error('Invalid session');
         if(account && account.user.sub!==data.user.sub){expire();return null;}
-        account=data;csrf=data.csrf;lastCheck=Date.now();
+        account=data;lastCheck=Date.now();
         const label=document.getElementById('accountName');if(label)label.textContent=data.user.name || data.user.email || 'Tài khoản MAYAP';
-        // App renders validated account cache before revealing the dashboard.
-        window.dispatchEvent(new CustomEvent('mayap-account-devices',{detail:data.devices}));
-        return data;
-      } catch(_) {
-        const message=document.getElementById('authMessage');
-        if(message)message.textContent='Chưa kiểm tra được phiên đăng nhập. Hãy thử lại khi có mạng.';
-        document.getElementById('authRetry')?.removeAttribute('hidden');
-        return account;
+        window.dispatchEvent(new CustomEvent('mayap-account-devices',{detail:data.devices}));return data;
+      } catch (_) {
+        document.getElementById('authMessage').textContent='Chưa kiểm tra được phiên đăng nhập. Hãy thử lại khi có mạng.';
+        document.getElementById('authRetry')?.removeAttribute('hidden');return account;
       } finally {pending=null;}
     })();return pending;
+  }
+  function loadGoogle() {
+    if(!googleScript)googleScript=new Promise((resolve,reject)=>{
+      const script=document.createElement('script');script.src='https://accounts.google.com/gsi/client';script.async=true;
+      script.onload=resolve;script.onerror=()=>{googleScript=null;reject(new Error('Google unavailable'));};document.head.append(script);
+    });return googleScript;
+  }
+  let preparing=null,challengeAt=0;
+  async function prepareGoogle() {
+    if(preparing)return preparing;
+    preparing=(async()=>{
+      try {
+        const [response]=await Promise.all([api('/api/account/google/challenge',{method:'POST'}),loadGoogle()]);
+        const challenge=await response.json();
+        if(!response.ok || !challenge.success)throw new Error('Login unavailable');
+        challengeAt=Date.now();
+        google.accounts.id.initialize({client_id:challenge.clientId,nonce:challenge.nonce,ux_mode:'popup',auto_select:false,
+          callback:async result=>{
+            if(loginPending)return;loginPending=true;
+            try {
+              const res=await api('/api/account/google/login',{method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({credential:result.credential,challenge:challenge.challenge})});
+              const data=await res.json();
+              if(!res.ok || !/^[a-f0-9]{64}$/.test(data.token || ''))throw new Error('Login rejected');
+              setToken(data.token);location.replace(location.pathname);
+            } catch (_) {document.getElementById('loginError').textContent='Đăng nhập chưa hoàn tất. Vui lòng thử lại.';prepareGoogle();}
+            finally {loginPending=false;}
+          }});
+        document.querySelectorAll('.googleLogin').forEach(root=>{
+          root.replaceChildren();google.accounts.id.renderButton(root,{type:'standard',theme:'outline',size:'large',shape:'pill',
+            text:'signin_with',locale:'vi',width:root.closest('.landingNav')?220:300});
+        });document.getElementById('loginError').textContent='';
+      } catch (_) {
+        document.getElementById('loginError').textContent='Chưa tải được đăng nhập Google. Kiểm tra mạng rồi thử lại.';
+        document.querySelectorAll('.googleLogin').forEach(root=>{
+          root.replaceChildren();const button=document.createElement('button');button.textContent='Thử lại đăng nhập Google';
+          button.onclick=prepareGoogle;root.append(button);
+        });
+      } finally {preparing=null;}
+    })();return preparing;
   }
   async function logout() {
     try {
       const res=await api('/api/account/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-      if(!res.ok)throw new Error('Không đăng xuất được.');
-      channel?.postMessage('logout');expire();
-    } catch(_) {document.getElementById('accountNotice').textContent='Chưa đăng xuất được. Kiểm tra kết nối rồi thử lại.';}
+      if(!res.ok)throw new Error('Logout failed');channel?.postMessage('logout');expire();
+    } catch (_) {document.getElementById('accountNotice').textContent='Chưa đăng xuất được. Kiểm tra kết nối rồi thử lại.';}
   }
   channel?.addEventListener('message',event=>{if(event.data==='logout')expire();});
   window.MayapAccount={ready:null,refresh,api,get current(){return account;}};
   document.getElementById('logoutBtn')?.addEventListener('click',logout);
-  document.getElementById('authRetry')?.addEventListener('click',async()=>{const data=await refresh();if(data)location.reload();});
+  document.getElementById('authRetry')?.addEventListener('click',async()=>{if(await refresh())location.reload();});
   document.getElementById('revokeOtherSessions')?.addEventListener('click',async()=>{
-    const res=await api('/api/account/sessions'), data=await res.json();
-    if(!res.ok)return;
-    // Selecting a session explicitly avoids accidentally revoking this page.
+    const res=await api('/api/account/sessions'),data=await res.json();if(!res.ok)return;
     const root=document.getElementById('accountSessions');root.replaceChildren();
     for(const session of data.sessions){
       const button=document.createElement('button');button.className='ghost';
       button.textContent=`Thu hồi: ${session.user_agent.slice(0,55)} · ${new Date(session.created_at).toLocaleDateString('vi-VN')}`;
-      button.onclick=async()=>{await api('/api/account/sessions/revoke',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:session.id})});await refresh();button.remove();};
-      root.append(button);
+      button.onclick=async()=>{const result=await api('/api/account/sessions/revoke',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({session_id:session.id})});if(result.ok){await refresh();button.remove();}};root.append(button);
     }
   });
-  if(new URLSearchParams(location.search).has('login_error'))document.getElementById('loginError').textContent='Đăng nhập chưa hoàn tất. Vui lòng thử lại.';
-  setInterval(()=>{if(account && !document.hidden && Date.now()-lastCheck>=300000)refresh();},300000);
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden && Date.now()-lastCheck>=300000)refresh();});
+  setInterval(()=>{if(document.hidden)return;if(account && Date.now()-lastCheck>=300000)refresh();else if(!token && Date.now()-challengeAt>=240000)prepareGoogle();},60000);
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden)return;
+    if(account && Date.now()-lastCheck>=300000)refresh();else if(!token && Date.now()-challengeAt>=240000)prepareGoogle();
+  });
   window.MayapAccount.ready=refresh();
 })();
